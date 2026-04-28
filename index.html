@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777346713;
+const APP_BUILD=1777348878;
 const APP_BUILD_DATE='2026-04-26';
 
 // Store version in localStorage on first run
@@ -41978,7 +41978,7 @@ function startUpdateChecker(){
 })();
 
 // === BEGIN MY CALLS + FLEET GPS ADDON ===
-// Build: 1777346713
+// Build: 1777348878
 // ============================================================================
 // MY CALLS + FLEET GPS — additive module (v2.46.8 → +features)
 // ============================================================================
@@ -45518,6 +45518,55 @@ function renderItEquipmentMatrix(){
     html+=`<div class="fleet-empty">No equipment or tasks yet.</div>`;
     view.innerHTML=html;
     return;
+  }
+
+  // === ITEMS NEEDING ATTENTION (warnings + critical) ===
+  const flaggedItems=all.filter(i=>{
+    const s=String(i.status||'').toLowerCase();
+    return ['danger','offline','broken','warn','warning','issue'].includes(s);
+  });
+  // Also include calls (raw, including non-closed ones) so we surface call priorities
+  let openCalls=[];
+  try{openCalls=loadCalls().filter(c=>!isCallClosed(c));}catch(e){}
+  if(flaggedItems.length||openCalls.length){
+    // Sort: critical first, then warn
+    const order={danger:0,offline:0,broken:0,warn:1,warning:1,issue:1};
+    flaggedItems.sort((a,b)=>(order[String(a.status||'').toLowerCase()]||9)-(order[String(b.status||'').toLowerCase()]||9));
+    const dangerCount=flaggedItems.filter(i=>['danger','offline','broken'].includes(String(i.status||'').toLowerCase())).length;
+    const warnCount=flaggedItems.length-dangerCount;
+    const urgentCallCount=openCalls.filter(c=>c.priority==='urgent').length;
+
+    html+=`<div style="margin:14px 0;background:rgba(239,83,80,0.08);border:2px solid ${dangerCount>0?'var(--danger)':warnCount>0?'var(--warn)':'var(--border)'};border-radius:12px;padding:14px 16px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <span style="font-size:20px;">🚨</span>
+        <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:${dangerCount>0?'var(--danger)':'var(--warn)'};text-transform:uppercase;letter-spacing:1.5px;">Items Needing Attention</span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text3);">${flaggedItems.length} flagged · ${urgentCallCount} urgent calls</span>
+        <button class="btn btn-outline" style="margin-left:auto;font-size:11px;padding:5px 12px;" onclick="if(typeof switchView==='function')switchView('my_calls')">📞 Open all calls</button>
+      </div>
+      <div class="fleet-table-wrap"><table class="fleet-table">
+        <thead><tr><th style="width:90px;">Severity</th><th style="width:75px;">Kind</th><th style="width:110px;">Category</th><th>Item / Task</th><th style="width:140px;">Department</th><th style="width:90px;">Facility</th><th>Detail / Last Update</th></tr></thead><tbody>`;
+    flaggedItems.slice(0,40).forEach(i=>{
+      const s=String(i.status||'').toLowerCase();
+      const sev=['danger','offline','broken'].includes(s)
+        ? '<span style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:5px;background:var(--danger);color:#fff;font-weight:700;">✕ CRITICAL</span>'
+        : '<span style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:5px;background:var(--warn);color:#000;font-weight:700;">⚠ WARNING</span>';
+      const kind=i.kind==='task'
+        ? '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:5px;background:rgba(66,165,245,0.18);color:var(--info);font-weight:700;">⚙ TASK</span>'
+        : '<span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:5px;background:var(--surface3);color:var(--text2);font-weight:700;">EQUIP</span>';
+      const cat=EQUIP_CATEGORIES.find(c=>c.id===i.category);
+      const dept=MATRIX_DEPARTMENTS.find(d=>d.id===i.deptId);
+      html+=`<tr style="cursor:${i.kind==='task'?'pointer':'default'};" ${i.kind==='task'?`onclick="if(typeof switchView==='function')switchView('maint_tasks');"`:''}>
+        <td>${sev}</td>
+        <td>${kind}</td>
+        <td>${cat?cat.icon+' '+cat.label:i.category||'—'}</td>
+        <td><strong>${_esc(i.name||'')}</strong>${i.priority?' <span style="font-size:9px;color:var(--text3);font-family:var(--mono);">'+i.priority.toUpperCase()+'</span>':''}</td>
+        <td>${dept?dept.icon+' '+dept.label:i.department||'—'}</td>
+        <td>${i.facility?`<strong style="color:var(--accent2);font-family:var(--mono);">${i.facility}</strong>`:'<span style="color:var(--text3);">—</span>'}</td>
+        <td style="font-size:10px;color:var(--text3);max-width:280px;">${_esc((i.statusNote||'').slice(0,120))}</td>
+      </tr>`;
+    });
+    if(flaggedItems.length>40)html+=`<tr><td colspan="7" style="text-align:center;padding:8px;font-size:11px;color:var(--text3);font-style:italic;">+${flaggedItems.length-40} more flagged items — drill into matrix cells below to see all</td></tr>`;
+    html+=`</tbody></table></div></div>`;
   }
 
   // === STATUS MATRIX (Category × 14 Columns) ===
