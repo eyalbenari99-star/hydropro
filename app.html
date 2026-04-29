@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777448708;
+const APP_BUILD=1777449114;
 const APP_BUILD_DATE='2026-04-29';
 
 // Store version in localStorage on first run
@@ -50183,10 +50183,180 @@ window.deleteRfidReport=function(id){
 };
 
 let _rfidSelectedId=null;
+let _rfidView='reports';   // 'reports' | 'trends'
 window._rfidSelectReport=function(id){
   _rfidSelectedId=(_rfidSelectedId===id)?null:id;
   renderSecRfid();
 };
+window._rfidSetView=function(v){_rfidView=v;renderSecRfid();};
+
+// Multi-day RFID trends — analyze all uploaded reports together
+function _renderRfidTrends(reports){
+  // Sort chronologically by date range start (ascending)
+  const sorted=reports.slice().sort((a,b)=>(a.dateFrom||'').localeCompare(b.dateFrom||''));
+  // Per-day aggregates
+  const byDay={};   // date -> {expected, arrived, omitted}
+  const cpStats={}; // checkpoint name -> {visited, missed, total, byDay:{date:{visited,missed}}}
+  const planStats={}; // plan window (start time of day) -> {expected, arrived, omitted, count}
+  sorted.forEach(rep=>{
+    rep.plans.forEach(p=>{
+      // bucket by date — derive from p.startTime "27 Apr 2026 17:30:00"
+      const m=/^(\d{1,2}\s+\w+\s+\d{4})/.exec(p.startTime||'');
+      const dateLabel=m?m[1]:(rep.dateFrom||'?');
+      if(!byDay[dateLabel])byDay[dateLabel]={expected:0,arrived:0,omitted:0,plans:0};
+      byDay[dateLabel].expected+=(p.expected||0);
+      byDay[dateLabel].arrived+=(p.arrived||0);
+      byDay[dateLabel].omitted+=(p.omitted||0);
+      byDay[dateLabel].plans++;
+      // bucket by time-of-day window
+      const tm=/(\d{2}:\d{2}):\d{2}\s*$/.exec(p.startTime||'');
+      const windowKey=tm?tm[1]:'?';
+      if(!planStats[windowKey])planStats[windowKey]={expected:0,arrived:0,omitted:0,count:0};
+      planStats[windowKey].expected+=(p.expected||0);
+      planStats[windowKey].arrived+=(p.arrived||0);
+      planStats[windowKey].omitted+=(p.omitted||0);
+      planStats[windowKey].count++;
+      // checkpoint stats
+      p.checkpoints.forEach(c=>{
+        if(!cpStats[c.name])cpStats[c.name]={name:c.name,visited:0,missed:0,total:0,byDay:{}};
+        cpStats[c.name].total++;
+        const isVisit=!c.missed&&c.count>0;
+        if(isVisit)cpStats[c.name].visited++; else cpStats[c.name].missed++;
+        if(!cpStats[c.name].byDay[dateLabel])cpStats[c.name].byDay[dateLabel]={visited:0,missed:0};
+        if(isVisit)cpStats[c.name].byDay[dateLabel].visited++; else cpStats[c.name].byDay[dateLabel].missed++;
+      });
+    });
+  });
+  const dayKeys=Object.keys(byDay).sort();   // chronological
+  if(!dayKeys.length)return '<div style="text-align:center;padding:30px;color:var(--text3);">No data to analyze.</div>';
+
+  // === Compliance over time (bar chart) ===
+  const maxBarHeight=140;
+  const chartBars=dayKeys.map(d=>{
+    const x=byDay[d];
+    const pct=x.expected?Math.round(x.arrived/x.expected*1000)/10:0;
+    const color=pct>=90?'var(--ok)':pct>=70?'var(--warn)':'var(--danger)';
+    const h=Math.max(4,Math.round(pct/100*maxBarHeight));
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:60px;">
+      <div style="font-family:var(--mono);font-size:10px;color:${color};font-weight:700;">${pct}%</div>
+      <div style="height:${maxBarHeight}px;width:30px;background:var(--surface2);border-radius:4px 4px 0 0;display:flex;align-items:flex-end;justify-content:center;">
+        <div style="width:100%;height:${h}px;background:${color};border-radius:4px 4px 0 0;" title="${d}: ${x.arrived}/${x.expected} = ${pct}%"></div>
+      </div>
+      <div style="font-size:9px;color:var(--text3);font-family:var(--mono);writing-mode:horizontal-tb;text-align:center;">${d.replace(/^\d+\s+/,'').replace(/\s+\d{4}$/,'')}</div>
+    </div>`;
+  }).join('');
+  // Overall stats
+  const grandExpected=dayKeys.reduce((a,d)=>a+byDay[d].expected,0);
+  const grandArrived=dayKeys.reduce((a,d)=>a+byDay[d].arrived,0);
+  const grandOmitted=dayKeys.reduce((a,d)=>a+byDay[d].omitted,0);
+  const overallCompliance=grandExpected?Math.round(grandArrived/grandExpected*1000)/10:0;
+  const bestDay=dayKeys.slice().sort((a,b)=>{
+    const pa=byDay[a].expected?byDay[a].arrived/byDay[a].expected:0;
+    const pb=byDay[b].expected?byDay[b].arrived/byDay[b].expected:0;
+    return pb-pa;
+  })[0];
+  const worstDay=dayKeys.slice().sort((a,b)=>{
+    const pa=byDay[a].expected?byDay[a].arrived/byDay[a].expected:0;
+    const pb=byDay[b].expected?byDay[b].arrived/byDay[b].expected:0;
+    return pa-pb;
+  })[0];
+
+  // === Worst checkpoints across all days ===
+  const cpRanked=Object.values(cpStats).sort((a,b)=>(b.missed/b.total)-(a.missed/a.total));
+  const worstCps=cpRanked.slice(0,10).map(c=>{
+    const rate=c.total?Math.round(c.visited/c.total*1000)/10:0;
+    const color=rate>=90?'var(--ok)':rate>=70?'var(--warn)':'var(--danger)';
+    return `<tr>
+      <td>${(c.name||'').replace(/[<>]/g,'')}</td>
+      <td style="text-align:center;font-family:var(--mono);">${c.total}</td>
+      <td style="text-align:center;font-family:var(--mono);color:var(--ok);">${c.visited}</td>
+      <td style="text-align:center;font-family:var(--mono);color:${c.missed>0?'var(--danger)':'var(--text3)'};">${c.missed}</td>
+      <td style="text-align:center;font-family:var(--mono);font-weight:700;color:${color};">${rate}%</td>
+    </tr>`;
+  }).join('');
+
+  // === Worst time windows (which 2-hour shifts are missed most) ===
+  const windowRanked=Object.keys(planStats).filter(k=>k!=='?').sort();
+  const windowRows=windowRanked.map(w=>{
+    const x=planStats[w];
+    const rate=x.expected?Math.round(x.arrived/x.expected*1000)/10:0;
+    const color=rate>=90?'var(--ok)':rate>=70?'var(--warn)':'var(--danger)';
+    return `<tr>
+      <td style="font-family:var(--mono);">${w}</td>
+      <td style="text-align:center;font-family:var(--mono);">${x.count}</td>
+      <td style="text-align:center;font-family:var(--mono);">${x.expected}</td>
+      <td style="text-align:center;font-family:var(--mono);color:var(--ok);">${x.arrived}</td>
+      <td style="text-align:center;font-family:var(--mono);color:${x.omitted>0?'var(--danger)':'var(--text3)'};">${x.omitted}</td>
+      <td style="text-align:center;font-family:var(--mono);font-weight:700;color:${color};">${rate}%</td>
+    </tr>`;
+  }).join('');
+
+  // === Heatmap: checkpoint × day ===
+  const heatCps=Object.values(cpStats).sort((a,b)=>a.name.localeCompare(b.name));
+  const heatHeader=`<tr><th style="position:sticky;left:0;background:var(--surface2);text-align:left;min-width:160px;">Checkpoint</th>${dayKeys.map(d=>`<th style="text-align:center;font-size:10px;font-family:var(--mono);">${d.replace(/^\d+\s+/,'').replace(/\s+\d{4}$/,'')}</th>`).join('')}</tr>`;
+  const heatRows=heatCps.map(c=>{
+    return `<tr>
+      <th style="position:sticky;left:0;background:var(--surface2);text-align:left;font-size:11px;padding:6px 10px;">${(c.name||'').replace(/[<>]/g,'')}</th>
+      ${dayKeys.map(d=>{
+        const dx=c.byDay[d];
+        if(!dx)return '<td style="text-align:center;color:var(--text3);background:var(--surface);font-size:10px;">—</td>';
+        const total=dx.visited+dx.missed;
+        const pct=total?dx.visited/total*100:0;
+        const color=pct===100?'var(--ok)':pct>=50?'var(--warn)':'var(--danger)';
+        const bg=pct===100?'rgba(102,187,106,0.18)':pct>=50?'rgba(255,179,0,0.18)':'rgba(239,83,80,0.18)';
+        return `<td style="text-align:center;font-size:10px;font-family:var(--mono);color:${color};background:${bg};font-weight:${pct<100?'700':'600'};" title="${d}: ${dx.visited}/${total}">${dx.visited}/${total}</td>`;
+      }).join('')}
+    </tr>`;
+  }).join('');
+
+  return `<div class="fleet-stat-row">
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Days analyzed</div><div class="fleet-stat-val">${dayKeys.length}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Total checkpoints expected</div><div class="fleet-stat-val">${grandExpected}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">✓ Arrived</div><div class="fleet-stat-val green">${grandArrived}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">✕ Missed</div><div class="fleet-stat-val ${grandOmitted>0?'danger':''}">${grandOmitted}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Overall compliance</div><div class="fleet-stat-val" style="color:${overallCompliance>=90?'var(--ok)':overallCompliance>=70?'var(--warn)':'var(--danger)'};">${overallCompliance}%</div></div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:4px;">Best day</div>
+      <div style="font-size:18px;font-weight:700;color:var(--ok);">${bestDay||'—'}</div>
+      <div style="font-size:11px;color:var(--text3);font-family:var(--mono);">${bestDay&&byDay[bestDay].expected?Math.round(byDay[bestDay].arrived/byDay[bestDay].expected*1000)/10+'%':''}</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:4px;">Worst day</div>
+      <div style="font-size:18px;font-weight:700;color:var(--danger);">${worstDay||'—'}</div>
+      <div style="font-size:11px;color:var(--text3);font-family:var(--mono);">${worstDay&&byDay[worstDay].expected?Math.round(byDay[worstDay].arrived/byDay[worstDay].expected*1000)/10+'%':''}</div>
+    </div>
+  </div>
+
+  <div class="section-title" style="margin-top:18px;">📊 Compliance over time</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;overflow-x:auto;">
+    <div style="display:flex;gap:8px;align-items:flex-end;min-height:${maxBarHeight+30}px;">
+      ${chartBars}
+    </div>
+  </div>
+
+  <div class="section-title" style="margin-top:18px;">🚫 Worst Checkpoints (most-missed across all days)</div>
+  <div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;">
+    <thead><tr><th>Checkpoint</th><th style="text-align:center;">Total</th><th style="text-align:center;">Visited</th><th style="text-align:center;">Missed</th><th style="text-align:center;">Rate</th></tr></thead>
+    <tbody>${worstCps||'<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:14px;">No data.</td></tr>'}</tbody>
+  </table></div>
+
+  <div class="section-title" style="margin-top:18px;">⏰ Compliance by Time-of-Day Window</div>
+  <div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;">
+    <thead><tr><th>Window starts</th><th style="text-align:center;">Patrols</th><th style="text-align:center;">Expected</th><th style="text-align:center;">Arrived</th><th style="text-align:center;">Missed</th><th style="text-align:center;">Rate</th></tr></thead>
+    <tbody>${windowRows||'<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:14px;">No data.</td></tr>'}</tbody>
+  </table></div>
+
+  <div class="section-title" style="margin-top:18px;">🔥 Heatmap — Checkpoint × Day</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow-x:auto;">
+    <table class="fleet-table" style="width:100%;border-collapse:separate;border-spacing:0;">
+      <thead>${heatHeader}</thead>
+      <tbody>${heatRows}</tbody>
+    </table>
+  </div>`;
+}
 
 function renderSecRfid(){
   let view=document.getElementById('view-sec_rfid');
@@ -50213,6 +50383,18 @@ function renderSecRfid(){
 
   if(!reports.length){
     html+=`<div style="text-align:center;padding:30px;color:var(--text3);">No RFID reports uploaded yet. Drop your daily PDF above.</div>`;
+    view.innerHTML=html;
+    return;
+  }
+
+  // View toggle: Reports vs Trends
+  html+=`<div style="display:flex;gap:6px;margin-bottom:14px;background:var(--surface2);padding:6px;border-radius:10px;width:fit-content;">
+    <button class="btn ${_rfidView==='reports'?'btn-primary':'btn-outline'}" onclick="_rfidSetView('reports')" style="border:0;">📋 Reports</button>
+    <button class="btn ${_rfidView==='trends'?'btn-primary':'btn-outline'}" onclick="_rfidSetView('trends')" style="border:0;">📈 Trends (across ${reports.length} report${reports.length===1?'':'s'})</button>
+  </div>`;
+
+  if(_rfidView==='trends'){
+    html+=_renderRfidTrends(reports);
     view.innerHTML=html;
     return;
   }
