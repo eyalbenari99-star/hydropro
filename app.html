@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777449340;
+const APP_BUILD=1777449663;
 const APP_BUILD_DATE='2026-04-29';
 
 // Store version in localStorage on first run
@@ -51522,6 +51522,635 @@ function injectSearchButton(){
 }
 setInterval(injectSearchButton,3000);
 setTimeout(injectSearchButton,1100);
+
+// ============= CUSTOM REPORTS BUILDER + SCHEDULED EMAIL REPORTS =============
+// User can pick which sections + which modules + date range + output format,
+// save as template, and schedule recurring sends (uses existing recurring engine).
+const CUSTOM_REPORT_TPL_KEY='hydroPro_report_templates';
+const CUSTOM_REPORT_SCHED_KEY='hydroPro_report_schedules';
+const CUSTOM_REPORT_LOG_KEY='hydroPro_report_send_log';
+
+function _loadReportTemplates(){try{return JSON.parse(localStorage.getItem(CUSTOM_REPORT_TPL_KEY)||'[]');}catch(e){return [];}}
+function _saveReportTemplates(arr){localStorage.setItem(CUSTOM_REPORT_TPL_KEY,JSON.stringify(arr));}
+function _loadReportSchedules(){try{return JSON.parse(localStorage.getItem(CUSTOM_REPORT_SCHED_KEY)||'[]');}catch(e){return [];}}
+function _saveReportSchedules(arr){localStorage.setItem(CUSTOM_REPORT_SCHED_KEY,JSON.stringify(arr));}
+function _loadReportLog(){try{return JSON.parse(localStorage.getItem(CUSTOM_REPORT_LOG_KEY)||'{}');}catch(e){return {};}}
+function _saveReportLog(d){localStorage.setItem(CUSTOM_REPORT_LOG_KEY,JSON.stringify(d));}
+
+// Available report sections — each is a function that returns HTML for a date range
+const REPORT_SECTIONS=[
+  {id:'open_calls',     label:'📞 Open calls',                      modules:['*'],  build:_rsOpenCalls},
+  {id:'urgent_calls',   label:'🚨 Urgent + critical calls',         modules:['*'],  build:_rsUrgentCalls},
+  {id:'closed_calls',   label:'✓ Closed calls (in date range)',     modules:['*'],  build:_rsClosedCalls},
+  {id:'checklist_flagged', label:'🌱 Production checklist flagged', modules:['production'], build:_rsChecklistFlagged},
+  {id:'recurring_today',  label:'🔁 Recurring tasks status',        modules:['*'],  build:_rsRecurringStatus},
+  {id:'additional_open',  label:'➕ Additional open tasks',          modules:['*'],  build:_rsAdditionalOpen},
+  {id:'rfid_compliance',  label:'📡 RFID patrol compliance',         modules:['security'], build:_rsRfidCompliance},
+  {id:'gps_summary',      label:'🚐 GPS daily trips summary',        modules:['fleet','logistics'], build:_rsGpsSummary},
+  {id:'driver_attendance',label:'👥 Driver attendance',              modules:['fleet','logistics','hr'], build:_rsDriverAttendance},
+  {id:'sim_expiry',       label:'📻 Radios — SIM expiring (≤30d)',   modules:['it'], build:_rsSimExpiring},
+  {id:'maint_tasks',      label:'🔧 Maintenance tasks (open)',       modules:['maintenance'], build:_rsMaintTasks},
+  {id:'dept_summary',     label:'🏢 Per-department summary',         modules:['*'],  build:_rsDeptSummary}
+];
+
+function _esc2(s){return String(s==null?'':s).replace(/[<>&]/g,x=>({"<":'&lt;','>':'&gt;','&':'&amp;'}[x]));}
+
+function _rsOpenCalls(opts){
+  let calls=[];try{calls=loadCalls();}catch(e){}
+  if(!Array.isArray(calls))return '';
+  let open=calls.filter(c=>!isCallClosed(c));
+  if(opts.modules&&opts.modules.length&&opts.modules[0]!=='*'){
+    open=open.filter(c=>opts.modules.some(m=>_callMatchesModule(c,m)));
+  }
+  if(!open.length)return '<p style="color:#888;">No open calls.</p>';
+  const rows=open.slice(0,80).map(c=>{
+    const route=(typeof _callRouteLabel==='function')?_callRouteLabel(c):(c.sourceLabel||'');
+    const days=Math.max(0,Math.floor((Date.now()-(c.raisedAt||0))/86400000));
+    return `<tr><td><strong>${_esc2(c.subject)}</strong></td><td>${_esc2(route)}</td><td>${_esc2((c.priority||'').toUpperCase())}</td><td>${_esc2(c.raisedBy||'')}</td><td>${days}d</td></tr>`;
+  }).join('');
+  return `<table><thead><tr><th>Subject</th><th>From</th><th>Priority</th><th>Reporter</th><th>Days</th></tr></thead><tbody>${rows}</tbody></table>${open.length>80?`<p style="color:#888;font-size:11px;">+${open.length-80} more.</p>`:''}`;
+}
+
+function _rsUrgentCalls(opts){
+  let calls=[];try{calls=loadCalls();}catch(e){}
+  if(!Array.isArray(calls))return '';
+  let open=calls.filter(c=>!isCallClosed(c)&&(c.priority==='urgent'||c.priority==='priority'));
+  if(opts.modules&&opts.modules.length&&opts.modules[0]!=='*')open=open.filter(c=>opts.modules.some(m=>_callMatchesModule(c,m)));
+  if(!open.length)return '<p style="color:#888;">No urgent or priority calls.</p>';
+  return open.slice(0,40).map(c=>{
+    const days=Math.max(0,Math.floor((Date.now()-(c.raisedAt||0))/86400000));
+    const color=c.priority==='urgent'?'#b71c1c':'#f57c00';
+    return `<div style="padding:6px 10px;background:#fafafa;border-left:3px solid ${color};margin-bottom:4px;font-size:12px;"><strong style="color:${color};">${(c.priority||'').toUpperCase()}</strong> · ${_esc2(c.subject)} — ${days}d open · ${_esc2(c.raisedBy||'')}</div>`;
+  }).join('');
+}
+
+function _rsClosedCalls(opts){
+  let calls=[];try{calls=loadCalls();}catch(e){}
+  if(!Array.isArray(calls))return '';
+  const fromTs=opts.fromDate?new Date(opts.fromDate).getTime():0;
+  const toTs=opts.toDate?new Date(opts.toDate+'T23:59:59').getTime():Date.now();
+  const closed=calls.filter(c=>isCallClosed(c)&&c.closedAt&&c.closedAt>=fromTs&&c.closedAt<=toTs);
+  if(!closed.length)return '<p style="color:#888;">No closed calls in this range.</p>';
+  return `<p>${closed.length} call${closed.length===1?'':'s'} closed between ${opts.fromDate} and ${opts.toDate}.</p>`;
+}
+
+function _rsChecklistFlagged(opts){
+  let blocks=[];
+  let dates=[];const cur=new Date(opts.fromDate+'T00:00:00');const end=new Date(opts.toDate+'T00:00:00');
+  while(cur<=end){dates.push(cur.toISOString().slice(0,10));cur.setDate(cur.getDate()+1);}
+  const cats=(typeof CATEGORIES!=='undefined')?CATEGORIES:[];
+  const ghs=(typeof GREENHOUSES!=='undefined')?GREENHOUSES:[];
+  let totalDanger=0,totalWarn=0;
+  dates.forEach(d=>{
+    let st={};try{st=JSON.parse(localStorage.getItem('hydroPro_'+d)||'{}');}catch(e){}
+    let dangers=[],warnings=[];
+    ghs.forEach(gh=>{
+      const fs=st[gh];if(!fs)return;
+      cats.forEach(cat=>(cat.items||[]).forEach((item,i)=>{
+        const k=cat.id+'_'+i;const status=fs.statuses&&fs.statuses[k];
+        if(status==='danger')dangers.push({gh,cat:cat.name,item});
+        else if(status==='warn')warnings.push({gh,cat:cat.name,item});
+      }));
+    });
+    if(dangers.length||warnings.length){
+      totalDanger+=dangers.length;totalWarn+=warnings.length;
+      blocks.push(`<h4 style="margin:14px 0 4px;color:#666;font-size:12px;">${d} — ${dangers.length} critical, ${warnings.length} warning</h4><ul>${dangers.slice(0,10).map(d=>`<li><strong style="color:#b71c1c;">CRIT</strong> ${d.gh} · ${d.cat}: ${_esc2(d.item)}</li>`).join('')}${warnings.slice(0,5).map(w=>`<li><span style="color:#f57c00;">⚠</span> ${w.gh} · ${w.cat}: ${_esc2(w.item)}</li>`).join('')}</ul>`);
+    }
+  });
+  if(!blocks.length)return '<p style="color:#888;">No flagged checklist items in this range.</p>';
+  return `<p><strong>${totalDanger}</strong> critical, <strong>${totalWarn}</strong> warning across ${dates.length} day${dates.length===1?'':'s'}.</p>`+blocks.join('');
+}
+
+function _rsRecurringStatus(opts){
+  let inst=[];try{inst=loadRecurringInstances();}catch(e){}
+  inst=inst.filter(i=>i.date>=opts.fromDate&&i.date<=opts.toDate);
+  if(opts.modules&&opts.modules[0]!=='*')inst=inst.filter(i=>opts.modules.includes(i.module));
+  if(!inst.length)return '<p style="color:#888;">No recurring tasks in range.</p>';
+  const total=inst.length;const done=inst.filter(i=>i.status==='done').length;
+  return `<p><strong>${done}/${total}</strong> recurring task instances completed (${total?Math.round(done/total*100):0}%) between ${opts.fromDate} and ${opts.toDate}.</p>`;
+}
+
+function _rsAdditionalOpen(opts){
+  let blocks=[];
+  ['maint','prod','it','irrigation','fleet','security'].forEach(m=>{
+    if(opts.modules&&opts.modules[0]!=='*'){
+      const moduleMap={maint:'maintenance',prod:'production',it:'it',irrigation:'irrigation',fleet:'fleet',security:'security'};
+      if(!opts.modules.includes(moduleMap[m]))return;
+    }
+    const arr=loadAddtlTasks(m).filter(t=>t&&t.status!=='done');
+    if(!arr.length)return;
+    blocks.push(`<h4 style="margin:14px 0 4px;color:#666;font-size:12px;">${m}: ${arr.length} open</h4><ul>${arr.slice(0,10).map(t=>`<li>${_esc2(t.title)}${t.facility?' · '+t.facility:''}${t.dueDate?' (due '+t.dueDate+')':''}</li>`).join('')}</ul>`);
+  });
+  if(!blocks.length)return '<p style="color:#888;">No additional open tasks.</p>';
+  return blocks.join('');
+}
+
+function _rsRfidCompliance(opts){
+  let reports=[];try{reports=loadRfidReports();}catch(e){}
+  reports=reports.filter(r=>(r.dateFrom>=opts.fromDate||r.dateTo>=opts.fromDate)&&(r.dateFrom<=opts.toDate||r.dateTo<=opts.toDate));
+  if(!reports.length)return '<p style="color:#888;">No RFID reports in range.</p>';
+  const totalExp=reports.reduce((a,r)=>a+(r.summary&&r.summary.totalExpected||0),0);
+  const totalArr=reports.reduce((a,r)=>a+(r.summary&&r.summary.totalArrived||0),0);
+  const overall=totalExp?Math.round(totalArr/totalExp*1000)/10:0;
+  return `<p><strong>${reports.length} report${reports.length===1?'':'s'}</strong> in range. Overall compliance: <strong>${overall}%</strong> (${totalArr}/${totalExp}).</p>`;
+}
+
+function _rsGpsSummary(opts){
+  let all={};try{all=JSON.parse(localStorage.getItem('hydroPro_gps_reports')||'{}');}catch(e){}
+  const keys=Object.keys(all).filter(k=>{const d=k.split('::')[0];return d>=opts.fromDate&&d<=opts.toDate;});
+  if(!keys.length)return '<p style="color:#888;">No GPS reports in range.</p>';
+  const totalKm=keys.reduce((a,k)=>{const r=all[k];return a+(r&&typeof r.odoIn==='number'&&typeof r.odoOut==='number'?(r.odoIn-r.odoOut):0);},0);
+  const totalLiters=keys.reduce((a,k)=>{const r=all[k];return a+(r&&r.fillUpLiters||0);},0);
+  return `<p><strong>${keys.length}</strong> trip log${keys.length===1?'':'s'} between ${opts.fromDate} and ${opts.toDate}.</p><p>Total km: <strong>${totalKm.toFixed(1)}</strong> · Total fuel: <strong>${totalLiters.toFixed(2)} L</strong></p>`;
+}
+
+function _rsDriverAttendance(opts){
+  let att={};try{att=JSON.parse(localStorage.getItem('hydroPro_gps_driver_attendance')||'{}');}catch(e){}
+  const dates=Object.keys(att).filter(d=>d>=opts.fromDate&&d<=opts.toDate).sort();
+  if(!dates.length)return '<p style="color:#888;">No driver attendance in range.</p>';
+  return dates.map(d=>{
+    const drs=att[d]||[];
+    return `<h4 style="margin:14px 0 4px;color:#666;font-size:12px;">${d} — ${drs.length} drivers</h4><ul>${drs.map(r=>`<li>${_esc2(r.name)} — ${r.timeIn||'—'} to ${r.timeOut||'—'}</li>`).join('')}</ul>`;
+  }).join('');
+}
+
+function _rsSimExpiring(opts){
+  let radios=[];try{radios=JSON.parse(localStorage.getItem('hydroPro_it_radios')||'[]');}catch(e){}
+  const expiring=radios.filter(r=>{const d=_daysUntil(r.expirationDate);return d!=null&&d<=30;}).sort((a,b)=>(_daysUntil(a.expirationDate)||0)-(_daysUntil(b.expirationDate)||0));
+  if(!expiring.length)return '<p style="color:#888;">No SIMs expiring in 30 days.</p>';
+  return `<table><thead><tr><th>Radio</th><th>In charge</th><th>Expires</th><th>Days left</th></tr></thead><tbody>${expiring.map(r=>{const d=_daysUntil(r.expirationDate);const color=d<0?'#b71c1c':d<=7?'#b71c1c':'#f57c00';return `<tr><td>${_esc2(r.name||r.id)}</td><td>${_esc2(r.inCharge||'')}</td><td>${_esc2(r.expirationDate)}</td><td style="color:${color};font-weight:700;">${d<0?'EXPIRED '+(-d)+'d':d+'d'}</td></tr>`;}).join('')}</tbody></table>`;
+}
+
+function _rsMaintTasks(opts){
+  let tasks=[];try{if(typeof loadMaintTasks==='function')tasks=loadMaintTasks();}catch(e){}
+  if(!Array.isArray(tasks))return '';
+  const open=tasks.filter(t=>t&&t.status!=='done'&&t.status!=='cancelled');
+  if(!open.length)return '<p style="color:#888;">No open maintenance tasks.</p>';
+  return `<table><thead><tr><th>Task</th><th>Priority</th><th>Status</th><th>Date</th></tr></thead><tbody>${open.slice(0,40).map(t=>`<tr><td><strong>${_esc2(t.title)}</strong></td><td>${_esc2((t.priority||'').toUpperCase())}</td><td>${_esc2(t.status||'')}</td><td>${_esc2(t.scheduledDate||'')}</td></tr>`).join('')}</tbody></table>`;
+}
+
+function _rsDeptSummary(opts){
+  if(typeof _collectDeptStats!=='function')return '';
+  const stats=_collectDeptStats();
+  return `<table><thead><tr><th>Department</th><th>Open</th><th>Urgent</th><th>Recurring</th><th>Add'l</th></tr></thead><tbody>${MATRIX_DEPARTMENTS.map(d=>{const s=stats[d.id];return `<tr><td>${d.icon} ${d.label}</td><td>${s.open}</td><td>${s.urgent}</td><td>${s.recurring}</td><td>${s.additional}</td></tr>`;}).join('')}</tbody></table>`;
+}
+
+// Build the full report HTML for a given config
+function _buildCustomReport(cfg){
+  const dateLabel=cfg.fromDate===cfg.toDate?cfg.fromDate:(cfg.fromDate+' → '+cfg.toDate);
+  const sections=cfg.sections||[];
+  let body='';
+  sections.forEach(sid=>{
+    const s=REPORT_SECTIONS.find(x=>x.id===sid);if(!s)return;
+    let html='';try{html=s.build(cfg)||'';}catch(e){html='<p style="color:#888;">(error generating section)</p>';}
+    if(html)body+=`<div class="r-section"><h3>${s.label}</h3>${html}</div>`;
+  });
+  if(!body)body='<p style="color:#888;text-align:center;padding:30px;">No data found for the selected sections + date range.</p>';
+  return `<style>
+    body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#333;padding:30px;line-height:1.5;}
+    h1{font-size:22px;color:#2e7d32;border-bottom:2px solid #2e7d32;padding-bottom:8px;}
+    h2{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-top:18px;}
+    h3{font-size:16px;color:#2e7d32;margin-top:18px;border-bottom:1px solid #ddd;padding-bottom:4px;}
+    h4{font-size:13px;color:#555;margin-top:10px;}
+    ul{margin:6px 0 6px 20px;padding:0;}
+    li{font-size:12px;margin-bottom:3px;}
+    table{border-collapse:collapse;width:100%;margin:8px 0;font-size:12px;}
+    th,td{border:1px solid #ddd;padding:6px 10px;text-align:left;}
+    th{background:#f5f5f5;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;}
+    tr:nth-child(even){background:#fafafa;}
+    .r-section{margin-bottom:18px;}
+    .footer{margin-top:30px;padding-top:14px;border-top:1px solid #ddd;font-size:10px;color:#aaa;text-align:center;}
+  </style>
+  <h1>${_esc2(cfg.name||'HydroPro Report')}</h1>
+  <h2>${dateLabel} · Modules: ${(cfg.modules||['*']).join(', ')}</h2>
+  ${body}
+  <div class="footer">Generated by ABA Pardes HydroPro · ${new Date().toLocaleString()}</div>`;
+}
+
+window.openCustomReportBuilder=function(editTplId){
+  const tpls=_loadReportTemplates();
+  const editTpl=editTplId?tpls.find(t=>t.id===editTplId):null;
+  const today=new Date().toISOString().slice(0,10);
+  const past7=(()=>{const d=new Date();d.setDate(d.getDate()-7);return d.toISOString().slice(0,10);})();
+  const cfg=editTpl||{name:'',fromDate:past7,toDate:today,modules:['*'],sections:['urgent_calls','open_calls','checklist_flagged','rfid_compliance','dept_summary']};
+
+  let host=document.getElementById('reportBuilderModal');
+  if(!host){
+    host=document.createElement('div');
+    host.id='reportBuilderModal';
+    host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;';
+    document.body.appendChild(host);
+  }
+  const allModules=[{id:'*',label:'All modules'}].concat(MATRIX_DEPARTMENTS.map(d=>({id:d.id,label:d.label})));
+  const moduleChips=allModules.map(m=>{
+    const sel=(cfg.modules||['*']).includes(m.id);
+    return `<label style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:5px;border:1px solid ${sel?'var(--accent)':'var(--border)'};background:${sel?'rgba(102,187,106,0.18)':'var(--surface2)'};cursor:pointer;font-size:11px;font-family:var(--mono);"><input type="checkbox" data-mod="${m.id}" ${sel?'checked':''} style="margin:0;"> ${m.label}</label>`;
+  }).join('');
+  const sectionChips=REPORT_SECTIONS.map(s=>{
+    const sel=(cfg.sections||[]).includes(s.id);
+    return `<label style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:5px;border:1px solid ${sel?'var(--accent)':'var(--border)'};background:${sel?'rgba(102,187,106,0.18)':'var(--surface2)'};cursor:pointer;font-size:11px;"><input type="checkbox" data-sec="${s.id}" ${sel?'checked':''} style="margin:0;"> ${s.label}</label>`;
+  }).join('');
+
+  host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:820px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;font-family:var(--sans);">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--border);">
+      <div style="font-size:18px;font-weight:700;">📊 ${editTpl?'Edit':'New'} Custom Report</div>
+      <button onclick="document.getElementById('reportBuilderModal').remove();" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 10px;border-radius:6px;cursor:pointer;">✕</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:18px;">
+      <div style="margin-bottom:14px;">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Report name</div>
+        <input id="rbName" class="input" value="${_esc2(cfg.name||'')}" style="width:100%;" placeholder="e.g. Weekly Operations Summary">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">From date</div>
+          <input id="rbFrom" type="date" class="input" value="${cfg.fromDate}" style="width:100%;"></div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">To date</div>
+          <input id="rbTo" type="date" class="input" value="${cfg.toDate}" style="width:100%;"></div>
+      </div>
+      <div style="margin-bottom:14px;">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Modules / Departments to include</div>
+        <div id="rbModules" style="display:flex;gap:6px;flex-wrap:wrap;">${moduleChips}</div>
+      </div>
+      <div style="margin-bottom:14px;">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;display:flex;justify-content:space-between;">
+          <span>Sections to include</span>
+          <span><a href="#" onclick="event.preventDefault();document.querySelectorAll('#rbSections input').forEach(i=>i.checked=true);" style="font-size:11px;">Select All</a> · <a href="#" onclick="event.preventDefault();document.querySelectorAll('#rbSections input').forEach(i=>i.checked=false);" style="font-size:11px;">Clear</a></span>
+        </div>
+        <div id="rbSections" style="display:flex;gap:6px;flex-wrap:wrap;">${sectionChips}</div>
+      </div>
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${editTpl?`<button class="btn btn-outline" style="color:var(--danger);" onclick="if(confirm('Delete this template?')){_deleteReportTpl('${editTpl.id}');document.getElementById('reportBuilderModal').remove();}">🗑 Delete</button>`:''}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-outline" onclick="_previewReport()">👁 Preview</button>
+        <button class="btn btn-outline" onclick="_saveReportTpl('${editTpl?editTpl.id:''}')">💾 Save Template</button>
+        <button class="btn btn-primary" onclick="_runReportFromBuilder()">📊 Generate</button>
+      </div>
+    </div>
+  </div>`;
+};
+
+function _readBuilderConfig(){
+  return {
+    name:(document.getElementById('rbName').value||'').trim(),
+    fromDate:document.getElementById('rbFrom').value,
+    toDate:document.getElementById('rbTo').value,
+    modules:Array.from(document.querySelectorAll('#rbModules input:checked')).map(c=>c.dataset.mod),
+    sections:Array.from(document.querySelectorAll('#rbSections input:checked')).map(c=>c.dataset.sec)
+  };
+}
+
+window._previewReport=function(){
+  const cfg=_readBuilderConfig();
+  if(!cfg.sections.length){alert('Pick at least one section.');return;}
+  const html=_buildCustomReport(cfg);
+  _showReportOutput(html,cfg);
+};
+window._runReportFromBuilder=function(){_previewReport();};
+
+window._saveReportTpl=function(existingId){
+  const cfg=_readBuilderConfig();
+  if(!cfg.name){alert('Give the template a name first.');return;}
+  if(!cfg.sections.length){alert('Pick at least one section.');return;}
+  const tpls=_loadReportTemplates();
+  if(existingId){
+    const t=tpls.find(x=>x.id===existingId);
+    if(t){Object.assign(t,cfg);t.updatedAt=Date.now();}
+  } else {
+    cfg.id='rt_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+    cfg.createdAt=Date.now();
+    tpls.push(cfg);
+  }
+  _saveReportTemplates(tpls);
+  if(typeof showToast==='function')showToast('Template saved','ok');
+  document.getElementById('reportBuilderModal').remove();
+  openReportsHub();
+};
+
+window._deleteReportTpl=function(id){
+  let tpls=_loadReportTemplates().filter(t=>t.id!==id);
+  _saveReportTemplates(tpls);
+  // Also remove any schedules for this template
+  let scheds=_loadReportSchedules().filter(s=>s.templateId!==id);
+  _saveReportSchedules(scheds);
+  if(typeof showToast==='function')showToast('Template + schedules deleted','warn');
+};
+
+function _showReportOutput(html,cfg){
+  let host=document.getElementById('reportOutputModal');
+  if(!host){
+    host=document.createElement('div');
+    host.id='reportOutputModal';
+    host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    document.body.appendChild(host);
+  }
+  const subject='HydroPro Report — '+(cfg.name||'')+' — '+(cfg.fromDate===cfg.toDate?cfg.fromDate:cfg.fromDate+' to '+cfg.toDate);
+  host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:820px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;font-family:var(--sans);">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--border);">
+      <div style="font-size:18px;font-weight:700;">📊 ${_esc2(cfg.name||'Report Preview')}</div>
+      <button onclick="document.getElementById('reportOutputModal').remove();" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 10px;border-radius:6px;cursor:pointer;">✕</button>
+    </div>
+    <div id="repOutBody" style="flex:1;overflow-y:auto;background:#fff;color:#333;">${html}</div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap;">
+      <button class="btn btn-outline" onclick="_repCopyHtml()">📋 Copy</button>
+      <button class="btn btn-outline" onclick="_repCopyText()">📝 Plain text</button>
+      <button class="btn btn-outline" onclick="_repEmail('${_esc2(subject).replace(/"/g,'&quot;')}')">✉️ Email</button>
+      <button class="btn btn-primary" onclick="_repPrint()">🖨 Print / PDF</button>
+    </div>
+  </div>`;
+}
+window._repCopyHtml=function(){const h=document.getElementById('repOutBody').innerHTML;navigator.clipboard.writeText(h).then(()=>showToast('HTML copied','ok'));};
+window._repCopyText=function(){const tmp=document.createElement('div');tmp.innerHTML=document.getElementById('repOutBody').innerHTML;navigator.clipboard.writeText(tmp.innerText||tmp.textContent||'').then(()=>showToast('Text copied','ok'));};
+window._repEmail=function(subj){const tmp=document.createElement('div');tmp.innerHTML=document.getElementById('repOutBody').innerHTML;const txt=(tmp.innerText||tmp.textContent||'').slice(0,5000);window.location.href='mailto:?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(txt);};
+window._repPrint=function(){const h=document.getElementById('repOutBody').innerHTML;const w=window.open('','_blank','width=900,height=700');if(!w){alert('Pop-up blocked.');return;}w.document.write('<!DOCTYPE html><html><head><title>HydroPro Report</title></head><body>'+h+'</body></html>');w.document.close();setTimeout(()=>w.print(),300);};
+
+// ============= REPORTS HUB =============
+window.openReportsHub=function(){
+  const tpls=_loadReportTemplates();
+  const scheds=_loadReportSchedules();
+  let host=document.getElementById('reportsHubModal');
+  if(!host){
+    host=document.createElement('div');
+    host.id='reportsHubModal';
+    host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;';
+    document.body.appendChild(host);
+  }
+  const tplCards=tpls.map(t=>{
+    const scheduled=scheds.filter(s=>s.templateId===t.id);
+    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:240px;">
+          <div style="font-weight:700;">${_esc2(t.name)}</div>
+          <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-top:2px;">${(t.sections||[]).length} sections · ${(t.modules||['*']).join(', ')}${scheduled.length?' · 📅 '+scheduled.length+' scheduled':''}</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-outline" onclick="_runReportTpl('${t.id}')">▶ Run</button>
+          <button class="btn btn-outline" onclick="document.getElementById('reportsHubModal').remove();openCustomReportBuilder('${t.id}');">✏ Edit</button>
+          <button class="btn btn-outline" onclick="document.getElementById('reportsHubModal').remove();openReportScheduler('${t.id}');">📅 Schedule</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  const schedRows=scheds.map(s=>{
+    const tpl=tpls.find(t=>t.id===s.templateId);
+    const next=_nextScheduleRun(s);
+    return `<tr>
+      <td>${_esc2((tpl&&tpl.name)||'(deleted template)')}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${s.frequency}${(s.daysOfWeek||[]).length?' · '+s.daysOfWeek.join(',') :''}${s.timeOfDay?' @ '+s.timeOfDay:''}</td>
+      <td style="font-size:11px;">${_esc2((s.recipients||'').slice(0,40))}${(s.recipients||'').length>40?'…':''}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${next||'—'}</td>
+      <td style="text-align:right;"><button class="btn btn-outline" onclick="_deleteSchedule('${s.id}')" style="color:var(--danger);">🗑</button></td>
+    </tr>`;
+  }).join('');
+
+  host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:880px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;font-family:var(--sans);">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--border);">
+      <div style="font-size:18px;font-weight:700;">📊 Reports Hub</div>
+      <button onclick="document.getElementById('reportsHubModal').remove();" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 10px;border-radius:6px;cursor:pointer;">✕</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:18px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="font-size:14px;font-weight:700;">📋 Saved Templates</div>
+        <button class="btn btn-primary" onclick="document.getElementById('reportsHubModal').remove();openCustomReportBuilder();">➕ New Custom Report</button>
+      </div>
+      ${tpls.length?tplCards:'<div style="text-align:center;padding:20px;color:var(--text3);">No saved templates yet. Click "New Custom Report" to start.</div>'}
+      <div class="section-title" style="margin-top:18px;">📅 Scheduled Reports</div>
+      ${scheds.length?`<table class="fleet-table" style="width:100%;font-size:12px;">
+        <thead><tr><th>Template</th><th>Schedule</th><th>Recipients</th><th>Next run</th><th></th></tr></thead>
+        <tbody>${schedRows}</tbody>
+      </table>`:'<div style="text-align:center;padding:14px;color:var(--text3);font-size:12px;">No scheduled reports. Click "📅 Schedule" on any template to set up a recurring send.</div>'}
+      <div style="margin-top:18px;padding:14px;background:rgba(255,179,0,0.08);border:1px solid rgba(255,179,0,0.30);border-radius:8px;font-size:11px;color:var(--text2);line-height:1.5;">
+        <strong>📅 About scheduled reports:</strong> The app checks for due reports each time you open it. When a scheduled report is due, you'll see a banner with a "Send Now" button that opens your email app pre-filled with the report. <em>Reports cannot send by themselves while the app is closed</em> — that requires a backend, which this app doesn't have.
+      </div>
+    </div>
+  </div>`;
+};
+
+window._runReportTpl=function(id){
+  const t=_loadReportTemplates().find(x=>x.id===id);if(!t)return;
+  const html=_buildCustomReport(t);
+  _showReportOutput(html,t);
+};
+
+// ============= REPORT SCHEDULER =============
+const SCHED_FREQ_LABELS={daily:'Daily',weekly:'Weekly',monthly:'Monthly',quarterly:'Quarterly',yearly:'Yearly'};
+const SCHED_DOW=['sun','mon','tue','wed','thu','fri','sat'];
+
+window.openReportScheduler=function(templateId,existingSchedId){
+  const tpl=_loadReportTemplates().find(t=>t.id===templateId);
+  if(!tpl){alert('Template not found.');return;}
+  const scheds=_loadReportSchedules();
+  let s=existingSchedId?scheds.find(x=>x.id===existingSchedId):null;
+  if(!s){
+    s={id:'sch_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),templateId:templateId,
+       frequency:'weekly',daysOfWeek:['mon'],timeOfDay:'08:00',recipients:'',enabled:true,createdAt:Date.now()};
+  }
+  let host=document.getElementById('schedulerModal');
+  if(!host){
+    host=document.createElement('div');
+    host.id='schedulerModal';
+    host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;';
+    document.body.appendChild(host);
+  }
+  const dowChips=SCHED_DOW.map(d=>{
+    const sel=(s.daysOfWeek||[]).includes(d);
+    return `<label style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:5px;border:1px solid ${sel?'var(--accent)':'var(--border)'};background:${sel?'rgba(102,187,106,0.18)':'var(--surface2)'};cursor:pointer;font-size:11px;font-family:var(--mono);"><input type="checkbox" data-dow="${d}" ${sel?'checked':''} style="margin:0;"> ${d.toUpperCase()}</label>`;
+  }).join('');
+  host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;padding:22px;font-family:var(--sans);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+      <div style="font-size:18px;font-weight:700;">📅 Schedule "${_esc2(tpl.name)}"</div>
+      <button onclick="document.getElementById('schedulerModal').remove();" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 10px;border-radius:6px;cursor:pointer;">✕</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Frequency</div>
+        <select id="schFreq" class="call-select" style="width:100%;" onchange="document.getElementById('schDowRow').style.display=(this.value==='daily'||this.value==='weekly')?'block':'none';">
+          ${Object.keys(SCHED_FREQ_LABELS).map(f=>`<option value="${f}" ${s.frequency===f?'selected':''}>${SCHED_FREQ_LABELS[f]}</option>`).join('')}
+        </select></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Time of day</div>
+        <input id="schTime" type="time" class="input" value="${s.timeOfDay||'08:00'}" style="width:100%;"></div>
+    </div>
+    <div id="schDowRow" style="margin-bottom:14px;${(s.frequency==='weekly'||s.frequency==='daily')?'':'display:none;'}">
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Days of week (for weekly)</div>
+      <div id="schDow" style="display:flex;gap:6px;flex-wrap:wrap;">${dowChips}</div>
+    </div>
+    <div style="margin-bottom:14px;">
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Recipients (comma-separated emails)</div>
+      <input id="schRcpt" class="input" value="${_esc2(s.recipients||'')}" style="width:100%;" placeholder="manager@company.com, ops@company.com">
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-bottom:14px;">
+      <input id="schEnabled" type="checkbox" ${s.enabled!==false?'checked':''}> Enabled
+    </label>
+    <div style="display:flex;justify-content:flex-end;gap:6px;">
+      <button class="btn btn-outline" onclick="document.getElementById('schedulerModal').remove();">Cancel</button>
+      <button class="btn btn-primary" onclick="_saveSchedule('${s.id}','${templateId}')">💾 Save Schedule</button>
+    </div>
+  </div>`;
+};
+
+window._saveSchedule=function(schedId,templateId){
+  const s={
+    id:schedId,
+    templateId:templateId,
+    frequency:document.getElementById('schFreq').value,
+    daysOfWeek:Array.from(document.querySelectorAll('#schDow input:checked')).map(c=>c.dataset.dow),
+    timeOfDay:document.getElementById('schTime').value,
+    recipients:(document.getElementById('schRcpt').value||'').trim(),
+    enabled:document.getElementById('schEnabled').checked,
+    updatedAt:Date.now()
+  };
+  let scheds=_loadReportSchedules();
+  const existing=scheds.find(x=>x.id===schedId);
+  if(existing)Object.assign(existing,s); else scheds.push(s);
+  _saveReportSchedules(scheds);
+  if(typeof showToast==='function')showToast('Schedule saved','ok');
+  document.getElementById('schedulerModal').remove();
+  openReportsHub();
+};
+
+window._deleteSchedule=function(id){
+  if(!confirm('Delete this schedule?'))return;
+  let scheds=_loadReportSchedules().filter(s=>s.id!==id);
+  _saveReportSchedules(scheds);
+  if(typeof showToast==='function')showToast('Schedule deleted','warn');
+  // Refresh modal
+  document.getElementById('reportsHubModal').remove();
+  openReportsHub();
+};
+
+// Compute next run timestamp for a schedule
+function _nextScheduleRun(s){
+  if(!s||s.enabled===false)return null;
+  const now=new Date();
+  const time=(s.timeOfDay||'08:00').split(':');
+  const hh=Number(time[0]),mm=Number(time[1]);
+  let candidate=new Date(now);candidate.setHours(hh,mm,0,0);
+  if(candidate<=now)candidate.setDate(candidate.getDate()+1);
+  // For weekly: advance to the nearest matching DOW
+  if(s.frequency==='weekly'){
+    const wanted=s.daysOfWeek||[];
+    if(!wanted.length)return null;
+    const dowMap={sun:0,mon:1,tue:2,wed:3,thu:4,fri:5,sat:6};
+    const wantedIdx=wanted.map(d=>dowMap[d]);
+    for(let i=0;i<8;i++){
+      if(wantedIdx.includes(candidate.getDay()))break;
+      candidate.setDate(candidate.getDate()+1);
+    }
+  } else if(s.frequency==='daily'){
+    if(s.daysOfWeek&&s.daysOfWeek.length){
+      const dowMap={sun:0,mon:1,tue:2,wed:3,thu:4,fri:5,sat:6};
+      const wantedIdx=s.daysOfWeek.map(d=>dowMap[d]);
+      for(let i=0;i<8;i++){
+        if(wantedIdx.includes(candidate.getDay()))break;
+        candidate.setDate(candidate.getDate()+1);
+      }
+    }
+  } else if(s.frequency==='monthly'){
+    candidate=new Date(now);candidate.setHours(hh,mm,0,0);candidate.setDate(1);
+    if(candidate<=now){candidate.setMonth(candidate.getMonth()+1);}
+  } else if(s.frequency==='quarterly'){
+    candidate=new Date(now);candidate.setHours(hh,mm,0,0);candidate.setDate(1);
+    while(candidate<=now||candidate.getMonth()%3!==0){candidate.setMonth(candidate.getMonth()+1);candidate.setDate(1);}
+  } else if(s.frequency==='yearly'){
+    candidate=new Date(now.getFullYear(),0,1,hh,mm,0,0);
+    if(candidate<=now)candidate=new Date(now.getFullYear()+1,0,1,hh,mm,0,0);
+  }
+  return candidate.toISOString().replace('T',' ').slice(0,16);
+}
+
+// Check for due schedules — show banner if any
+function _checkDueSchedules(){
+  const scheds=_loadReportSchedules().filter(s=>s.enabled!==false);
+  if(!scheds.length)return;
+  const log=_loadReportLog();
+  const now=new Date();
+  const today=now.toISOString().slice(0,10);
+  const due=[];
+  scheds.forEach(s=>{
+    const lastSent=log[s.id];
+    if(lastSent===today)return;   // already sent today
+    // Compute if it's after the scheduled time today
+    const time=(s.timeOfDay||'08:00').split(':');
+    const sched=new Date(now);sched.setHours(Number(time[0]),Number(time[1]),0,0);
+    if(now<sched)return;
+    // For weekly: must match DOW
+    if(s.frequency==='weekly'){
+      const wanted=s.daysOfWeek||[];
+      const dowMap=['sun','mon','tue','wed','thu','fri','sat'];
+      if(!wanted.includes(dowMap[now.getDay()]))return;
+    } else if(s.frequency==='daily'){
+      if(s.daysOfWeek&&s.daysOfWeek.length){
+        const dowMap=['sun','mon','tue','wed','thu','fri','sat'];
+        if(!s.daysOfWeek.includes(dowMap[now.getDay()]))return;
+      }
+    } else if(s.frequency==='monthly'){
+      if(now.getDate()!==1)return;
+    } else if(s.frequency==='quarterly'){
+      if(now.getDate()!==1||now.getMonth()%3!==0)return;
+    } else if(s.frequency==='yearly'){
+      if(now.getMonth()!==0||now.getDate()!==1)return;
+    }
+    due.push(s);
+  });
+  if(due.length)_showDueScheduleBanner(due);
+}
+function _showDueScheduleBanner(due){
+  if(document.getElementById('dueScheduleBanner'))return;
+  const b=document.createElement('div');
+  b.id='dueScheduleBanner';
+  b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:99996;background:#1976d2;color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:13px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,0.4);font-family:-apple-system,sans-serif;';
+  const tpls=_loadReportTemplates();
+  const names=due.map(s=>{const t=tpls.find(x=>x.id===s.templateId);return t?t.name:'(deleted)';}).join(', ');
+  b.innerHTML=`📅 <span>${due.length} scheduled report${due.length===1?'':'s'} due: <strong>${_esc2(names)}</strong></span>
+    <button onclick="_sendDueReports()" style="background:#fff;color:#1976d2;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;">📊 Run &amp; Send</button>
+    <button onclick="document.getElementById('dueScheduleBanner').remove();" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:7px 12px;border-radius:6px;cursor:pointer;font-weight:600;font-size:12px;">Snooze</button>`;
+  document.body.insertBefore(b,document.body.firstChild);
+  window._dueSchedulesPending=due;
+}
+window._sendDueReports=function(){
+  const due=window._dueSchedulesPending||[];
+  const tpls=_loadReportTemplates();
+  const log=_loadReportLog();
+  const today=new Date().toISOString().slice(0,10);
+  due.forEach(s=>{
+    const t=tpls.find(x=>x.id===s.templateId);if(!t)return;
+    const html=_buildCustomReport(t);
+    const tmp=document.createElement('div');tmp.innerHTML=html;
+    const text=(tmp.innerText||tmp.textContent||'').slice(0,8000);
+    const subject=encodeURIComponent('HydroPro Report — '+(t.name||'')+' — '+today);
+    const body=encodeURIComponent(text);
+    const to=encodeURIComponent(s.recipients||'');
+    // Open mailto: in a new tab so the user can send manually
+    window.open(`mailto:${to}?subject=${subject}&body=${body}`,'_blank');
+    log[s.id]=today;
+  });
+  _saveReportLog(log);
+  document.getElementById('dueScheduleBanner').remove();
+  window._dueSchedulesPending=null;
+  if(typeof showToast==='function')showToast('Opened '+due.length+' report email window'+(due.length===1?'':'s'),'ok');
+};
+setTimeout(_checkDueSchedules,12000);
+setInterval(_checkDueSchedules,30*60*1000);
+
+// 📊 Reports button in topbar
+function injectReportsButton(){
+  if(document.getElementById('reportsBtn'))return;
+  const tb=document.getElementById('topbar');if(!tb)return;
+  const btn=document.createElement('button');
+  btn.id='reportsBtn';
+  btn.title='Custom reports + scheduled email reports';
+  btn.style.cssText='background:none;border:1px solid var(--border);color:var(--text2);font-size:14px;padding:6px 10px;border-radius:7px;cursor:pointer;margin-left:6px;flex-shrink:0;';
+  btn.innerHTML='📊';
+  btn.onclick=openReportsHub;
+  const ds=document.getElementById('dailySummaryBtn');
+  const search=document.getElementById('globalSearchBtn');
+  const anchor=ds||search;
+  if(anchor&&anchor.parentNode)anchor.parentNode.insertBefore(btn,anchor.nextSibling);
+  else tb.appendChild(btn);
+}
+setInterval(injectReportsButton,3000);
+setTimeout(injectReportsButton,1300);
 
 // ============= DAILY SUMMARY REPORT =============
 // Aggregated end-of-day report: critical items, open calls, RFID compliance today,
