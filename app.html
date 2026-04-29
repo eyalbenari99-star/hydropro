@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777448208;
+const APP_BUILD=1777448708;
 const APP_BUILD_DATE='2026-04-29';
 
 // Store version in localStorage on first run
@@ -51340,6 +51340,129 @@ function injectSearchButton(){
 }
 setInterval(injectSearchButton,3000);
 setTimeout(injectSearchButton,1100);
+
+// ============= SIM EXPIRY ALERTS (RADIOS) =============
+// Scans radios for SIM expiration. Fires notifications + auto-creates a
+// maintenance task when expiry is near. Tracks which radios have been
+// alerted (per expiration date) so we don't re-fire.
+const SIM_ALERT_KEY='hydroPro_sim_alerted';
+const SIM_AUTO_TASK_KEY='hydroPro_sim_auto_tasks';
+
+function _loadSimAlerted(){try{return JSON.parse(localStorage.getItem(SIM_ALERT_KEY)||'{}');}catch(e){return {};}}
+function _saveSimAlerted(d){localStorage.setItem(SIM_ALERT_KEY,JSON.stringify(d));}
+function _loadSimAutoTasks(){try{return JSON.parse(localStorage.getItem(SIM_AUTO_TASK_KEY)||'{}');}catch(e){return {};}}
+function _saveSimAutoTasks(d){localStorage.setItem(SIM_AUTO_TASK_KEY,JSON.stringify(d));}
+
+function _daysUntil(dateStr){
+  if(!dateStr)return null;
+  const t=new Date(dateStr);
+  if(isNaN(t.getTime()))return null;
+  const now=new Date();now.setHours(0,0,0,0);
+  t.setHours(0,0,0,0);
+  return Math.round((t.getTime()-now.getTime())/86400000);
+}
+
+function _scanSimExpiry(){
+  let radios=[];
+  try{radios=JSON.parse(localStorage.getItem('hydroPro_it_radios')||'[]');}catch(e){return;}
+  if(!Array.isArray(radios)||!radios.length)return;
+  const alerted=_loadSimAlerted();
+  const autoTasks=_loadSimAutoTasks();
+  let tasks=[];try{if(typeof loadMaintTasks==='function')tasks=loadMaintTasks();}catch(e){}
+  if(!Array.isArray(tasks))tasks=[];
+  let tasksChanged=false;
+  const today=new Date().toISOString().slice(0,10);
+
+  radios.forEach(r=>{
+    if(!r||!r.expirationDate||!r.id)return;
+    const days=_daysUntil(r.expirationDate);
+    if(days==null)return;
+    // Build alert key as id+expirationDate so a renewal (new date) re-arms alerts
+    const alertKey=r.id+'::'+r.expirationDate;
+    let bucket;
+    if(days<0)bucket='expired';
+    else if(days<=7)bucket='critical';
+    else if(days<=30)bucket='warning';
+    else return;   // not yet relevant
+    // Have we already alerted for this bucket?
+    const lastBucket=alerted[alertKey];
+    if(lastBucket===bucket||(lastBucket==='expired'&&bucket!=='expired')||(lastBucket==='critical'&&bucket==='warning'))return;
+    alerted[alertKey]=bucket;
+
+    // Fire notification (uses existing notification system)
+    const lbl=r.name||r.id;
+    const detail=r.inCharge?(' · '+r.inCharge):'';
+    if(typeof _fireNotification==='function'){
+      _fireNotification({
+        severity:bucket==='warning'?'warning':'critical',
+        title:bucket==='expired'?`📻 SIM EXPIRED: ${lbl}`:bucket==='critical'?`📻 SIM expires in ${days} days: ${lbl}`:`📻 SIM expires in ${days} days: ${lbl}`,
+        subtitle:`Radio ${lbl}${detail} · expiry ${r.expirationDate}`,
+        tag:'sim_'+alertKey
+      });
+    }
+
+    // Auto-create maintenance task for critical/expired (not just warning)
+    if(bucket==='critical'||bucket==='expired'){
+      const autoKey='sim::'+r.id;
+      const existing=autoTasks[autoKey];
+      const linked=existing?tasks.find(t=>t.id===existing.taskId):null;
+      if(!linked){
+        const taskId=(typeof uid==='function'?uid():'sim_'+Math.random().toString(36).slice(2));
+        const subj=bucket==='expired'?`📻 RENEW SIM (EXPIRED): ${lbl}`:`📻 RENEW SIM (${days}d left): ${lbl}`;
+        const desc=`Radio: ${lbl}${detail}\nIMEI: ${r.imei||'—'}\nSIM: ${r.sim||'—'}\nExpires: ${r.expirationDate}\nDays remaining: ${days}\n\n(Auto-created from SIM expiry scan)`;
+        tasks.push({
+          id:taskId,
+          title:subj,description:desc,priority:bucket==='expired'?'urgent':'priority',
+          status:'not_started',createdAt:Date.now(),createdBy:'system',
+          scheduledDate:today,durationDays:1,gantt:[],materials:[],
+          category:'auto_sim_renewal',sourceModule:'it_radios',autoKey:autoKey,
+          equipmentCategory:'radio'
+        });
+        autoTasks[autoKey]={taskId:taskId,createdAt:Date.now(),expirationDate:r.expirationDate,bucket:bucket,radioId:r.id};
+        tasksChanged=true;
+      } else if(existing&&existing.bucket==='critical'&&bucket==='expired'){
+        // Upgrade priority on existing task when it crosses into expired
+        if(linked.priority!=='urgent'){linked.priority='urgent';tasksChanged=true;}
+        existing.bucket='expired';
+        autoTasks[autoKey]=existing;
+      }
+    }
+  });
+
+  // Cleanup: any auto-task whose underlying radio was deleted OR whose date moved
+  // beyond 30 days (renewed) — close it
+  Object.keys(autoTasks).forEach(k=>{
+    const entry=autoTasks[k];
+    if(!entry||!entry.radioId)return;
+    const rad=radios.find(r=>r&&r.id===entry.radioId);
+    if(!rad){delete autoTasks[k];return;}
+    const days=_daysUntil(rad.expirationDate);
+    if(days==null||days>30){
+      // SIM renewed — close the auto-task
+      const t=tasks.find(x=>x.id===entry.taskId);
+      if(t&&t.status!=='done'){
+        t.status='done';
+        t.doneDate=today;
+        t.description=(t.description||'')+'\n\n[Auto-closed: SIM no longer near expiry on '+today+']';
+        tasksChanged=true;
+      }
+      delete autoTasks[k];
+    }
+  });
+
+  _saveSimAlerted(alerted);
+  _saveSimAutoTasks(autoTasks);
+  if(tasksChanged&&typeof saveMaintTasks==='function')saveMaintTasks(tasks);
+}
+// Scan on load + every 30 minutes
+setTimeout(_scanSimExpiry,8000);
+setInterval(_scanSimExpiry,30*60*1000);
+
+// Manual rescan exposed for the radios screen (in case user wants instant check)
+window.rescanSimExpiry=function(){
+  _scanSimExpiry();
+  if(typeof showToast==='function')showToast('SIM expiry scan complete','ok');
+};
 
 function injectBackupButton(){
   if(document.getElementById('backupBtn'))return;
