@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777442377;
+const APP_BUILD=1777443304;
 const APP_BUILD_DATE='2026-04-29';
 
 // Store version in localStorage on first run
@@ -42639,13 +42639,33 @@ function openCallModal(sourceModuleId,sourceLabel){
   // source pill
   const sp=document.getElementById('callSourceLine');
   if(sp)sp.textContent=_callDraft.sourceLabel?('From: '+_callDraft.sourceLabel):'(no source module — direct entry)';
-  // Populate equipment category dropdown
+  // Populate equipment category dropdown — list is module-specific
+  // - Production module → 15 GH categories (Cooling Pad, Side Windows, Big Fans, ...)
+  // - Other modules    → IT/general EQUIP_CATEGORIES (CCTV, Solar, Pumps, ...)
   const ecSel=document.getElementById('callEquipCat');
-  if(ecSel&&!ecSel.dataset._populated){
-    ecSel.innerHTML='<option value="">— Pick a category —</option>'+EQUIP_CATEGORIES.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
-    ecSel.dataset._populated='1';
+  if(ecSel){
+    // v94 declares `currentModule` with `let` (not on window). Detect from the
+    // active sidebar button which always has data-module set.
+    let curMod='';
+    try{
+      const activeBtn=document.querySelector('.module-btn.active');
+      if(activeBtn)curMod=activeBtn.getAttribute('data-module')||'';
+    }catch(e){}
+    if(!curMod){try{if(typeof currentModule!=='undefined')curMod=currentModule;}catch(e){}}
+    const useProd=(curMod==='production');
+    const wantSig=useProd?'prod':'general';
+    if(ecSel.dataset._sig!==wantSig){
+      let listHtml='';
+      if(useProd&&typeof PROD_MATRIX_CATS!=='undefined'&&Array.isArray(PROD_MATRIX_CATS)){
+        listHtml=PROD_MATRIX_CATS.map(c=>`<option value="${c.id}">${c.icon} ${c.name}</option>`).join('');
+      } else {
+        listHtml=EQUIP_CATEGORIES.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
+      }
+      ecSel.innerHTML='<option value="">— Pick a category —</option>'+listHtml;
+      ecSel.dataset._sig=wantSig;
+    }
+    ecSel.value=_callDraft.equipmentCategory||'';
   }
-  if(ecSel)ecSel.value=_callDraft.equipmentCategory||'';
   document.getElementById('callModal').classList.add('open');
   setTimeout(()=>document.getElementById('callSubject').focus(),100);
 }
@@ -47458,11 +47478,11 @@ function _doVersionReload(){
   window.location.href=url;
   setTimeout(()=>{try{window.location.reload(true);}catch(e){}},200);
 }
-// Polling: 10 minutes — gentle, the addon's seen-build tracking prevents loops anyway
-setInterval(_checkVersionUpdate,10*60*1000);
-// REMOVED visibilitychange + focus listeners: those could double-trigger on rapid
-// tab switching and cause repeat banners. The 10-minute interval + manual button is enough.
-setTimeout(_checkVersionUpdate,30000);  // first check 30s after load
+// AUTO-POLLING DISABLED — user reported the banner kept reappearing.
+// Updates are now ONLY checked when the user clicks the 🔄 button in the topbar.
+// (See injectVersionCheckButton — the manual click still works.)
+// setInterval(_checkVersionUpdate,10*60*1000);   // disabled
+// setTimeout(_checkVersionUpdate,30000);          // disabled
 
 // Suppress v94's built-in checkForUpdate / setInterval — our addon handles it more
 // safely. Without this, both checkers run in parallel and can show double banners.
