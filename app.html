@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777447515;
+const APP_BUILD=1777448208;
 const APP_BUILD_DATE='2026-04-29';
 
 // Store version in localStorage on first run
@@ -44389,6 +44389,43 @@ function renderFleetGps(){
     </div>
   </div>`;
 
+  // === Driver Attendance section (from imported GPS report bottom block) ===
+  let attRecords=[];
+  try{
+    const attAll=JSON.parse(localStorage.getItem('hydroPro_gps_driver_attendance')||'{}');
+    attRecords=attAll[_gpsSelDate]||[];
+  }catch(e){}
+  if(attRecords.length){
+    function _hoursDiff(t1,t2){
+      const p=t=>{const m=/^(\d{1,2}):(\d{2})/.exec(t||'');return m?Number(m[1])+Number(m[2])/60:null;};
+      const a=p(t1),b=p(t2);
+      if(a==null||b==null)return null;
+      let h=b-a;if(h<0)h+=24;
+      return h;
+    }
+    const totalHours=attRecords.reduce((a,r)=>{const h=_hoursDiff(r.timeIn,r.timeOut);return a+(h||0);},0);
+    const rows=attRecords.map(r=>{
+      const h=_hoursDiff(r.timeIn,r.timeOut);
+      const overtime=h!=null&&h>10;
+      return `<tr>
+        <td style="font-weight:600;">${_esc(r.name||'')}</td>
+        <td style="font-family:var(--mono);">${_esc(r.timeIn||'—')}</td>
+        <td style="font-family:var(--mono);">${_esc(r.timeOut||'—')}</td>
+        <td style="font-family:var(--mono);${overtime?'color:var(--warn);font-weight:700;':''}">${h==null?'—':h.toFixed(2)+' h'}${overtime?' ⚠':''}</td>
+      </tr>`;
+    }).join('');
+    html+=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-top:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:14px;font-weight:700;">👥 Driver Attendance — ${_gpsSelDate}</div>
+        <div style="font-size:11px;color:var(--text3);font-family:var(--mono);">${attRecords.length} driver${attRecords.length===1?'':'s'} · total ${totalHours.toFixed(1)} hours</div>
+      </div>
+      <div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;">
+        <thead><tr><th>Driver</th><th>Time In</th><th>Time Out</th><th>Hours</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+  }
+
   view.innerHTML=html;
 }
 
@@ -44679,7 +44716,30 @@ function _parseGpsExcelRows(rows){
       i=j;  // jump past this vehicle's rows
     }
   }
-  return {date:reportDate,reports:reports};
+  // === Driver attendance section ===
+  // Looks like: row with col 3 === 'NAME' (header), then rows below with
+  // col 3 = driver name, col 5 = time in, col 6 = time out — until empty/end.
+  const driverAttendance=[];
+  for(let i=0;i<norm.length;i++){
+    const r=norm[i]||[];
+    if((r[3]||'').toUpperCase().trim()==='NAME'&&(r[5]||'').toUpperCase().trim()==='IN'&&(r[6]||'').toUpperCase().trim()==='OUT'){
+      // Found header — read driver rows until 3 consecutive empty rows or end
+      let blank=0;
+      for(let j=i+1;j<norm.length;j++){
+        const dr=norm[j]||[];
+        const name=(dr[3]||'').trim();
+        const tin=(dr[5]||'').trim();
+        const tout=(dr[6]||'').trim();
+        if(!name&&!tin&&!tout){blank++;if(blank>=3)break;continue;}
+        blank=0;
+        if(name){
+          driverAttendance.push({name:name,timeIn:_normTime(tin),timeOut:_normTime(tout)});
+        }
+      }
+      break;   // only one attendance block per file
+    }
+  }
+  return {date:reportDate,reports:reports,driverAttendance:driverAttendance};
 }
 function _normTime(t){
   if(!t)return '';
@@ -44712,7 +44772,7 @@ function _showGpsImportPreview(result,fileName){
     <div class="call-modal-body">
       <div style="font-size:11px;color:var(--text3);font-family:var(--mono);">${_esc(fileName)}</div>
       <div style="padding:12px 14px;background:var(--surface2);border-left:3px solid var(--info);border-radius:7px;font-size:12px;color:var(--text2);line-height:1.5;">
-        Found <strong>${result.reports.length} ${result.reports.length===1?'vehicle':'vehicles'}</strong> for date <strong style="color:var(--accent2);">${result.date||'(unknown)'}</strong>. Match each one to an existing fleet vehicle below — or create a new vehicle inline.
+        Found <strong>${result.reports.length} ${result.reports.length===1?'vehicle':'vehicles'}</strong> for date <strong style="color:var(--accent2);">${result.date||'(unknown)'}</strong>${(result.driverAttendance&&result.driverAttendance.length)?' · <strong>'+result.driverAttendance.length+' driver attendance records</strong>':''}. Match each one to an existing fleet vehicle below — or create a new vehicle inline.
       </div>
       <div class="fleet-table-wrap"><table class="fleet-table">
         <thead><tr><th>From file</th><th>Stops</th><th>Match to vehicle</th></tr></thead>
@@ -44774,8 +44834,18 @@ function _finalizeGpsImport(){
   });
   if(created)saveFVeh(veh);
   saveGpsReports(all);
-  if(typeof audit==='function')audit('gps_import',`Imported ${imported} GPS reports for ${result.date}${created?' ('+created+' new vehicles)':''}`);
-  _toast(`Imported ${imported} report${imported!==1?'s':''}${created?' · '+created+' new vehicles':''}`,'ok');
+  // Save driver attendance for this date (if any)
+  let attCount=0;
+  if(result.driverAttendance&&result.driverAttendance.length){
+    try{
+      const attAll=JSON.parse(localStorage.getItem('hydroPro_gps_driver_attendance')||'{}');
+      attAll[result.date]=result.driverAttendance;
+      localStorage.setItem('hydroPro_gps_driver_attendance',JSON.stringify(attAll));
+      attCount=result.driverAttendance.length;
+    }catch(e){console.warn('att save',e);}
+  }
+  if(typeof audit==='function')audit('gps_import',`Imported ${imported} GPS reports for ${result.date}${created?' ('+created+' new vehicles)':''}${attCount?' + '+attCount+' driver attendance':''}`);
+  _toast(`Imported ${imported} report${imported!==1?'s':''}${created?' · '+created+' new vehicles':''}${attCount?' · '+attCount+' driver attendance':''}`,'ok');
   document.getElementById('gpsImportPreviewModal').classList.remove('open');
   window.__gpsImportPending=null;
   // Switch to that date so user sees the imported data
