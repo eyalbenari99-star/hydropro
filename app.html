@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777449114;
+const APP_BUILD=1777449340;
 const APP_BUILD_DATE='2026-04-29';
 
 // Store version in localStorage on first run
@@ -51522,6 +51522,330 @@ function injectSearchButton(){
 }
 setInterval(injectSearchButton,3000);
 setTimeout(injectSearchButton,1100);
+
+// ============= DAILY SUMMARY REPORT =============
+// Aggregated end-of-day report: critical items, open calls, RFID compliance today,
+// flagged checklist items, recurring task progress, additional tasks open.
+// Modal with Print / Email / Copy buttons.
+function _buildDailySummaryHtml(){
+  const today=new Date().toISOString().slice(0,10);
+  const dateLabel=new Date(today+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  const sections=[];
+
+  // 1) CALLS
+  let calls=[];try{calls=loadCalls();}catch(e){}
+  if(!Array.isArray(calls))calls=[];
+  const open=calls.filter(c=>!isCallClosed(c));
+  const urgent=open.filter(c=>c.priority==='urgent');
+  const priority=open.filter(c=>c.priority==='priority');
+  const newToday=open.filter(c=>{
+    const ts=c.raisedAt||c.createdAt;
+    if(!ts)return false;
+    return new Date(ts).toISOString().slice(0,10)===today;
+  });
+  const closedToday=calls.filter(c=>{
+    if(!isCallClosed(c))return false;
+    return c.closedAt&&new Date(c.closedAt).toISOString().slice(0,10)===today;
+  });
+  let callsBlock=`<div class="ds-stats">
+    <div><strong>${open.length}</strong> open</div>
+    <div><strong style="color:#b71c1c;">${urgent.length}</strong> urgent</div>
+    <div><strong style="color:#f57c00;">${priority.length}</strong> priority</div>
+    <div><strong style="color:#1976d2;">${newToday.length}</strong> raised today</div>
+    <div><strong style="color:#388e3c;">${closedToday.length}</strong> closed today</div>
+  </div>`;
+  if(urgent.length){
+    callsBlock+='<h4>🚨 Urgent calls</h4><ul>';
+    urgent.slice(0,15).forEach(c=>{
+      const route=(typeof _callRouteLabel==='function')?_callRouteLabel(c):(c.sourceLabel||'');
+      const days=Math.max(0,Math.floor((Date.now()-(c.raisedAt||0))/86400000));
+      callsBlock+=`<li><strong>${(c.subject||'').replace(/[<>]/g,'')}</strong> — ${(route||'').replace(/[<>]/g,'')} · ${days}d open · raised by ${(c.raisedBy||'—').replace(/[<>]/g,'')}</li>`;
+    });
+    if(urgent.length>15)callsBlock+=`<li style="color:#888;">+${urgent.length-15} more urgent calls</li>`;
+    callsBlock+='</ul>';
+  }
+  if(priority.length){
+    callsBlock+='<h4>⚠ Priority calls</h4><ul>';
+    priority.slice(0,10).forEach(c=>{
+      const route=(typeof _callRouteLabel==='function')?_callRouteLabel(c):(c.sourceLabel||'');
+      callsBlock+=`<li>${(c.subject||'').replace(/[<>]/g,'')} — ${(route||'').replace(/[<>]/g,'')}</li>`;
+    });
+    if(priority.length>10)callsBlock+=`<li style="color:#888;">+${priority.length-10} more priority calls</li>`;
+    callsBlock+='</ul>';
+  }
+  sections.push({title:'📞 Calls',html:callsBlock});
+
+  // 2) PRODUCTION CHECKLIST today
+  try{
+    const st=JSON.parse(localStorage.getItem('hydroPro_'+today)||'{}');
+    const cats=(typeof CATEGORIES!=='undefined')?CATEGORIES:[];
+    const ghs=(typeof GREENHOUSES!=='undefined')?GREENHOUSES:[];
+    let dangers=[],warnings=[];
+    ghs.forEach(gh=>{
+      const fs=st[gh];if(!fs)return;
+      cats.forEach(cat=>{
+        (cat.items||[]).forEach((item,i)=>{
+          const itemKey=cat.id+'_'+i;
+          const status=fs.statuses&&fs.statuses[itemKey];
+          if(status==='danger')dangers.push({gh,cat:cat.name,item,note:fs.notes&&fs.notes[itemKey]||''});
+          else if(status==='warn')warnings.push({gh,cat:cat.name,item,note:fs.notes&&fs.notes[itemKey]||''});
+        });
+      });
+    });
+    if(dangers.length||warnings.length){
+      let block=`<div class="ds-stats">
+        <div><strong style="color:#b71c1c;">${dangers.length}</strong> critical</div>
+        <div><strong style="color:#f57c00;">${warnings.length}</strong> warning</div>
+      </div>`;
+      if(dangers.length){
+        block+='<h4>✕ Critical items</h4><ul>';
+        dangers.slice(0,20).forEach(d=>{
+          block+=`<li><strong>${(d.gh||'')}</strong> · ${(d.cat||'')}: ${(d.item||'').replace(/[<>]/g,'')}${d.note?' — '+(d.note||'').replace(/[<>]/g,'').slice(0,100):''}</li>`;
+        });
+        if(dangers.length>20)block+=`<li style="color:#888;">+${dangers.length-20} more critical items</li>`;
+        block+='</ul>';
+      }
+      if(warnings.length){
+        block+='<h4>⚠ Warnings</h4><ul>';
+        warnings.slice(0,15).forEach(w=>{
+          block+=`<li><strong>${(w.gh||'')}</strong> · ${(w.cat||'')}: ${(w.item||'').replace(/[<>]/g,'')}</li>`;
+        });
+        if(warnings.length>15)block+=`<li style="color:#888;">+${warnings.length-15} more warnings</li>`;
+        block+='</ul>';
+      }
+      sections.push({title:'🌱 Production Checklist',html:block});
+    }
+  }catch(e){}
+
+  // 3) RECURRING TASKS today (across all modules)
+  try{
+    const defs=loadRecurringDefs();
+    const instances=loadRecurringInstances().filter(i=>i.date===today);
+    if(instances.length){
+      const byModule={};
+      instances.forEach(i=>{
+        const mod=i.module||'maintenance';
+        if(!byModule[mod])byModule[mod]={done:0,total:0,instances:[]};
+        byModule[mod].total++;
+        if(i.status==='done')byModule[mod].done++;
+        byModule[mod].instances.push(i);
+      });
+      let block='';
+      Object.keys(byModule).forEach(mod=>{
+        const b=byModule[mod];
+        const pct=b.total?Math.round(b.done/b.total*100):0;
+        const color=pct===100?'#388e3c':pct>=50?'#f57c00':'#b71c1c';
+        block+=`<div style="margin-bottom:8px;"><strong>${mod}:</strong> <span style="color:${color};font-weight:700;">${b.done}/${b.total} done (${pct}%)</span></div>`;
+        // List pending
+        const pending=b.instances.filter(i=>i.status!=='done');
+        if(pending.length){
+          // group by definition title
+          const byDef={};
+          pending.forEach(i=>{
+            const t=i.title||'(unknown)';
+            if(!byDef[t])byDef[t]=[];
+            byDef[t].push(i.facility||'');
+          });
+          block+='<ul>';
+          Object.keys(byDef).forEach(t=>{
+            const facs=byDef[t].filter(f=>f);
+            block+=`<li><strong>${t.replace(/[<>]/g,'')}</strong> — pending: ${facs.length>0?facs.slice(0,8).join(', ')+(facs.length>8?` +${facs.length-8}`:''):byDef[t].length+' instances'}</li>`;
+          });
+          block+='</ul>';
+        }
+      });
+      sections.push({title:'🔁 Recurring tasks today',html:block});
+    }
+  }catch(e){}
+
+  // 4) RFID today
+  try{
+    const reports=loadRfidReports();
+    const todayReports=reports.filter(r=>r.dateFrom===today||r.dateTo===today||(r.dateFrom<=today&&r.dateTo>=today));
+    if(todayReports.length){
+      let block='';
+      todayReports.forEach(r=>{
+        const s=r.summary||{};
+        const pct=s.compliance||0;
+        const color=pct>=90?'#388e3c':pct>=70?'#f57c00':'#b71c1c';
+        block+=`<div style="margin-bottom:6px;"><strong>${(r.fileName||'').replace(/[<>]/g,'')}</strong> — <span style="color:${color};font-weight:700;">${pct}% compliance</span> (${s.totalArrived||0}/${s.totalExpected||0} checkpoints, ${s.totalOmitted||0} missed)</div>`;
+      });
+      sections.push({title:'📡 RFID today',html:block});
+    }
+  }catch(e){}
+
+  // 5) ADDITIONAL TASKS open (across all modules)
+  try{
+    const allAdd={};
+    let totalOpen=0,overdueAll=0;
+    ['maint','prod','it','irrigation','fleet','security'].forEach(modKey=>{
+      const arr=loadAddtlTasks(modKey);
+      const open=arr.filter(t=>t&&t.status!=='done');
+      const overdue=open.filter(t=>t.dueDate&&t.dueDate<today);
+      if(open.length){
+        allAdd[modKey]={open:open.length,overdue:overdue.length,items:open};
+        totalOpen+=open.length;
+        overdueAll+=overdue.length;
+      }
+    });
+    if(totalOpen){
+      let block=`<div class="ds-stats"><div><strong>${totalOpen}</strong> open</div><div><strong style="color:#b71c1c;">${overdueAll}</strong> overdue</div></div>`;
+      Object.keys(allAdd).forEach(mod=>{
+        const a=allAdd[mod];
+        block+=`<h4>${mod}: ${a.open} open${a.overdue?` · ${a.overdue} overdue`:''}</h4><ul>`;
+        a.items.slice(0,8).forEach(t=>{
+          const overdue=t.dueDate&&t.dueDate<today;
+          block+=`<li>${overdue?'<span style="color:#b71c1c;font-weight:700;">⚠ </span>':''}${(t.title||'').replace(/[<>]/g,'')}${t.facility?' · '+t.facility:''}${t.dueDate?' (due '+t.dueDate+')':''}</li>`;
+        });
+        if(a.items.length>8)block+=`<li style="color:#888;">+${a.items.length-8} more</li>`;
+        block+='</ul>';
+      });
+      sections.push({title:'➕ Additional tasks',html:block});
+    }
+  }catch(e){}
+
+  // 6) DRIVER ATTENDANCE today (from GPS imports)
+  try{
+    const att=JSON.parse(localStorage.getItem('hydroPro_gps_driver_attendance')||'{}');
+    const todayAtt=att[today]||[];
+    if(todayAtt.length){
+      let totalH=0;
+      todayAtt.forEach(d=>{
+        const p=t=>{const m=/^(\d{1,2}):(\d{2})/.exec(t||'');return m?Number(m[1])+Number(m[2])/60:null;};
+        const a=p(d.timeIn),b=p(d.timeOut);
+        if(a!=null&&b!=null){let h=b-a;if(h<0)h+=24;totalH+=h;}
+      });
+      let block=`<div class="ds-stats"><div><strong>${todayAtt.length}</strong> drivers</div><div><strong>${totalH.toFixed(1)}h</strong> total hours</div></div><ul>`;
+      todayAtt.forEach(d=>{
+        const p=t=>{const m=/^(\d{1,2}):(\d{2})/.exec(t||'');return m?Number(m[1])+Number(m[2])/60:null;};
+        const a=p(d.timeIn),b=p(d.timeOut);
+        let h=null;if(a!=null&&b!=null){h=b-a;if(h<0)h+=24;}
+        const overtime=h!=null&&h>10;
+        block+=`<li><strong>${(d.name||'').replace(/[<>]/g,'')}</strong> — ${d.timeIn||'—'} to ${d.timeOut||'—'}${h!=null?` (${h.toFixed(1)}h${overtime?' ⚠':''})`:''}</li>`;
+      });
+      block+='</ul>';
+      sections.push({title:'👥 Driver attendance',html:block});
+    }
+  }catch(e){}
+
+  return {dateLabel,today,sections};
+}
+
+window.openDailySummaryModal=function(){
+  const {dateLabel,today,sections}=_buildDailySummaryHtml();
+  let host=document.getElementById('dailySummaryModal');
+  if(!host){
+    host=document.createElement('div');
+    host.id='dailySummaryModal';
+    host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;';
+    document.body.appendChild(host);
+  }
+  const summaryHtml=sections.length?sections.map(s=>`<div class="ds-section"><h3>${s.title}</h3>${s.html}</div>`).join(''):'<p style="color:#888;text-align:center;padding:20px;">All clear today — no open items.</p>';
+  // Build the printable content separately — clean white-background HTML for copy/print
+  const printContent=`<style>
+    body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#333;padding:30px;line-height:1.5;}
+    h1{font-size:22px;color:#2e7d32;border-bottom:2px solid #2e7d32;padding-bottom:8px;}
+    h2{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-top:18px;}
+    h3{font-size:16px;color:#2e7d32;margin-top:18px;border-bottom:1px solid #ddd;padding-bottom:4px;}
+    h4{font-size:13px;color:#555;margin-top:10px;}
+    ul{margin:6px 0 6px 20px;padding:0;}
+    li{font-size:12px;margin-bottom:3px;}
+    .ds-stats{display:flex;gap:20px;flex-wrap:wrap;background:#f5f5f5;padding:10px 14px;border-radius:6px;font-size:13px;margin:8px 0;}
+    .ds-section{margin-bottom:16px;}
+    .footer{margin-top:30px;padding-top:14px;border-top:1px solid #ddd;font-size:10px;color:#aaa;text-align:center;}
+  </style>
+  <h1>🌱 HydroPro — Daily Summary</h1>
+  <h2>${dateLabel}</h2>
+  ${summaryHtml}
+  <div class="footer">Generated by ABA Pardes HydroPro · ${new Date().toLocaleString()}</div>`;
+
+  host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:780px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;font-family:var(--sans);">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--border);">
+      <div style="font-size:18px;font-weight:700;">📋 Daily Summary — ${today}</div>
+      <button onclick="document.getElementById('dailySummaryModal').remove();" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 10px;border-radius:6px;cursor:pointer;">✕</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;background:#fff;color:#333;" id="dsBody">${printContent}</div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-outline" onclick="_dsCopyToClipboard()">📋 Copy</button>
+        <button class="btn btn-outline" onclick="_dsCopyAsText()">📝 Copy as plain text</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-outline" onclick="_dsEmailSummary()">✉️ Email</button>
+        <button class="btn btn-primary" onclick="_dsPrintSummary()">🖨 Print / Save PDF</button>
+      </div>
+    </div>
+  </div>`;
+};
+
+window._dsCopyToClipboard=function(){
+  const html=document.getElementById('dsBody').innerHTML;
+  try{
+    navigator.clipboard.writeText(html).then(()=>{
+      if(typeof showToast==='function')showToast('HTML copied — paste in a rich-text editor or email','ok');
+    });
+  }catch(e){
+    // Fallback
+    const ta=document.createElement('textarea');ta.value=html;document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');if(typeof showToast==='function')showToast('Copied','ok');}catch(_){}
+    document.body.removeChild(ta);
+  }
+};
+
+window._dsCopyAsText=function(){
+  const tmp=document.createElement('div');
+  tmp.innerHTML=document.getElementById('dsBody').innerHTML;
+  const text=tmp.innerText||tmp.textContent||'';
+  try{
+    navigator.clipboard.writeText(text).then(()=>{
+      if(typeof showToast==='function')showToast('Plain text copied to clipboard','ok');
+    });
+  }catch(e){
+    const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');if(typeof showToast==='function')showToast('Copied','ok');}catch(_){}
+    document.body.removeChild(ta);
+  }
+};
+
+window._dsEmailSummary=function(){
+  const tmp=document.createElement('div');
+  tmp.innerHTML=document.getElementById('dsBody').innerHTML;
+  const text=tmp.innerText||tmp.textContent||'';
+  const today=new Date().toISOString().slice(0,10);
+  const subject=encodeURIComponent('HydroPro Daily Summary — '+today);
+  const body=encodeURIComponent(text.slice(0,5000));   // mailto has length limit
+  window.location.href=`mailto:?subject=${subject}&body=${body}`;
+};
+
+window._dsPrintSummary=function(){
+  const html=document.getElementById('dsBody').innerHTML;
+  const w=window.open('','_blank','width=900,height=700');
+  if(!w){alert('Pop-up blocked. Allow pop-ups for this site, then try again.');return;}
+  w.document.write(`<!DOCTYPE html><html><head><title>HydroPro Daily Summary</title></head><body>${html}</body></html>`);
+  w.document.close();
+  setTimeout(()=>{w.print();},300);
+};
+
+// Add a 📋 button in the topbar
+function injectDailySummaryButton(){
+  if(document.getElementById('dailySummaryBtn'))return;
+  const tb=document.getElementById('topbar');if(!tb)return;
+  const btn=document.createElement('button');
+  btn.id='dailySummaryBtn';
+  btn.title='Daily summary — open calls, RFID, flagged items, recurring tasks';
+  btn.style.cssText='background:none;border:1px solid var(--border);color:var(--text2);font-size:14px;padding:6px 10px;border-radius:7px;cursor:pointer;margin-left:6px;flex-shrink:0;';
+  btn.innerHTML='📋';
+  btn.onclick=openDailySummaryModal;
+  const search=document.getElementById('globalSearchBtn');
+  const backup=document.getElementById('backupBtn');
+  const bell=document.getElementById('notifBellBtn');
+  const ver=document.getElementById('versionIndicator');
+  const anchor=search||backup||bell||ver;
+  if(anchor&&anchor.parentNode)anchor.parentNode.insertBefore(btn,anchor.nextSibling);
+  else tb.appendChild(btn);
+}
+setInterval(injectDailySummaryButton,3000);
+setTimeout(injectDailySummaryButton,1200);
 
 // ============= SIM EXPIRY ALERTS (RADIOS) =============
 // Scans radios for SIM expiration. Fires notifications + auto-creates a
