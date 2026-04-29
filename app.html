@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777443304;
+const APP_BUILD=1777445173;
 const APP_BUILD_DATE='2026-04-29';
 
 // Store version in localStorage on first run
@@ -50225,6 +50225,274 @@ function renderSecRfid(){
 
   view.innerHTML=html;
 }
+
+// ============= NOTIFICATIONS & ALERTS =============
+// Toast + optional sound + browser notification when a new urgent/critical item
+// is created (call or maintenance task). Tracks seen IDs so each item fires once.
+const NOTIF_SEEN_KEY='hydroPro_notif_seen';
+const NOTIF_SETTINGS_KEY='hydroPro_notif_settings';
+const NOTIF_DEFAULT={enabled:true,sound:true,browser:false,permissionAsked:false};
+
+function _loadNotifSettings(){
+  try{
+    const s=JSON.parse(localStorage.getItem(NOTIF_SETTINGS_KEY)||'null');
+    return Object.assign({},NOTIF_DEFAULT,s||{});
+  }catch(e){return Object.assign({},NOTIF_DEFAULT);}
+}
+function _saveNotifSettings(s){localStorage.setItem(NOTIF_SETTINGS_KEY,JSON.stringify(s));}
+function _loadNotifSeen(){
+  try{return new Set(JSON.parse(localStorage.getItem(NOTIF_SEEN_KEY)||'[]'));}catch(e){return new Set();}
+}
+function _saveNotifSeen(set){
+  // Trim to last 500 entries
+  const arr=Array.from(set);
+  const trimmed=arr.length>500?arr.slice(-500):arr;
+  localStorage.setItem(NOTIF_SEEN_KEY,JSON.stringify(trimmed));
+}
+
+// Web Audio: generate a short alert tone. Doesn't need a sound file.
+let _audioCtx=null;
+function _playNotifSound(critical){
+  try{
+    if(!_audioCtx){_audioCtx=new (window.AudioContext||window.webkitAudioContext)();}
+    const ctx=_audioCtx;
+    const dur=critical?0.4:0.25;
+    const freqs=critical?[880,660,880]:[660,880];   // 3-tone for critical, 2-tone for warn
+    let t=ctx.currentTime;
+    freqs.forEach(f=>{
+      const o=ctx.createOscillator();
+      const g=ctx.createGain();
+      o.type='sine';o.frequency.value=f;
+      g.gain.setValueAtTime(0.001,t);
+      g.gain.exponentialRampToValueAtTime(0.18,t+0.02);
+      g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+      o.connect(g).connect(ctx.destination);
+      o.start(t);
+      o.stop(t+dur);
+      t+=dur*0.7;
+    });
+  }catch(e){}
+}
+
+// Build toast container
+function _ensureToastContainer(){
+  let host=document.getElementById('notifToastHost');
+  if(host)return host;
+  host=document.createElement('div');
+  host.id='notifToastHost';
+  host.style.cssText='position:fixed;top:74px;right:14px;z-index:99997;display:flex;flex-direction:column;gap:8px;max-width:380px;pointer-events:none;';
+  document.body.appendChild(host);
+  return host;
+}
+
+function _showNotificationToast(opts){
+  const host=_ensureToastContainer();
+  const t=document.createElement('div');
+  const isCritical=opts.severity==='critical';
+  const color=isCritical?'#b71c1c':'#f57c00';
+  const icon=isCritical?'🚨':'⚠️';
+  t.style.cssText=`background:${color};color:#fff;padding:14px 16px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.4);font-family:-apple-system,sans-serif;font-size:13px;font-weight:600;display:flex;flex-direction:column;gap:6px;pointer-events:auto;cursor:pointer;animation:notifSlideIn 0.3s ease-out;max-width:380px;`;
+  t.innerHTML=`<div style="display:flex;align-items:center;gap:10px;">
+    <span style="font-size:22px;">${icon}</span>
+    <div style="flex:1;">
+      <div style="font-weight:700;font-size:13px;">${isCritical?'CRITICAL':'WARNING'}</div>
+      <div style="font-size:13px;font-weight:600;margin-top:2px;line-height:1.3;">${(opts.title||'').replace(/[<>]/g,'')}</div>
+      ${opts.subtitle?`<div style="font-size:11px;font-weight:400;opacity:0.85;margin-top:3px;">${(opts.subtitle||'').replace(/[<>]/g,'')}</div>`:''}
+    </div>
+    <button style="background:rgba(0,0,0,0.18);border:none;color:#fff;width:24px;height:24px;border-radius:5px;cursor:pointer;font-size:14px;font-weight:700;flex-shrink:0;" title="Dismiss">✕</button>
+  </div>`;
+  // Inject animation CSS once
+  if(!document.getElementById('notifToastAnim')){
+    const s=document.createElement('style');s.id='notifToastAnim';
+    s.textContent='@keyframes notifSlideIn{from{transform:translateX(100%);opacity:0;}to{transform:translateX(0);opacity:1;}}';
+    document.head.appendChild(s);
+  }
+  // Click anywhere on toast → open the call detail (if callId provided)
+  t.onclick=function(e){
+    if(e.target.tagName==='BUTTON'){t.remove();return;}
+    if(opts.callId&&typeof viewCallDetail==='function'){
+      try{viewCallDetail(opts.callId);}catch(e){}
+    }
+    t.remove();
+  };
+  host.appendChild(t);
+  // Auto-dismiss warning toasts after 10s; critical stays until clicked
+  if(!isCritical){setTimeout(()=>{try{t.style.opacity='0';t.style.transform='translateX(20%)';t.style.transition='all 0.4s';setTimeout(()=>t.remove(),400);}catch(e){}},10000);}
+}
+
+function _showBrowserNotification(opts){
+  try{
+    if(!('Notification' in window))return;
+    if(Notification.permission!=='granted')return;
+    const n=new Notification('🌱 HydroPro — '+(opts.severity==='critical'?'CRITICAL':'WARNING'),{
+      body:(opts.title||'')+(opts.subtitle?'\n'+opts.subtitle:''),
+      icon:'',tag:opts.tag||opts.callId||opts.taskId||('notif_'+Date.now()),
+      requireInteraction:opts.severity==='critical'
+    });
+    n.onclick=function(){window.focus();n.close();};
+    setTimeout(()=>{try{n.close();}catch(e){}},opts.severity==='critical'?60000:15000);
+  }catch(e){}
+}
+
+function _fireNotification(opts){
+  const s=_loadNotifSettings();
+  if(!s.enabled)return;
+  _showNotificationToast(opts);
+  if(s.sound)_playNotifSound(opts.severity==='critical');
+  if(s.browser)_showBrowserNotification(opts);
+}
+window._fireNotification=_fireNotification;
+
+// Watch for new critical/urgent items
+let _notifInitDone=false;
+function _checkNewNotifications(){
+  try{
+    const seen=_loadNotifSeen();
+    let calls=[];try{calls=loadCalls();}catch(e){}
+    let tasks=[];try{if(typeof loadMaintTasks==='function')tasks=loadMaintTasks();}catch(e){}
+    if(!Array.isArray(calls))calls=[];
+    if(!Array.isArray(tasks))tasks=[];
+    // First run: mark everything as already seen (don't spam old items)
+    if(!_notifInitDone){
+      calls.forEach(c=>seen.add('call:'+c.id));
+      tasks.forEach(t=>seen.add('task:'+t.id));
+      _saveNotifSeen(seen);
+      _notifInitDone=true;
+      return;
+    }
+    // Find new urgent/priority calls
+    calls.forEach(c=>{
+      if(!c||!c.id)return;
+      const k='call:'+c.id;
+      if(seen.has(k))return;
+      const isClosed=(typeof isCallClosed==='function')?isCallClosed(c):(c.status==='closed_finalize'||c.status==='closed');
+      if(isClosed){seen.add(k);return;}   // skip closed
+      const pri=String(c.priority||'').toLowerCase();
+      if(pri==='urgent'||pri==='priority'){
+        _fireNotification({
+          severity:pri==='urgent'?'critical':'warning',
+          title:c.subject||'(no subject)',
+          subtitle:(c.sourceLabel||'')+(c.area?' · '+c.area:''),
+          callId:c.id,
+          tag:k
+        });
+      }
+      seen.add(k);
+    });
+    // Find new urgent priority tasks (auto-task creators set priority)
+    tasks.forEach(t=>{
+      if(!t||!t.id)return;
+      const k='task:'+t.id;
+      if(seen.has(k))return;
+      if(t.status==='done'||t.status==='cancelled'){seen.add(k);return;}
+      const pri=String(t.priority||'').toLowerCase();
+      if(pri==='urgent'){
+        _fireNotification({
+          severity:'critical',
+          title:t.title||'(maintenance task)',
+          subtitle:t.category||t.sourceModule||'',
+          taskId:t.id,
+          tag:k
+        });
+      }
+      seen.add(k);
+    });
+    _saveNotifSeen(seen);
+  }catch(e){console.warn('notif check',e);}
+}
+setTimeout(_checkNewNotifications,1500);
+setInterval(_checkNewNotifications,8000);
+
+// Settings panel — accessible from a small bell button in the topbar
+function injectNotifBellButton(){
+  if(document.getElementById('notifBellBtn'))return;
+  const tb=document.getElementById('topbar');if(!tb)return;
+  const btn=document.createElement('button');
+  btn.id='notifBellBtn';
+  btn.title='Notifications settings';
+  btn.style.cssText='background:none;border:1px solid var(--border);color:var(--text2);font-size:14px;padding:6px 10px;border-radius:7px;cursor:pointer;margin-left:6px;flex-shrink:0;';
+  const s=_loadNotifSettings();
+  btn.innerHTML=s.enabled?'🔔':'🔕';
+  btn.onclick=openNotifSettings;
+  // Place near version indicator
+  const ver=document.getElementById('versionIndicator');
+  if(ver&&ver.parentNode)ver.parentNode.insertBefore(btn,ver.nextSibling);
+  else tb.appendChild(btn);
+}
+setInterval(injectNotifBellButton,3000);
+setTimeout(injectNotifBellButton,800);
+
+window.openNotifSettings=function(){
+  const s=_loadNotifSettings();
+  let host=document.getElementById('notifSettingsModal');
+  if(!host){
+    host=document.createElement('div');
+    host.id='notifSettingsModal';
+    host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;';
+    document.body.appendChild(host);
+  }
+  host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:480px;width:100%;padding:22px;font-family:var(--sans);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+      <div style="font-size:18px;font-weight:700;">🔔 Notifications</div>
+      <button onclick="document.getElementById('notifSettingsModal').remove();" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 10px;border-radius:6px;cursor:pointer;">✕</button>
+    </div>
+    <p style="color:var(--text2);font-size:13px;line-height:1.5;margin-bottom:18px;">Get a toast (and optional sound) the moment a new urgent/critical call or task is created — so supervisors never miss them.</p>
+    <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface2);border-radius:8px;margin-bottom:8px;cursor:pointer;">
+      <input id="notifEnabled" type="checkbox" ${s.enabled?'checked':''} style="width:18px;height:18px;">
+      <div>
+        <div style="font-weight:600;font-size:13px;">Enable notifications</div>
+        <div style="font-size:11px;color:var(--text3);">Show toast in the top-right when new urgent items appear</div>
+      </div>
+    </label>
+    <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface2);border-radius:8px;margin-bottom:8px;cursor:pointer;">
+      <input id="notifSound" type="checkbox" ${s.sound?'checked':''} style="width:18px;height:18px;">
+      <div>
+        <div style="font-weight:600;font-size:13px;">Play sound</div>
+        <div style="font-size:11px;color:var(--text3);">Short beep — 3 tones for critical, 2 tones for warning</div>
+      </div>
+    </label>
+    <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface2);border-radius:8px;margin-bottom:14px;cursor:pointer;">
+      <input id="notifBrowser" type="checkbox" ${s.browser?'checked':''} style="width:18px;height:18px;">
+      <div>
+        <div style="font-weight:600;font-size:13px;">Desktop notification</div>
+        <div style="font-size:11px;color:var(--text3);">Show OS notification even when this tab is in the background. Requires browser permission.</div>
+      </div>
+    </label>
+    <div style="display:flex;justify-content:space-between;gap:8px;">
+      <button onclick="_testNotification()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);padding:8px 14px;border-radius:7px;cursor:pointer;font-size:12px;">🔊 Test</button>
+      <button onclick="_saveNotifSettingsFromModal()" class="btn btn-primary" style="padding:8px 16px;">💾 Save</button>
+    </div>
+  </div>`;
+};
+
+window._testNotification=function(){
+  _fireNotification({severity:'critical',title:'Test alert — looks good!',subtitle:'This is a sample critical notification.',tag:'test_'+Date.now()});
+};
+
+window._saveNotifSettingsFromModal=function(){
+  const s={
+    enabled:document.getElementById('notifEnabled').checked,
+    sound:document.getElementById('notifSound').checked,
+    browser:document.getElementById('notifBrowser').checked,
+    permissionAsked:_loadNotifSettings().permissionAsked
+  };
+  if(s.browser&&!s.permissionAsked&&'Notification' in window){
+    Notification.requestPermission().then(p=>{
+      s.permissionAsked=true;
+      _saveNotifSettings(s);
+      if(p!=='granted'){
+        if(typeof showToast==='function')showToast('Browser notifications denied — toast still works','warn');
+      }
+    });
+  } else {
+    _saveNotifSettings(s);
+  }
+  document.getElementById('notifSettingsModal').remove();
+  if(typeof showToast==='function')showToast('Notification settings saved','ok');
+  // Update bell icon
+  const btn=document.getElementById('notifBellBtn');
+  if(btn)btn.innerHTML=s.enabled?'🔔':'🔕';
+};
 
 })();
 
