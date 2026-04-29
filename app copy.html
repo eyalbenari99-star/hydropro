@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777447515;
+const APP_BUILD=1777442377;
 const APP_BUILD_DATE='2026-04-29';
 
 // Store version in localStorage on first run
@@ -42639,33 +42639,13 @@ function openCallModal(sourceModuleId,sourceLabel){
   // source pill
   const sp=document.getElementById('callSourceLine');
   if(sp)sp.textContent=_callDraft.sourceLabel?('From: '+_callDraft.sourceLabel):'(no source module — direct entry)';
-  // Populate equipment category dropdown — list is module-specific
-  // - Production module → 15 GH categories (Cooling Pad, Side Windows, Big Fans, ...)
-  // - Other modules    → IT/general EQUIP_CATEGORIES (CCTV, Solar, Pumps, ...)
+  // Populate equipment category dropdown
   const ecSel=document.getElementById('callEquipCat');
-  if(ecSel){
-    // v94 declares `currentModule` with `let` (not on window). Detect from the
-    // active sidebar button which always has data-module set.
-    let curMod='';
-    try{
-      const activeBtn=document.querySelector('.module-btn.active');
-      if(activeBtn)curMod=activeBtn.getAttribute('data-module')||'';
-    }catch(e){}
-    if(!curMod){try{if(typeof currentModule!=='undefined')curMod=currentModule;}catch(e){}}
-    const useProd=(curMod==='production');
-    const wantSig=useProd?'prod':'general';
-    if(ecSel.dataset._sig!==wantSig){
-      let listHtml='';
-      if(useProd&&typeof PROD_MATRIX_CATS!=='undefined'&&Array.isArray(PROD_MATRIX_CATS)){
-        listHtml=PROD_MATRIX_CATS.map(c=>`<option value="${c.id}">${c.icon} ${c.name}</option>`).join('');
-      } else {
-        listHtml=EQUIP_CATEGORIES.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
-      }
-      ecSel.innerHTML='<option value="">— Pick a category —</option>'+listHtml;
-      ecSel.dataset._sig=wantSig;
-    }
-    ecSel.value=_callDraft.equipmentCategory||'';
+  if(ecSel&&!ecSel.dataset._populated){
+    ecSel.innerHTML='<option value="">— Pick a category —</option>'+EQUIP_CATEGORIES.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
+    ecSel.dataset._populated='1';
   }
+  if(ecSel)ecSel.value=_callDraft.equipmentCategory||'';
   document.getElementById('callModal').classList.add('open');
   setTimeout(()=>document.getElementById('callSubject').focus(),100);
 }
@@ -43806,7 +43786,7 @@ const VIEW_TO_MODULE={
   // Cross-module overview tabs — leave un-tracked so banner doesn't show
   geo_dash:null,daily_briefing:null,critical_summary:null,calendar_all:null,
   issues_board:null,task_tracker:null,task_calendar:null,task_escalation:null,
-  audit:null,users:null,my_calls:null,dept_dashboards:null
+  audit:null,users:null,my_calls:null
 };
 function _moduleOfView(viewId){
   if(viewId in VIEW_TO_MODULE)return VIEW_TO_MODULE[viewId];
@@ -46387,7 +46367,6 @@ window.switchView=function(v){
   if(v==='it_matrix'){setTimeout(renderItEquipmentMatrix,80);}
   if(v==='prod_matrix'){setTimeout(renderProdMatrix,80);}
   if(v==='sec_rfid'){setTimeout(renderSecRfid,80);}
-  if(v==='dept_dashboards'){setTimeout(renderDeptDashboards,80);}
   if(v==='open_issues'){setTimeout(injectCallsIntoOpenIssues,100);setTimeout(injectCallsIntoOpenIssues,500);}
   if(_isModuleMainView(v)){setTimeout(injectDashboardSummary,100);setTimeout(injectDashboardSummary,500);}
   if(v==='wall'){setTimeout(injectWallCallsPanel,300);setTimeout(injectWallCallsPanel,1000);}
@@ -47307,9 +47286,6 @@ const EXTRA_SUBTABS={
   ],
   security:[
     {id:'sec_rfid', label:'📡 RFID Patrol Reports'}
-  ],
-  overview:[
-    {id:'dept_dashboards', label:'🏢 Departments'}
   ]
 };
 // Every module also gets a "📞 Open Issues" sub-tab that opens My Calls
@@ -47482,11 +47458,11 @@ function _doVersionReload(){
   window.location.href=url;
   setTimeout(()=>{try{window.location.reload(true);}catch(e){}},200);
 }
-// AUTO-POLLING DISABLED — user reported the banner kept reappearing.
-// Updates are now ONLY checked when the user clicks the 🔄 button in the topbar.
-// (See injectVersionCheckButton — the manual click still works.)
-// setInterval(_checkVersionUpdate,10*60*1000);   // disabled
-// setTimeout(_checkVersionUpdate,30000);          // disabled
+// Polling: 10 minutes — gentle, the addon's seen-build tracking prevents loops anyway
+setInterval(_checkVersionUpdate,10*60*1000);
+// REMOVED visibilitychange + focus listeners: those could double-trigger on rapid
+// tab switching and cause repeat banners. The 10-minute interval + manual button is enough.
+setTimeout(_checkVersionUpdate,30000);  // first check 30s after load
 
 // Suppress v94's built-in checkForUpdate / setInterval — our addon handles it more
 // safely. Without this, both checkers run in parallel and can show double banners.
@@ -49187,57 +49163,18 @@ window.deleteRecurringDef=function(defId){
 
 // Module-level toggle: 'reactive' | 'preventive' — keyed per module so each one
 // remembers its own state.
-
-// Map our internal modKey → set of view IDs (without the 'view-' prefix) where
-// the toggle should appear.
-const MOD_VIEW_IDS={
-  maint:['maint_dash','maint_tasks'],
-  prod:['dashboard','checklist','supervisor'],
-  it:['it_cctv','it_radios','it_devices','it_prj11'],
-  irrigation:['irr_dash','irr_schedule','irr_drums','irr_nutrients','irr_systems'],
-  fleet:['fleet_dash','fleet_vehicles','fleet_drivers','fleet_fuel','fleet_gps'],
-  security:['sec_dash','sec_live','sec_patrol','sec_checkpoints','sec_incidents','sec_guards','sec_rfid']
-};
-// Map modKey → label used in the recurring task module field
-const MOD_DEF_NAME={
-  maint:'maintenance',
-  prod:'production',
-  it:'it',
-  irrigation:'irrigation',
-  fleet:'fleet',
-  security:'security'
-};
-const MOD_DISPLAY={
-  maint:'Maintenance',
-  prod:'Production',
-  it:'IT',
-  irrigation:'Irrigation',
-  fleet:'Fleet',
-  security:'Security'
-};
-
-function _activeViewForMod(modKey){
-  const ids=MOD_VIEW_IDS[modKey]||[];
-  for(const id of ids){
-    const v=document.getElementById('view-'+id);
-    if(v&&v.classList.contains('active'))return v;
-  }
-  return null;
-}
-
 function _getModeFor(modKey){return localStorage.getItem('hydroPro_'+modKey+'_mode')||'reactive';}
 function _setModeFor(modKey,m){
   localStorage.setItem('hydroPro_'+modKey+'_mode',m);
-  // Refresh module-specific renderers (best-effort — bail silently if a renderer doesn't exist)
-  const renderers={
-    maint:['renderMaintDash','renderMaintTasks'],
-    prod:['renderDashboard','renderChecklist','renderSupervisor'],
-    it:['renderItCctv','renderItRadios','renderItDevices'],
-    irrigation:['renderIrrDash','renderIrrRoomChecklist','renderIrrDrumLevels','renderIrrPoolMonitor'],
-    fleet:['renderFleetDashboard','renderFleetVehicles'],
-    security:['renderSecDash','renderSecLive','renderSecPatrol']
-  }[modKey]||[];
-  renderers.forEach(name=>{try{if(typeof window[name]==='function')window[name]();}catch(e){}});
+  // Refresh module views
+  if(modKey==='maint'){
+    try{if(typeof renderMaintDash==='function')renderMaintDash();}catch(e){}
+    try{if(typeof renderMaintTasks==='function')renderMaintTasks();}catch(e){}
+  } else if(modKey==='prod'){
+    try{if(typeof renderDashboard==='function')renderDashboard();}catch(e){}
+    try{if(typeof renderChecklist==='function')renderChecklist();}catch(e){}
+    try{if(typeof renderSupervisor==='function')renderSupervisor();}catch(e){}
+  }
   _renderRecurringPanelFor(modKey);
 }
 window._setRecurringMode=_setModeFor;
@@ -49254,20 +49191,16 @@ window._toggleRecExpand=function(defId){
 
 function _modeTabsHTML(modKey){
   const m=_getModeFor(modKey);
-  // Reactive label varies per module — others all read "Reactive (Calls)"
-  const reactiveLabels={
-    prod:'📋 Daily Checklist',
-    maint:'📞 Reactive (Calls)',
-    it:'📞 Reactive (Calls)',
-    irrigation:'📋 Daily Checks',
-    fleet:'📞 Reactive (Calls)',
-    security:'📞 Reactive (Calls)'
-  };
-  const reactiveLabel=reactiveLabels[modKey]||'📞 Reactive (Calls)';
+  if(modKey==='prod'){
+    return `<div style="display:flex;gap:6px;margin-bottom:14px;background:var(--surface2);padding:6px;border-radius:10px;width:fit-content;max-width:100%;flex-wrap:wrap;">
+      <button class="btn ${m==='reactive'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('prod','reactive')" style="border:0;">📋 Daily Checklist</button>
+      <button class="btn ${m==='preventive'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('prod','preventive')" style="border:0;">🔁 Recurring Tasks</button>
+      <button class="btn ${m==='additional'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('prod','additional')" style="border:0;">➕ Additional Tasks</button>
+    </div>`;
+  }
   return `<div style="display:flex;gap:6px;margin-bottom:14px;background:var(--surface2);padding:6px;border-radius:10px;width:fit-content;max-width:100%;flex-wrap:wrap;">
-    <button class="btn ${m==='reactive'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('${modKey}','reactive')" style="border:0;">${reactiveLabel}</button>
-    <button class="btn ${m==='preventive'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('${modKey}','preventive')" style="border:0;">🔁 Recurring Tasks</button>
-    <button class="btn ${m==='additional'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('${modKey}','additional')" style="border:0;">➕ Additional Tasks</button>
+    <button class="btn ${m==='reactive'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('${modKey}','reactive')" style="border:0;">📞 Reactive (Calls)</button>
+    <button class="btn ${m==='preventive'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('${modKey}','preventive')" style="border:0;">🔁 Preventive (Recurring)</button>
   </div>`;
 }
 
@@ -49531,7 +49464,19 @@ window._addtlSetStatus=function(modKey,taskId,status){
 };
 
 function _renderAddtlPanelFor(modKey){
-  const activeView=_activeViewForMod(modKey);
+  let activeView=null;
+  if(modKey==='prod'){
+    const dashView=document.getElementById('view-dashboard');
+    const cl=document.getElementById('view-checklist');
+    const sup=document.getElementById('view-supervisor');
+    activeView=(dashView&&dashView.classList.contains('active'))?dashView:
+               (cl&&cl.classList.contains('active'))?cl:
+               (sup&&sup.classList.contains('active'))?sup:null;
+  } else if(modKey==='maint'){
+    const dashView=document.getElementById('view-maint_dash');
+    const tasksView=document.getElementById('view-maint_tasks');
+    activeView=(dashView&&dashView.classList.contains('active'))?dashView:(tasksView&&tasksView.classList.contains('active')?tasksView:null);
+  }
   if(!activeView)return;
   const hostId=modKey+'ModeHost';
   let host=document.getElementById(hostId);
@@ -49598,8 +49543,21 @@ function _renderAddtlPanelFor(modKey){
 }
 
 // Render the recurring task panel inside the active view of a module.
+//   modKey: 'maint' | 'prod'
 function _renderRecurringPanelFor(modKey){
-  const activeView=_activeViewForMod(modKey);
+  let activeView=null;
+  if(modKey==='maint'){
+    const dashView=document.getElementById('view-maint_dash');
+    const tasksView=document.getElementById('view-maint_tasks');
+    activeView=(dashView&&dashView.classList.contains('active'))?dashView:(tasksView&&tasksView.classList.contains('active')?tasksView:null);
+  } else if(modKey==='prod'){
+    const dashView=document.getElementById('view-dashboard');
+    const cl=document.getElementById('view-checklist');
+    const sup=document.getElementById('view-supervisor');
+    activeView=(dashView&&dashView.classList.contains('active'))?dashView:
+               (cl&&cl.classList.contains('active'))?cl:
+               (sup&&sup.classList.contains('active'))?sup:null;
+  }
   if(!activeView)return;
   const hostId=modKey+'ModeHost';
   let host=document.getElementById(hostId);
@@ -49618,7 +49576,7 @@ function _renderRecurringPanelFor(modKey){
     return;
   }
   // Preventive mode — list of recurring definitions for this module
-  const moduleFilter=MOD_DEF_NAME[modKey]||'maintenance';
+  const moduleFilter=modKey==='maint'?'maintenance':'production';
   const defs=loadRecurringDefs().filter(d=>(d.module||'maintenance')===moduleFilter);
   const view=_getRecView(modKey);
   const viewToggle=`<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
@@ -49681,7 +49639,7 @@ window._recSetView=function(modKey,view){
 function _getRecView(modKey){return _recView[modKey]||'list';}
 
 function _renderRecurringCalendar(modKey){
-  const moduleFilter=MOD_DEF_NAME[modKey]||'maintenance';
+  const moduleFilter=modKey==='maint'?'maintenance':'production';
   const defs=loadRecurringDefs().filter(d=>(d.module||'maintenance')===moduleFilter&&d.enabled!==false);
   const s=_getRecCalState(modKey);
   const monthStart=new Date(s.year,s.month,1);
@@ -49764,7 +49722,7 @@ function _renderRecurringCalendar(modKey){
 }
 
 window._recCalDayDetail=function(modKey,date){
-  const moduleFilter=MOD_DEF_NAME[modKey]||'maintenance';
+  const moduleFilter=modKey==='maint'?'maintenance':'production';
   const defs=loadRecurringDefs().filter(d=>(d.module||'maintenance')===moduleFilter&&d.enabled!==false);
   const instances=loadRecurringInstances();
   let occRows=[];
@@ -49821,7 +49779,7 @@ window._recCalDayDetail=function(modKey,date){
 // definitions for a given module, grouped by time-of-day. Each card shows
 // progress (X/N facilities done) and the list of facilities still pending.
 function renderRecurringWall(modKey){
-  const moduleFilter=MOD_DEF_NAME[modKey]||'maintenance';
+  const moduleFilter=modKey==='maint'?'maintenance':'production';
   const today=new Date().toISOString().slice(0,10);
   const defs=loadRecurringDefs().filter(d=>(d.module||'maintenance')===moduleFilter&&d.enabled!==false);
   const instances=loadRecurringInstances().filter(i=>i.module===moduleFilter&&i.date===today);
@@ -49906,35 +49864,45 @@ window.openRecurringWall=function(modKey){
   },30000);
 };
 
-// Patch each module's renderers so they always render the mode tabs.
-// Map of render-function name → modKey it belongs to.
-const _RENDERER_MOD_MAP={
-  // Maintenance
-  renderMaintDash:'maint',renderMaintTasks:'maint',
-  // Production
-  renderDashboard:'prod',renderChecklist:'prod',renderSupervisor:'prod',
-  // IT
-  renderItCctv:'it',renderItRadios:'it',renderItDevices:'it',
-  // Irrigation
-  renderIrrDash:'irrigation',renderIrrRoomChecklist:'irrigation',renderIrrDrumLevels:'irrigation',renderIrrPoolMonitor:'irrigation',
-  // Fleet
-  renderFleetDashboard:'fleet',renderFleetVehicles:'fleet',renderFleetDrivers:'fleet',renderFleetFuel:'fleet',
-  // Security
-  renderSecDash:'security',renderSecLive:'security',renderSecPatrol:'security',renderSecCheckpoints:'security'
-};
+// Patch maintenance + production renderers so they always render the mode tabs
 function _patchModeRenderers(){
-  for(const fnName in _RENDERER_MOD_MAP){
-    const modKey=_RENDERER_MOD_MAP[fnName];
-    const fn=window[fnName];
-    if(typeof fn!=='function'||fn.__modePatched)continue;
-    (function(name,mk,orig){
-      window[name]=function(){
-        const r=orig.apply(this,arguments);
-        try{_renderRecurringPanelFor(mk);}catch(e){console.warn('rec panel '+mk,e);}
-        return r;
-      };
-      window[name].__modePatched=true;
-    })(fnName,modKey,fn);
+  // Maintenance dashboard + task list
+  if(typeof window.renderMaintDash==='function'&&!window.renderMaintDash.__modePatched){
+    const orig=window.renderMaintDash;
+    window.renderMaintDash=function(){
+      const r=orig.apply(this,arguments);
+      try{_renderRecurringPanelFor('maint');}catch(e){console.warn('rec panel maint',e);}
+      return r;
+    };
+    window.renderMaintDash.__modePatched=true;
+  }
+  if(typeof window.renderMaintTasks==='function'&&!window.renderMaintTasks.__modePatched){
+    const orig=window.renderMaintTasks;
+    window.renderMaintTasks=function(){
+      const r=orig.apply(this,arguments);
+      try{_renderRecurringPanelFor('maint');}catch(e){console.warn('rec panel maint',e);}
+      return r;
+    };
+    window.renderMaintTasks.__modePatched=true;
+  }
+  // Production dashboard
+  if(typeof window.renderDashboard==='function'&&!window.renderDashboard.__modePatched){
+    const orig=window.renderDashboard;
+    window.renderDashboard=function(){
+      const r=orig.apply(this,arguments);
+      try{_renderRecurringPanelFor('prod');}catch(e){console.warn('rec panel prod',e);}
+      return r;
+    };
+    window.renderDashboard.__modePatched=true;
+  }
+  if(typeof window.renderChecklist==='function'&&!window.renderChecklist.__modePatched){
+    const orig=window.renderChecklist;
+    window.renderChecklist=function(){
+      const r=orig.apply(this,arguments);
+      try{_renderRecurringPanelFor('prod');}catch(e){console.warn('rec panel prod',e);}
+      return r;
+    };
+    window.renderChecklist.__modePatched=true;
   }
 }
 setInterval(_patchModeRenderers,800);
@@ -50237,1057 +50205,6 @@ function renderSecRfid(){
 
   view.innerHTML=html;
 }
-
-// ============= NOTIFICATIONS & ALERTS =============
-// Toast + optional sound + browser notification when a new urgent/critical item
-// is created (call or maintenance task). Tracks seen IDs so each item fires once.
-const NOTIF_SEEN_KEY='hydroPro_notif_seen';
-const NOTIF_SETTINGS_KEY='hydroPro_notif_settings';
-const NOTIF_DEFAULT={enabled:true,sound:true,browser:false,permissionAsked:false};
-
-function _loadNotifSettings(){
-  try{
-    const s=JSON.parse(localStorage.getItem(NOTIF_SETTINGS_KEY)||'null');
-    return Object.assign({},NOTIF_DEFAULT,s||{});
-  }catch(e){return Object.assign({},NOTIF_DEFAULT);}
-}
-function _saveNotifSettings(s){localStorage.setItem(NOTIF_SETTINGS_KEY,JSON.stringify(s));}
-function _loadNotifSeen(){
-  try{return new Set(JSON.parse(localStorage.getItem(NOTIF_SEEN_KEY)||'[]'));}catch(e){return new Set();}
-}
-function _saveNotifSeen(set){
-  // Trim to last 500 entries
-  const arr=Array.from(set);
-  const trimmed=arr.length>500?arr.slice(-500):arr;
-  localStorage.setItem(NOTIF_SEEN_KEY,JSON.stringify(trimmed));
-}
-
-// Web Audio: generate a short alert tone. Doesn't need a sound file.
-let _audioCtx=null;
-function _playNotifSound(critical){
-  try{
-    if(!_audioCtx){_audioCtx=new (window.AudioContext||window.webkitAudioContext)();}
-    const ctx=_audioCtx;
-    const dur=critical?0.4:0.25;
-    const freqs=critical?[880,660,880]:[660,880];   // 3-tone for critical, 2-tone for warn
-    let t=ctx.currentTime;
-    freqs.forEach(f=>{
-      const o=ctx.createOscillator();
-      const g=ctx.createGain();
-      o.type='sine';o.frequency.value=f;
-      g.gain.setValueAtTime(0.001,t);
-      g.gain.exponentialRampToValueAtTime(0.18,t+0.02);
-      g.gain.exponentialRampToValueAtTime(0.001,t+dur);
-      o.connect(g).connect(ctx.destination);
-      o.start(t);
-      o.stop(t+dur);
-      t+=dur*0.7;
-    });
-  }catch(e){}
-}
-
-// Build toast container
-function _ensureToastContainer(){
-  let host=document.getElementById('notifToastHost');
-  if(host)return host;
-  host=document.createElement('div');
-  host.id='notifToastHost';
-  host.style.cssText='position:fixed;top:74px;right:14px;z-index:99997;display:flex;flex-direction:column;gap:8px;max-width:380px;pointer-events:none;';
-  document.body.appendChild(host);
-  return host;
-}
-
-function _showNotificationToast(opts){
-  const host=_ensureToastContainer();
-  const t=document.createElement('div');
-  const isCritical=opts.severity==='critical';
-  const color=isCritical?'#b71c1c':'#f57c00';
-  const icon=isCritical?'🚨':'⚠️';
-  t.style.cssText=`background:${color};color:#fff;padding:14px 16px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.4);font-family:-apple-system,sans-serif;font-size:13px;font-weight:600;display:flex;flex-direction:column;gap:6px;pointer-events:auto;cursor:pointer;animation:notifSlideIn 0.3s ease-out;max-width:380px;`;
-  t.innerHTML=`<div style="display:flex;align-items:center;gap:10px;">
-    <span style="font-size:22px;">${icon}</span>
-    <div style="flex:1;">
-      <div style="font-weight:700;font-size:13px;">${isCritical?'CRITICAL':'WARNING'}</div>
-      <div style="font-size:13px;font-weight:600;margin-top:2px;line-height:1.3;">${(opts.title||'').replace(/[<>]/g,'')}</div>
-      ${opts.subtitle?`<div style="font-size:11px;font-weight:400;opacity:0.85;margin-top:3px;">${(opts.subtitle||'').replace(/[<>]/g,'')}</div>`:''}
-    </div>
-    <button style="background:rgba(0,0,0,0.18);border:none;color:#fff;width:24px;height:24px;border-radius:5px;cursor:pointer;font-size:14px;font-weight:700;flex-shrink:0;" title="Dismiss">✕</button>
-  </div>`;
-  // Inject animation CSS once
-  if(!document.getElementById('notifToastAnim')){
-    const s=document.createElement('style');s.id='notifToastAnim';
-    s.textContent='@keyframes notifSlideIn{from{transform:translateX(100%);opacity:0;}to{transform:translateX(0);opacity:1;}}';
-    document.head.appendChild(s);
-  }
-  // Click anywhere on toast → open the call detail (if callId provided)
-  t.onclick=function(e){
-    if(e.target.tagName==='BUTTON'){t.remove();return;}
-    if(opts.callId&&typeof viewCallDetail==='function'){
-      try{viewCallDetail(opts.callId);}catch(e){}
-    }
-    t.remove();
-  };
-  host.appendChild(t);
-  // Auto-dismiss warning toasts after 10s; critical stays until clicked
-  if(!isCritical){setTimeout(()=>{try{t.style.opacity='0';t.style.transform='translateX(20%)';t.style.transition='all 0.4s';setTimeout(()=>t.remove(),400);}catch(e){}},10000);}
-}
-
-function _showBrowserNotification(opts){
-  try{
-    if(!('Notification' in window))return;
-    if(Notification.permission!=='granted')return;
-    const n=new Notification('🌱 HydroPro — '+(opts.severity==='critical'?'CRITICAL':'WARNING'),{
-      body:(opts.title||'')+(opts.subtitle?'\n'+opts.subtitle:''),
-      icon:'',tag:opts.tag||opts.callId||opts.taskId||('notif_'+Date.now()),
-      requireInteraction:opts.severity==='critical'
-    });
-    n.onclick=function(){window.focus();n.close();};
-    setTimeout(()=>{try{n.close();}catch(e){}},opts.severity==='critical'?60000:15000);
-  }catch(e){}
-}
-
-function _fireNotification(opts){
-  const s=_loadNotifSettings();
-  if(!s.enabled)return;
-  _showNotificationToast(opts);
-  if(s.sound)_playNotifSound(opts.severity==='critical');
-  if(s.browser)_showBrowserNotification(opts);
-}
-window._fireNotification=_fireNotification;
-
-// Watch for new critical/urgent items
-let _notifInitDone=false;
-function _checkNewNotifications(){
-  try{
-    const seen=_loadNotifSeen();
-    let calls=[];try{calls=loadCalls();}catch(e){}
-    let tasks=[];try{if(typeof loadMaintTasks==='function')tasks=loadMaintTasks();}catch(e){}
-    if(!Array.isArray(calls))calls=[];
-    if(!Array.isArray(tasks))tasks=[];
-    // First run: mark everything as already seen (don't spam old items)
-    if(!_notifInitDone){
-      calls.forEach(c=>seen.add('call:'+c.id));
-      tasks.forEach(t=>seen.add('task:'+t.id));
-      _saveNotifSeen(seen);
-      _notifInitDone=true;
-      return;
-    }
-    // Find new urgent/priority calls
-    calls.forEach(c=>{
-      if(!c||!c.id)return;
-      const k='call:'+c.id;
-      if(seen.has(k))return;
-      const isClosed=(typeof isCallClosed==='function')?isCallClosed(c):(c.status==='closed_finalize'||c.status==='closed');
-      if(isClosed){seen.add(k);return;}   // skip closed
-      const pri=String(c.priority||'').toLowerCase();
-      if(pri==='urgent'||pri==='priority'){
-        _fireNotification({
-          severity:pri==='urgent'?'critical':'warning',
-          title:c.subject||'(no subject)',
-          subtitle:(c.sourceLabel||'')+(c.area?' · '+c.area:''),
-          callId:c.id,
-          tag:k
-        });
-      }
-      seen.add(k);
-    });
-    // Find new urgent priority tasks (auto-task creators set priority)
-    tasks.forEach(t=>{
-      if(!t||!t.id)return;
-      const k='task:'+t.id;
-      if(seen.has(k))return;
-      if(t.status==='done'||t.status==='cancelled'){seen.add(k);return;}
-      const pri=String(t.priority||'').toLowerCase();
-      if(pri==='urgent'){
-        _fireNotification({
-          severity:'critical',
-          title:t.title||'(maintenance task)',
-          subtitle:t.category||t.sourceModule||'',
-          taskId:t.id,
-          tag:k
-        });
-      }
-      seen.add(k);
-    });
-    _saveNotifSeen(seen);
-  }catch(e){console.warn('notif check',e);}
-}
-setTimeout(_checkNewNotifications,1500);
-setInterval(_checkNewNotifications,8000);
-
-// Settings panel — accessible from a small bell button in the topbar
-function injectNotifBellButton(){
-  if(document.getElementById('notifBellBtn'))return;
-  const tb=document.getElementById('topbar');if(!tb)return;
-  const btn=document.createElement('button');
-  btn.id='notifBellBtn';
-  btn.title='Notifications settings';
-  btn.style.cssText='background:none;border:1px solid var(--border);color:var(--text2);font-size:14px;padding:6px 10px;border-radius:7px;cursor:pointer;margin-left:6px;flex-shrink:0;';
-  const s=_loadNotifSettings();
-  btn.innerHTML=s.enabled?'🔔':'🔕';
-  btn.onclick=openNotifSettings;
-  // Place near version indicator
-  const ver=document.getElementById('versionIndicator');
-  if(ver&&ver.parentNode)ver.parentNode.insertBefore(btn,ver.nextSibling);
-  else tb.appendChild(btn);
-}
-setInterval(injectNotifBellButton,3000);
-setTimeout(injectNotifBellButton,800);
-
-window.openNotifSettings=function(){
-  const s=_loadNotifSettings();
-  let host=document.getElementById('notifSettingsModal');
-  if(!host){
-    host=document.createElement('div');
-    host.id='notifSettingsModal';
-    host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;';
-    document.body.appendChild(host);
-  }
-  host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:480px;width:100%;padding:22px;font-family:var(--sans);">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
-      <div style="font-size:18px;font-weight:700;">🔔 Notifications</div>
-      <button onclick="document.getElementById('notifSettingsModal').remove();" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 10px;border-radius:6px;cursor:pointer;">✕</button>
-    </div>
-    <p style="color:var(--text2);font-size:13px;line-height:1.5;margin-bottom:18px;">Get a toast (and optional sound) the moment a new urgent/critical call or task is created — so supervisors never miss them.</p>
-    <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface2);border-radius:8px;margin-bottom:8px;cursor:pointer;">
-      <input id="notifEnabled" type="checkbox" ${s.enabled?'checked':''} style="width:18px;height:18px;">
-      <div>
-        <div style="font-weight:600;font-size:13px;">Enable notifications</div>
-        <div style="font-size:11px;color:var(--text3);">Show toast in the top-right when new urgent items appear</div>
-      </div>
-    </label>
-    <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface2);border-radius:8px;margin-bottom:8px;cursor:pointer;">
-      <input id="notifSound" type="checkbox" ${s.sound?'checked':''} style="width:18px;height:18px;">
-      <div>
-        <div style="font-weight:600;font-size:13px;">Play sound</div>
-        <div style="font-size:11px;color:var(--text3);">Short beep — 3 tones for critical, 2 tones for warning</div>
-      </div>
-    </label>
-    <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface2);border-radius:8px;margin-bottom:14px;cursor:pointer;">
-      <input id="notifBrowser" type="checkbox" ${s.browser?'checked':''} style="width:18px;height:18px;">
-      <div>
-        <div style="font-weight:600;font-size:13px;">Desktop notification</div>
-        <div style="font-size:11px;color:var(--text3);">Show OS notification even when this tab is in the background. Requires browser permission.</div>
-      </div>
-    </label>
-    <div style="display:flex;justify-content:space-between;gap:8px;">
-      <button onclick="_testNotification()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);padding:8px 14px;border-radius:7px;cursor:pointer;font-size:12px;">🔊 Test</button>
-      <button onclick="_saveNotifSettingsFromModal()" class="btn btn-primary" style="padding:8px 16px;">💾 Save</button>
-    </div>
-  </div>`;
-};
-
-window._testNotification=function(){
-  _fireNotification({severity:'critical',title:'Test alert — looks good!',subtitle:'This is a sample critical notification.',tag:'test_'+Date.now()});
-};
-
-// ============= PER-DEPARTMENT DASHBOARDS =============
-// Hub view that shows all 14 departments as cards. Click one to drill in to
-// that department's open calls, urgent count, recurring tasks, additional tasks.
-let _deptSelected=null;
-
-function _collectDeptStats(){
-  // Returns {deptId: {open, urgent, total, recent, recurring, additional}}
-  const stats={};
-  MATRIX_DEPARTMENTS.forEach(d=>{stats[d.id]={open:0,urgent:0,total:0,closed7d:0,calls:[],recurring:0,additional:0};});
-  let calls=[];try{calls=loadCalls();}catch(e){}
-  if(!Array.isArray(calls))calls=[];
-  const now=Date.now();
-  const week=7*24*60*60*1000;
-  calls.forEach(c=>{
-    if(!c)return;
-    const deptId=_matrixDeptId(c.department||'')||_matrixDeptId(c.sourceModule||'')||null;
-    if(!deptId||!stats[deptId])return;
-    stats[deptId].total++;
-    const closed=(typeof isCallClosed==='function')?isCallClosed(c):(c.status==='closed_finalize'||c.status==='closed');
-    if(!closed){
-      stats[deptId].open++;
-      if(c.priority==='urgent')stats[deptId].urgent++;
-      stats[deptId].calls.push(c);
-    } else if(c.closedAt&&(now-c.closedAt)<week){
-      stats[deptId].closed7d++;
-    }
-  });
-  // Recurring task counts per dept (use module mapping)
-  let defs=[];try{defs=loadRecurringDefs();}catch(e){}
-  if(Array.isArray(defs)){
-    defs.forEach(d=>{
-      if(d.enabled===false)return;
-      const deptId=_matrixDeptId(d.module||'')||(d.module==='maintenance'?'maintenance':d.module);
-      if(deptId&&stats[deptId])stats[deptId].recurring++;
-    });
-  }
-  // Additional tasks per module key — best-effort count
-  ['maint','prod','it','irrigation','fleet','security'].forEach(modKey=>{
-    let arr=[];try{arr=loadAddtlTasks(modKey);}catch(e){}
-    const deptId=({maint:'maintenance',prod:'production',it:'it',irrigation:'irrigation',fleet:'fleet',security:'security'})[modKey];
-    if(deptId&&stats[deptId]&&Array.isArray(arr)){
-      stats[deptId].additional=arr.filter(t=>t&&t.status!=='done').length;
-    }
-  });
-  return stats;
-}
-
-function renderDeptDashboards(){
-  let view=document.getElementById('view-dept_dashboards');
-  if(!view){
-    view=document.createElement('div');
-    view.className='view';view.id='view-dept_dashboards';
-    const main=document.getElementById('appMain')||document.body;
-    main.appendChild(view);
-  }
-  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
-  view.classList.add('active');
-  const stats=_collectDeptStats();
-  if(_deptSelected){
-    view.innerHTML=_buildDeptDetail(_deptSelected,stats);
-  } else {
-    view.innerHTML=_buildDeptHub(stats);
-  }
-}
-
-function _buildDeptHub(stats){
-  const cards=MATRIX_DEPARTMENTS.map(d=>{
-    const s=stats[d.id];
-    const totalOpen=s.open;
-    const color=s.urgent>0?'var(--danger)':totalOpen>0?'var(--warn)':'var(--ok)';
-    return `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${color};border-radius:10px;padding:14px;cursor:pointer;transition:transform 0.15s;" onclick="_deptSelected='${d.id}';renderDeptDashboards();" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-        <span style="font-size:24px;">${d.icon}</span>
-        <div style="flex:1;">
-          <div style="font-size:14px;font-weight:700;">${d.label}</div>
-          <div style="font-size:10px;color:var(--text3);font-family:var(--mono);">${d.scope}</div>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-family:var(--mono);font-size:11px;">
-        <div style="background:var(--surface2);padding:6px;border-radius:5px;text-align:center;">
-          <div style="font-size:18px;font-weight:700;color:${totalOpen>0?'var(--warn)':'var(--text3)'};">${totalOpen}</div>
-          <div style="color:var(--text3);font-size:9px;text-transform:uppercase;">Open</div>
-        </div>
-        <div style="background:var(--surface2);padding:6px;border-radius:5px;text-align:center;">
-          <div style="font-size:18px;font-weight:700;color:${s.urgent>0?'var(--danger)':'var(--text3)'};">${s.urgent}</div>
-          <div style="color:var(--text3);font-size:9px;text-transform:uppercase;">Urgent</div>
-        </div>
-        <div style="background:var(--surface2);padding:6px;border-radius:5px;text-align:center;">
-          <div style="font-size:18px;font-weight:700;color:var(--info);">${s.recurring}</div>
-          <div style="color:var(--text3);font-size:9px;text-transform:uppercase;">Recurring</div>
-        </div>
-        <div style="background:var(--surface2);padding:6px;border-radius:5px;text-align:center;">
-          <div style="font-size:18px;font-weight:700;color:var(--accent);">${s.additional}</div>
-          <div style="color:var(--text3);font-size:9px;text-transform:uppercase;">Add'l</div>
-        </div>
-      </div>
-      ${s.closed7d>0?`<div style="margin-top:8px;font-size:10px;color:var(--ok);font-family:var(--mono);">✓ ${s.closed7d} closed in last 7 days</div>`:''}
-    </div>`;
-  }).join('');
-  // Top totals
-  const totalOpen=MATRIX_DEPARTMENTS.reduce((a,d)=>a+stats[d.id].open,0);
-  const totalUrgent=MATRIX_DEPARTMENTS.reduce((a,d)=>a+stats[d.id].urgent,0);
-  return `<div class="section-title">🏢 Department Dashboards — 14 Departments</div>
-    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
-      <strong>🏢 Per-department dashboard:</strong> Each card shows open calls, urgent items, recurring tasks, and additional tasks for that department. Click a card to drill into that department's full workload.
-    </div>
-    <div class="fleet-stat-row">
-      <div class="fleet-stat-card"><div class="fleet-stat-label">Departments</div><div class="fleet-stat-val">${MATRIX_DEPARTMENTS.length}</div></div>
-      <div class="fleet-stat-card"><div class="fleet-stat-label">Total Open Calls</div><div class="fleet-stat-val ${totalOpen>0?'warn':''}">${totalOpen}</div></div>
-      <div class="fleet-stat-card"><div class="fleet-stat-label">Urgent</div><div class="fleet-stat-val ${totalUrgent>0?'danger':''}">${totalUrgent}</div></div>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:14px;">
-      ${cards}
-    </div>`;
-}
-
-function _buildDeptDetail(deptId,stats){
-  const dept=MATRIX_DEPARTMENTS.find(d=>d.id===deptId);
-  if(!dept)return '<div>Unknown department.</div>';
-  const s=stats[deptId];
-  // Build calls table — sorted urgent first, then by date desc
-  const priOrder={urgent:0,priority:1,need:2,low:3};
-  const sortedCalls=s.calls.slice().sort((a,b)=>{
-    const pa=priOrder[a.priority]||9,pb=priOrder[b.priority]||9;
-    if(pa!==pb)return pa-pb;
-    return (b.raisedAt||0)-(a.raisedAt||0);
-  });
-  const callRows=sortedCalls.map(c=>{
-    const st=(typeof getCallStatus==='function')?getCallStatus(c):(c.status||'new_call');
-    const stCls=(typeof statusCssClass==='function')?statusCssClass(st):'';
-    const stLbl=(typeof statusLabel==='function')?statusLabel(st):st;
-    const route=(typeof _callRouteLabel==='function')?_callRouteLabel(c):(c.sourceLabel||'');
-    const assignees=(typeof getCallAssignees==='function')?getCallAssignees(c):[];
-    const upd=(c.updates||[]).length;
-    const priColor=({urgent:'var(--danger)',priority:'var(--warn)',need:'var(--info)',low:'var(--text3)'})[c.priority||'need'];
-    const days=Math.max(0,Math.floor((Date.now()-(c.raisedAt||0))/86400000));
-    return `<tr style="cursor:pointer;border-left:3px solid ${priColor};" onclick="viewCallDetail('${c.id}')">
-      <td><span class="call-status-pill ${stCls}">${stLbl}</span></td>
-      <td><strong>${(c.subject||'').replace(/[<>]/g,'').slice(0,80)}</strong></td>
-      <td><span class="call-dept-pill" style="font-size:9px;">${(route||'').replace(/[<>]/g,'')}</span></td>
-      <td>${(c.priority||'').toUpperCase()}</td>
-      <td>${(c.raisedBy||'—').replace(/[<>]/g,'')}</td>
-      <td>${assignees.length?'👤 '+assignees.join(', ').replace(/[<>]/g,''):'<span style="color:var(--text3);">— unassigned —</span>'}</td>
-      <td style="text-align:center;font-family:var(--mono);">${days}d</td>
-      <td style="text-align:center;">${upd?'💬 '+upd:'—'}</td>
-    </tr>`;
-  }).join('');
-  // Recurring + Additional summaries
-  let defs=[];try{defs=loadRecurringDefs().filter(d=>{
-    const did=_matrixDeptId(d.module||'')||(d.module==='maintenance'?'maintenance':d.module);
-    return did===deptId&&d.enabled!==false;
-  });}catch(e){}
-  const recRows=defs.map(d=>`<tr><td style="font-size:13px;">🔁 ${(d.title||'').replace(/[<>]/g,'')}</td><td style="font-family:var(--mono);font-size:11px;">${d.frequency||''}</td><td style="font-family:var(--mono);font-size:11px;">${d.startTime?d.startTime+(d.endTime?'-'+d.endTime:''):'—'}</td><td style="font-family:var(--mono);font-size:11px;">${(d.facilities||[]).length||0} facilities</td></tr>`).join('');
-  // Additional tasks
-  const modKey=({maintenance:'maint',production:'prod',it:'it',irrigation:'irrigation',fleet:'fleet',security:'security'})[deptId];
-  let addtl=[];if(modKey){try{addtl=loadAddtlTasks(modKey).filter(t=>t&&t.status!=='done');}catch(e){}}
-  const addtlRows=addtl.map(t=>{
-    const priColor=t.priority==='urgent'?'var(--danger)':t.priority==='priority'?'var(--warn)':t.priority==='low'?'var(--text3)':'var(--text2)';
-    return `<tr><td style="color:${priColor};font-size:18px;text-align:center;">${t.priority==='urgent'?'🚨':t.priority==='priority'?'⚠':t.priority==='low'?'📎':'📋'}</td><td><strong>${(t.title||'').replace(/[<>]/g,'')}</strong></td><td style="font-family:var(--mono);font-size:11px;">${t.facility||'—'}</td><td style="font-family:var(--mono);font-size:11px;">${t.dueDate||'—'}</td><td style="font-size:11px;">${(t.assignedTo||'—').replace(/[<>]/g,'')}</td></tr>`;
-  }).join('');
-
-  return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
-    <div>
-      <button class="btn btn-outline" onclick="_deptSelected=null;renderDeptDashboards();" style="margin-right:10px;">← All Departments</button>
-      <span style="font-size:24px;">${dept.icon}</span>
-      <span style="font-size:18px;font-weight:700;margin-left:6px;">${dept.label}</span>
-    </div>
-    <div style="font-size:12px;color:var(--text3);font-family:var(--mono);">${dept.scope}</div>
-  </div>
-
-  <div class="fleet-stat-row">
-    <div class="fleet-stat-card"><div class="fleet-stat-label">Open Calls</div><div class="fleet-stat-val ${s.open>0?'warn':''}">${s.open}</div></div>
-    <div class="fleet-stat-card"><div class="fleet-stat-label">🚨 Urgent</div><div class="fleet-stat-val ${s.urgent>0?'danger':''}">${s.urgent}</div></div>
-    <div class="fleet-stat-card"><div class="fleet-stat-label">🔁 Recurring</div><div class="fleet-stat-val">${s.recurring}</div></div>
-    <div class="fleet-stat-card"><div class="fleet-stat-label">➕ Additional</div><div class="fleet-stat-val">${s.additional}</div></div>
-    <div class="fleet-stat-card"><div class="fleet-stat-label">✓ Closed (7d)</div><div class="fleet-stat-val green">${s.closed7d}</div></div>
-    <div class="fleet-stat-card"><div class="fleet-stat-label">Total Lifetime</div><div class="fleet-stat-val">${s.total}</div></div>
-  </div>
-
-  <div class="section-title" style="margin-top:18px;">📞 Open Calls</div>
-  ${sortedCalls.length?`<div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;">
-    <thead><tr><th>Status</th><th>Subject</th><th>From</th><th>Priority</th><th>Reporter</th><th>Assigned</th><th>Days</th><th>💬</th></tr></thead>
-    <tbody>${callRows}</tbody>
-  </table></div>`:'<div style="padding:20px;text-align:center;color:var(--text3);">No open calls for this department.</div>'}
-
-  <div class="section-title" style="margin-top:18px;">🔁 Recurring Tasks</div>
-  ${defs.length?`<div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;">
-    <thead><tr><th>Task</th><th>Frequency</th><th>Time</th><th>Scope</th></tr></thead>
-    <tbody>${recRows}</tbody>
-  </table></div>`:'<div style="padding:14px;text-align:center;color:var(--text3);">No recurring tasks defined.</div>'}
-
-  <div class="section-title" style="margin-top:18px;">➕ Additional Tasks (open)</div>
-  ${addtl.length?`<div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;">
-    <thead><tr><th style="width:30px;">!</th><th>Task</th><th>Facility</th><th>Due</th><th>Assigned</th></tr></thead>
-    <tbody>${addtlRows}</tbody>
-  </table></div>`:'<div style="padding:14px;text-align:center;color:var(--text3);">No open additional tasks.</div>'}`;
-}
-
-window._saveNotifSettingsFromModal=function(){
-  const s={
-    enabled:document.getElementById('notifEnabled').checked,
-    sound:document.getElementById('notifSound').checked,
-    browser:document.getElementById('notifBrowser').checked,
-    permissionAsked:_loadNotifSettings().permissionAsked
-  };
-  if(s.browser&&!s.permissionAsked&&'Notification' in window){
-    Notification.requestPermission().then(p=>{
-      s.permissionAsked=true;
-      _saveNotifSettings(s);
-      if(p!=='granted'){
-        if(typeof showToast==='function')showToast('Browser notifications denied — toast still works','warn');
-      }
-    });
-  } else {
-    _saveNotifSettings(s);
-  }
-  document.getElementById('notifSettingsModal').remove();
-  if(typeof showToast==='function')showToast('Notification settings saved','ok');
-  // Update bell icon
-  const btn=document.getElementById('notifBellBtn');
-  if(btn)btn.innerHTML=s.enabled?'🔔':'🔕';
-};
-
-// ============= BACKUP / RESTORE SYSTEM =============
-// One-click backup of ALL hydroPro_* localStorage keys to a JSON file.
-// Restore from file with safety preview. Auto-backup daily with 7-day rolling retention.
-const AUTO_BACKUP_PREFIX='hydroPro_autobackup_';
-const AUTO_BACKUP_KEEP=7;
-
-function _collectHydroProData(){
-  const out={};
-  for(let i=0;i<localStorage.length;i++){
-    const k=localStorage.key(i);
-    if(!k||!k.startsWith('hydroPro_'))continue;
-    if(k.startsWith(AUTO_BACKUP_PREFIX))continue;
-    out[k]=localStorage.getItem(k);
-  }
-  return out;
-}
-function _bytesUsed(){
-  let total=0;
-  for(let i=0;i<localStorage.length;i++){
-    const k=localStorage.key(i);
-    const v=localStorage.getItem(k)||'';
-    total+=k.length+v.length;
-  }
-  return total;
-}
-function _humanBytes(n){
-  if(n<1024)return n+' B';
-  if(n<1024*1024)return (n/1024).toFixed(1)+' KB';
-  return (n/1024/1024).toFixed(2)+' MB';
-}
-
-window.exportHydroProBackup=function(){
-  const data=_collectHydroProData();
-  const stamp=new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
-  const payload={
-    schema:'hydroPro_backup_v1',
-    exportedAt:Date.now(),
-    exportedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user',
-    appBuild:typeof APP_BUILD!=='undefined'?APP_BUILD:null,
-    keys:Object.keys(data).length,
-    sizeBytes:JSON.stringify(data).length,
-    data:data
-  };
-  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url;
-  a.download=`hydropro-backup-${stamp}.json`;
-  document.body.appendChild(a);a.click();document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  if(typeof showToast==='function')showToast('Backup downloaded — '+payload.keys+' keys','ok');
-};
-
-window._handleRestoreFile=async function(input){
-  const file=input.files&&input.files[0];if(!file)return;
-  try{
-    const text=await file.text();
-    let payload;try{payload=JSON.parse(text);}catch(e){alert('Invalid file — not a valid backup JSON.');input.value='';return;}
-    if(!payload||!payload.data||typeof payload.data!=='object'){
-      alert('Invalid backup format. Expected schema "hydroPro_backup_v1".');
-      input.value='';return;
-    }
-    _showRestorePreview(payload,file.name);
-  }catch(e){
-    alert('Failed to read file: '+(e.message||e));
-  }
-  input.value='';
-};
-
-function _showRestorePreview(payload,fileName){
-  const incoming=payload.data||{};
-  const current=_collectHydroProData();
-  const incomingKeys=Object.keys(incoming);
-  const currentKeys=Object.keys(current);
-  const newKeys=incomingKeys.filter(k=>!(k in current));
-  const changedKeys=incomingKeys.filter(k=>k in current&&current[k]!==incoming[k]);
-  const removedKeys=currentKeys.filter(k=>!(k in incoming));
-
-  let host=document.getElementById('restorePreviewModal');
-  if(!host){
-    host=document.createElement('div');
-    host.id='restorePreviewModal';
-    host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;';
-    document.body.appendChild(host);
-  }
-  const exportDate=payload.exportedAt?new Date(payload.exportedAt).toLocaleString():'unknown';
-  host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:680px;width:100%;max-height:90vh;overflow-y:auto;padding:22px;font-family:var(--sans);">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
-      <div style="font-size:18px;font-weight:700;">📥 Restore Backup</div>
-      <button onclick="document.getElementById('restorePreviewModal').remove();" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 10px;border-radius:6px;cursor:pointer;">✕</button>
-    </div>
-    <div style="background:var(--surface2);padding:14px;border-radius:8px;margin-bottom:14px;font-size:12px;line-height:1.6;color:var(--text2);">
-      <div><strong>File:</strong> ${fileName.replace(/[<>]/g,'')}</div>
-      <div><strong>Exported:</strong> ${exportDate}</div>
-      <div><strong>Exported by:</strong> ${(payload.exportedBy||'unknown').replace(/[<>]/g,'')}</div>
-      <div><strong>Keys in backup:</strong> ${incomingKeys.length}</div>
-    </div>
-    <div style="background:#2e1e00;border:1px solid #5d4400;color:var(--warn);padding:14px;border-radius:8px;margin-bottom:14px;font-size:12px;line-height:1.5;">
-      <strong>⚠ Preview — these changes will happen:</strong>
-      <div style="margin-top:8px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;font-family:var(--mono);">
-        <div style="text-align:center;"><div style="font-size:22px;font-weight:700;color:var(--ok);">${newKeys.length}</div><div style="font-size:10px;text-transform:uppercase;">Added</div></div>
-        <div style="text-align:center;"><div style="font-size:22px;font-weight:700;color:var(--warn);">${changedKeys.length}</div><div style="font-size:10px;text-transform:uppercase;">Overwritten</div></div>
-        <div style="text-align:center;"><div style="font-size:22px;font-weight:700;color:var(--danger);">${removedKeys.length}</div><div style="font-size:10px;text-transform:uppercase;">Removed (if "wipe first")</div></div>
-      </div>
-    </div>
-    <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface2);border-radius:8px;margin-bottom:14px;cursor:pointer;">
-      <input id="restoreWipe" type="checkbox" style="width:18px;height:18px;">
-      <div>
-        <div style="font-weight:600;font-size:13px;">Wipe existing data first (full replace)</div>
-        <div style="font-size:11px;color:var(--text3);">Unchecked: merge — incoming overwrites matching keys, existing extras are kept. Checked: ALL hydroPro_* keys deleted first, then restore applied.</div>
-      </div>
-    </label>
-    <div style="display:flex;justify-content:flex-end;gap:8px;">
-      <button onclick="document.getElementById('restorePreviewModal').remove();" class="btn btn-outline">Cancel</button>
-      <button onclick="_doRestore()" class="btn btn-primary">📥 Restore Now</button>
-    </div>
-  </div>`;
-  window._pendingRestore=payload;
-}
-
-window._doRestore=function(){
-  const payload=window._pendingRestore;
-  if(!payload||!payload.data){return;}
-  const wipe=document.getElementById('restoreWipe').checked;
-  if(!confirm(wipe?'WIPE all existing data and restore from backup? This cannot be undone.':'Merge backup into your current data? Existing matching keys will be overwritten.'))return;
-  // Auto-backup current state first (safety net)
-  try{
-    const safetyKey=AUTO_BACKUP_PREFIX+'pre_restore_'+Date.now();
-    const cur=_collectHydroProData();
-    localStorage.setItem(safetyKey,JSON.stringify({exportedAt:Date.now(),source:'pre-restore safety',data:cur}));
-    _trimAutoBackups();
-  }catch(e){console.warn('safety backup',e);}
-  if(wipe){
-    const toRemove=[];
-    for(let i=0;i<localStorage.length;i++){
-      const k=localStorage.key(i);
-      if(k&&k.startsWith('hydroPro_')&&!k.startsWith(AUTO_BACKUP_PREFIX))toRemove.push(k);
-    }
-    toRemove.forEach(k=>localStorage.removeItem(k));
-  }
-  Object.keys(payload.data).forEach(k=>{
-    try{localStorage.setItem(k,payload.data[k]);}catch(e){console.warn('restore key',k,e);}
-  });
-  document.getElementById('restorePreviewModal').remove();
-  window._pendingRestore=null;
-  alert('Restore complete. Reloading the app to apply...');
-  setTimeout(()=>{window.location.reload();},500);
-};
-
-function _trimAutoBackups(){
-  const keys=[];
-  for(let i=0;i<localStorage.length;i++){
-    const k=localStorage.key(i);
-    if(k&&k.startsWith(AUTO_BACKUP_PREFIX))keys.push(k);
-  }
-  keys.sort();
-  while(keys.length>AUTO_BACKUP_KEEP){
-    const oldest=keys.shift();
-    try{localStorage.removeItem(oldest);}catch(e){}
-  }
-}
-
-function _autoBackupIfNeeded(){
-  try{
-    const today=new Date().toISOString().slice(0,10);
-    const todayKey=AUTO_BACKUP_PREFIX+today;
-    if(localStorage.getItem(todayKey))return;
-    const data=_collectHydroProData();
-    if(Object.keys(data).length===0)return;
-    const payload={exportedAt:Date.now(),source:'auto-daily',data:data};
-    try{
-      localStorage.setItem(todayKey,JSON.stringify(payload));
-      _trimAutoBackups();
-    }catch(e){
-      console.warn('auto-backup skipped (storage):',e.message);
-    }
-  }catch(e){console.warn('auto-backup',e);}
-}
-setTimeout(_autoBackupIfNeeded,5000);
-
-function _listAutoBackups(){
-  const out=[];
-  for(let i=0;i<localStorage.length;i++){
-    const k=localStorage.key(i);
-    if(!k||!k.startsWith(AUTO_BACKUP_PREFIX))continue;
-    try{
-      const obj=JSON.parse(localStorage.getItem(k)||'{}');
-      out.push({key:k,label:k.substring(AUTO_BACKUP_PREFIX.length),exportedAt:obj.exportedAt,source:obj.source,size:(localStorage.getItem(k)||'').length});
-    }catch(e){}
-  }
-  return out.sort((a,b)=>b.exportedAt-a.exportedAt);
-}
-
-window.openBackupRestoreModal=function(){
-  const data=_collectHydroProData();
-  const totalSize=_bytesUsed();
-  const hpSize=Object.values(data).reduce((a,v)=>a+v.length,0);
-  const auto=_listAutoBackups();
-  let host=document.getElementById('backupModal');
-  if(!host){
-    host=document.createElement('div');
-    host.id='backupModal';
-    host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;';
-    document.body.appendChild(host);
-  }
-  const autoRows=auto.map(b=>{
-    const ts=b.exportedAt?new Date(b.exportedAt).toLocaleString():'?';
-    return `<tr>
-      <td style="font-family:var(--mono);font-size:11px;">${b.label}</td>
-      <td style="font-size:11px;color:var(--text3);">${ts}</td>
-      <td style="font-family:var(--mono);font-size:11px;">${_humanBytes(b.size)}</td>
-      <td style="font-size:11px;">${b.source||''}</td>
-      <td style="text-align:right;"><button class="btn btn-outline" style="padding:4px 10px;font-size:11px;" onclick="_restoreFromAutoBackup('${b.key}')">↩ Restore</button></td>
-    </tr>`;
-  }).join('');
-  host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:760px;width:100%;max-height:90vh;overflow-y:auto;padding:22px;font-family:var(--sans);">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
-      <div style="font-size:20px;font-weight:700;">💾 Backup &amp; Restore</div>
-      <button onclick="document.getElementById('backupModal').remove();" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 10px;border-radius:6px;cursor:pointer;">✕</button>
-    </div>
-    <div style="background:var(--surface2);padding:14px;border-radius:8px;margin-bottom:14px;font-size:12px;line-height:1.6;color:var(--text2);">
-      <div><strong>HydroPro data:</strong> ${Object.keys(data).length} keys · ${_humanBytes(hpSize)}</div>
-      <div><strong>Total localStorage used:</strong> ${_humanBytes(totalSize)} (browsers usually allow ~5 MB per origin)</div>
-    </div>
-
-    <div class="section-title" style="margin:14px 0 10px;">⬇ Download backup</div>
-    <p style="font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px;">Save a JSON file with everything — calls, tasks, recurring, history, settings. Keep it safe (cloud drive, email to yourself).</p>
-    <button onclick="exportHydroProBackup()" class="btn btn-primary">⬇ Download backup now</button>
-
-    <div class="section-title" style="margin:18px 0 10px;">⬆ Restore from file</div>
-    <p style="font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px;">Pick a previously saved backup file. You'll see a preview before anything changes.</p>
-    <input type="file" accept=".json,application/json" onchange="_handleRestoreFile(this)">
-
-    <div class="section-title" style="margin:18px 0 10px;">🕐 Auto-daily backups (in browser)</div>
-    <p style="font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px;">The app auto-creates a daily snapshot in localStorage. Last ${AUTO_BACKUP_KEEP} are kept. <strong>Note:</strong> if you clear browser data, these are wiped too — always download regular file backups for true safety.</p>
-    ${auto.length?`<div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;">
-      <thead><tr><th>Date</th><th>Created</th><th>Size</th><th>Source</th><th></th></tr></thead>
-      <tbody>${autoRows}</tbody>
-    </table></div>`:'<div style="padding:14px;text-align:center;color:var(--text3);font-size:12px;">No auto-backups yet — first one will be created in a few seconds.</div>'}
-  </div>`;
-};
-
-window._restoreFromAutoBackup=function(key){
-  try{
-    const payload=JSON.parse(localStorage.getItem(key)||'{}');
-    if(!payload||!payload.data){alert('Backup empty or corrupt.');return;}
-    document.getElementById('backupModal').remove();
-    _showRestorePreview(payload,'auto-backup '+key.substring(AUTO_BACKUP_PREFIX.length));
-  }catch(e){alert('Failed to load: '+e.message);}
-};
-
-// ============= GLOBAL SEARCH =============
-// Top-bar search button (or Cmd/Ctrl+K) opens a modal that searches across:
-// calls, maint tasks, recurring tasks, additional tasks, RFID reports,
-// IT equipment (radios/CCTV/devices), production checklist items.
-function _searchAll(query){
-  const q=String(query||'').trim().toLowerCase();
-  if(!q||q.length<2)return [];
-  const results=[];
-  const matches=(s)=>String(s||'').toLowerCase().indexOf(q)>=0;
-
-  // Calls
-  let calls=[];try{calls=loadCalls();}catch(e){}
-  if(Array.isArray(calls)){
-    calls.forEach(c=>{
-      if(!c)return;
-      if(matches(c.subject)||matches(c.description)||matches(c.area)||matches(c.areaText)||matches(c.equipment)||matches(c.raisedBy)){
-        const closed=(typeof isCallClosed==='function')?isCallClosed(c):(c.status==='closed_finalize'||c.status==='closed');
-        results.push({
-          type:'call',
-          icon:closed?'📞':((c.priority==='urgent'||c.priority==='priority')?'🚨':'📞'),
-          title:c.subject||'(no subject)',
-          subtitle:`${closed?'Closed':'Open'} · ${c.priority||'need'} · ${c.sourceLabel||c.department||''}`,
-          action:`viewCallDetail('${c.id}')`,
-          id:c.id,
-          score:closed?0.5:1
-        });
-      }
-    });
-  }
-
-  // Maintenance tasks
-  let tasks=[];try{if(typeof loadMaintTasks==='function')tasks=loadMaintTasks();}catch(e){}
-  if(Array.isArray(tasks)){
-    tasks.forEach(t=>{
-      if(!t)return;
-      if(matches(t.title)||matches(t.description)||matches(t.category)){
-        results.push({
-          type:'task',
-          icon:'🔧',
-          title:t.title||'(maint task)',
-          subtitle:`${t.status||'not_started'} · ${t.priority||'need'} · ${t.scheduledDate||''}`,
-          action:`switchView('maint_tasks')`,
-          id:t.id,
-          score:t.status==='done'?0.4:0.9
-        });
-      }
-    });
-  }
-
-  // Recurring task definitions
-  let defs=[];try{defs=loadRecurringDefs();}catch(e){}
-  if(Array.isArray(defs)){
-    defs.forEach(d=>{
-      if(!d)return;
-      if(matches(d.title)||matches(d.description)||matches(d.module)){
-        results.push({
-          type:'recurring',
-          icon:'🔁',
-          title:d.title||'(recurring)',
-          subtitle:`${d.frequency||''} · ${d.module||''}${d.startTime?' · '+d.startTime:''}`,
-          action:`openRecurringEditor('${d.id}')`,
-          id:d.id,
-          score:0.8
-        });
-      }
-    });
-  }
-
-  // Additional tasks (across all modules)
-  ['maint','prod','it','irrigation','fleet','security'].forEach(modKey=>{
-    let arr=[];try{arr=loadAddtlTasks(modKey);}catch(e){}
-    if(!Array.isArray(arr))return;
-    arr.forEach(t=>{
-      if(!t)return;
-      if(matches(t.title)||matches(t.description)||matches(t.facility)||matches(t.assignedTo)){
-        results.push({
-          type:'addtl',
-          icon:'➕',
-          title:t.title||'(additional task)',
-          subtitle:`${(MOD_DISPLAY||{})[modKey]||modKey} · ${t.status||'open'}${t.facility?' · '+t.facility:''}`,
-          action:`openAddtlEditor('${modKey}','${t.id}')`,
-          id:t.id,
-          score:t.status==='done'?0.3:0.8
-        });
-      }
-    });
-  });
-
-  // RFID reports
-  let rfid=[];try{rfid=loadRfidReports();}catch(e){}
-  if(Array.isArray(rfid)){
-    rfid.forEach(r=>{
-      if(!r)return;
-      if(matches(r.fileName)||matches(r.dateFrom)||matches(r.dateTo)){
-        results.push({
-          type:'rfid',
-          icon:'📡',
-          title:r.fileName||'(RFID report)',
-          subtitle:`${r.dateFrom||'?'} → ${r.dateTo||'?'} · ${r.summary&&r.summary.compliance||0}% compliance`,
-          action:`_rfidSelectReport('${r.id}');switchView('sec_rfid');`,
-          id:r.id,
-          score:0.7
-        });
-      }
-    });
-  }
-
-  // IT equipment (radios)
-  try{
-    const radios=JSON.parse(localStorage.getItem('hydroPro_it_radios')||'[]');
-    radios.forEach(r=>{
-      if(!r)return;
-      if(matches(r.name)||matches(r.id)||matches(r.location)||matches(r.inCharge)||matches(r.imei)||matches(r.sim)){
-        results.push({
-          type:'radio',
-          icon:'📻',
-          title:r.name||r.id,
-          subtitle:`Radio · ${r.location||''}${r.inCharge?' · '+r.inCharge:''}`,
-          action:`switchView('it_radios')`,
-          id:r.id,
-          score:0.6
-        });
-      }
-    });
-  }catch(e){}
-
-  // CCTV cameras
-  try{
-    const cams=JSON.parse(localStorage.getItem('hydroPro_it_cctv_cameras')||'[]');
-    cams.forEach(c=>{
-      if(!c)return;
-      if(matches(c.name)||matches(c.id)||matches(c.location)){
-        results.push({
-          type:'cctv',
-          icon:'📷',
-          title:c.name||c.id,
-          subtitle:`CCTV · ${c.location||''}`,
-          action:`switchView('it_cctv')`,
-          id:c.id,
-          score:0.6
-        });
-      }
-    });
-  }catch(e){}
-
-  // IT devices
-  try{
-    const devs=JSON.parse(localStorage.getItem('hydroPro_it_devices')||'[]');
-    devs.forEach(d=>{
-      if(!d)return;
-      if(matches(d.name)||matches(d.id)||matches(d.type)||matches(d.location)){
-        results.push({
-          type:'device',
-          icon:'🖥️',
-          title:d.name||d.id,
-          subtitle:`${d.type||'Device'} · ${d.location||''}`,
-          action:`switchView('it_devices')`,
-          id:d.id,
-          score:0.55
-        });
-      }
-    });
-  }catch(e){}
-
-  // Today's production checklist items
-  try{
-    const today=new Date().toISOString().slice(0,10);
-    const st=JSON.parse(localStorage.getItem('hydroPro_'+today)||'{}');
-    const ghs=(typeof GREENHOUSES!=='undefined')?GREENHOUSES:[];
-    const cats=(typeof CATEGORIES!=='undefined')?CATEGORIES:[];
-    ghs.forEach(gh=>{
-      const fs=st[gh];if(!fs)return;
-      cats.forEach(cat=>{
-        (cat.items||[]).forEach((item,i)=>{
-          const itemKey=cat.id+'_'+i;
-          const status=fs.statuses&&fs.statuses[itemKey];
-          if(!status||status==='ok')return;
-          const note=fs.notes&&fs.notes[itemKey]||'';
-          if(matches(item)||matches(note)){
-            results.push({
-              type:'checklist',
-              icon:status==='danger'?'✕':'⚠',
-              title:`${gh} · ${item}`,
-              subtitle:`${cat.name} · ${status==='danger'?'CRITICAL':'WARN'}${note?' · '+note.slice(0,40):''}`,
-              action:`switchView('checklist')`,
-              id:gh+itemKey,
-              score:status==='danger'?0.85:0.7
-            });
-          }
-        });
-      });
-    });
-  }catch(e){}
-
-  // Facilities (just match if user types a GH name)
-  let ghs=[];try{if(typeof GREENHOUSES!=='undefined')ghs=GREENHOUSES;}catch(e){}
-  if(Array.isArray(ghs)){
-    ghs.forEach(g=>{
-      if(matches(g)){
-        results.push({
-          type:'facility',
-          icon:'🌱',
-          title:g,
-          subtitle:'Greenhouse / Facility',
-          action:`switchView('checklist')`,
-          id:g,
-          score:0.5
-        });
-      }
-    });
-  }
-
-  // Sort by score desc, then alphabetical
-  results.sort((a,b)=>(b.score-a.score)||a.title.localeCompare(b.title));
-  return results.slice(0,80);   // cap to 80 results
-}
-
-function _renderSearchResults(results,query){
-  if(!query||query.length<2){
-    return '<div style="padding:30px;text-align:center;color:var(--text3);font-size:13px;">Type at least 2 characters to search…</div>';
-  }
-  if(!results.length){
-    return '<div style="padding:30px;text-align:center;color:var(--text3);font-size:13px;">No results for "<strong>'+(query||'').replace(/[<>]/g,'')+'</strong>"</div>';
-  }
-  // Group by type
-  const groups={};
-  const typeLabels={call:'📞 Calls',task:'🔧 Maintenance Tasks',recurring:'🔁 Recurring Tasks',addtl:'➕ Additional Tasks',rfid:'📡 RFID Reports',radio:'📻 Radios',cctv:'📷 CCTV',device:'🖥️ Devices',checklist:'✅ Checklist Items',facility:'🌱 Facilities'};
-  const typeOrder=['call','task','recurring','addtl','checklist','rfid','radio','cctv','device','facility'];
-  results.forEach(r=>{
-    if(!groups[r.type])groups[r.type]=[];
-    groups[r.type].push(r);
-  });
-  let html='';
-  typeOrder.forEach(type=>{
-    const items=groups[type];if(!items||!items.length)return;
-    html+=`<div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text3);font-family:var(--mono);padding:10px 14px 6px;margin-top:4px;">${typeLabels[type]||type} (${items.length})</div>`;
-    items.forEach(r=>{
-      html+=`<div style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='transparent'" onclick="document.getElementById('searchModal').remove();try{${r.action}}catch(e){console.warn(e);}">
-        <span style="font-size:18px;flex-shrink:0;">${r.icon}</span>
-        <div style="flex:1;min-width:0;">
-          <div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${(r.title||'').replace(/[<>]/g,'')}</div>
-          <div style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;">${(r.subtitle||'').replace(/[<>]/g,'')}</div>
-        </div>
-        <span style="font-size:18px;color:var(--text3);">→</span>
-      </div>`;
-    });
-  });
-  return html;
-}
-
-window.openGlobalSearch=function(){
-  let host=document.getElementById('searchModal');
-  if(!host){
-    host=document.createElement('div');
-    host.id='searchModal';
-    host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99998;display:flex;align-items:flex-start;justify-content:center;padding:60px 20px 20px;';
-    host.onclick=function(e){if(e.target===host)host.remove();};
-    document.body.appendChild(host);
-  }
-  host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:680px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;font-family:var(--sans);" onclick="event.stopPropagation();">
-    <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
-      <span style="font-size:18px;">🔍</span>
-      <input id="globalSearchInput" type="text" placeholder="Search calls, tasks, equipment, anything..." style="flex:1;background:none;border:none;outline:none;font-size:15px;color:var(--text);font-family:var(--sans);" autofocus oninput="_doGlobalSearch(this.value)">
-      <span style="font-size:11px;color:var(--text3);background:var(--surface2);padding:3px 8px;border-radius:4px;font-family:var(--mono);">esc</span>
-      <button onclick="document.getElementById('searchModal').remove();" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;padding:0 6px;">✕</button>
-    </div>
-    <div id="searchResults" style="flex:1;overflow-y:auto;">${_renderSearchResults([],'')}</div>
-    <div style="padding:8px 14px;border-top:1px solid var(--border);font-size:10px;color:var(--text3);background:var(--surface2);">
-      Tip: press <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);">Cmd+K</code> (or <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);">Ctrl+K</code>) anywhere to reopen this search.
-    </div>
-  </div>`;
-  // Esc to close
-  setTimeout(()=>{
-    const inp=document.getElementById('globalSearchInput');
-    if(inp){inp.focus();inp.onkeydown=function(e){if(e.key==='Escape')document.getElementById('searchModal').remove();};}
-  },50);
-};
-
-let _searchDebounce=null;
-window._doGlobalSearch=function(query){
-  clearTimeout(_searchDebounce);
-  _searchDebounce=setTimeout(()=>{
-    const results=_searchAll(query);
-    const out=document.getElementById('searchResults');
-    if(out)out.innerHTML=_renderSearchResults(results,query);
-  },150);
-};
-
-// Cmd+K / Ctrl+K shortcut
-document.addEventListener('keydown',function(e){
-  if((e.metaKey||e.ctrlKey)&&e.key==='k'){
-    e.preventDefault();
-    openGlobalSearch();
-  }
-});
-
-// 🔍 button in topbar
-function injectSearchButton(){
-  if(document.getElementById('globalSearchBtn'))return;
-  const tb=document.getElementById('topbar');if(!tb)return;
-  const btn=document.createElement('button');
-  btn.id='globalSearchBtn';
-  btn.title='Global search (Cmd/Ctrl+K)';
-  btn.style.cssText='background:none;border:1px solid var(--border);color:var(--text2);font-size:14px;padding:6px 10px;border-radius:7px;cursor:pointer;margin-left:6px;flex-shrink:0;';
-  btn.innerHTML='🔍';
-  btn.onclick=openGlobalSearch;
-  const backup=document.getElementById('backupBtn');
-  const bell=document.getElementById('notifBellBtn');
-  const ver=document.getElementById('versionIndicator');
-  const anchor=backup||bell||ver;
-  if(anchor&&anchor.parentNode)anchor.parentNode.insertBefore(btn,anchor.nextSibling);
-  else tb.appendChild(btn);
-}
-setInterval(injectSearchButton,3000);
-setTimeout(injectSearchButton,1100);
-
-function injectBackupButton(){
-  if(document.getElementById('backupBtn'))return;
-  const tb=document.getElementById('topbar');if(!tb)return;
-  const btn=document.createElement('button');
-  btn.id='backupBtn';
-  btn.title='Backup & restore data';
-  btn.style.cssText='background:none;border:1px solid var(--border);color:var(--text2);font-size:14px;padding:6px 10px;border-radius:7px;cursor:pointer;margin-left:6px;flex-shrink:0;';
-  btn.innerHTML='💾';
-  btn.onclick=openBackupRestoreModal;
-  const bell=document.getElementById('notifBellBtn');
-  const ver=document.getElementById('versionIndicator');
-  const anchor=bell||ver;
-  if(anchor&&anchor.parentNode)anchor.parentNode.insertBefore(btn,anchor.nextSibling);
-  else tb.appendChild(btn);
-}
-setInterval(injectBackupButton,3000);
-setTimeout(injectBackupButton,1000);
 
 })();
 
