@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777446924;
+const APP_BUILD=1777447248;
 const APP_BUILD_DATE='2026-04-29';
 
 // Store version in localStorage on first run
@@ -50703,6 +50703,275 @@ window._saveNotifSettingsFromModal=function(){
   const btn=document.getElementById('notifBellBtn');
   if(btn)btn.innerHTML=s.enabled?'🔔':'🔕';
 };
+
+// ============= BACKUP / RESTORE SYSTEM =============
+// One-click backup of ALL hydroPro_* localStorage keys to a JSON file.
+// Restore from file with safety preview. Auto-backup daily with 7-day rolling retention.
+const AUTO_BACKUP_PREFIX='hydroPro_autobackup_';
+const AUTO_BACKUP_KEEP=7;
+
+function _collectHydroProData(){
+  const out={};
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    if(!k||!k.startsWith('hydroPro_'))continue;
+    if(k.startsWith(AUTO_BACKUP_PREFIX))continue;
+    out[k]=localStorage.getItem(k);
+  }
+  return out;
+}
+function _bytesUsed(){
+  let total=0;
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    const v=localStorage.getItem(k)||'';
+    total+=k.length+v.length;
+  }
+  return total;
+}
+function _humanBytes(n){
+  if(n<1024)return n+' B';
+  if(n<1024*1024)return (n/1024).toFixed(1)+' KB';
+  return (n/1024/1024).toFixed(2)+' MB';
+}
+
+window.exportHydroProBackup=function(){
+  const data=_collectHydroProData();
+  const stamp=new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+  const payload={
+    schema:'hydroPro_backup_v1',
+    exportedAt:Date.now(),
+    exportedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user',
+    appBuild:typeof APP_BUILD!=='undefined'?APP_BUILD:null,
+    keys:Object.keys(data).length,
+    sizeBytes:JSON.stringify(data).length,
+    data:data
+  };
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`hydropro-backup-${stamp}.json`;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  if(typeof showToast==='function')showToast('Backup downloaded — '+payload.keys+' keys','ok');
+};
+
+window._handleRestoreFile=async function(input){
+  const file=input.files&&input.files[0];if(!file)return;
+  try{
+    const text=await file.text();
+    let payload;try{payload=JSON.parse(text);}catch(e){alert('Invalid file — not a valid backup JSON.');input.value='';return;}
+    if(!payload||!payload.data||typeof payload.data!=='object'){
+      alert('Invalid backup format. Expected schema "hydroPro_backup_v1".');
+      input.value='';return;
+    }
+    _showRestorePreview(payload,file.name);
+  }catch(e){
+    alert('Failed to read file: '+(e.message||e));
+  }
+  input.value='';
+};
+
+function _showRestorePreview(payload,fileName){
+  const incoming=payload.data||{};
+  const current=_collectHydroProData();
+  const incomingKeys=Object.keys(incoming);
+  const currentKeys=Object.keys(current);
+  const newKeys=incomingKeys.filter(k=>!(k in current));
+  const changedKeys=incomingKeys.filter(k=>k in current&&current[k]!==incoming[k]);
+  const removedKeys=currentKeys.filter(k=>!(k in incoming));
+
+  let host=document.getElementById('restorePreviewModal');
+  if(!host){
+    host=document.createElement('div');
+    host.id='restorePreviewModal';
+    host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;';
+    document.body.appendChild(host);
+  }
+  const exportDate=payload.exportedAt?new Date(payload.exportedAt).toLocaleString():'unknown';
+  host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:680px;width:100%;max-height:90vh;overflow-y:auto;padding:22px;font-family:var(--sans);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+      <div style="font-size:18px;font-weight:700;">📥 Restore Backup</div>
+      <button onclick="document.getElementById('restorePreviewModal').remove();" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 10px;border-radius:6px;cursor:pointer;">✕</button>
+    </div>
+    <div style="background:var(--surface2);padding:14px;border-radius:8px;margin-bottom:14px;font-size:12px;line-height:1.6;color:var(--text2);">
+      <div><strong>File:</strong> ${fileName.replace(/[<>]/g,'')}</div>
+      <div><strong>Exported:</strong> ${exportDate}</div>
+      <div><strong>Exported by:</strong> ${(payload.exportedBy||'unknown').replace(/[<>]/g,'')}</div>
+      <div><strong>Keys in backup:</strong> ${incomingKeys.length}</div>
+    </div>
+    <div style="background:#2e1e00;border:1px solid #5d4400;color:var(--warn);padding:14px;border-radius:8px;margin-bottom:14px;font-size:12px;line-height:1.5;">
+      <strong>⚠ Preview — these changes will happen:</strong>
+      <div style="margin-top:8px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;font-family:var(--mono);">
+        <div style="text-align:center;"><div style="font-size:22px;font-weight:700;color:var(--ok);">${newKeys.length}</div><div style="font-size:10px;text-transform:uppercase;">Added</div></div>
+        <div style="text-align:center;"><div style="font-size:22px;font-weight:700;color:var(--warn);">${changedKeys.length}</div><div style="font-size:10px;text-transform:uppercase;">Overwritten</div></div>
+        <div style="text-align:center;"><div style="font-size:22px;font-weight:700;color:var(--danger);">${removedKeys.length}</div><div style="font-size:10px;text-transform:uppercase;">Removed (if "wipe first")</div></div>
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface2);border-radius:8px;margin-bottom:14px;cursor:pointer;">
+      <input id="restoreWipe" type="checkbox" style="width:18px;height:18px;">
+      <div>
+        <div style="font-weight:600;font-size:13px;">Wipe existing data first (full replace)</div>
+        <div style="font-size:11px;color:var(--text3);">Unchecked: merge — incoming overwrites matching keys, existing extras are kept. Checked: ALL hydroPro_* keys deleted first, then restore applied.</div>
+      </div>
+    </label>
+    <div style="display:flex;justify-content:flex-end;gap:8px;">
+      <button onclick="document.getElementById('restorePreviewModal').remove();" class="btn btn-outline">Cancel</button>
+      <button onclick="_doRestore()" class="btn btn-primary">📥 Restore Now</button>
+    </div>
+  </div>`;
+  window._pendingRestore=payload;
+}
+
+window._doRestore=function(){
+  const payload=window._pendingRestore;
+  if(!payload||!payload.data){return;}
+  const wipe=document.getElementById('restoreWipe').checked;
+  if(!confirm(wipe?'WIPE all existing data and restore from backup? This cannot be undone.':'Merge backup into your current data? Existing matching keys will be overwritten.'))return;
+  // Auto-backup current state first (safety net)
+  try{
+    const safetyKey=AUTO_BACKUP_PREFIX+'pre_restore_'+Date.now();
+    const cur=_collectHydroProData();
+    localStorage.setItem(safetyKey,JSON.stringify({exportedAt:Date.now(),source:'pre-restore safety',data:cur}));
+    _trimAutoBackups();
+  }catch(e){console.warn('safety backup',e);}
+  if(wipe){
+    const toRemove=[];
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k&&k.startsWith('hydroPro_')&&!k.startsWith(AUTO_BACKUP_PREFIX))toRemove.push(k);
+    }
+    toRemove.forEach(k=>localStorage.removeItem(k));
+  }
+  Object.keys(payload.data).forEach(k=>{
+    try{localStorage.setItem(k,payload.data[k]);}catch(e){console.warn('restore key',k,e);}
+  });
+  document.getElementById('restorePreviewModal').remove();
+  window._pendingRestore=null;
+  alert('Restore complete. Reloading the app to apply...');
+  setTimeout(()=>{window.location.reload();},500);
+};
+
+function _trimAutoBackups(){
+  const keys=[];
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    if(k&&k.startsWith(AUTO_BACKUP_PREFIX))keys.push(k);
+  }
+  keys.sort();
+  while(keys.length>AUTO_BACKUP_KEEP){
+    const oldest=keys.shift();
+    try{localStorage.removeItem(oldest);}catch(e){}
+  }
+}
+
+function _autoBackupIfNeeded(){
+  try{
+    const today=new Date().toISOString().slice(0,10);
+    const todayKey=AUTO_BACKUP_PREFIX+today;
+    if(localStorage.getItem(todayKey))return;
+    const data=_collectHydroProData();
+    if(Object.keys(data).length===0)return;
+    const payload={exportedAt:Date.now(),source:'auto-daily',data:data};
+    try{
+      localStorage.setItem(todayKey,JSON.stringify(payload));
+      _trimAutoBackups();
+    }catch(e){
+      console.warn('auto-backup skipped (storage):',e.message);
+    }
+  }catch(e){console.warn('auto-backup',e);}
+}
+setTimeout(_autoBackupIfNeeded,5000);
+
+function _listAutoBackups(){
+  const out=[];
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    if(!k||!k.startsWith(AUTO_BACKUP_PREFIX))continue;
+    try{
+      const obj=JSON.parse(localStorage.getItem(k)||'{}');
+      out.push({key:k,label:k.substring(AUTO_BACKUP_PREFIX.length),exportedAt:obj.exportedAt,source:obj.source,size:(localStorage.getItem(k)||'').length});
+    }catch(e){}
+  }
+  return out.sort((a,b)=>b.exportedAt-a.exportedAt);
+}
+
+window.openBackupRestoreModal=function(){
+  const data=_collectHydroProData();
+  const totalSize=_bytesUsed();
+  const hpSize=Object.values(data).reduce((a,v)=>a+v.length,0);
+  const auto=_listAutoBackups();
+  let host=document.getElementById('backupModal');
+  if(!host){
+    host=document.createElement('div');
+    host.id='backupModal';
+    host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;';
+    document.body.appendChild(host);
+  }
+  const autoRows=auto.map(b=>{
+    const ts=b.exportedAt?new Date(b.exportedAt).toLocaleString():'?';
+    return `<tr>
+      <td style="font-family:var(--mono);font-size:11px;">${b.label}</td>
+      <td style="font-size:11px;color:var(--text3);">${ts}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${_humanBytes(b.size)}</td>
+      <td style="font-size:11px;">${b.source||''}</td>
+      <td style="text-align:right;"><button class="btn btn-outline" style="padding:4px 10px;font-size:11px;" onclick="_restoreFromAutoBackup('${b.key}')">↩ Restore</button></td>
+    </tr>`;
+  }).join('');
+  host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:760px;width:100%;max-height:90vh;overflow-y:auto;padding:22px;font-family:var(--sans);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+      <div style="font-size:20px;font-weight:700;">💾 Backup &amp; Restore</div>
+      <button onclick="document.getElementById('backupModal').remove();" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 10px;border-radius:6px;cursor:pointer;">✕</button>
+    </div>
+    <div style="background:var(--surface2);padding:14px;border-radius:8px;margin-bottom:14px;font-size:12px;line-height:1.6;color:var(--text2);">
+      <div><strong>HydroPro data:</strong> ${Object.keys(data).length} keys · ${_humanBytes(hpSize)}</div>
+      <div><strong>Total localStorage used:</strong> ${_humanBytes(totalSize)} (browsers usually allow ~5 MB per origin)</div>
+    </div>
+
+    <div class="section-title" style="margin:14px 0 10px;">⬇ Download backup</div>
+    <p style="font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px;">Save a JSON file with everything — calls, tasks, recurring, history, settings. Keep it safe (cloud drive, email to yourself).</p>
+    <button onclick="exportHydroProBackup()" class="btn btn-primary">⬇ Download backup now</button>
+
+    <div class="section-title" style="margin:18px 0 10px;">⬆ Restore from file</div>
+    <p style="font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px;">Pick a previously saved backup file. You'll see a preview before anything changes.</p>
+    <input type="file" accept=".json,application/json" onchange="_handleRestoreFile(this)">
+
+    <div class="section-title" style="margin:18px 0 10px;">🕐 Auto-daily backups (in browser)</div>
+    <p style="font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px;">The app auto-creates a daily snapshot in localStorage. Last ${AUTO_BACKUP_KEEP} are kept. <strong>Note:</strong> if you clear browser data, these are wiped too — always download regular file backups for true safety.</p>
+    ${auto.length?`<div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Date</th><th>Created</th><th>Size</th><th>Source</th><th></th></tr></thead>
+      <tbody>${autoRows}</tbody>
+    </table></div>`:'<div style="padding:14px;text-align:center;color:var(--text3);font-size:12px;">No auto-backups yet — first one will be created in a few seconds.</div>'}
+  </div>`;
+};
+
+window._restoreFromAutoBackup=function(key){
+  try{
+    const payload=JSON.parse(localStorage.getItem(key)||'{}');
+    if(!payload||!payload.data){alert('Backup empty or corrupt.');return;}
+    document.getElementById('backupModal').remove();
+    _showRestorePreview(payload,'auto-backup '+key.substring(AUTO_BACKUP_PREFIX.length));
+  }catch(e){alert('Failed to load: '+e.message);}
+};
+
+function injectBackupButton(){
+  if(document.getElementById('backupBtn'))return;
+  const tb=document.getElementById('topbar');if(!tb)return;
+  const btn=document.createElement('button');
+  btn.id='backupBtn';
+  btn.title='Backup & restore data';
+  btn.style.cssText='background:none;border:1px solid var(--border);color:var(--text2);font-size:14px;padding:6px 10px;border-radius:7px;cursor:pointer;margin-left:6px;flex-shrink:0;';
+  btn.innerHTML='💾';
+  btn.onclick=openBackupRestoreModal;
+  const bell=document.getElementById('notifBellBtn');
+  const ver=document.getElementById('versionIndicator');
+  const anchor=bell||ver;
+  if(anchor&&anchor.parentNode)anchor.parentNode.insertBefore(btn,anchor.nextSibling);
+  else tb.appendChild(btn);
+}
+setInterval(injectBackupButton,3000);
+setTimeout(injectBackupButton,1000);
 
 })();
 
