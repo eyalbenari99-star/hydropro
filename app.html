@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777445173;
+const APP_BUILD=1777446924;
 const APP_BUILD_DATE='2026-04-29';
 
 // Store version in localStorage on first run
@@ -43806,7 +43806,7 @@ const VIEW_TO_MODULE={
   // Cross-module overview tabs — leave un-tracked so banner doesn't show
   geo_dash:null,daily_briefing:null,critical_summary:null,calendar_all:null,
   issues_board:null,task_tracker:null,task_calendar:null,task_escalation:null,
-  audit:null,users:null,my_calls:null
+  audit:null,users:null,my_calls:null,dept_dashboards:null
 };
 function _moduleOfView(viewId){
   if(viewId in VIEW_TO_MODULE)return VIEW_TO_MODULE[viewId];
@@ -46387,6 +46387,7 @@ window.switchView=function(v){
   if(v==='it_matrix'){setTimeout(renderItEquipmentMatrix,80);}
   if(v==='prod_matrix'){setTimeout(renderProdMatrix,80);}
   if(v==='sec_rfid'){setTimeout(renderSecRfid,80);}
+  if(v==='dept_dashboards'){setTimeout(renderDeptDashboards,80);}
   if(v==='open_issues'){setTimeout(injectCallsIntoOpenIssues,100);setTimeout(injectCallsIntoOpenIssues,500);}
   if(_isModuleMainView(v)){setTimeout(injectDashboardSummary,100);setTimeout(injectDashboardSummary,500);}
   if(v==='wall'){setTimeout(injectWallCallsPanel,300);setTimeout(injectWallCallsPanel,1000);}
@@ -47306,6 +47307,9 @@ const EXTRA_SUBTABS={
   ],
   security:[
     {id:'sec_rfid', label:'📡 RFID Patrol Reports'}
+  ],
+  overview:[
+    {id:'dept_dashboards', label:'🏢 Departments'}
   ]
 };
 // Every module also gets a "📞 Open Issues" sub-tab that opens My Calls
@@ -49183,18 +49187,57 @@ window.deleteRecurringDef=function(defId){
 
 // Module-level toggle: 'reactive' | 'preventive' — keyed per module so each one
 // remembers its own state.
+
+// Map our internal modKey → set of view IDs (without the 'view-' prefix) where
+// the toggle should appear.
+const MOD_VIEW_IDS={
+  maint:['maint_dash','maint_tasks'],
+  prod:['dashboard','checklist','supervisor'],
+  it:['it_cctv','it_radios','it_devices','it_prj11'],
+  irrigation:['irr_dash','irr_schedule','irr_drums','irr_nutrients','irr_systems'],
+  fleet:['fleet_dash','fleet_vehicles','fleet_drivers','fleet_fuel','fleet_gps'],
+  security:['sec_dash','sec_live','sec_patrol','sec_checkpoints','sec_incidents','sec_guards','sec_rfid']
+};
+// Map modKey → label used in the recurring task module field
+const MOD_DEF_NAME={
+  maint:'maintenance',
+  prod:'production',
+  it:'it',
+  irrigation:'irrigation',
+  fleet:'fleet',
+  security:'security'
+};
+const MOD_DISPLAY={
+  maint:'Maintenance',
+  prod:'Production',
+  it:'IT',
+  irrigation:'Irrigation',
+  fleet:'Fleet',
+  security:'Security'
+};
+
+function _activeViewForMod(modKey){
+  const ids=MOD_VIEW_IDS[modKey]||[];
+  for(const id of ids){
+    const v=document.getElementById('view-'+id);
+    if(v&&v.classList.contains('active'))return v;
+  }
+  return null;
+}
+
 function _getModeFor(modKey){return localStorage.getItem('hydroPro_'+modKey+'_mode')||'reactive';}
 function _setModeFor(modKey,m){
   localStorage.setItem('hydroPro_'+modKey+'_mode',m);
-  // Refresh module views
-  if(modKey==='maint'){
-    try{if(typeof renderMaintDash==='function')renderMaintDash();}catch(e){}
-    try{if(typeof renderMaintTasks==='function')renderMaintTasks();}catch(e){}
-  } else if(modKey==='prod'){
-    try{if(typeof renderDashboard==='function')renderDashboard();}catch(e){}
-    try{if(typeof renderChecklist==='function')renderChecklist();}catch(e){}
-    try{if(typeof renderSupervisor==='function')renderSupervisor();}catch(e){}
-  }
+  // Refresh module-specific renderers (best-effort — bail silently if a renderer doesn't exist)
+  const renderers={
+    maint:['renderMaintDash','renderMaintTasks'],
+    prod:['renderDashboard','renderChecklist','renderSupervisor'],
+    it:['renderItCctv','renderItRadios','renderItDevices'],
+    irrigation:['renderIrrDash','renderIrrRoomChecklist','renderIrrDrumLevels','renderIrrPoolMonitor'],
+    fleet:['renderFleetDashboard','renderFleetVehicles'],
+    security:['renderSecDash','renderSecLive','renderSecPatrol']
+  }[modKey]||[];
+  renderers.forEach(name=>{try{if(typeof window[name]==='function')window[name]();}catch(e){}});
   _renderRecurringPanelFor(modKey);
 }
 window._setRecurringMode=_setModeFor;
@@ -49211,16 +49254,20 @@ window._toggleRecExpand=function(defId){
 
 function _modeTabsHTML(modKey){
   const m=_getModeFor(modKey);
-  if(modKey==='prod'){
-    return `<div style="display:flex;gap:6px;margin-bottom:14px;background:var(--surface2);padding:6px;border-radius:10px;width:fit-content;max-width:100%;flex-wrap:wrap;">
-      <button class="btn ${m==='reactive'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('prod','reactive')" style="border:0;">📋 Daily Checklist</button>
-      <button class="btn ${m==='preventive'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('prod','preventive')" style="border:0;">🔁 Recurring Tasks</button>
-      <button class="btn ${m==='additional'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('prod','additional')" style="border:0;">➕ Additional Tasks</button>
-    </div>`;
-  }
+  // Reactive label varies per module — others all read "Reactive (Calls)"
+  const reactiveLabels={
+    prod:'📋 Daily Checklist',
+    maint:'📞 Reactive (Calls)',
+    it:'📞 Reactive (Calls)',
+    irrigation:'📋 Daily Checks',
+    fleet:'📞 Reactive (Calls)',
+    security:'📞 Reactive (Calls)'
+  };
+  const reactiveLabel=reactiveLabels[modKey]||'📞 Reactive (Calls)';
   return `<div style="display:flex;gap:6px;margin-bottom:14px;background:var(--surface2);padding:6px;border-radius:10px;width:fit-content;max-width:100%;flex-wrap:wrap;">
-    <button class="btn ${m==='reactive'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('${modKey}','reactive')" style="border:0;">📞 Reactive (Calls)</button>
-    <button class="btn ${m==='preventive'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('${modKey}','preventive')" style="border:0;">🔁 Preventive (Recurring)</button>
+    <button class="btn ${m==='reactive'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('${modKey}','reactive')" style="border:0;">${reactiveLabel}</button>
+    <button class="btn ${m==='preventive'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('${modKey}','preventive')" style="border:0;">🔁 Recurring Tasks</button>
+    <button class="btn ${m==='additional'?'btn-primary':'btn-outline'}" onclick="_setRecurringMode('${modKey}','additional')" style="border:0;">➕ Additional Tasks</button>
   </div>`;
 }
 
@@ -49484,19 +49531,7 @@ window._addtlSetStatus=function(modKey,taskId,status){
 };
 
 function _renderAddtlPanelFor(modKey){
-  let activeView=null;
-  if(modKey==='prod'){
-    const dashView=document.getElementById('view-dashboard');
-    const cl=document.getElementById('view-checklist');
-    const sup=document.getElementById('view-supervisor');
-    activeView=(dashView&&dashView.classList.contains('active'))?dashView:
-               (cl&&cl.classList.contains('active'))?cl:
-               (sup&&sup.classList.contains('active'))?sup:null;
-  } else if(modKey==='maint'){
-    const dashView=document.getElementById('view-maint_dash');
-    const tasksView=document.getElementById('view-maint_tasks');
-    activeView=(dashView&&dashView.classList.contains('active'))?dashView:(tasksView&&tasksView.classList.contains('active')?tasksView:null);
-  }
+  const activeView=_activeViewForMod(modKey);
   if(!activeView)return;
   const hostId=modKey+'ModeHost';
   let host=document.getElementById(hostId);
@@ -49563,21 +49598,8 @@ function _renderAddtlPanelFor(modKey){
 }
 
 // Render the recurring task panel inside the active view of a module.
-//   modKey: 'maint' | 'prod'
 function _renderRecurringPanelFor(modKey){
-  let activeView=null;
-  if(modKey==='maint'){
-    const dashView=document.getElementById('view-maint_dash');
-    const tasksView=document.getElementById('view-maint_tasks');
-    activeView=(dashView&&dashView.classList.contains('active'))?dashView:(tasksView&&tasksView.classList.contains('active')?tasksView:null);
-  } else if(modKey==='prod'){
-    const dashView=document.getElementById('view-dashboard');
-    const cl=document.getElementById('view-checklist');
-    const sup=document.getElementById('view-supervisor');
-    activeView=(dashView&&dashView.classList.contains('active'))?dashView:
-               (cl&&cl.classList.contains('active'))?cl:
-               (sup&&sup.classList.contains('active'))?sup:null;
-  }
+  const activeView=_activeViewForMod(modKey);
   if(!activeView)return;
   const hostId=modKey+'ModeHost';
   let host=document.getElementById(hostId);
@@ -49596,7 +49618,7 @@ function _renderRecurringPanelFor(modKey){
     return;
   }
   // Preventive mode — list of recurring definitions for this module
-  const moduleFilter=modKey==='maint'?'maintenance':'production';
+  const moduleFilter=MOD_DEF_NAME[modKey]||'maintenance';
   const defs=loadRecurringDefs().filter(d=>(d.module||'maintenance')===moduleFilter);
   const view=_getRecView(modKey);
   const viewToggle=`<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
@@ -49659,7 +49681,7 @@ window._recSetView=function(modKey,view){
 function _getRecView(modKey){return _recView[modKey]||'list';}
 
 function _renderRecurringCalendar(modKey){
-  const moduleFilter=modKey==='maint'?'maintenance':'production';
+  const moduleFilter=MOD_DEF_NAME[modKey]||'maintenance';
   const defs=loadRecurringDefs().filter(d=>(d.module||'maintenance')===moduleFilter&&d.enabled!==false);
   const s=_getRecCalState(modKey);
   const monthStart=new Date(s.year,s.month,1);
@@ -49742,7 +49764,7 @@ function _renderRecurringCalendar(modKey){
 }
 
 window._recCalDayDetail=function(modKey,date){
-  const moduleFilter=modKey==='maint'?'maintenance':'production';
+  const moduleFilter=MOD_DEF_NAME[modKey]||'maintenance';
   const defs=loadRecurringDefs().filter(d=>(d.module||'maintenance')===moduleFilter&&d.enabled!==false);
   const instances=loadRecurringInstances();
   let occRows=[];
@@ -49799,7 +49821,7 @@ window._recCalDayDetail=function(modKey,date){
 // definitions for a given module, grouped by time-of-day. Each card shows
 // progress (X/N facilities done) and the list of facilities still pending.
 function renderRecurringWall(modKey){
-  const moduleFilter=modKey==='maint'?'maintenance':'production';
+  const moduleFilter=MOD_DEF_NAME[modKey]||'maintenance';
   const today=new Date().toISOString().slice(0,10);
   const defs=loadRecurringDefs().filter(d=>(d.module||'maintenance')===moduleFilter&&d.enabled!==false);
   const instances=loadRecurringInstances().filter(i=>i.module===moduleFilter&&i.date===today);
@@ -49884,45 +49906,35 @@ window.openRecurringWall=function(modKey){
   },30000);
 };
 
-// Patch maintenance + production renderers so they always render the mode tabs
+// Patch each module's renderers so they always render the mode tabs.
+// Map of render-function name → modKey it belongs to.
+const _RENDERER_MOD_MAP={
+  // Maintenance
+  renderMaintDash:'maint',renderMaintTasks:'maint',
+  // Production
+  renderDashboard:'prod',renderChecklist:'prod',renderSupervisor:'prod',
+  // IT
+  renderItCctv:'it',renderItRadios:'it',renderItDevices:'it',
+  // Irrigation
+  renderIrrDash:'irrigation',renderIrrRoomChecklist:'irrigation',renderIrrDrumLevels:'irrigation',renderIrrPoolMonitor:'irrigation',
+  // Fleet
+  renderFleetDashboard:'fleet',renderFleetVehicles:'fleet',renderFleetDrivers:'fleet',renderFleetFuel:'fleet',
+  // Security
+  renderSecDash:'security',renderSecLive:'security',renderSecPatrol:'security',renderSecCheckpoints:'security'
+};
 function _patchModeRenderers(){
-  // Maintenance dashboard + task list
-  if(typeof window.renderMaintDash==='function'&&!window.renderMaintDash.__modePatched){
-    const orig=window.renderMaintDash;
-    window.renderMaintDash=function(){
-      const r=orig.apply(this,arguments);
-      try{_renderRecurringPanelFor('maint');}catch(e){console.warn('rec panel maint',e);}
-      return r;
-    };
-    window.renderMaintDash.__modePatched=true;
-  }
-  if(typeof window.renderMaintTasks==='function'&&!window.renderMaintTasks.__modePatched){
-    const orig=window.renderMaintTasks;
-    window.renderMaintTasks=function(){
-      const r=orig.apply(this,arguments);
-      try{_renderRecurringPanelFor('maint');}catch(e){console.warn('rec panel maint',e);}
-      return r;
-    };
-    window.renderMaintTasks.__modePatched=true;
-  }
-  // Production dashboard
-  if(typeof window.renderDashboard==='function'&&!window.renderDashboard.__modePatched){
-    const orig=window.renderDashboard;
-    window.renderDashboard=function(){
-      const r=orig.apply(this,arguments);
-      try{_renderRecurringPanelFor('prod');}catch(e){console.warn('rec panel prod',e);}
-      return r;
-    };
-    window.renderDashboard.__modePatched=true;
-  }
-  if(typeof window.renderChecklist==='function'&&!window.renderChecklist.__modePatched){
-    const orig=window.renderChecklist;
-    window.renderChecklist=function(){
-      const r=orig.apply(this,arguments);
-      try{_renderRecurringPanelFor('prod');}catch(e){console.warn('rec panel prod',e);}
-      return r;
-    };
-    window.renderChecklist.__modePatched=true;
+  for(const fnName in _RENDERER_MOD_MAP){
+    const modKey=_RENDERER_MOD_MAP[fnName];
+    const fn=window[fnName];
+    if(typeof fn!=='function'||fn.__modePatched)continue;
+    (function(name,mk,orig){
+      window[name]=function(){
+        const r=orig.apply(this,arguments);
+        try{_renderRecurringPanelFor(mk);}catch(e){console.warn('rec panel '+mk,e);}
+        return r;
+      };
+      window[name].__modePatched=true;
+    })(fnName,modKey,fn);
   }
 }
 setInterval(_patchModeRenderers,800);
@@ -50468,6 +50480,204 @@ window.openNotifSettings=function(){
 window._testNotification=function(){
   _fireNotification({severity:'critical',title:'Test alert — looks good!',subtitle:'This is a sample critical notification.',tag:'test_'+Date.now()});
 };
+
+// ============= PER-DEPARTMENT DASHBOARDS =============
+// Hub view that shows all 14 departments as cards. Click one to drill in to
+// that department's open calls, urgent count, recurring tasks, additional tasks.
+let _deptSelected=null;
+
+function _collectDeptStats(){
+  // Returns {deptId: {open, urgent, total, recent, recurring, additional}}
+  const stats={};
+  MATRIX_DEPARTMENTS.forEach(d=>{stats[d.id]={open:0,urgent:0,total:0,closed7d:0,calls:[],recurring:0,additional:0};});
+  let calls=[];try{calls=loadCalls();}catch(e){}
+  if(!Array.isArray(calls))calls=[];
+  const now=Date.now();
+  const week=7*24*60*60*1000;
+  calls.forEach(c=>{
+    if(!c)return;
+    const deptId=_matrixDeptId(c.department||'')||_matrixDeptId(c.sourceModule||'')||null;
+    if(!deptId||!stats[deptId])return;
+    stats[deptId].total++;
+    const closed=(typeof isCallClosed==='function')?isCallClosed(c):(c.status==='closed_finalize'||c.status==='closed');
+    if(!closed){
+      stats[deptId].open++;
+      if(c.priority==='urgent')stats[deptId].urgent++;
+      stats[deptId].calls.push(c);
+    } else if(c.closedAt&&(now-c.closedAt)<week){
+      stats[deptId].closed7d++;
+    }
+  });
+  // Recurring task counts per dept (use module mapping)
+  let defs=[];try{defs=loadRecurringDefs();}catch(e){}
+  if(Array.isArray(defs)){
+    defs.forEach(d=>{
+      if(d.enabled===false)return;
+      const deptId=_matrixDeptId(d.module||'')||(d.module==='maintenance'?'maintenance':d.module);
+      if(deptId&&stats[deptId])stats[deptId].recurring++;
+    });
+  }
+  // Additional tasks per module key — best-effort count
+  ['maint','prod','it','irrigation','fleet','security'].forEach(modKey=>{
+    let arr=[];try{arr=loadAddtlTasks(modKey);}catch(e){}
+    const deptId=({maint:'maintenance',prod:'production',it:'it',irrigation:'irrigation',fleet:'fleet',security:'security'})[modKey];
+    if(deptId&&stats[deptId]&&Array.isArray(arr)){
+      stats[deptId].additional=arr.filter(t=>t&&t.status!=='done').length;
+    }
+  });
+  return stats;
+}
+
+function renderDeptDashboards(){
+  let view=document.getElementById('view-dept_dashboards');
+  if(!view){
+    view=document.createElement('div');
+    view.className='view';view.id='view-dept_dashboards';
+    const main=document.getElementById('appMain')||document.body;
+    main.appendChild(view);
+  }
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+  view.classList.add('active');
+  const stats=_collectDeptStats();
+  if(_deptSelected){
+    view.innerHTML=_buildDeptDetail(_deptSelected,stats);
+  } else {
+    view.innerHTML=_buildDeptHub(stats);
+  }
+}
+
+function _buildDeptHub(stats){
+  const cards=MATRIX_DEPARTMENTS.map(d=>{
+    const s=stats[d.id];
+    const totalOpen=s.open;
+    const color=s.urgent>0?'var(--danger)':totalOpen>0?'var(--warn)':'var(--ok)';
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${color};border-radius:10px;padding:14px;cursor:pointer;transition:transform 0.15s;" onclick="_deptSelected='${d.id}';renderDeptDashboards();" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <span style="font-size:24px;">${d.icon}</span>
+        <div style="flex:1;">
+          <div style="font-size:14px;font-weight:700;">${d.label}</div>
+          <div style="font-size:10px;color:var(--text3);font-family:var(--mono);">${d.scope}</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-family:var(--mono);font-size:11px;">
+        <div style="background:var(--surface2);padding:6px;border-radius:5px;text-align:center;">
+          <div style="font-size:18px;font-weight:700;color:${totalOpen>0?'var(--warn)':'var(--text3)'};">${totalOpen}</div>
+          <div style="color:var(--text3);font-size:9px;text-transform:uppercase;">Open</div>
+        </div>
+        <div style="background:var(--surface2);padding:6px;border-radius:5px;text-align:center;">
+          <div style="font-size:18px;font-weight:700;color:${s.urgent>0?'var(--danger)':'var(--text3)'};">${s.urgent}</div>
+          <div style="color:var(--text3);font-size:9px;text-transform:uppercase;">Urgent</div>
+        </div>
+        <div style="background:var(--surface2);padding:6px;border-radius:5px;text-align:center;">
+          <div style="font-size:18px;font-weight:700;color:var(--info);">${s.recurring}</div>
+          <div style="color:var(--text3);font-size:9px;text-transform:uppercase;">Recurring</div>
+        </div>
+        <div style="background:var(--surface2);padding:6px;border-radius:5px;text-align:center;">
+          <div style="font-size:18px;font-weight:700;color:var(--accent);">${s.additional}</div>
+          <div style="color:var(--text3);font-size:9px;text-transform:uppercase;">Add'l</div>
+        </div>
+      </div>
+      ${s.closed7d>0?`<div style="margin-top:8px;font-size:10px;color:var(--ok);font-family:var(--mono);">✓ ${s.closed7d} closed in last 7 days</div>`:''}
+    </div>`;
+  }).join('');
+  // Top totals
+  const totalOpen=MATRIX_DEPARTMENTS.reduce((a,d)=>a+stats[d.id].open,0);
+  const totalUrgent=MATRIX_DEPARTMENTS.reduce((a,d)=>a+stats[d.id].urgent,0);
+  return `<div class="section-title">🏢 Department Dashboards — 14 Departments</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>🏢 Per-department dashboard:</strong> Each card shows open calls, urgent items, recurring tasks, and additional tasks for that department. Click a card to drill into that department's full workload.
+    </div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Departments</div><div class="fleet-stat-val">${MATRIX_DEPARTMENTS.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Total Open Calls</div><div class="fleet-stat-val ${totalOpen>0?'warn':''}">${totalOpen}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Urgent</div><div class="fleet-stat-val ${totalUrgent>0?'danger':''}">${totalUrgent}</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:14px;">
+      ${cards}
+    </div>`;
+}
+
+function _buildDeptDetail(deptId,stats){
+  const dept=MATRIX_DEPARTMENTS.find(d=>d.id===deptId);
+  if(!dept)return '<div>Unknown department.</div>';
+  const s=stats[deptId];
+  // Build calls table — sorted urgent first, then by date desc
+  const priOrder={urgent:0,priority:1,need:2,low:3};
+  const sortedCalls=s.calls.slice().sort((a,b)=>{
+    const pa=priOrder[a.priority]||9,pb=priOrder[b.priority]||9;
+    if(pa!==pb)return pa-pb;
+    return (b.raisedAt||0)-(a.raisedAt||0);
+  });
+  const callRows=sortedCalls.map(c=>{
+    const st=(typeof getCallStatus==='function')?getCallStatus(c):(c.status||'new_call');
+    const stCls=(typeof statusCssClass==='function')?statusCssClass(st):'';
+    const stLbl=(typeof statusLabel==='function')?statusLabel(st):st;
+    const route=(typeof _callRouteLabel==='function')?_callRouteLabel(c):(c.sourceLabel||'');
+    const assignees=(typeof getCallAssignees==='function')?getCallAssignees(c):[];
+    const upd=(c.updates||[]).length;
+    const priColor=({urgent:'var(--danger)',priority:'var(--warn)',need:'var(--info)',low:'var(--text3)'})[c.priority||'need'];
+    const days=Math.max(0,Math.floor((Date.now()-(c.raisedAt||0))/86400000));
+    return `<tr style="cursor:pointer;border-left:3px solid ${priColor};" onclick="viewCallDetail('${c.id}')">
+      <td><span class="call-status-pill ${stCls}">${stLbl}</span></td>
+      <td><strong>${(c.subject||'').replace(/[<>]/g,'').slice(0,80)}</strong></td>
+      <td><span class="call-dept-pill" style="font-size:9px;">${(route||'').replace(/[<>]/g,'')}</span></td>
+      <td>${(c.priority||'').toUpperCase()}</td>
+      <td>${(c.raisedBy||'—').replace(/[<>]/g,'')}</td>
+      <td>${assignees.length?'👤 '+assignees.join(', ').replace(/[<>]/g,''):'<span style="color:var(--text3);">— unassigned —</span>'}</td>
+      <td style="text-align:center;font-family:var(--mono);">${days}d</td>
+      <td style="text-align:center;">${upd?'💬 '+upd:'—'}</td>
+    </tr>`;
+  }).join('');
+  // Recurring + Additional summaries
+  let defs=[];try{defs=loadRecurringDefs().filter(d=>{
+    const did=_matrixDeptId(d.module||'')||(d.module==='maintenance'?'maintenance':d.module);
+    return did===deptId&&d.enabled!==false;
+  });}catch(e){}
+  const recRows=defs.map(d=>`<tr><td style="font-size:13px;">🔁 ${(d.title||'').replace(/[<>]/g,'')}</td><td style="font-family:var(--mono);font-size:11px;">${d.frequency||''}</td><td style="font-family:var(--mono);font-size:11px;">${d.startTime?d.startTime+(d.endTime?'-'+d.endTime:''):'—'}</td><td style="font-family:var(--mono);font-size:11px;">${(d.facilities||[]).length||0} facilities</td></tr>`).join('');
+  // Additional tasks
+  const modKey=({maintenance:'maint',production:'prod',it:'it',irrigation:'irrigation',fleet:'fleet',security:'security'})[deptId];
+  let addtl=[];if(modKey){try{addtl=loadAddtlTasks(modKey).filter(t=>t&&t.status!=='done');}catch(e){}}
+  const addtlRows=addtl.map(t=>{
+    const priColor=t.priority==='urgent'?'var(--danger)':t.priority==='priority'?'var(--warn)':t.priority==='low'?'var(--text3)':'var(--text2)';
+    return `<tr><td style="color:${priColor};font-size:18px;text-align:center;">${t.priority==='urgent'?'🚨':t.priority==='priority'?'⚠':t.priority==='low'?'📎':'📋'}</td><td><strong>${(t.title||'').replace(/[<>]/g,'')}</strong></td><td style="font-family:var(--mono);font-size:11px;">${t.facility||'—'}</td><td style="font-family:var(--mono);font-size:11px;">${t.dueDate||'—'}</td><td style="font-size:11px;">${(t.assignedTo||'—').replace(/[<>]/g,'')}</td></tr>`;
+  }).join('');
+
+  return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+    <div>
+      <button class="btn btn-outline" onclick="_deptSelected=null;renderDeptDashboards();" style="margin-right:10px;">← All Departments</button>
+      <span style="font-size:24px;">${dept.icon}</span>
+      <span style="font-size:18px;font-weight:700;margin-left:6px;">${dept.label}</span>
+    </div>
+    <div style="font-size:12px;color:var(--text3);font-family:var(--mono);">${dept.scope}</div>
+  </div>
+
+  <div class="fleet-stat-row">
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Open Calls</div><div class="fleet-stat-val ${s.open>0?'warn':''}">${s.open}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">🚨 Urgent</div><div class="fleet-stat-val ${s.urgent>0?'danger':''}">${s.urgent}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">🔁 Recurring</div><div class="fleet-stat-val">${s.recurring}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">➕ Additional</div><div class="fleet-stat-val">${s.additional}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">✓ Closed (7d)</div><div class="fleet-stat-val green">${s.closed7d}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Total Lifetime</div><div class="fleet-stat-val">${s.total}</div></div>
+  </div>
+
+  <div class="section-title" style="margin-top:18px;">📞 Open Calls</div>
+  ${sortedCalls.length?`<div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;">
+    <thead><tr><th>Status</th><th>Subject</th><th>From</th><th>Priority</th><th>Reporter</th><th>Assigned</th><th>Days</th><th>💬</th></tr></thead>
+    <tbody>${callRows}</tbody>
+  </table></div>`:'<div style="padding:20px;text-align:center;color:var(--text3);">No open calls for this department.</div>'}
+
+  <div class="section-title" style="margin-top:18px;">🔁 Recurring Tasks</div>
+  ${defs.length?`<div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;">
+    <thead><tr><th>Task</th><th>Frequency</th><th>Time</th><th>Scope</th></tr></thead>
+    <tbody>${recRows}</tbody>
+  </table></div>`:'<div style="padding:14px;text-align:center;color:var(--text3);">No recurring tasks defined.</div>'}
+
+  <div class="section-title" style="margin-top:18px;">➕ Additional Tasks (open)</div>
+  ${addtl.length?`<div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;">
+    <thead><tr><th style="width:30px;">!</th><th>Task</th><th>Facility</th><th>Due</th><th>Assigned</th></tr></thead>
+    <tbody>${addtlRows}</tbody>
+  </table></div>`:'<div style="padding:14px;text-align:center;color:var(--text3);">No open additional tasks.</div>'}`;
+}
 
 window._saveNotifSettingsFromModal=function(){
   const s={
