@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777548421;
+const APP_BUILD=1777549378;
 const APP_BUILD_DATE='2026-04-30';
 
 // Store version in localStorage on first run
@@ -47773,18 +47773,48 @@ setInterval(_setupAccountingModule,2000);
 // Inject CSS that pushes the module-header (page name + sub-tabs) past the sidebar.
 // The base CSS only pushes .app-main, but .module-header is OUTSIDE app-main so it
 // stays at left:0 and gets covered by the fixed sidebar (76px wide).
+// Using !important to override anything else on the cascade.
 (function _fixSidebarOverlap(){
   if(document.getElementById('hpSidebarFixCss'))return;
   const s=document.createElement('style');
   s.id='hpSidebarFixCss';
   s.textContent=
-    '.module-header{margin-left:76px;transition:margin-left .2s;}'+
-    '@media(max-width:640px){.module-header{margin-left:60px;}}'+
-    '.wall-mode .module-header{margin-left:0;}'+
-    '@media print{.module-header{margin-left:0 !important;}}'+
-    /* Also ensure the sub-tabs strip doesn't get cut */
-    '.module-sub-tabs{flex-wrap:wrap;}';
+    '#moduleHeader,.module-header{margin-left:76px !important;transition:margin-left .2s;}'+
+    '@media(max-width:640px){#moduleHeader,.module-header{margin-left:60px !important;}}'+
+    '.wall-mode #moduleHeader,.wall-mode .module-header{margin-left:0 !important;}'+
+    '@media print{#moduleHeader,.module-header{margin-left:0 !important;}}'+
+    /* Allow the sub-tabs strip to wrap if many tabs */
+    '.module-sub-tabs{flex-wrap:wrap !important;overflow-x:visible !important;}';
   document.head.appendChild(s);
+})();
+
+// =================== VISIBLE BUILD INDICATOR ===================
+// So the user can verify at a glance which build is currently loaded.
+// Renders a small badge near the version pill that shows the addon build #.
+(function _buildIndicator(){
+  function inject(){
+    if(document.getElementById('hpBuildBadge'))return;
+    // Find the version pill (text like "v2.46.8-row-colors") and append next to it
+    const ver=document.querySelector('[id*="version"], .version-pill, .topbar-version')||
+              Array.from(document.querySelectorAll('span,div')).find(el=>/^v\d+\.\d+/.test((el.textContent||'').trim()));
+    const buildNum=typeof APP_BUILD!=='undefined'?APP_BUILD:'?';
+    const buildDate=typeof APP_BUILD_DATE!=='undefined'?APP_BUILD_DATE:'?';
+    const badge=document.createElement('span');
+    badge.id='hpBuildBadge';
+    badge.title='HydroPro addon build — click to copy';
+    badge.style.cssText='display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;background:#1f3a2c;color:#4caf50;font-family:var(--mono,monospace);font-size:10px;font-weight:700;cursor:pointer;margin-left:6px;border:1px solid #2e5e3d;';
+    badge.textContent='build '+String(buildNum).slice(-7);
+    badge.onclick=function(){
+      const txt='HydroPro build '+buildNum+' ('+buildDate+')';
+      if(navigator.clipboard)navigator.clipboard.writeText(txt);
+      if(typeof _toast==='function')_toast(txt+' — copied','ok');
+    };
+    if(ver&&ver.parentNode)ver.parentNode.insertBefore(badge,ver.nextSibling);
+    else (document.querySelector('.topbar')||document.body).appendChild(badge);
+  }
+  setTimeout(inject,500);
+  setTimeout(inject,2000);
+  setInterval(inject,5000);
 })();
 
 // Patch the sidebar so Accounting appears (replacing the now-hidden Payroll slot)
@@ -58981,9 +59011,12 @@ window._irrMatrixDrill=function(gh,issueId){
   alert(gh+' · '+issue.label+'\n\nStatus: '+(r===null?'NO DATA':r?'OK':'FAIL')+extra);
 };
 
-// Hook irrigation matrix into the EXTRA_SUBTABS / VIEW_TO_MODULE / switchView.
-// We run this SYNCHRONOUSLY now (EXTRA_SUBTABS is already defined above in the same IIFE)
-// + ALSO repeat every second to defeat any race conditions or v94 re-renders.
+// Hook irrigation matrix tab into the Irrigation module sub-tabs.
+// We use THREE complementary mechanisms to defeat race conditions:
+// 1. Push into EXTRA_SUBTABS (so injectExtraSubTabs picks it up)
+// 2. Hook v94's renderModuleHeader to inject the tab right after v94 renders
+// 3. DOM mutation observer that re-injects if the tab disappears
+// Plus a window.hydroProDebug helper the user can run from console.
 (function _registerIrrMatrix(){
   function ensureRegistered(){
     try{
@@ -58994,7 +59027,6 @@ window._irrMatrixDrill=function(gh,issueId){
         }
       }
       if(typeof VIEW_TO_MODULE!=='undefined'){VIEW_TO_MODULE.irr_matrix='irrigation';}
-      // Hook switchView dispatcher
       if(typeof window.switchView==='function'&&!window.switchView.__irrMatrixHooked){
         const orig=window.switchView;
         window.switchView=function(v){
@@ -59006,10 +59038,96 @@ window._irrMatrixDrill=function(gh,issueId){
       }
     }catch(e){console.warn('[IrrMatrix register]',e);}
   }
-  // Run immediately, then keep ensuring registration every second (in case EXTRA_SUBTABS
-  // gets reset by other code, or v94 re-renders the sub-tab strip).
+
+  // Hook v94's renderModuleHeader to inject our tab directly after it renders.
+  function hookRenderModuleHeader(){
+    if(typeof window.renderModuleHeader!=='function'||window.renderModuleHeader.__irrMatrixHooked)return;
+    const orig=window.renderModuleHeader;
+    window.renderModuleHeader=function(modId){
+      const r=orig.apply(this,arguments);
+      try{
+        if(modId==='irrigation'){
+          injectIrrMatrixTabIntoDom();
+        }
+      }catch(e){console.warn('[IrrMatrix renderHeader hook]',e);}
+      return r;
+    };
+    window.renderModuleHeader.__irrMatrixHooked=true;
+  }
+
+  // Append the Irrigation Matrix button to #modSubTabs using v94's own
+  // .module-sub-tab class so it styles like the other tabs.
+  function injectIrrMatrixTabIntoDom(){
+    const subTabs=document.getElementById('modSubTabs');
+    if(!subTabs)return;
+    if(document.getElementById('modTab-irr_matrix'))return;  // already there
+    const btn=document.createElement('button');
+    btn.className='module-sub-tab';
+    btn.id='modTab-irr_matrix';
+    btn.title='Irrigation Matrix — issues × rooms';
+    btn.textContent='📊 Irrigation Matrix';
+    btn.onclick=function(){
+      if(typeof switchView==='function')switchView('irr_matrix');
+      subTabs.querySelectorAll('.module-sub-tab').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+    };
+    subTabs.appendChild(btn);
+  }
+
+  // Watch the sub-tabs container — if v94 re-renders and removes our tab,
+  // re-inject within the irrigation module context.
+  function observeSubTabs(){
+    const subTabs=document.getElementById('modSubTabs');
+    if(!subTabs||subTabs.__irrMatrixObserved)return;
+    const obs=new MutationObserver(()=>{
+      const activeBtn=document.querySelector('.module-btn.active');
+      const activeMod=activeBtn?activeBtn.getAttribute('data-module'):null;
+      if(activeMod==='irrigation'){
+        if(!document.getElementById('modTab-irr_matrix')){
+          injectIrrMatrixTabIntoDom();
+        }
+      }
+    });
+    obs.observe(subTabs,{childList:true});
+    subTabs.__irrMatrixObserved=true;
+  }
+
+  // Also a periodic safety check (cheap, just sets a flag)
+  function periodicEnsure(){
+    ensureRegistered();
+    hookRenderModuleHeader();
+    observeSubTabs();
+    // Direct injection if user happens to be on irrigation right now
+    const activeBtn=document.querySelector('.module-btn.active');
+    if(activeBtn&&activeBtn.getAttribute('data-module')==='irrigation'){
+      injectIrrMatrixTabIntoDom();
+    }
+  }
   ensureRegistered();
-  setInterval(ensureRegistered,1000);
+  // Try every second for the first 30s (handles slow v94 init), then every 5s as safety
+  let n=0;const fast=setInterval(()=>{
+    periodicEnsure();
+    if(++n>=30){clearInterval(fast);setInterval(periodicEnsure,5000);}
+  },1000);
+
+  // Expose debug helper so user can verify in console
+  window.hydroProDebug=function(){
+    const dbg={
+      build:typeof APP_BUILD!=='undefined'?APP_BUILD:'?',
+      buildDate:typeof APP_BUILD_DATE!=='undefined'?APP_BUILD_DATE:'?',
+      activeModule:(document.querySelector('.module-btn.active')||{getAttribute:()=>null}).getAttribute('data-module'),
+      irrMatrixInExtras:typeof EXTRA_SUBTABS!=='undefined'&&EXTRA_SUBTABS.irrigation&&EXTRA_SUBTABS.irrigation.some(x=>x.id==='irr_matrix'),
+      irrMatrixInDom:!!document.getElementById('modTab-irr_matrix'),
+      modSubTabsExists:!!document.getElementById('modSubTabs'),
+      modSubTabsChildren:document.getElementById('modSubTabs')?Array.from(document.getElementById('modSubTabs').children).map(c=>c.textContent.trim().slice(0,30)):[],
+      switchViewHooked:typeof window.switchView==='function'?!!window.switchView.__irrMatrixHooked:false,
+      renderModuleHeaderHooked:typeof window.renderModuleHeader==='function'?!!window.renderModuleHeader.__irrMatrixHooked:false
+    };
+    console.log('[HydroPro Debug]',dbg);
+    if(navigator.clipboard)navigator.clipboard.writeText(JSON.stringify(dbg,null,2));
+    alert('HYDROPRO DEBUG (also copied to clipboard):\n\n'+JSON.stringify(dbg,null,2));
+    return dbg;
+  };
 })();
 
 // =================== HISTORICAL GPS REPORTS — BOOTSTRAP DATA ===================
