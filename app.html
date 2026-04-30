@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777509026;
+const APP_BUILD=1777516359;
 const APP_BUILD_DATE='2026-04-30';
 
 // Store version in localStorage on first run
@@ -43847,7 +43847,7 @@ const VIEW_TO_MODULE={
   // Cross-module overview tabs — leave un-tracked so banner doesn't show
   geo_dash:null,daily_briefing:null,critical_summary:null,calendar_all:null,
   issues_board:null,task_tracker:null,task_calendar:null,task_escalation:null,
-  audit:null,users:null,my_calls:null,dept_dashboards:null
+  audit:null,users:null,my_calls:null,dept_dashboards:null,checklist_rollup:null
 };
 function _moduleOfView(viewId){
   if(viewId in VIEW_TO_MODULE)return VIEW_TO_MODULE[viewId];
@@ -46499,6 +46499,7 @@ window.switchView=function(v){
   if(v==='prod_matrix'){setTimeout(renderProdMatrix,80);}
   if(v==='sec_rfid'){setTimeout(renderSecRfid,80);}
   if(v==='dept_dashboards'){setTimeout(renderDeptDashboards,80);}
+  if(v==='checklist_rollup'){setTimeout(renderChecklistRollup,80);}
   if(v==='open_issues'){setTimeout(injectCallsIntoOpenIssues,100);setTimeout(injectCallsIntoOpenIssues,500);}
   if(_isModuleMainView(v)){setTimeout(injectDashboardSummary,100);setTimeout(injectDashboardSummary,500);}
   if(v==='wall'){setTimeout(injectWallCallsPanel,300);setTimeout(injectWallCallsPanel,1000);}
@@ -47420,7 +47421,8 @@ const EXTRA_SUBTABS={
     {id:'sec_rfid', label:'📡 RFID Patrol Reports'}
   ],
   overview:[
-    {id:'dept_dashboards', label:'🏢 Departments'}
+    {id:'dept_dashboards', label:'🏢 Departments'},
+    {id:'checklist_rollup', label:'✅ Checklist Rollup'}
   ]
 };
 // Every module also gets a "📞 Open Issues" sub-tab that opens My Calls
@@ -47644,16 +47646,23 @@ function _setupAccountingModule(){
   MODULES.accounting={
     icon:'💼',
     name:'ACCOUNTING',
-    description:'Payroll, transactions, P&L, cash flow, tax & compliance',
+    description:'QuickBooks reports, payroll, transactions, P&L, cash flow, tax',
     views:[
-      {id:'acct_dash',label:'📊 Dashboard',perm:null,title:'Accounting overview — payroll totals, P&L summary, cash flow'},
-      {id:'payroll_ops',label:'🌱 Payroll — Operations (Weekly)',perm:'managePayroll'},
-      {id:'payroll_office',label:'🏢 Payroll — Office (Bi-monthly)',perm:'managePayroll'},
-      {id:'payroll_history',label:'📊 Payroll — History',perm:'managePayroll'},
-      {id:'payroll_rates',label:'🏛️ Rates & Tax',perm:'managePayroll'},
+      {id:'acct_dash',label:'📊 Dashboard',perm:null,title:'Accounting overview'},
+      {id:'acct_checklist',label:'✅ Monitoring Checklist',perm:null,title:'Subject-by-subject monitoring matrix (AP, AR, Tax, etc.)'},
+      {id:'acct_quickbooks',label:'🔗 QuickBooks Sync',perm:null,title:'Import QuickBooks CSV reports'},
+      {id:'acct_pnl',label:'📈 Profit & Loss',perm:null,title:'P&L statement'},
+      {id:'acct_cashflow',label:'💰 Cash Flow',perm:null,title:'Cash flow tracking'},
+      {id:'acct_balance',label:'🏦 Balance Sheet',perm:null,title:'Assets / Liabilities / Equity'},
       {id:'acct_transactions',label:'💸 Transactions',perm:null,title:'Money in / out log'},
-      {id:'acct_pnl',label:'📈 Profit & Loss',perm:null,title:'P&L statement (period-based)'},
-      {id:'acct_cashflow',label:'💰 Cash Flow',perm:null,title:'Cash flow tracking'}
+      {id:'acct_vendors',label:'📦 Vendors / Suppliers',perm:null,title:'Vendor list + payables'},
+      {id:'acct_customers',label:'👥 Customers / AR',perm:null,title:'Customers + receivables'},
+      {id:'acct_invoices',label:'📃 Invoices',perm:null,title:'Issued / received invoices'},
+      {id:'acct_tax',label:'🏛️ Tax & Compliance',perm:null,title:'Tax filings, deductions, deadlines'},
+      {id:'payroll_ops',label:'🌱 Payroll — Operations',perm:'managePayroll'},
+      {id:'payroll_office',label:'🏢 Payroll — Office',perm:'managePayroll'},
+      {id:'payroll_history',label:'📊 Payroll — History',perm:'managePayroll'},
+      {id:'payroll_rates',label:'🏛️ Payroll — Rates',perm:'managePayroll'}
     ]
   };
   // Hide the old top-level payroll module — its views still exist, just moved
@@ -47668,7 +47677,7 @@ setInterval(_setupAccountingModule,2000);
 
 // Register the new accounting views in the view-to-module map so banners work
 (function _addAcctViewsToMap(){
-  const adds={acct_dash:'accounting',payroll_ops:'accounting',payroll_office:'accounting',payroll_history:'accounting',payroll_rates:'accounting',acct_transactions:'accounting',acct_pnl:'accounting',acct_cashflow:'accounting'};
+  const adds={acct_dash:'accounting',acct_checklist:'accounting',acct_quickbooks:'accounting',acct_pnl:'accounting',acct_cashflow:'accounting',acct_balance:'accounting',acct_transactions:'accounting',acct_vendors:'accounting',acct_customers:'accounting',acct_invoices:'accounting',acct_tax:'accounting',payroll_ops:'accounting',payroll_office:'accounting',payroll_history:'accounting',payroll_rates:'accounting'};
   setTimeout(()=>{
     if(typeof VIEW_TO_MODULE==='undefined')return;
     Object.assign(VIEW_TO_MODULE,adds);
@@ -47900,6 +47909,1439 @@ window._renderAcctCashflow=function(){
     </div>`;
 };
 
+// === QuickBooks integration (CSV import) ===
+const QB_DATA_KEY='hydroPro_qb_data';
+function loadQbData(){try{return JSON.parse(localStorage.getItem(QB_DATA_KEY)||'{}');}catch(e){return {};}}
+function saveQbData(d){localStorage.setItem(QB_DATA_KEY,JSON.stringify(d));}
+
+window._renderAcctQuickBooks=function(){
+  let view=document.getElementById('view-acct_quickbooks');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-acct_quickbooks';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const qb=loadQbData();
+  const reportTypes=[
+    {id:'pnl',label:'📈 Profit & Loss',hint:'Export from QuickBooks Online → Reports → Profit and Loss → Export to CSV'},
+    {id:'cashflow',label:'💰 Cash Flow Statement',hint:'Reports → Statement of Cash Flows → Export to CSV'},
+    {id:'balance',label:'🏦 Balance Sheet',hint:'Reports → Balance Sheet → Export to CSV'},
+    {id:'transactions',label:'💸 Transaction List',hint:'Reports → Transaction List by Date → Export to CSV'},
+    {id:'ar',label:'👥 A/R Aging',hint:'Reports → Accounts Receivable Aging Summary → CSV'},
+    {id:'ap',label:'📦 A/P Aging',hint:'Reports → Accounts Payable Aging Summary → CSV'}
+  ];
+  const cards=reportTypes.map(rt=>{
+    const data=qb[rt.id];
+    const has=data&&data.rows&&data.rows.length;
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;margin-bottom:8px;">
+        <div style="flex:1;">
+          <div style="font-size:14px;font-weight:700;">${rt.label}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px;">${rt.hint}</div>
+        </div>
+        ${has?`<span style="font-size:10px;color:var(--ok);background:rgba(102,187,106,0.18);padding:3px 8px;border-radius:4px;font-weight:700;">✓ Imported</span>`:`<span style="font-size:10px;color:var(--text3);background:var(--surface2);padding:3px 8px;border-radius:4px;">— No data</span>`}
+      </div>
+      ${has?`<div style="font-size:11px;color:var(--text2);font-family:var(--mono);margin-bottom:8px;">${data.rows.length} rows · imported ${data.importedAt?new Date(data.importedAt).toLocaleDateString():'?'}</div>`:''}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <label class="btn btn-primary" style="cursor:pointer;font-size:12px;">📥 Upload CSV<input type="file" accept=".csv,.tsv,.txt" style="display:none;" onchange="_qbImport('${rt.id}',this)"></label>
+        ${has?`<button class="btn btn-outline" onclick="_qbView('${rt.id}')" style="font-size:12px;">👁 View</button><button class="btn btn-outline" onclick="_qbClear('${rt.id}')" style="font-size:12px;color:var(--danger);">🗑</button>`:''}
+      </div>
+    </div>`;
+  }).join('');
+
+  view.innerHTML=`<div class="section-title">🔗 QuickBooks Sync</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>🔗 How this works:</strong> HydroPro is a browser-only app, so it can't pull from QuickBooks live. Instead, export reports as CSV from QuickBooks Online (or Desktop), then upload them here. The data feeds the P&L, Cash Flow, and Balance Sheet tabs.
+      <br><strong>Live OAuth sync</strong> is possible if we add a backend later — let me know.
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;">
+      ${cards}
+    </div>`;
+};
+
+// Generic QB CSV import — stores raw rows; specific views interpret them
+window._qbImport=async function(reportId,input){
+  const file=input.files&&input.files[0];if(!file)return;
+  try{
+    const text=await file.text();
+    // Simple CSV parser (handles quoted fields)
+    const rows=[];
+    let cur='',inQ=false,row=[];
+    for(let i=0;i<text.length;i++){
+      const c=text[i];
+      if(inQ){
+        if(c==='"'&&text[i+1]==='"'){cur+='"';i++;}
+        else if(c==='"')inQ=false;
+        else cur+=c;
+      } else {
+        if(c==='"')inQ=true;
+        else if(c===','){row.push(cur);cur='';}
+        else if(c==='\n'){row.push(cur);if(row.some(x=>x))rows.push(row);row=[];cur='';}
+        else if(c==='\r'){/* skip */}
+        else cur+=c;
+      }
+    }
+    if(cur||row.length){row.push(cur);if(row.some(x=>x))rows.push(row);}
+    const qb=loadQbData();
+    qb[reportId]={rows:rows,fileName:file.name,importedAt:Date.now(),importedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user'};
+    saveQbData(qb);
+    if(typeof showToast==='function')showToast(`Imported ${rows.length} rows from ${file.name}`,'ok');
+    _renderAcctQuickBooks();
+  }catch(e){
+    alert('Failed to read CSV: '+(e.message||e));
+  }
+  input.value='';
+};
+window._qbClear=function(reportId){
+  if(!confirm('Clear this imported data?'))return;
+  const qb=loadQbData();delete qb[reportId];saveQbData(qb);
+  _renderAcctQuickBooks();
+};
+window._qbView=function(reportId){
+  const qb=loadQbData();const data=qb[reportId];if(!data)return;
+  let host=document.getElementById('qbViewModal');
+  if(!host){host=document.createElement('div');host.id='qbViewModal';host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;';document.body.appendChild(host);}
+  const rows=data.rows.slice(0,200).map(r=>`<tr>${r.map(c=>`<td style="padding:4px 8px;border-bottom:1px solid var(--border);font-size:11px;">${(c||'').toString().replace(/[<>]/g,'').slice(0,80)}</td>`).join('')}</tr>`).join('');
+  host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:920px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--border);">
+      <div style="font-size:16px;font-weight:700;">📋 ${(data.fileName||reportId).replace(/[<>]/g,'')}</div>
+      <button onclick="document.getElementById('qbViewModal').remove();" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 10px;border-radius:6px;cursor:pointer;">✕</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:14px;">
+      <table style="width:100%;border-collapse:collapse;font-family:var(--mono);"><tbody>${rows}</tbody></table>
+      ${data.rows.length>200?`<div style="text-align:center;color:var(--text3);padding:10px;font-size:11px;">+${data.rows.length-200} more rows</div>`:''}
+    </div>
+  </div>`;
+};
+
+// === Updated P&L view: uses QB data if imported, else falls back to internal Transactions ===
+const _origRenderAcctPnl=window._renderAcctPnl;
+window._renderAcctPnl=function(){
+  let view=document.getElementById('view-acct_pnl');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-acct_pnl';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const qb=loadQbData();
+  if(qb.pnl&&qb.pnl.rows&&qb.pnl.rows.length){
+    // Show QB-imported data
+    const rows=qb.pnl.rows.map(r=>`<tr>${r.map((c,i)=>{
+      const isNum=i>0&&/^-?[\d,.]+$/.test(String(c||'').trim());
+      return `<td style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:12px;${i===0?'font-weight:600;':''}${isNum?'text-align:right;font-family:var(--mono);':''}">${(c||'').toString().replace(/[<>]/g,'')}</td>`;
+    }).join('')}</tr>`).join('');
+    view.innerHTML=`<div class="section-title">📈 Profit & Loss <span style="font-size:11px;color:var(--ok);background:rgba(102,187,106,0.18);padding:3px 8px;border-radius:4px;font-weight:700;margin-left:8px;">FROM QUICKBOOKS</span></div>
+      <div style="padding:10px 14px;background:var(--surface2);border-left:3px solid var(--info);border-radius:7px;margin-bottom:14px;font-size:11px;color:var(--text2);">Source: <strong>${(qb.pnl.fileName||'').replace(/[<>]/g,'')}</strong> · imported ${new Date(qb.pnl.importedAt).toLocaleDateString()} by ${qb.pnl.importedBy||'?'} · <a href="javascript:switchView('acct_quickbooks')" style="color:var(--accent);">Re-import</a></div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;"><tbody>${rows}</tbody></table>
+      </div>`;
+    return;
+  }
+  // Fallback to internal data
+  if(_origRenderAcctPnl)_origRenderAcctPnl();
+};
+
+// === Updated Cash Flow view: uses QB data if imported ===
+const _origRenderAcctCashflow=window._renderAcctCashflow;
+window._renderAcctCashflow=function(){
+  let view=document.getElementById('view-acct_cashflow');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-acct_cashflow';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const qb=loadQbData();
+  if(qb.cashflow&&qb.cashflow.rows&&qb.cashflow.rows.length){
+    const rows=qb.cashflow.rows.map(r=>`<tr>${r.map((c,i)=>{
+      const isNum=i>0&&/^-?[\d,.]+$/.test(String(c||'').trim());
+      return `<td style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:12px;${i===0?'font-weight:600;':''}${isNum?'text-align:right;font-family:var(--mono);':''}">${(c||'').toString().replace(/[<>]/g,'')}</td>`;
+    }).join('')}</tr>`).join('');
+    view.innerHTML=`<div class="section-title">💰 Cash Flow <span style="font-size:11px;color:var(--ok);background:rgba(102,187,106,0.18);padding:3px 8px;border-radius:4px;font-weight:700;margin-left:8px;">FROM QUICKBOOKS</span></div>
+      <div style="padding:10px 14px;background:var(--surface2);border-left:3px solid var(--info);border-radius:7px;margin-bottom:14px;font-size:11px;color:var(--text2);">Source: <strong>${(qb.cashflow.fileName||'').replace(/[<>]/g,'')}</strong> · imported ${new Date(qb.cashflow.importedAt).toLocaleDateString()}</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;"><tbody>${rows}</tbody></table>
+      </div>`;
+    return;
+  }
+  if(_origRenderAcctCashflow)_origRenderAcctCashflow();
+};
+
+// === Balance Sheet view ===
+window._renderAcctBalance=function(){
+  let view=document.getElementById('view-acct_balance');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-acct_balance';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const qb=loadQbData();
+  if(qb.balance&&qb.balance.rows&&qb.balance.rows.length){
+    const rows=qb.balance.rows.map(r=>`<tr>${r.map((c,i)=>{
+      const isNum=i>0&&/^-?[\d,.]+$/.test(String(c||'').trim());
+      return `<td style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:12px;${i===0?'font-weight:600;':''}${isNum?'text-align:right;font-family:var(--mono);':''}">${(c||'').toString().replace(/[<>]/g,'')}</td>`;
+    }).join('')}</tr>`).join('');
+    view.innerHTML=`<div class="section-title">🏦 Balance Sheet <span style="font-size:11px;color:var(--ok);background:rgba(102,187,106,0.18);padding:3px 8px;border-radius:4px;font-weight:700;margin-left:8px;">FROM QUICKBOOKS</span></div>
+      <div style="padding:10px 14px;background:var(--surface2);border-left:3px solid var(--info);border-radius:7px;margin-bottom:14px;font-size:11px;color:var(--text2);">Source: <strong>${(qb.balance.fileName||'').replace(/[<>]/g,'')}</strong></div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;"><tbody>${rows}</tbody></table>
+      </div>`;
+    return;
+  }
+  view.innerHTML=`<div class="section-title">🏦 Balance Sheet</div>
+    <div style="text-align:center;padding:40px;color:var(--text3);">No balance sheet imported yet. Go to <a href="javascript:switchView('acct_quickbooks')" style="color:var(--accent);">🔗 QuickBooks Sync</a> to upload one.</div>`;
+};
+
+// === Vendors / Customers / Invoices === simple lists with CRUD
+const ACCT_VENDOR_KEY='hydroPro_acct_vendors';
+const ACCT_CUSTOMER_KEY='hydroPro_acct_customers';
+const ACCT_INVOICE_KEY='hydroPro_acct_invoices';
+function _acctLoad(k){try{return JSON.parse(localStorage.getItem(k)||'[]');}catch(e){return [];}}
+function _acctSave(k,arr){localStorage.setItem(k,JSON.stringify(arr));}
+
+function _renderAcctEntityList(viewId,key,title,fields,headers){
+  let view=document.getElementById('view-'+viewId);
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-'+viewId;(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const items=_acctLoad(key);
+  const rows=items.map(it=>`<tr>${headers.map(h=>`<td style="font-size:12px;padding:6px 10px;">${(it[h.key]||'').toString().replace(/[<>]/g,'')}</td>`).join('')}<td style="text-align:right;"><button class="btn btn-outline" style="padding:3px 8px;font-size:10px;color:var(--danger);" onclick="_acctEntityDelete('${key}','${it.id}','${viewId}')">🗑</button></td></tr>`).join('');
+  view.innerHTML=`<div class="section-title">${title}</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+      <div style="display:grid;grid-template-columns:${fields.map(()=>'1fr').join(' ')} auto;gap:8px;align-items:end;">
+        ${fields.map(f=>`<div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">${f.label}${f.required?' *':''}</div><input id="ae_${f.key}" class="input" style="width:100%;" placeholder="${f.placeholder||''}"${f.type==='number'?' type="number" step="0.01"':''}></div>`).join('')}
+        <div><button class="btn btn-primary" onclick="_acctEntityAdd('${key}','${viewId}',${JSON.stringify(fields).replace(/"/g,'&quot;')})">➕ Add</button></div>
+      </div>
+    </div>
+    ${items.length?`<table class="fleet-table" style="width:100%;"><thead><tr>${headers.map(h=>`<th>${h.label}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table>`:'<div style="text-align:center;padding:30px;color:var(--text3);">No entries yet. Add the first one above.</div>'}`;
+}
+window._acctEntityAdd=function(key,viewId,fieldsJson){
+  const fields=JSON.parse(fieldsJson.replace(/&quot;/g,'"'));
+  const item={id:'e_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),createdAt:Date.now()};
+  let valid=true;
+  fields.forEach(f=>{
+    const el=document.getElementById('ae_'+f.key);if(!el)return;
+    let v=(el.value||'').trim();
+    if(f.required&&!v)valid=false;
+    if(f.type==='number')v=Number(v||0);
+    item[f.key]=v;
+  });
+  if(!valid){alert('Fill required fields.');return;}
+  const arr=_acctLoad(key);arr.push(item);_acctSave(key,arr);
+  if(viewId==='acct_vendors')_renderAcctVendors();
+  else if(viewId==='acct_customers')_renderAcctCustomers();
+  else if(viewId==='acct_invoices')_renderAcctInvoices();
+};
+window._acctEntityDelete=function(key,id,viewId){
+  if(!confirm('Delete?'))return;
+  let arr=_acctLoad(key).filter(x=>x.id!==id);_acctSave(key,arr);
+  if(viewId==='acct_vendors')_renderAcctVendors();
+  else if(viewId==='acct_customers')_renderAcctCustomers();
+  else if(viewId==='acct_invoices')_renderAcctInvoices();
+};
+
+window._renderAcctVendors=function(){
+  _renderAcctEntityList('acct_vendors',ACCT_VENDOR_KEY,'📦 Vendors / Suppliers',
+    [{key:'name',label:'Name',required:true},{key:'contact',label:'Contact'},{key:'phone',label:'Phone'},{key:'email',label:'Email'},{key:'tin',label:'TIN'}],
+    [{key:'name',label:'Name'},{key:'contact',label:'Contact'},{key:'phone',label:'Phone'},{key:'email',label:'Email'},{key:'tin',label:'TIN'}]);
+};
+window._renderAcctCustomers=function(){
+  _renderAcctEntityList('acct_customers',ACCT_CUSTOMER_KEY,'👥 Customers / AR',
+    [{key:'name',label:'Name',required:true},{key:'contact',label:'Contact'},{key:'phone',label:'Phone'},{key:'email',label:'Email'},{key:'balance',label:'Balance',type:'number'}],
+    [{key:'name',label:'Name'},{key:'contact',label:'Contact'},{key:'phone',label:'Phone'},{key:'email',label:'Email'},{key:'balance',label:'Balance'}]);
+};
+window._renderAcctInvoices=function(){
+  _renderAcctEntityList('acct_invoices',ACCT_INVOICE_KEY,'📃 Invoices',
+    [{key:'number',label:'Invoice #',required:true},{key:'party',label:'Customer / Vendor'},{key:'date',label:'Date'},{key:'dueDate',label:'Due'},{key:'amount',label:'Amount',type:'number'},{key:'status',label:'Status (paid/unpaid)'}],
+    [{key:'number',label:'Invoice #'},{key:'party',label:'Party'},{key:'date',label:'Date'},{key:'dueDate',label:'Due'},{key:'amount',label:'Amount'},{key:'status',label:'Status'}]);
+};
+
+// === Tax & Compliance ===
+const ACCT_TAX_KEY='hydroPro_acct_tax_filings';
+window._renderAcctTax=function(){
+  let view=document.getElementById('view-acct_tax');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-acct_tax';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  let filings=[];try{filings=JSON.parse(localStorage.getItem(ACCT_TAX_KEY)||'[]');}catch(e){}
+  const today=new Date().toISOString().slice(0,10);
+  const upcoming=filings.filter(f=>f.dueDate&&f.dueDate>=today&&f.status!=='filed').sort((a,b)=>(a.dueDate||'').localeCompare(b.dueDate||''));
+  const overdue=filings.filter(f=>f.dueDate&&f.dueDate<today&&f.status!=='filed');
+  const filed=filings.filter(f=>f.status==='filed');
+  const rows=filings.slice().sort((a,b)=>(b.dueDate||'').localeCompare(a.dueDate||'')).map(f=>{
+    const isOverdue=f.dueDate&&f.dueDate<today&&f.status!=='filed';
+    const isFiled=f.status==='filed';
+    return `<tr style="${isOverdue?'background:rgba(239,83,80,0.08);':''}">
+      <td><strong>${(f.taxType||'').replace(/[<>]/g,'')}</strong></td>
+      <td style="font-size:11px;">${(f.period||'').replace(/[<>]/g,'')}</td>
+      <td style="font-family:var(--mono);font-size:11px;${isOverdue?'color:var(--danger);font-weight:700;':''}">${f.dueDate||'—'}${isOverdue?' ⚠':''}</td>
+      <td style="font-family:var(--mono);font-size:11px;text-align:right;">${f.amount?'₱'+Number(f.amount).toFixed(2):'—'}</td>
+      <td><span style="color:${isFiled?'var(--ok)':isOverdue?'var(--danger)':'var(--warn)'};font-weight:700;font-size:11px;">${(f.status||'pending').toUpperCase()}</span></td>
+      <td style="font-size:11px;color:var(--text3);">${(f.notes||'').replace(/[<>]/g,'').slice(0,60)}</td>
+      <td style="text-align:right;">
+        ${!isFiled?`<button class="btn btn-outline" style="padding:3px 8px;font-size:10px;color:var(--ok);" onclick="_acctTaxMarkFiled('${f.id}')">✓ Mark Filed</button>`:''}
+        <button class="btn btn-outline" style="padding:3px 8px;font-size:10px;color:var(--danger);" onclick="_acctTaxDelete('${f.id}')">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+  view.innerHTML=`<div class="section-title">🏛️ Tax & Compliance</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>🏛️ Tax tracker:</strong> Log every tax filing deadline (BIR, SSS, PhilHealth, Pag-IBIG, VAT, withholding, income tax, etc.). Mark filed when done. Overdue items are highlighted in red.
+    </div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">⚠ Overdue</div><div class="fleet-stat-val ${overdue.length>0?'danger':''}">${overdue.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">⏰ Upcoming</div><div class="fleet-stat-val ${upcoming.length>0?'warn':''}">${upcoming.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✓ Filed</div><div class="fleet-stat-val green">${filed.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Total tracked</div><div class="fleet-stat-val">${filings.length}</div></div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin:14px 0;">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 130px 130px 1fr auto;gap:8px;align-items:end;">
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Tax type *</div><input id="atxType" class="input" placeholder="e.g. VAT, BIR 1601-C, SSS"></div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Period</div><input id="atxPeriod" class="input" placeholder="e.g. Q2 2026"></div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Due date *</div><input id="atxDue" type="date" class="input"></div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Amount</div><input id="atxAmt2" type="number" step="0.01" class="input" placeholder="0.00"></div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Status</div><select id="atxStat" class="call-select"><option value="pending">Pending</option><option value="prepared">Prepared</option><option value="filed">Filed</option></select></div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Notes</div><input id="atxNotes" class="input" placeholder="Reference / payment confirmation"></div>
+        <div><button class="btn btn-primary" onclick="_acctTaxAdd()">➕ Add</button></div>
+      </div>
+    </div>
+    ${filings.length?`<table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Tax Type</th><th>Period</th><th>Due</th><th style="text-align:right;">Amount</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`:'<div style="text-align:center;padding:30px;color:var(--text3);">No tax filings tracked yet. Add the first one above.</div>'}`;
+};
+window._acctTaxAdd=function(){
+  const taxType=(document.getElementById('atxType').value||'').trim();
+  if(!taxType){alert('Tax type is required.');return;}
+  const dueDate=document.getElementById('atxDue').value;
+  if(!dueDate){alert('Due date is required.');return;}
+  const filings=_acctLoad(ACCT_TAX_KEY);
+  filings.push({
+    id:'tx_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),
+    taxType,
+    period:(document.getElementById('atxPeriod').value||'').trim(),
+    dueDate,
+    amount:Number(document.getElementById('atxAmt2').value||0),
+    status:document.getElementById('atxStat').value,
+    notes:(document.getElementById('atxNotes').value||'').trim(),
+    createdAt:Date.now()
+  });
+  _acctSave(ACCT_TAX_KEY,filings);
+  if(typeof showToast==='function')showToast('Tax filing added','ok');
+  _renderAcctTax();
+};
+window._acctTaxMarkFiled=function(id){
+  const filings=_acctLoad(ACCT_TAX_KEY);
+  const f=filings.find(x=>x.id===id);if(!f)return;
+  f.status='filed';f.filedAt=Date.now();
+  _acctSave(ACCT_TAX_KEY,filings);
+  if(typeof showToast==='function')showToast('Marked as filed','ok');
+  _renderAcctTax();
+};
+window._acctTaxDelete=function(id){
+  if(!confirm('Delete this tax record?'))return;
+  let filings=_acctLoad(ACCT_TAX_KEY).filter(x=>x.id!==id);
+  _acctSave(ACCT_TAX_KEY,filings);
+  _renderAcctTax();
+};
+
+// === CROSS-MODULE CHECKLIST ROLLUP ===
+// Single dashboard rolling up all module checklists. Shows per-module completion,
+// worst-performing subjects, items needing attention, stale items.
+const ALL_CHECKLIST_MODULES=[
+  {key:'accounting',label:'💼 Accounting',configKey:'hydroPro_acct_checklist_config',stateKey:'hydroPro_acct_checklist',viewLink:'acct_checklist',defaults:typeof ACCT_CHECKLIST_DEFAULT!=='undefined'?ACCT_CHECKLIST_DEFAULT:null},
+  {key:'hr',label:'👥 HR & Admin',configKey:'hydroPro_hr_checklist_config',stateKey:'hydroPro_hr_checklist',viewLink:'hr_checklist'},
+  {key:'it',label:'💻 IT',configKey:'hydroPro_it_checklist_config',stateKey:'hydroPro_it_checklist',viewLink:'it_checklist'},
+  {key:'quality',label:'✅ Quality Control',configKey:'hydroPro_quality_checklist_config',stateKey:'hydroPro_quality_checklist',viewLink:'qc_checklist'},
+  {key:'inventory',label:'📊 Inventory',configKey:'hydroPro_inventory_checklist_config',stateKey:'hydroPro_inventory_checklist',viewLink:'inv_checklist'},
+  {key:'security',label:'🛡️ Security',configKey:'hydroPro_security_checklist_config',stateKey:'hydroPro_security_checklist',viewLink:'sec_checklist'},
+  {key:'maintenance',label:'🔧 Maintenance',configKey:'hydroPro_maintenance_checklist_config',stateKey:'hydroPro_maintenance_checklist',viewLink:'maint_checklist'},
+  {key:'logistics',label:'🚛 Logistics',configKey:'hydroPro_logistics_checklist_config',stateKey:'hydroPro_logistics_checklist',viewLink:'log_checklist'}
+];
+
+function _collectAllChecklists(){
+  const out={};
+  ALL_CHECKLIST_MODULES.forEach(m=>{
+    let config={};
+    try{const s=localStorage.getItem(m.configKey);if(s)config=JSON.parse(s);}catch(e){}
+    if(!Object.keys(config).length){
+      // Fall back to defaults (if accounting, use ACCT_CHECKLIST_DEFAULT; for other modules, use MODULE_CHECKLIST_DEFAULTS)
+      if(m.key==='accounting'&&typeof ACCT_CHECKLIST_DEFAULT!=='undefined')config=JSON.parse(JSON.stringify(ACCT_CHECKLIST_DEFAULT));
+      else if(typeof MODULE_CHECKLIST_DEFAULTS!=='undefined'&&MODULE_CHECKLIST_DEFAULTS[m.key])config=JSON.parse(JSON.stringify(MODULE_CHECKLIST_DEFAULTS[m.key]));
+    }
+    let state={};
+    try{state=JSON.parse(localStorage.getItem(m.stateKey)||'{}');}catch(e){}
+    let total=0,ok=0,warn=0,crit=0,pend=0;
+    const subjects={};
+    Object.keys(config).forEach(sid=>{
+      const sub=config[sid];const items=sub.items||[];
+      let sOk=0,sWarn=0,sCrit=0,sPend=0;
+      items.forEach((it,i)=>{
+        total++;
+        const k=sid+'::'+i;
+        const st=state[k]||{};
+        const status=st.status||'pending';
+        if(status==='ok')sOk++;else if(status==='warning')sWarn++;else if(status==='critical')sCrit++;else sPend++;
+      });
+      ok+=sOk;warn+=sWarn;crit+=sCrit;pend+=sPend;
+      subjects[sid]={icon:sub.icon,label:sub.label,total:items.length,ok:sOk,warn:sWarn,crit:sCrit,pend:sPend,items:items};
+    });
+    out[m.key]={module:m,total,ok,warn,crit,pend,subjects,config,state};
+  });
+  return out;
+}
+
+window.renderChecklistRollup=function(){
+  let view=document.getElementById('view-checklist_rollup');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-checklist_rollup';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const data=_collectAllChecklists();
+  // Aggregates
+  let gTotal=0,gOk=0,gWarn=0,gCrit=0,gPend=0;
+  Object.values(data).forEach(d=>{gTotal+=d.total;gOk+=d.ok;gWarn+=d.warn;gCrit+=d.crit;gPend+=d.pend;});
+  const overall=gTotal?Math.round(gOk/gTotal*100):0;
+
+  // Module cards (sorted by completion ascending — worst first)
+  const moduleCards=Object.values(data).sort((a,b)=>{
+    const aPct=a.total?a.ok/a.total:1;const bPct=b.total?b.ok/b.total:1;
+    return aPct-bPct;
+  }).map(d=>{
+    const pct=d.total?Math.round(d.ok/d.total*100):0;
+    const color=d.crit>0?'var(--danger)':d.warn>0?'var(--warn)':d.ok===d.total&&d.total>0?'var(--ok)':'var(--info)';
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid ${color};border-radius:10px;padding:14px;cursor:pointer;" onclick="switchView('${d.module.viewLink}')">
+      <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;margin-bottom:10px;">
+        <div style="font-size:14px;font-weight:700;">${d.module.label}</div>
+        <div style="font-size:18px;font-weight:800;color:${color};font-family:var(--mono);">${pct}%</div>
+      </div>
+      <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;margin-bottom:10px;">
+        <div style="height:100%;width:${pct}%;background:${color};"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-family:var(--mono);font-size:11px;text-align:center;">
+        <div><div style="font-size:14px;font-weight:700;color:var(--ok);">${d.ok}</div><div style="color:var(--text3);font-size:9px;">OK</div></div>
+        <div><div style="font-size:14px;font-weight:700;color:${d.warn>0?'var(--warn)':'var(--text3)'};">${d.warn}</div><div style="color:var(--text3);font-size:9px;">WARN</div></div>
+        <div><div style="font-size:14px;font-weight:700;color:${d.crit>0?'var(--danger)':'var(--text3)'};">${d.crit}</div><div style="color:var(--text3);font-size:9px;">CRIT</div></div>
+        <div><div style="font-size:14px;font-weight:700;color:var(--text3);">${d.pend}</div><div style="color:var(--text3);font-size:9px;">PEND</div></div>
+      </div>
+      <div style="font-size:10px;color:var(--text3);text-align:right;margin-top:6px;">${d.total} item${d.total===1?'':'s'} · click to open →</div>
+    </div>`;
+  }).join('');
+
+  // Worst-performing subjects across all modules (top 10 by critical+warning count)
+  const allSubjects=[];
+  Object.values(data).forEach(d=>{
+    Object.keys(d.subjects).forEach(sid=>{
+      const s=d.subjects[sid];
+      const issues=s.crit+s.warn;
+      if(issues>0||s.pend===s.total){
+        allSubjects.push({moduleLabel:d.module.label,viewLink:d.module.viewLink,icon:s.icon,label:s.label,total:s.total,ok:s.ok,warn:s.warn,crit:s.crit,pend:s.pend});
+      }
+    });
+  });
+  allSubjects.sort((a,b)=>(b.crit*100+b.warn*10+b.pend)-(a.crit*100+a.warn*10+a.pend));
+  const worstRows=allSubjects.slice(0,15).map(s=>{
+    const pct=s.total?Math.round(s.ok/s.total*100):0;
+    return `<tr style="cursor:pointer;" onclick="switchView('${s.viewLink}')">
+      <td style="font-size:11px;">${s.moduleLabel}</td>
+      <td>${s.icon} ${s.label}</td>
+      <td style="text-align:center;font-family:var(--mono);">${s.total}</td>
+      <td style="text-align:center;font-family:var(--mono);color:${s.crit>0?'var(--danger)':'var(--text3)'};">${s.crit}</td>
+      <td style="text-align:center;font-family:var(--mono);color:${s.warn>0?'var(--warn)':'var(--text3)'};">${s.warn}</td>
+      <td style="text-align:center;font-family:var(--mono);color:var(--text3);">${s.pend}</td>
+      <td style="text-align:center;font-family:var(--mono);font-weight:700;color:${pct>=90?'var(--ok)':pct>=50?'var(--warn)':'var(--danger)'};">${pct}%</td>
+    </tr>`;
+  }).join('');
+
+  // Stale items: status set, but lastChecked > 30 days ago
+  const today=new Date();const stale30=new Date();stale30.setDate(stale30.getDate()-30);
+  const stale30Str=stale30.toISOString().slice(0,10);
+  const staleItems=[];
+  Object.values(data).forEach(d=>{
+    Object.keys(d.config).forEach(sid=>{
+      const sub=d.config[sid];const items=sub.items||[];
+      items.forEach((it,i)=>{
+        const k=sid+'::'+i;const st=d.state[k];
+        if(st&&st.status&&st.status!=='pending'&&st.lastChecked&&st.lastChecked<stale30Str){
+          staleItems.push({moduleLabel:d.module.label,viewLink:d.module.viewLink,subjectIcon:sub.icon,subjectLabel:sub.label,item:it,status:st.status,lastChecked:st.lastChecked,checkedBy:st.checkedBy});
+        }
+      });
+    });
+  });
+  staleItems.sort((a,b)=>(a.lastChecked||'').localeCompare(b.lastChecked||''));
+  const staleRows=staleItems.slice(0,30).map(s=>{
+    const days=Math.floor((today-new Date(s.lastChecked))/86400000);
+    return `<tr style="cursor:pointer;" onclick="switchView('${s.viewLink}')">
+      <td style="font-size:11px;">${s.moduleLabel}</td>
+      <td style="font-size:11px;">${s.subjectIcon} ${s.subjectLabel}</td>
+      <td>${(s.item||'').replace(/[<>]/g,'')}</td>
+      <td style="font-family:var(--mono);font-size:11px;color:${s.status==='ok'?'var(--ok)':s.status==='warning'?'var(--warn)':'var(--danger)'};">${(s.status||'').toUpperCase()}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${s.lastChecked}</td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--warn);font-weight:700;">${days}d ago</td>
+    </tr>`;
+  }).join('');
+
+  view.innerHTML=`<div class="section-title">✅ Cross-Module Checklist Rollup</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>✅ Compliance overview:</strong> All module checklists in one view. Spot which modules need attention, which subjects have the most issues, and which items haven't been checked in too long.
+    </div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Modules</div><div class="fleet-stat-val">${Object.keys(data).length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Total items</div><div class="fleet-stat-val">${gTotal}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✓ OK</div><div class="fleet-stat-val green">${gOk}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">⚠ Warning</div><div class="fleet-stat-val ${gWarn>0?'warn':''}">${gWarn}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✕ Critical</div><div class="fleet-stat-val ${gCrit>0?'danger':''}">${gCrit}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">○ Pending</div><div class="fleet-stat-val">${gPend}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Compliance</div><div class="fleet-stat-val" style="color:${overall>=90?'var(--ok)':overall>=70?'var(--warn)':'var(--danger)'};">${overall}%</div></div>
+    </div>
+
+    <div class="section-title" style="margin-top:18px;">📊 Per-module status (worst first — click any to open)</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:18px;">
+      ${moduleCards}
+    </div>
+
+    <div class="section-title" style="margin-top:18px;">🔥 Worst-performing subjects (across all modules)</div>
+    ${allSubjects.length?`<div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Module</th><th>Subject</th><th style="text-align:center;">Items</th><th style="text-align:center;">Crit</th><th style="text-align:center;">Warn</th><th style="text-align:center;">Pend</th><th style="text-align:center;">OK %</th></tr></thead>
+      <tbody>${worstRows}</tbody>
+    </table></div>`:'<div style="text-align:center;padding:14px;color:var(--ok);">No flagged subjects — all clear.</div>'}
+
+    <div class="section-title" style="margin-top:18px;">⏰ Stale items (not re-checked in >30 days)</div>
+    ${staleItems.length?`<div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Module</th><th>Subject</th><th>Item</th><th>Status</th><th>Last checked</th><th>Age</th></tr></thead>
+      <tbody>${staleRows}</tbody>
+    </table>${staleItems.length>30?`<div style="font-size:11px;color:var(--text3);text-align:center;margin-top:6px;">+${staleItems.length-30} more stale items</div>`:''}</div>`:'<div style="text-align:center;padding:14px;color:var(--ok);">No stale items — all checks are current.</div>'}
+
+    <div style="margin-top:18px;text-align:right;">
+      <button class="btn btn-outline" onclick="_exportChecklistRollup()">⬇ Export CSV (consolidated)</button>
+    </div>`;
+};
+
+window._exportChecklistRollup=function(){
+  const data=_collectAllChecklists();
+  const out=[['Module','Subject','Item','Status','Last checked','By','Notes','Updated at']];
+  Object.values(data).forEach(d=>{
+    Object.keys(d.config).forEach(sid=>{
+      const sub=d.config[sid];const items=sub.items||[];
+      items.forEach((it,i)=>{
+        const k=sid+'::'+i;const st=d.state[k]||{};
+        out.push([d.module.label,sub.label,it,st.status||'pending',st.lastChecked||'',st.checkedBy||'',st.notes||'',st.updatedAt?new Date(st.updatedAt).toISOString():'']);
+      });
+    });
+  });
+  const csv=out.map(r=>r.map(c=>{const s=String(c==null?'':c);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='checklist-rollup-'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(a.href);
+  if(typeof showToast==='function')showToast('Exported','ok');
+};
+
+// === GENERIC MODULE CHECKLIST MATRIX ===
+// Reusable monitoring checklist for any module. Each module gets its own
+// subjects + items. Storage keyed per module. UI rendering shared.
+const MODULE_CHECKLIST_DEFAULTS={
+  hr:{
+    employees:{
+      icon:'👥',label:'Employee Records',
+      items:[
+        'All employees have signed contracts on file',
+        'BIR 2316 prepared/issued (annual)',
+        'SSS / PhilHealth / Pag-IBIG numbers on file',
+        'Emergency contact details current',
+        'Bank account details verified for payroll',
+        'NDA / confidentiality agreements signed',
+        'Photo ID + 201 file complete',
+        'TIN verified with BIR'
+      ]
+    },
+    attendance:{
+      icon:'⏰',label:'Attendance & Leaves',
+      items:[
+        'Daily attendance reconciled',
+        'Leave balances tracked (vacation, sick, emergency)',
+        'Overtime authorized and recorded',
+        'Holiday pay computed correctly',
+        'Tardiness pattern reviewed',
+        'AWOL cases escalated',
+        'DTR signed by employee + supervisor',
+        'Biometric records exported/archived'
+      ]
+    },
+    training:{
+      icon:'🎓',label:'Training & Development',
+      items:[
+        'Onboarding completed for new hires',
+        'Annual training plan in place',
+        'Certifications current (food safety, OSH, etc.)',
+        'Training records filed',
+        'Skill matrix updated quarterly',
+        'Performance reviews scheduled',
+        'Cross-training documented'
+      ]
+    },
+    compliance:{
+      icon:'📋',label:'Compliance & Government',
+      items:[
+        'DOLE permits and clearances current',
+        'OSH certificate / safety officer assigned',
+        'SSS contributions remitted on time',
+        'PhilHealth contributions remitted',
+        'Pag-IBIG contributions remitted',
+        'Tax withholdings remitted (BIR 1601-C)',
+        'Annualization (BIR 2316) prepared',
+        'Reglementary reports filed (R3, RF1, MCRF)'
+      ]
+    },
+    safety:{
+      icon:'🦺',label:'Safety & Incidents',
+      items:[
+        'Safety meetings logged monthly',
+        'PPE issued and tracked',
+        'Incident reports filed',
+        'First aid kit stocked',
+        'Emergency drills performed',
+        'Workers\' compensation coverage active'
+      ]
+    }
+  },
+  it:{
+    security:{
+      icon:'🔒',label:'IT Security',
+      items:[
+        'Antivirus / endpoint protection installed on all devices',
+        'OS updates applied (security patches current)',
+        'Strong passwords / 2FA enforced',
+        'User access reviewed quarterly',
+        'Terminated user accounts revoked',
+        'Admin access limited to authorised users',
+        'Phishing awareness training delivered',
+        'Incident response plan documented'
+      ]
+    },
+    backups:{
+      icon:'💾',label:'Backups & Recovery',
+      items:[
+        'Daily backups running (off-site or cloud)',
+        'Backup integrity verified weekly',
+        'Test restore performed monthly',
+        'Critical data identified and protected',
+        'Disaster recovery plan documented',
+        'RTO/RPO defined and tested'
+      ]
+    },
+    network:{
+      icon:'🌐',label:'Network & Connectivity',
+      items:[
+        'Internet uptime acceptable (>99%)',
+        'Wi-Fi coverage tested at all sites',
+        'Router/switch firmware current',
+        'Network diagram up to date',
+        'Bandwidth utilisation reviewed',
+        'CCTV recordings stored as required'
+      ]
+    },
+    licenses:{
+      icon:'📜',label:'Software & Licenses',
+      items:[
+        'Software licenses tracked (Office, Adobe, etc.)',
+        'Renewal dates calendared',
+        'Unused licenses reclaimed',
+        'Open-source compliance reviewed',
+        'License audit performed annually'
+      ]
+    },
+    hardware:{
+      icon:'🖥️',label:'Hardware & Devices',
+      items:[
+        'Asset register current (PCs, printers, networking)',
+        'Devices warranty status tracked',
+        'Replacement schedule planned',
+        'Disposed devices wiped per policy',
+        'New devices imaged from standard build'
+      ]
+    }
+  },
+  quality:{
+    inspections:{
+      icon:'🔍',label:'Inspections',
+      items:[
+        'Daily product quality check completed',
+        'Sample retention per batch',
+        'Visual inspection of harvest',
+        'Weight/size grading verified',
+        'Pre-shipment inspection done',
+        'Inspection records filed'
+      ]
+    },
+    certifications:{
+      icon:'🏅',label:'Certifications & Audits',
+      items:[
+        'Food safety certification current',
+        'GAP / Organic certification valid',
+        'Internal audit performed',
+        'External audit completed (if applicable)',
+        'Non-conformances tracked and closed',
+        'Corrective actions logged'
+      ]
+    },
+    complaints:{
+      icon:'📢',label:'Customer Complaints',
+      items:[
+        'All complaints logged within 24 hours',
+        'Root cause analysis performed',
+        'Corrective action issued',
+        'Customer follow-up done',
+        'Complaint trends reviewed monthly'
+      ]
+    },
+    sanitation:{
+      icon:'🧼',label:'Sanitation Standards',
+      items:[
+        'Cleaning schedules followed',
+        'Sanitation records filed',
+        'Pest control records current',
+        'Water quality tests performed',
+        'Surface swab tests (where required)',
+        'Allergen control procedures followed'
+      ]
+    }
+  },
+  inventory:{
+    counts:{
+      icon:'📊',label:'Stock Counts',
+      items:[
+        'Daily/weekly cycle counts performed',
+        'Variance investigated and reconciled',
+        'Year-end physical count scheduled',
+        'Slow-moving stock identified',
+        'Obsolete stock written off',
+        'Accuracy >98% maintained'
+      ]
+    },
+    expiration:{
+      icon:'⏳',label:'Expiration Tracking',
+      items:[
+        'Expiration dates monitored',
+        'FEFO (first expire first out) followed',
+        'Near-expiry items flagged',
+        'Expired stock disposed properly',
+        'Manufacturer recall procedures in place'
+      ]
+    },
+    warehouse:{
+      icon:'🏭',label:'Warehouse Conditions',
+      items:[
+        'Temperature/humidity monitored',
+        'Cold storage logs maintained',
+        'Pest control current',
+        'Cleaning schedules followed',
+        'Aisles clear / safety standards met',
+        'Storage capacity reviewed'
+      ]
+    },
+    receiving:{
+      icon:'📥',label:'Receiving & Issuing',
+      items:[
+        '3-way match (PO, DR, invoice) performed',
+        'Damage/short shipment recorded',
+        'Issue documents signed',
+        'Stock movements posted same day',
+        'Returns processed correctly'
+      ]
+    }
+  },
+  security:{
+    patrols:{
+      icon:'🚶',label:'Guard Patrols',
+      items:[
+        'All scheduled patrols completed',
+        'RFID checkpoints scanned',
+        'Incidents logged in real-time',
+        'Guard handover signed',
+        'Patrol gaps investigated'
+      ]
+    },
+    cctv:{
+      icon:'📹',label:'CCTV',
+      items:[
+        'All cameras online and recording',
+        'Recordings retained per policy (e.g. 30 days)',
+        'Coverage gaps reviewed',
+        'NVR/DVR storage health checked',
+        'Camera lens clean / unobstructed'
+      ]
+    },
+    incidents:{
+      icon:'🚨',label:'Incidents',
+      items:[
+        'All incidents logged within 24 hours',
+        'Police report filed where required',
+        'Witness statements collected',
+        'Insurance claim filed where applicable',
+        'Corrective actions issued'
+      ]
+    },
+    access:{
+      icon:'🚪',label:'Access Control',
+      items:[
+        'Visitor log maintained at gate',
+        'Vehicle log current',
+        'Key/access card register up to date',
+        'Lost cards deactivated',
+        'After-hours access reviewed'
+      ]
+    }
+  },
+  maintenance:{
+    pm:{
+      icon:'🔧',label:'Preventive Maintenance',
+      items:[
+        'PM schedules followed',
+        'PM completion recorded',
+        'Overdue PMs flagged',
+        'Spare parts inventory maintained',
+        'Vendor service contracts current'
+      ]
+    },
+    equipment:{
+      icon:'⚙️',label:'Equipment Health',
+      items:[
+        'Daily equipment checks logged',
+        'Critical equipment redundancy verified',
+        'Lubrication schedule followed',
+        'Vibration / noise abnormalities investigated',
+        'Equipment history file complete'
+      ]
+    },
+    workorders:{
+      icon:'🛠️',label:'Work Orders',
+      items:[
+        'All work orders logged',
+        'Priority assigned per impact',
+        'Closed work orders documented',
+        'Material usage recorded',
+        'Labor hours captured',
+        'Backlog reviewed weekly'
+      ]
+    }
+  },
+  logistics:{
+    fleet:{
+      icon:'🚐',label:'Fleet Vehicles',
+      items:[
+        'Daily vehicle inspection performed',
+        'Tire pressure checked weekly',
+        'Oil change schedule followed',
+        'Insurance current for all vehicles',
+        'Registration / OR/CR current',
+        'Damage / accident reports filed'
+      ]
+    },
+    drivers:{
+      icon:'👤',label:'Drivers',
+      items:[
+        'Driver licenses current and valid',
+        'Defensive driving training current',
+        'Medical certificates valid',
+        'Drug & alcohol testing per policy',
+        'Driver attendance reconciled'
+      ]
+    },
+    operations:{
+      icon:'📦',label:'Delivery Operations',
+      items:[
+        'Daily route plans documented',
+        'Delivery confirmations collected',
+        'GPS tracking active for all trips',
+        'Fuel records reconciled',
+        'Toll receipts collected',
+        'Customer complaints actioned'
+      ]
+    }
+  }
+};
+
+// Generic functions — keyed by module
+function _moduleChecklistKey(modKey){return 'hydroPro_'+modKey+'_checklist';}
+function _moduleChecklistConfigKey(modKey){return 'hydroPro_'+modKey+'_checklist_config';}
+
+function _loadModuleChecklistConfig(modKey){
+  try{const s=localStorage.getItem(_moduleChecklistConfigKey(modKey));if(s)return JSON.parse(s);}catch(e){}
+  return JSON.parse(JSON.stringify(MODULE_CHECKLIST_DEFAULTS[modKey]||{}));
+}
+function _saveModuleChecklistConfig(modKey,c){localStorage.setItem(_moduleChecklistConfigKey(modKey),JSON.stringify(c));}
+function _loadModuleChecklistState(modKey){try{return JSON.parse(localStorage.getItem(_moduleChecklistKey(modKey))||'{}');}catch(e){return {};}}
+function _saveModuleChecklistState(modKey,s){localStorage.setItem(_moduleChecklistKey(modKey),JSON.stringify(s));}
+
+let _moduleChecklistExpanded={};   // {modKey::sid: bool}
+
+// Generic renderer: given modKey + viewId, render the module's checklist
+function renderModuleChecklist(modKey,viewId,title){
+  let view=document.getElementById('view-'+viewId);
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-'+viewId;(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const config=_loadModuleChecklistConfig(modKey);
+  const state=_loadModuleChecklistState(modKey);
+  let totalItems=0,ok=0,warn=0,critical=0,pending=0;
+  Object.keys(config).forEach(sid=>{
+    (config[sid].items||[]).forEach((_,i)=>{
+      totalItems++;
+      const k=sid+'::'+i;
+      const st=(state[k]&&state[k].status)||'pending';
+      if(st==='ok')ok++;else if(st==='warning')warn++;else if(st==='critical')critical++;else pending++;
+    });
+  });
+  const subjectCards=Object.keys(config).map(sid=>{
+    const sub=config[sid];
+    const items=sub.items||[];
+    let sOk=0,sWarn=0,sCrit=0,sPend=0;
+    items.forEach((_,i)=>{
+      const k=sid+'::'+i;
+      const st=(state[k]&&state[k].status)||'pending';
+      if(st==='ok')sOk++;else if(st==='warning')sWarn++;else if(st==='critical')sCrit++;else sPend++;
+    });
+    const total=items.length;
+    const pct=total?Math.round(sOk/total*100):0;
+    const color=sCrit>0?'var(--danger)':sWarn>0?'var(--warn)':sOk===total&&total>0?'var(--ok)':'var(--info)';
+    const expandKey=modKey+'::'+sid;
+    const expanded=_moduleChecklistExpanded[expandKey];
+    let detailRows='';
+    if(expanded){
+      detailRows=items.map((it,i)=>{
+        const k=sid+'::'+i;const s=state[k]||{};
+        const stColor=s.status==='ok'?'var(--ok)':s.status==='warning'?'var(--warn)':s.status==='critical'?'var(--danger)':'var(--text3)';
+        return `<tr>
+          <td style="padding:8px 10px;border-bottom:1px solid var(--border);">${(it||'').replace(/[<>]/g,'')}</td>
+          <td style="padding:6px;border-bottom:1px solid var(--border);">
+            <select class="call-select" style="font-size:11px;width:100%;color:${stColor};font-weight:700;" onchange="_modChecklistSet('${modKey}','${sid}',${i},'status',this.value)">
+              <option value="pending" ${s.status==='pending'||!s.status?'selected':''}>○ Pending</option>
+              <option value="ok" ${s.status==='ok'?'selected':''}>✓ OK</option>
+              <option value="warning" ${s.status==='warning'?'selected':''}>⚠ Warning</option>
+              <option value="critical" ${s.status==='critical'?'selected':''}>✕ Critical</option>
+            </select>
+          </td>
+          <td style="padding:6px;border-bottom:1px solid var(--border);">
+            <input type="date" class="input" value="${s.lastChecked||''}" style="width:100%;font-size:11px;" onchange="_modChecklistSet('${modKey}','${sid}',${i},'lastChecked',this.value)">
+          </td>
+          <td style="padding:6px;border-bottom:1px solid var(--border);">
+            <input class="input" value="${(s.checkedBy||'').replace(/"/g,'&quot;')}" placeholder="initials" style="width:100%;font-size:11px;" onchange="_modChecklistSet('${modKey}','${sid}',${i},'checkedBy',this.value)">
+          </td>
+          <td style="padding:6px;border-bottom:1px solid var(--border);">
+            <input class="input" value="${(s.notes||'').replace(/"/g,'&quot;')}" placeholder="notes" style="width:100%;font-size:11px;" onchange="_modChecklistSet('${modKey}','${sid}',${i},'notes',this.value)">
+          </td>
+          <td style="padding:6px;border-bottom:1px solid var(--border);text-align:right;">
+            <button class="btn btn-outline" style="padding:3px 8px;font-size:10px;color:var(--danger);" onclick="_modChecklistRemoveItem('${modKey}','${sid}',${i},'${viewId}')">🗑</button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid ${color};border-radius:10px;padding:12px 14px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;cursor:pointer;" onclick="_modChecklistToggle('${modKey}','${sid}','${viewId}')">
+        <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:200px;">
+          <span style="font-size:14px;color:var(--text3);">${expanded?'▼':'▶'}</span>
+          <span style="font-size:22px;">${sub.icon}</span>
+          <div>
+            <div style="font-size:14px;font-weight:700;">${sub.label}</div>
+            <div style="font-size:11px;color:var(--text3);font-family:var(--mono);">${total} items</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:14px;font-family:var(--mono);font-size:11px;">
+          ${sOk?`<span style="color:var(--ok);">✓ ${sOk}</span>`:''}
+          ${sWarn?`<span style="color:var(--warn);">⚠ ${sWarn}</span>`:''}
+          ${sCrit?`<span style="color:var(--danger);">✕ ${sCrit}</span>`:''}
+          ${sPend?`<span style="color:var(--text3);">○ ${sPend}</span>`:''}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;min-width:140px;">
+          <div style="flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${color};"></div></div>
+          <div style="font-size:11px;font-family:var(--mono);font-weight:700;color:${color};min-width:38px;">${pct}%</div>
+        </div>
+      </div>
+      ${expanded?`<div style="margin-top:10px;background:var(--surface2);border-radius:6px;overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead><tr><th style="padding:8px 10px;text-align:left;background:var(--surface3);font-size:10px;text-transform:uppercase;color:var(--text3);">Item</th><th style="padding:8px;text-align:left;width:130px;background:var(--surface3);font-size:10px;text-transform:uppercase;color:var(--text3);">Status</th><th style="padding:8px;text-align:left;width:130px;background:var(--surface3);font-size:10px;text-transform:uppercase;color:var(--text3);">Last checked</th><th style="padding:8px;text-align:left;width:90px;background:var(--surface3);font-size:10px;text-transform:uppercase;color:var(--text3);">By</th><th style="padding:8px;text-align:left;background:var(--surface3);font-size:10px;text-transform:uppercase;color:var(--text3);">Notes</th><th style="padding:8px;width:50px;background:var(--surface3);"></th></tr></thead>
+          <tbody>${detailRows}</tbody>
+        </table>
+        <div style="padding:10px;text-align:right;">
+          <button class="btn btn-outline" onclick="_modChecklistAddItem('${modKey}','${sid}','${viewId}')">➕ Add monitoring item</button>
+        </div>
+      </div>`:''}
+    </div>`;
+  }).join('');
+
+  view.innerHTML=`<div class="section-title">${title||'✅ Monitoring Checklist'}</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>✅ Monitoring matrix:</strong> Track every subject in this module with checklists of items to monitor. Click any subject to expand its items. Mark each OK / Warning / Critical / Pending and add notes.
+    </div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Total items</div><div class="fleet-stat-val">${totalItems}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✓ OK</div><div class="fleet-stat-val green">${ok}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">⚠ Warning</div><div class="fleet-stat-val ${warn>0?'warn':''}">${warn}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✕ Critical</div><div class="fleet-stat-val ${critical>0?'danger':''}">${critical}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">○ Pending</div><div class="fleet-stat-val">${pending}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Completion</div><div class="fleet-stat-val">${totalItems?Math.round(ok/totalItems*100):0}%</div></div>
+    </div>
+    <div style="display:flex;gap:6px;margin:14px 0;flex-wrap:wrap;">
+      <button class="btn btn-outline" onclick="_modChecklistExpandAll('${modKey}','${viewId}')">▼ Expand all</button>
+      <button class="btn btn-outline" onclick="_modChecklistCollapseAll('${modKey}','${viewId}')">▶ Collapse all</button>
+      <button class="btn btn-outline" onclick="_modChecklistResetDefaults('${modKey}','${viewId}')">↻ Reset to defaults</button>
+      <button class="btn btn-outline" onclick="_modChecklistExport('${modKey}','${title||modKey}')">⬇ Export CSV</button>
+    </div>
+    ${subjectCards||'<div style="text-align:center;padding:30px;color:var(--text3);">No checklist subjects defined for this module yet.</div>'}`;
+}
+
+window._modChecklistToggle=function(modKey,sid,viewId){
+  const k=modKey+'::'+sid;
+  _moduleChecklistExpanded[k]=!_moduleChecklistExpanded[k];
+  renderModuleChecklist(modKey,viewId);
+};
+window._modChecklistExpandAll=function(modKey,viewId){
+  const config=_loadModuleChecklistConfig(modKey);
+  Object.keys(config).forEach(s=>{_moduleChecklistExpanded[modKey+'::'+s]=true;});
+  renderModuleChecklist(modKey,viewId);
+};
+window._modChecklistCollapseAll=function(modKey,viewId){
+  const config=_loadModuleChecklistConfig(modKey);
+  Object.keys(config).forEach(s=>{delete _moduleChecklistExpanded[modKey+'::'+s];});
+  renderModuleChecklist(modKey,viewId);
+};
+window._modChecklistSet=function(modKey,sid,idx,field,value){
+  const state=_loadModuleChecklistState(modKey);
+  const k=sid+'::'+idx;
+  state[k]=state[k]||{};
+  state[k][field]=value;
+  if(field==='status'&&!state[k].lastChecked){state[k].lastChecked=new Date().toISOString().slice(0,10);}
+  state[k].updatedAt=Date.now();
+  state[k].updatedBy=((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user';
+  _saveModuleChecklistState(modKey,state);
+};
+window._modChecklistAddItem=function(modKey,sid,viewId){
+  const text=prompt('New monitoring item:');
+  if(!text)return;
+  const config=_loadModuleChecklistConfig(modKey);
+  if(!config[sid])return;
+  config[sid].items=config[sid].items||[];
+  config[sid].items.push(text.trim());
+  _saveModuleChecklistConfig(modKey,config);
+  renderModuleChecklist(modKey,viewId);
+};
+window._modChecklistRemoveItem=function(modKey,sid,idx,viewId){
+  if(!confirm('Remove this item?'))return;
+  const config=_loadModuleChecklistConfig(modKey);
+  if(!config[sid])return;
+  config[sid].items.splice(idx,1);
+  _saveModuleChecklistConfig(modKey,config);
+  // Remap state
+  const state=_loadModuleChecklistState(modKey);
+  const newState={};
+  Object.keys(state).forEach(k=>{
+    if(!k.startsWith(sid+'::')){newState[k]=state[k];return;}
+    const i=Number(k.split('::')[1]);
+    if(i<idx)newState[k]=state[k];
+    else if(i>idx)newState[sid+'::'+(i-1)]=state[k];
+  });
+  _saveModuleChecklistState(modKey,newState);
+  renderModuleChecklist(modKey,viewId);
+};
+window._modChecklistResetDefaults=function(modKey,viewId){
+  if(!confirm('Reset to defaults? Status data per item will be kept where indexes still match.'))return;
+  _saveModuleChecklistConfig(modKey,JSON.parse(JSON.stringify(MODULE_CHECKLIST_DEFAULTS[modKey]||{})));
+  renderModuleChecklist(modKey,viewId);
+};
+window._modChecklistExport=function(modKey,title){
+  const config=_loadModuleChecklistConfig(modKey);
+  const state=_loadModuleChecklistState(modKey);
+  const out=[['Subject','Item','Status','Last checked','By','Notes','Updated at']];
+  Object.keys(config).forEach(sid=>{
+    const sub=config[sid];
+    (sub.items||[]).forEach((it,i)=>{
+      const k=sid+'::'+i;const s=state[k]||{};
+      out.push([sub.label,it,s.status||'pending',s.lastChecked||'',s.checkedBy||'',s.notes||'',s.updatedAt?new Date(s.updatedAt).toISOString():'']);
+    });
+  });
+  const csv=out.map(r=>r.map(c=>{const s=String(c==null?'':c);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(title||modKey)+'-checklist-'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(a.href);
+  if(typeof showToast==='function')showToast('Exported','ok');
+};
+
+// Add a "Monitoring Checklist" sub-tab to each module via EXTRA_SUBTABS injection
+const _MOD_CHECKLIST_VIEWS={
+  hr:'hr_checklist',
+  it:'it_checklist',
+  quality:'qc_checklist',
+  inventory:'inv_checklist',
+  security:'sec_checklist',
+  maintenance:'maint_checklist',
+  logistics:'log_checklist'
+};
+
+// Patch EXTRA_SUBTABS at runtime to add the checklist tab to each module
+function _patchExtraSubtabsWithChecklists(){
+  if(typeof EXTRA_SUBTABS==='undefined')return;
+  Object.keys(_MOD_CHECKLIST_VIEWS).forEach(mod=>{
+    const viewId=_MOD_CHECKLIST_VIEWS[mod];
+    EXTRA_SUBTABS[mod]=EXTRA_SUBTABS[mod]||[];
+    if(!EXTRA_SUBTABS[mod].some(t=>t.id===viewId)){
+      EXTRA_SUBTABS[mod].push({id:viewId,label:'✅ Monitoring Checklist'});
+    }
+  });
+  // Also register the views in the module map
+  if(typeof VIEW_TO_MODULE!=='undefined'){
+    VIEW_TO_MODULE.hr_checklist='hr';
+    VIEW_TO_MODULE.it_checklist='it';
+    VIEW_TO_MODULE.qc_checklist='quality';
+    VIEW_TO_MODULE.inv_checklist='inventory';
+    VIEW_TO_MODULE.sec_checklist='security';
+    VIEW_TO_MODULE.maint_checklist='maintenance';
+    VIEW_TO_MODULE.log_checklist='logistics';
+  }
+}
+setTimeout(_patchExtraSubtabsWithChecklists,400);
+setInterval(_patchExtraSubtabsWithChecklists,3000);
+
+// Hook switchView to render the checklist when the view is activated
+(function _hookModuleChecklists(){
+  function attempt(){
+    if(!window.switchView||window.switchView.__modChecklistsHooked)return;
+    const orig=window.switchView;
+    window.switchView=function(v){
+      const r=orig.apply(this,arguments);
+      if(v==='hr_checklist')setTimeout(()=>renderModuleChecklist('hr','hr_checklist','✅ HR Monitoring Checklist'),80);
+      if(v==='it_checklist')setTimeout(()=>renderModuleChecklist('it','it_checklist','✅ IT Monitoring Checklist'),80);
+      if(v==='qc_checklist')setTimeout(()=>renderModuleChecklist('quality','qc_checklist','✅ Quality Monitoring Checklist'),80);
+      if(v==='inv_checklist')setTimeout(()=>renderModuleChecklist('inventory','inv_checklist','✅ Inventory Monitoring Checklist'),80);
+      if(v==='sec_checklist')setTimeout(()=>renderModuleChecklist('security','sec_checklist','✅ Security Monitoring Checklist'),80);
+      if(v==='maint_checklist')setTimeout(()=>renderModuleChecklist('maintenance','maint_checklist','✅ Maintenance Monitoring Checklist'),80);
+      if(v==='log_checklist')setTimeout(()=>renderModuleChecklist('logistics','log_checklist','✅ Logistics Monitoring Checklist'),80);
+      return r;
+    };
+    window.switchView.__modChecklistsHooked=true;
+  }
+  setInterval(attempt,1500);
+  setTimeout(attempt,500);
+})();
+
+// === Accounting Monitoring Checklist Matrix ===
+// 9 subjects, each with default monitoring items. User can mark each item OK/Warning/Critical/Pending,
+// add notes, set frequency (daily/weekly/monthly/quarterly). Built for accountant oversight.
+const ACCT_CHECKLIST_KEY='hydroPro_acct_checklist';
+const ACCT_CHECKLIST_CONFIG_KEY='hydroPro_acct_checklist_config';   // user-customised items
+
+const ACCT_CHECKLIST_DEFAULT={
+  ap:{
+    icon:'📦',label:'Accounts Payable (AP)',
+    items:[
+      'All vendor invoices entered in system',
+      'AP aging report reviewed (overdue >30 days)',
+      'Vendor statements reconciled',
+      'Payment runs scheduled on time',
+      '1099 / W-9 / 2307 forms collected',
+      'Vendor payment terms reviewed',
+      'Duplicate payment check performed',
+      'Approval workflow respected (PO → invoice → payment)'
+    ]
+  },
+  ar:{
+    icon:'👥',label:'Accounts Receivable (AR)',
+    items:[
+      'Invoices issued for all sales',
+      'AR aging report reviewed',
+      'Customer statements sent (monthly)',
+      'Past-due follow-ups initiated (>30/60/90 days)',
+      'Bad debt write-offs reviewed',
+      'Customer credit limits reviewed',
+      'Receipts properly recorded and matched',
+      'Sales tax / VAT applied correctly on invoices'
+    ]
+  },
+  tax:{
+    icon:'🏛️',label:'Taxes',
+    items:[
+      'Monthly VAT return filed (BIR 2550M)',
+      'Quarterly VAT return filed (BIR 2550Q)',
+      'Withholding tax remitted (BIR 1601-C / 1601-E)',
+      'Quarterly income tax estimated (BIR 1701Q)',
+      'Annual income tax return prepared',
+      'BIR forms current and unexpired',
+      'Tax certificates (2307) collected from customers',
+      'Tax certificates (2307) issued to vendors',
+      'Local business tax / mayor\'s permit current',
+      'SSS / PhilHealth / Pag-IBIG remitted on time'
+    ]
+  },
+  assets:{
+    icon:'🏗️',label:'Assets',
+    items:[
+      'Fixed asset register updated',
+      'Monthly depreciation calculated and posted',
+      'Asset additions recorded with proper documentation',
+      'Asset disposals processed (gain/loss recognised)',
+      'Annual physical asset count completed',
+      'Asset insurance coverage verified',
+      'Asset tagging current',
+      'Idle / impaired assets identified'
+    ]
+  },
+  liabilities:{
+    icon:'📉',label:'Liabilities',
+    items:[
+      'Loan balances reconciled with bank',
+      'Interest accrued and posted monthly',
+      'Lease obligations recorded',
+      'Accrued expenses booked (utilities, salaries)',
+      'Long-term debt schedule reviewed',
+      'Payment schedules on file',
+      'Loan covenants reviewed',
+      'Contingent liabilities documented'
+    ]
+  },
+  purchasing:{
+    icon:'🛒',label:'Purchasing',
+    items:[
+      'PO process followed (no purchase without PO)',
+      'Approval thresholds respected (small / medium / large)',
+      'Receiving documentation complete (delivery receipt)',
+      'Vendor selection documented (3 quotations for big purchases)',
+      'Three-way match performed (PO + DR + invoice)',
+      'Purchase price variance reviewed',
+      'Vendor performance reviewed quarterly',
+      'Budget vs actual purchase reviewed'
+    ]
+  },
+  inventory:{
+    icon:'📊',label:'Inventory',
+    items:[
+      'Daily/weekly inventory count performed',
+      'Adjustments recorded with reason',
+      'Slow-moving inventory reviewed',
+      'Obsolete / spoiled items written off',
+      'Cost layer review (FIFO / weighted avg)',
+      'Inventory ageing reviewed',
+      'Cycle count completed',
+      'Year-end physical count performed',
+      'Variance investigated and resolved'
+    ]
+  },
+  bank_recon:{
+    icon:'🏦',label:'Bank Reconciliation',
+    items:[
+      'Bank statements obtained from all accounts',
+      'All deposits matched to receipts',
+      'All checks cleared and matched',
+      'Outstanding checks list reviewed',
+      'Outstanding deposits reviewed',
+      'Bank reconciliation completed and signed',
+      'Differences investigated and resolved',
+      'Bank fees recorded'
+    ]
+  },
+  cc_recon:{
+    icon:'💳',label:'Credit Card Reconciliation',
+    items:[
+      'All transactions matched to receipts',
+      'Receipts collected from all card holders',
+      'Personal vs business split verified',
+      'Statement reconciled against ledger',
+      'Disputed items investigated',
+      'Card limits reviewed',
+      'Annual fees expensed',
+      'Late payment fees investigated'
+    ]
+  }
+};
+
+function _loadAcctChecklistConfig(){
+  try{const s=localStorage.getItem(ACCT_CHECKLIST_CONFIG_KEY);if(s)return JSON.parse(s);}catch(e){}
+  return JSON.parse(JSON.stringify(ACCT_CHECKLIST_DEFAULT));
+}
+function _saveAcctChecklistConfig(c){localStorage.setItem(ACCT_CHECKLIST_CONFIG_KEY,JSON.stringify(c));}
+function _loadAcctChecklistState(){try{return JSON.parse(localStorage.getItem(ACCT_CHECKLIST_KEY)||'{}');}catch(e){return {};}}
+function _saveAcctChecklistState(s){localStorage.setItem(ACCT_CHECKLIST_KEY,JSON.stringify(s));}
+
+let _acctChecklistExpanded={};
+
+window._renderAcctChecklist=function(){
+  let view=document.getElementById('view-acct_checklist');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-acct_checklist';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const config=_loadAcctChecklistConfig();
+  const state=_loadAcctChecklistState();
+  const today=new Date().toISOString().slice(0,10);
+
+  // Compute overall stats
+  let totalItems=0,ok=0,warn=0,critical=0,pending=0;
+  Object.keys(config).forEach(sid=>{
+    (config[sid].items||[]).forEach((_,i)=>{
+      totalItems++;
+      const k=sid+'::'+i;
+      const st=(state[k]&&state[k].status)||'pending';
+      if(st==='ok')ok++;else if(st==='warning')warn++;else if(st==='critical')critical++;else pending++;
+    });
+  });
+
+  // Build subject cards
+  const subjectCards=Object.keys(config).map(sid=>{
+    const sub=config[sid];
+    const items=sub.items||[];
+    let sOk=0,sWarn=0,sCrit=0,sPend=0;
+    items.forEach((_,i)=>{
+      const k=sid+'::'+i;
+      const st=(state[k]&&state[k].status)||'pending';
+      if(st==='ok')sOk++;else if(st==='warning')sWarn++;else if(st==='critical')sCrit++;else sPend++;
+    });
+    const total=items.length;
+    const pct=total?Math.round(sOk/total*100):0;
+    const color=sCrit>0?'var(--danger)':sWarn>0?'var(--warn)':sOk===total&&total>0?'var(--ok)':'var(--info)';
+    const expanded=_acctChecklistExpanded[sid];
+
+    let detailRows='';
+    if(expanded){
+      detailRows=items.map((it,i)=>{
+        const k=sid+'::'+i;
+        const s=state[k]||{};
+        const stColor=s.status==='ok'?'var(--ok)':s.status==='warning'?'var(--warn)':s.status==='critical'?'var(--danger)':'var(--text3)';
+        const stIcon=s.status==='ok'?'✓':s.status==='warning'?'⚠':s.status==='critical'?'✕':'○';
+        return `<tr>
+          <td style="padding:8px 10px;border-bottom:1px solid var(--border);">${(it||'').replace(/[<>]/g,'')}</td>
+          <td style="padding:6px;border-bottom:1px solid var(--border);">
+            <select class="call-select" style="font-size:11px;width:100%;color:${stColor};font-weight:700;" onchange="_acctChecklistSet('${sid}',${i},'status',this.value)">
+              <option value="pending" ${s.status==='pending'||!s.status?'selected':''}>○ Pending</option>
+              <option value="ok" ${s.status==='ok'?'selected':''}>✓ OK</option>
+              <option value="warning" ${s.status==='warning'?'selected':''}>⚠ Warning</option>
+              <option value="critical" ${s.status==='critical'?'selected':''}>✕ Critical</option>
+            </select>
+          </td>
+          <td style="padding:6px;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:11px;">
+            <input type="date" class="input" value="${s.lastChecked||''}" style="width:100%;font-size:11px;" onchange="_acctChecklistSet('${sid}',${i},'lastChecked',this.value)">
+          </td>
+          <td style="padding:6px;border-bottom:1px solid var(--border);">
+            <input class="input" value="${(s.checkedBy||'').replace(/"/g,'&quot;')}" placeholder="initials" style="width:100%;font-size:11px;" onchange="_acctChecklistSet('${sid}',${i},'checkedBy',this.value)">
+          </td>
+          <td style="padding:6px;border-bottom:1px solid var(--border);">
+            <input class="input" value="${(s.notes||'').replace(/"/g,'&quot;')}" placeholder="notes" style="width:100%;font-size:11px;" onchange="_acctChecklistSet('${sid}',${i},'notes',this.value)">
+          </td>
+          <td style="padding:6px;border-bottom:1px solid var(--border);text-align:right;">
+            <button class="btn btn-outline" style="padding:3px 8px;font-size:10px;color:var(--danger);" onclick="_acctChecklistRemoveItem('${sid}',${i})">🗑</button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid ${color};border-radius:10px;padding:12px 14px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;cursor:pointer;" onclick="_acctChecklistToggle('${sid}')">
+        <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:200px;">
+          <span style="font-size:14px;color:var(--text3);">${expanded?'▼':'▶'}</span>
+          <span style="font-size:22px;">${sub.icon}</span>
+          <div>
+            <div style="font-size:14px;font-weight:700;">${sub.label}</div>
+            <div style="font-size:11px;color:var(--text3);font-family:var(--mono);">${total} items</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:14px;font-family:var(--mono);font-size:11px;">
+          ${sOk?`<span style="color:var(--ok);">✓ ${sOk}</span>`:''}
+          ${sWarn?`<span style="color:var(--warn);">⚠ ${sWarn}</span>`:''}
+          ${sCrit?`<span style="color:var(--danger);">✕ ${sCrit}</span>`:''}
+          ${sPend?`<span style="color:var(--text3);">○ ${sPend}</span>`:''}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;min-width:140px;">
+          <div style="flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${color};"></div></div>
+          <div style="font-size:11px;font-family:var(--mono);font-weight:700;color:${color};min-width:38px;">${pct}%</div>
+        </div>
+      </div>
+      ${expanded?`<div style="margin-top:10px;background:var(--surface2);border-radius:6px;overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead><tr><th style="padding:8px 10px;text-align:left;background:var(--surface3);font-size:10px;text-transform:uppercase;color:var(--text3);">Item</th><th style="padding:8px;text-align:left;width:130px;background:var(--surface3);font-size:10px;text-transform:uppercase;color:var(--text3);">Status</th><th style="padding:8px;text-align:left;width:130px;background:var(--surface3);font-size:10px;text-transform:uppercase;color:var(--text3);">Last checked</th><th style="padding:8px;text-align:left;width:90px;background:var(--surface3);font-size:10px;text-transform:uppercase;color:var(--text3);">By</th><th style="padding:8px;text-align:left;background:var(--surface3);font-size:10px;text-transform:uppercase;color:var(--text3);">Notes</th><th style="padding:8px;width:50px;background:var(--surface3);"></th></tr></thead>
+          <tbody>${detailRows}</tbody>
+        </table>
+        <div style="padding:10px;text-align:right;">
+          <button class="btn btn-outline" onclick="_acctChecklistAddItem('${sid}')">➕ Add monitoring item</button>
+        </div>
+      </div>`:''}
+    </div>`;
+  }).join('');
+
+  view.innerHTML=`<div class="section-title">✅ Accounting Monitoring Checklist</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>✅ Subject-by-subject monitoring:</strong> Track every accounting subject (AP, AR, Tax, Assets, Liabilities, Purchasing, Inventory, Bank Recon, CC Recon) with checklists of items to monitor. Mark each item OK / Warning / Critical / Pending. Click any subject to expand its items.
+    </div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Total items</div><div class="fleet-stat-val">${totalItems}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✓ OK</div><div class="fleet-stat-val green">${ok}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">⚠ Warning</div><div class="fleet-stat-val ${warn>0?'warn':''}">${warn}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✕ Critical</div><div class="fleet-stat-val ${critical>0?'danger':''}">${critical}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">○ Pending</div><div class="fleet-stat-val">${pending}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Completion</div><div class="fleet-stat-val">${totalItems?Math.round(ok/totalItems*100):0}%</div></div>
+    </div>
+    <div style="display:flex;gap:6px;margin:14px 0;flex-wrap:wrap;">
+      <button class="btn btn-outline" onclick="_acctChecklistExpandAll()">▼ Expand all</button>
+      <button class="btn btn-outline" onclick="_acctChecklistCollapseAll()">▶ Collapse all</button>
+      <button class="btn btn-outline" onclick="_acctChecklistResetToDefaults()">↻ Reset to defaults</button>
+      <button class="btn btn-outline" onclick="_acctChecklistExport()">⬇ Export CSV</button>
+    </div>
+    ${subjectCards}`;
+};
+
+window._acctChecklistToggle=function(sid){
+  _acctChecklistExpanded[sid]=!_acctChecklistExpanded[sid];
+  _renderAcctChecklist();
+};
+window._acctChecklistExpandAll=function(){
+  const config=_loadAcctChecklistConfig();
+  Object.keys(config).forEach(s=>{_acctChecklistExpanded[s]=true;});
+  _renderAcctChecklist();
+};
+window._acctChecklistCollapseAll=function(){
+  _acctChecklistExpanded={};
+  _renderAcctChecklist();
+};
+window._acctChecklistSet=function(sid,idx,field,value){
+  const state=_loadAcctChecklistState();
+  const k=sid+'::'+idx;
+  state[k]=state[k]||{};
+  state[k][field]=value;
+  // Auto-stamp date when status changes if no lastChecked set
+  if(field==='status'&&!state[k].lastChecked){state[k].lastChecked=new Date().toISOString().slice(0,10);}
+  state[k].updatedAt=Date.now();
+  state[k].updatedBy=((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user';
+  _saveAcctChecklistState(state);
+  // Re-render to update progress bars
+  if(field==='status')_renderAcctChecklist();
+};
+window._acctChecklistAddItem=function(sid){
+  const text=prompt('New monitoring item for '+sid+':');
+  if(!text)return;
+  const config=_loadAcctChecklistConfig();
+  if(!config[sid])return;
+  config[sid].items=config[sid].items||[];
+  config[sid].items.push(text.trim());
+  _saveAcctChecklistConfig(config);
+  _renderAcctChecklist();
+};
+window._acctChecklistRemoveItem=function(sid,idx){
+  if(!confirm('Remove this monitoring item?'))return;
+  const config=_loadAcctChecklistConfig();
+  if(!config[sid])return;
+  config[sid].items.splice(idx,1);
+  _saveAcctChecklistConfig(config);
+  // Also clear state for higher indices that just shifted
+  const state=_loadAcctChecklistState();
+  // Rebuild state keys for this subject
+  const newState={};
+  Object.keys(state).forEach(k=>{
+    if(!k.startsWith(sid+'::')){newState[k]=state[k];return;}
+    const i=Number(k.split('::')[1]);
+    if(i<idx)newState[k]=state[k];
+    else if(i>idx)newState[sid+'::'+(i-1)]=state[k];
+    // i===idx is dropped
+  });
+  _saveAcctChecklistState(newState);
+  _renderAcctChecklist();
+};
+window._acctChecklistResetToDefaults=function(){
+  if(!confirm('Reset all checklist subjects + items to the original defaults? Your status data and notes will be kept where item indexes still match.'))return;
+  _saveAcctChecklistConfig(JSON.parse(JSON.stringify(ACCT_CHECKLIST_DEFAULT)));
+  if(typeof showToast==='function')showToast('Defaults restored','ok');
+  _renderAcctChecklist();
+};
+window._acctChecklistExport=function(){
+  const config=_loadAcctChecklistConfig();
+  const state=_loadAcctChecklistState();
+  const out=[['Subject','Item','Status','Last checked','By','Notes','Updated at']];
+  Object.keys(config).forEach(sid=>{
+    const sub=config[sid];
+    (sub.items||[]).forEach((it,i)=>{
+      const k=sid+'::'+i;const s=state[k]||{};
+      out.push([sub.label,it,s.status||'pending',s.lastChecked||'',s.checkedBy||'',s.notes||'',s.updatedAt?new Date(s.updatedAt).toISOString():'']);
+    });
+  });
+  const csv=out.map(r=>r.map(c=>{const s=String(c==null?'':c);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='accounting-checklist-'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(a.href);
+  if(typeof showToast==='function')showToast('Exported','ok');
+};
+
 // Hook into v94's switchView dispatcher
 (function _hookAcctViews(){
   function attempt(){
@@ -47908,9 +49350,16 @@ window._renderAcctCashflow=function(){
     window.switchView=function(v){
       const r=orig.apply(this,arguments);
       if(v==='acct_dash')setTimeout(_renderAcctDash,80);
+      if(v==='acct_checklist')setTimeout(_renderAcctChecklist,80);
+      if(v==='acct_quickbooks')setTimeout(_renderAcctQuickBooks,80);
       if(v==='acct_transactions')setTimeout(_renderAcctTransactions,80);
       if(v==='acct_pnl')setTimeout(_renderAcctPnl,80);
       if(v==='acct_cashflow')setTimeout(_renderAcctCashflow,80);
+      if(v==='acct_balance')setTimeout(_renderAcctBalance,80);
+      if(v==='acct_vendors')setTimeout(_renderAcctVendors,80);
+      if(v==='acct_customers')setTimeout(_renderAcctCustomers,80);
+      if(v==='acct_invoices')setTimeout(_renderAcctInvoices,80);
+      if(v==='acct_tax')setTimeout(_renderAcctTax,80);
       return r;
     };
     window.switchView.__acctHooked=true;
