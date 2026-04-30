@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777508185;
+const APP_BUILD=1777509026;
 const APP_BUILD_DATE='2026-04-30';
 
 // Store version in localStorage on first run
@@ -42971,11 +42971,28 @@ function _ensureUpdateModal(){
   </div>`;
   document.body.appendChild(m);
 }
+// Predefined close reasons (user picks one or "Other" for free text)
+const CLOSE_REASONS=[
+  {id:'fixed_repair',label:'✓ Fixed — repaired'},
+  {id:'fixed_replace',label:'✓ Fixed — part replaced'},
+  {id:'fixed_clean',label:'✓ Fixed — cleaned / maintained'},
+  {id:'fixed_adjust',label:'✓ Fixed — adjusted / calibrated'},
+  {id:'fixed_reset',label:'✓ Fixed — reset / restarted'},
+  {id:'verified_resolved',label:'✓ Verified — auto-resolution confirmed'},
+  {id:'false_alarm',label:'⚠ False alarm'},
+  {id:'duplicate',label:'⚠ Duplicate of another call'},
+  {id:'postponed',label:'⏸ Postponed / scheduled later'},
+  {id:'escalated_vendor',label:'✕ Cannot fix — escalated to vendor'},
+  {id:'escalated_parts',label:'✕ Cannot fix — parts unavailable'},
+  {id:'no_longer_relevant',label:'⊘ No longer relevant'},
+  {id:'other',label:'Other (specify in notes)'}
+];
+
 function _ensureCloseModal(){
   if(document.getElementById('callCloseModal'))return;
   const m=document.createElement('div');
   m.className='modal-overlay';m.id='callCloseModal';
-  m.innerHTML=`<div class="modal" style="max-width:560px;">
+  m.innerHTML=`<div class="modal" style="max-width:600px;">
     <div class="modal-header"><div class="modal-title">🏁 CLOSE CALL</div><button class="modal-close" onclick="document.getElementById('callCloseModal').classList.remove('open')">✕</button></div>
     <div class="call-modal-body">
       <div style="font-size:11px;color:var(--text3);" id="ccmSubject">—</div>
@@ -42988,8 +43005,14 @@ function _ensureCloseModal(){
         </div>
       </div>
       <div class="call-field-row">
-        <div class="call-field-label" id="ccmNoteLabel">Closing note</div>
-        <textarea id="ccmNote" class="call-textarea" placeholder="Describe what was done / final outcome…" style="min-height:120px;"></textarea>
+        <div class="call-field-label">Reason for closure *</div>
+        <select id="ccmReason" class="call-select" style="width:100%;">
+          ${CLOSE_REASONS.map(r=>`<option value="${r.id}">${r.label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="call-field-row">
+        <div class="call-field-label" id="ccmNoteLabel">What was done — describe in detail *</div>
+        <textarea id="ccmNote" class="call-textarea" placeholder="Required: describe exactly what was done, parts replaced, observations, who did the work…" style="min-height:120px;"></textarea>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;">
         <button class="btn btn-outline" onclick="document.getElementById('callCloseModal').classList.remove('open')">Cancel</button>
@@ -43037,6 +43060,17 @@ function closeCall(id,initialStatus){
   _closeStatusChoice=initialStatus||'closed_fixed';
   document.getElementById('ccmSubject').textContent='Call: '+(c.subject||'');
   document.getElementById('ccmNote').value='';
+  // If the call was auto-resolved, default reason to "Verified — auto-resolution confirmed" + pre-fill note hint
+  const reasonSel=document.getElementById('ccmReason');
+  if(reasonSel){
+    if(c.autoResolved){
+      reasonSel.value='verified_resolved';
+      document.getElementById('ccmNote').placeholder='Auto-resolved: '+(c.autoResolvedReason||'cleared')+'. Please confirm what was actually checked / verified before final close.';
+    } else {
+      reasonSel.value='fixed_repair';
+      document.getElementById('ccmNote').placeholder='Required: describe exactly what was done, parts replaced, observations, who did the work…';
+    }
+  }
   // Pre-select status button
   document.querySelectorAll('#callCloseModal .call-pri-btn').forEach(b=>{
     b.classList.toggle('active',b.dataset.cs===_closeStatusChoice);
@@ -43067,16 +43101,23 @@ function _submitCallClose(){
   const id=_closeTargetId;if(!id)return;
   const calls=loadCalls();const c=calls.find(x=>x.id===id);if(!c)return;
   const note=document.getElementById('ccmNote').value.trim();
-  if((_closeStatusChoice==='closed_fixed'||_closeStatusChoice==='closed_cant_fix')&&!note){
-    _toast('Please describe '+(_closeStatusChoice==='closed_cant_fix'?'the recommendation':'what was fixed'),'warn');return;
-  }
+  const reasonId=(document.getElementById('ccmReason')||{}).value||'';
+  const reasonObj=CLOSE_REASONS.find(r=>r.id===reasonId);
+  // ALWAYS require both reason + note for any closure (no more empty closes)
+  if(!reasonId){_toast('Please pick a closure reason','warn');return;}
+  if(!note){_toast('Please describe what was done before closing','warn');return;}
+  if(note.length<5){_toast('Please give more detail (at least 5 characters)','warn');return;}
   c.status=_closeStatusChoice;
   c.closedAt=Date.now();
   c.closedBy=curUser();
+  c.closeReason=reasonId;
+  c.closeReasonLabel=reasonObj?reasonObj.label:reasonId;
   c.closeNote=note;
+  // Clear the auto-resolved flag if it was set (this is now a proper finalization)
+  c.autoResolved=false;
   if(_closeStatusChoice==='closed_cant_fix')c.recommendation=note;
   c.updates=c.updates||[];
-  c.updates.push({ts:Date.now(),date:new Date().toISOString().slice(0,10),by:curUser(),note:'🏁 Closed as '+statusLabel(_closeStatusChoice)+(note?': '+note:'')});
+  c.updates.push({ts:Date.now(),date:new Date().toISOString().slice(0,10),by:curUser(),note:'🏁 Closed as '+statusLabel(_closeStatusChoice)+' · Reason: '+(reasonObj?reasonObj.label:reasonId)+' · '+note});
   saveCalls(calls);
   // Sync linked maintenance task
   try{if(c.maintTaskId&&typeof loadMaintTasks==='function'){
@@ -47589,6 +47630,295 @@ setTimeout(_suppressV94UpdateChecker,200);
 })();
 
 // Manual check button next to the version indicator in the topbar
+// ============= ACCOUNTING MODULE (with Payroll inside) =============
+// v94 has Payroll as its own top-level module. The user wants an Accounting
+// module containing Payroll as a sub-tab + space for future Accounting views
+// (P&L, transactions, cash flow, tax). We mutate the MODULES registry and
+// add view-handlers for the new accounting-only views.
+const ACCT_DEFINED=()=>typeof MODULES!=='undefined'&&MODULES&&!MODULES.accounting;
+
+function _setupAccountingModule(){
+  if(typeof MODULES==='undefined')return;
+  if(MODULES.accounting)return;   // already set up
+  // Build accounting module with payroll views inside it + new accounting views
+  MODULES.accounting={
+    icon:'💼',
+    name:'ACCOUNTING',
+    description:'Payroll, transactions, P&L, cash flow, tax & compliance',
+    views:[
+      {id:'acct_dash',label:'📊 Dashboard',perm:null,title:'Accounting overview — payroll totals, P&L summary, cash flow'},
+      {id:'payroll_ops',label:'🌱 Payroll — Operations (Weekly)',perm:'managePayroll'},
+      {id:'payroll_office',label:'🏢 Payroll — Office (Bi-monthly)',perm:'managePayroll'},
+      {id:'payroll_history',label:'📊 Payroll — History',perm:'managePayroll'},
+      {id:'payroll_rates',label:'🏛️ Rates & Tax',perm:'managePayroll'},
+      {id:'acct_transactions',label:'💸 Transactions',perm:null,title:'Money in / out log'},
+      {id:'acct_pnl',label:'📈 Profit & Loss',perm:null,title:'P&L statement (period-based)'},
+      {id:'acct_cashflow',label:'💰 Cash Flow',perm:null,title:'Cash flow tracking'}
+    ]
+  };
+  // Hide the old top-level payroll module — its views still exist, just moved
+  if(MODULES.payroll){
+    MODULES.payroll._movedToAccounting=true;
+    MODULES.payroll.disabled=true;
+  }
+}
+// Run after v94 loads (MODULES is declared in the same script block, so it's available)
+setTimeout(_setupAccountingModule,300);
+setInterval(_setupAccountingModule,2000);
+
+// Register the new accounting views in the view-to-module map so banners work
+(function _addAcctViewsToMap(){
+  const adds={acct_dash:'accounting',payroll_ops:'accounting',payroll_office:'accounting',payroll_history:'accounting',payroll_rates:'accounting',acct_transactions:'accounting',acct_pnl:'accounting',acct_cashflow:'accounting'};
+  setTimeout(()=>{
+    if(typeof VIEW_TO_MODULE==='undefined')return;
+    Object.assign(VIEW_TO_MODULE,adds);
+  },400);
+})();
+
+// Patch the sidebar so Accounting appears (replacing the now-hidden Payroll slot)
+function _patchSidebarOrder(){
+  if(!window.renderModuleSidebar||window.renderModuleSidebar.__acctPatched)return;
+  const orig=window.renderModuleSidebar;
+  window.renderModuleSidebar=function(){
+    if(typeof window.SIDEBAR_LABELS==='object'){window.SIDEBAR_LABELS.accounting='ACCT.';}
+    const r=orig.apply(this,arguments);
+    // After v94 renders, inject the Accounting button where Payroll used to be
+    try{
+      const sb=document.getElementById('moduleSidebar');
+      if(!sb||!MODULES.accounting||document.getElementById('modBtn-accounting'))return r;
+      // Build the accounting button from the same template v94 uses
+      const mod=MODULES.accounting;
+      const btn=document.createElement('button');
+      btn.className='module-btn';
+      btn.id='modBtn-accounting';
+      btn.setAttribute('data-module','accounting');
+      btn.title=`${mod.icon} ${mod.name}${mod.description?' — '+mod.description:''}`;
+      btn.onclick=function(){if(typeof switchModule==='function')switchModule('accounting');};
+      btn.innerHTML=`<span class="module-btn-icon">${mod.icon}</span>
+        <span class="module-btn-label">${(window.SIDEBAR_LABELS&&window.SIDEBAR_LABELS.accounting)||mod.name}</span>
+        <span class="module-btn-tooltip">${mod.icon} ${mod.name}</span>`;
+      // Place it where payroll was (or after HR if payroll button doesn't exist)
+      const payrollBtn=document.getElementById('modBtn-payroll');
+      const hrBtn=document.getElementById('modBtn-hr');
+      if(payrollBtn){payrollBtn.parentNode.insertBefore(btn,payrollBtn);payrollBtn.style.display='none';}
+      else if(hrBtn&&hrBtn.nextSibling){hrBtn.parentNode.insertBefore(btn,hrBtn.nextSibling);}
+      else sb.appendChild(btn);
+    }catch(e){console.warn('acct sidebar inject',e);}
+    return r;
+  };
+  window.renderModuleSidebar.__acctPatched=true;
+  // Trigger re-render once
+  setTimeout(()=>{if(typeof renderModuleSidebar==='function')renderModuleSidebar();},100);
+}
+setInterval(_patchSidebarOrder,800);
+setTimeout(_patchSidebarOrder,500);
+
+// Inject the new accounting views in switchView dispatcher
+function _renderAcctDash(){
+  let view=document.getElementById('view-acct_dash');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-acct_dash';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  // Pull payroll & basic accounting data
+  let opsTotal=0,officeTotal=0,opsCt=0,officeCt=0;
+  try{
+    const ops=JSON.parse(localStorage.getItem('hydroPro_payroll_ops')||'[]');
+    if(Array.isArray(ops)){opsCt=ops.length;ops.forEach(p=>{opsTotal+=Number(p.netPay||p.grossPay||0);});}
+  }catch(e){}
+  try{
+    const off=JSON.parse(localStorage.getItem('hydroPro_payroll_office')||'[]');
+    if(Array.isArray(off)){officeCt=off.length;off.forEach(p=>{officeTotal+=Number(p.netPay||p.grossPay||0);});}
+  }catch(e){}
+  let txns=[];try{txns=JSON.parse(localStorage.getItem('hydroPro_acct_txns')||'[]');}catch(e){}
+  const txIn=txns.filter(t=>t.kind==='income').reduce((a,t)=>a+Number(t.amount||0),0);
+  const txOut=txns.filter(t=>t.kind==='expense').reduce((a,t)=>a+Number(t.amount||0),0);
+  const txNet=txIn-txOut;
+  view.innerHTML=`<div class="section-title">📊 Accounting Dashboard</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>💼 Accounting:</strong> Central hub for payroll, money flow, P&L, and tax. Use the sub-tabs above to drill into specific areas.
+    </div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">🌱 Operations Payroll (latest)</div><div class="fleet-stat-val">₱${opsTotal.toFixed(2)}</div><div class="fleet-stat-sub">${opsCt} period${opsCt===1?'':'s'} on file</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">🏢 Office Payroll (latest)</div><div class="fleet-stat-val">₱${officeTotal.toFixed(2)}</div><div class="fleet-stat-sub">${officeCt} period${officeCt===1?'':'s'} on file</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">💵 Income</div><div class="fleet-stat-val green">₱${txIn.toFixed(2)}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">💸 Expense</div><div class="fleet-stat-val ${txOut>0?'warn':''}">₱${txOut.toFixed(2)}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">📊 Net</div><div class="fleet-stat-val" style="color:${txNet>=0?'var(--ok)':'var(--danger)'};">₱${txNet.toFixed(2)}</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:18px;">
+      <a class="btn btn-outline" href="javascript:switchView('payroll_ops')" style="text-align:left;padding:14px;">🌱 Operations Payroll →</a>
+      <a class="btn btn-outline" href="javascript:switchView('payroll_office')" style="text-align:left;padding:14px;">🏢 Office Payroll →</a>
+      <a class="btn btn-outline" href="javascript:switchView('payroll_history')" style="text-align:left;padding:14px;">📊 Payroll History →</a>
+      <a class="btn btn-outline" href="javascript:switchView('payroll_rates')" style="text-align:left;padding:14px;">🏛️ Rates & Tax →</a>
+      <a class="btn btn-outline" href="javascript:switchView('acct_transactions')" style="text-align:left;padding:14px;">💸 Transactions →</a>
+      <a class="btn btn-outline" href="javascript:switchView('acct_pnl')" style="text-align:left;padding:14px;">📈 Profit & Loss →</a>
+      <a class="btn btn-outline" href="javascript:switchView('acct_cashflow')" style="text-align:left;padding:14px;">💰 Cash Flow →</a>
+    </div>`;
+}
+
+const ACCT_TXN_KEY='hydroPro_acct_txns';
+function loadAcctTxns(){try{return JSON.parse(localStorage.getItem(ACCT_TXN_KEY)||'[]');}catch(e){return [];}}
+function saveAcctTxns(arr){localStorage.setItem(ACCT_TXN_KEY,JSON.stringify(arr));}
+
+window._renderAcctTransactions=function(){
+  let view=document.getElementById('view-acct_transactions');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-acct_transactions';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const txns=loadAcctTxns().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const totalIn=txns.filter(t=>t.kind==='income').reduce((a,t)=>a+Number(t.amount||0),0);
+  const totalOut=txns.filter(t=>t.kind==='expense').reduce((a,t)=>a+Number(t.amount||0),0);
+  const rows=txns.map(t=>`<tr>
+    <td style="font-family:var(--mono);font-size:11px;">${t.date||''}</td>
+    <td><span style="color:${t.kind==='income'?'var(--ok)':'var(--danger)'};font-weight:700;">${t.kind==='income'?'+ INCOME':'- EXPENSE'}</span></td>
+    <td>${(t.category||'').replace(/[<>]/g,'')}</td>
+    <td>${(t.description||'').replace(/[<>]/g,'')}</td>
+    <td style="text-align:right;font-family:var(--mono);font-weight:700;color:${t.kind==='income'?'var(--ok)':'var(--danger)'};">₱${Number(t.amount||0).toFixed(2)}</td>
+    <td style="text-align:right;"><button class="btn btn-outline" style="padding:3px 8px;font-size:10px;" onclick="_acctDeleteTxn('${t.id}')">🗑</button></td>
+  </tr>`).join('');
+  view.innerHTML=`<div class="section-title">💸 Transactions</div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Income</div><div class="fleet-stat-val green">₱${totalIn.toFixed(2)}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Expense</div><div class="fleet-stat-val ${totalOut>0?'warn':''}">₱${totalOut.toFixed(2)}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Net</div><div class="fleet-stat-val" style="color:${(totalIn-totalOut)>=0?'var(--ok)':'var(--danger)'};">₱${(totalIn-totalOut).toFixed(2)}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Transactions</div><div class="fleet-stat-val">${txns.length}</div></div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin:14px 0;">
+      <div style="display:grid;grid-template-columns:130px 130px 1fr 2fr 130px auto;gap:8px;align-items:end;">
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Date</div>
+          <input id="atxDate" type="date" class="input" value="${new Date().toISOString().slice(0,10)}" style="width:100%;"></div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Type</div>
+          <select id="atxKind" class="call-select" style="width:100%;">
+            <option value="income">+ Income</option>
+            <option value="expense">- Expense</option>
+          </select></div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Category</div>
+          <input id="atxCat" class="input" style="width:100%;" placeholder="e.g. Sales, Salary, Utilities"></div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Description</div>
+          <input id="atxDesc" class="input" style="width:100%;" placeholder="Details / reference"></div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Amount</div>
+          <input id="atxAmt" type="number" step="0.01" class="input" style="width:100%;" placeholder="0.00"></div>
+        <div><button class="btn btn-primary" onclick="_acctAddTxn()">➕ Add</button></div>
+      </div>
+    </div>
+    ${txns.length?`<div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Description</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`:'<div style="text-align:center;padding:30px;color:var(--text3);">No transactions yet. Add the first one above.</div>'}`;
+};
+window._acctAddTxn=function(){
+  const date=document.getElementById('atxDate').value;
+  const kind=document.getElementById('atxKind').value;
+  const category=(document.getElementById('atxCat').value||'').trim();
+  const description=(document.getElementById('atxDesc').value||'').trim();
+  const amount=Number(document.getElementById('atxAmt').value||0);
+  if(!date||!amount||!category){alert('Date, category, and amount are required.');return;}
+  const txns=loadAcctTxns();
+  txns.push({id:'tx_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),date,kind,category,description,amount,createdAt:Date.now(),createdBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user'});
+  saveAcctTxns(txns);
+  if(typeof showToast==='function')showToast('Transaction added','ok');
+  _renderAcctTransactions();
+};
+window._acctDeleteTxn=function(id){
+  if(!confirm('Delete this transaction?'))return;
+  let txns=loadAcctTxns().filter(t=>t.id!==id);
+  saveAcctTxns(txns);
+  _renderAcctTransactions();
+};
+
+window._renderAcctPnl=function(){
+  let view=document.getElementById('view-acct_pnl');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-acct_pnl';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const txns=loadAcctTxns();
+  const today=new Date().toISOString().slice(0,10);
+  const past30=new Date();past30.setDate(past30.getDate()-30);const start30=past30.toISOString().slice(0,10);
+  const inRange=txns.filter(t=>t.date>=start30&&t.date<=today);
+  // Group by category
+  const byCat={};
+  inRange.forEach(t=>{
+    const k=(t.kind||'')+'|'+(t.category||'(uncategorised)');
+    if(!byCat[k])byCat[k]={kind:t.kind,category:t.category,total:0,count:0};
+    byCat[k].total+=Number(t.amount||0);byCat[k].count++;
+  });
+  const incomeRows=Object.values(byCat).filter(x=>x.kind==='income').sort((a,b)=>b.total-a.total).map(x=>`<tr><td>${(x.category||'').replace(/[<>]/g,'')}</td><td style="text-align:right;font-family:var(--mono);">${x.count}</td><td style="text-align:right;font-family:var(--mono);color:var(--ok);">₱${x.total.toFixed(2)}</td></tr>`).join('');
+  const expenseRows=Object.values(byCat).filter(x=>x.kind==='expense').sort((a,b)=>b.total-a.total).map(x=>`<tr><td>${(x.category||'').replace(/[<>]/g,'')}</td><td style="text-align:right;font-family:var(--mono);">${x.count}</td><td style="text-align:right;font-family:var(--mono);color:var(--danger);">₱${x.total.toFixed(2)}</td></tr>`).join('');
+  const totalIn=inRange.filter(t=>t.kind==='income').reduce((a,t)=>a+Number(t.amount||0),0);
+  const totalOut=inRange.filter(t=>t.kind==='expense').reduce((a,t)=>a+Number(t.amount||0),0);
+  view.innerHTML=`<div class="section-title">📈 Profit & Loss — Last 30 Days</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);">P&L from ${start30} to ${today} based on Transactions data. Future: integrate payroll, RM costs, sales.</div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Total Income</div><div class="fleet-stat-val green">₱${totalIn.toFixed(2)}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Total Expense</div><div class="fleet-stat-val ${totalOut>0?'warn':''}">₱${totalOut.toFixed(2)}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Net Profit</div><div class="fleet-stat-val" style="color:${(totalIn-totalOut)>=0?'var(--ok)':'var(--danger)'};">₱${(totalIn-totalOut).toFixed(2)}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Margin</div><div class="fleet-stat-val">${totalIn?(((totalIn-totalOut)/totalIn)*100).toFixed(1)+'%':'—'}</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;">
+      <div>
+        <div class="section-title">💵 Income by Category</div>
+        ${incomeRows?`<table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Category</th><th style="text-align:right;">#</th><th style="text-align:right;">Total</th></tr></thead><tbody>${incomeRows}</tbody></table>`:'<div style="text-align:center;color:var(--text3);padding:14px;">No income recorded.</div>'}
+      </div>
+      <div>
+        <div class="section-title">💸 Expense by Category</div>
+        ${expenseRows?`<table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Category</th><th style="text-align:right;">#</th><th style="text-align:right;">Total</th></tr></thead><tbody>${expenseRows}</tbody></table>`:'<div style="text-align:center;color:var(--text3);padding:14px;">No expenses recorded.</div>'}
+      </div>
+    </div>`;
+};
+
+window._renderAcctCashflow=function(){
+  let view=document.getElementById('view-acct_cashflow');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-acct_cashflow';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const txns=loadAcctTxns().slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  // Build daily buckets for the last 60 days
+  const days=[];const today=new Date();
+  for(let i=59;i>=0;i--){const d=new Date(today);d.setDate(d.getDate()-i);days.push(d.toISOString().slice(0,10));}
+  const byDay={};days.forEach(d=>{byDay[d]={in:0,out:0};});
+  txns.forEach(t=>{if(byDay[t.date]){if(t.kind==='income')byDay[t.date].in+=Number(t.amount||0);else if(t.kind==='expense')byDay[t.date].out+=Number(t.amount||0);}});
+  const maxAmt=days.reduce((m,d)=>Math.max(m,byDay[d].in,byDay[d].out),100);
+  const bars=days.map(d=>{
+    const x=byDay[d];
+    const inH=x.in?Math.round(x.in/maxAmt*100):0;
+    const outH=x.out?Math.round(x.out/maxAmt*100):0;
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;width:14px;flex-shrink:0;" title="${d}: in ₱${x.in.toFixed(2)}, out ₱${x.out.toFixed(2)}">
+      <div style="display:flex;flex-direction:column-reverse;height:120px;width:100%;justify-content:flex-end;">
+        ${x.in?`<div style="height:${inH}%;background:var(--ok);border-radius:1px;margin-bottom:1px;" title="₱${x.in.toFixed(2)} in"></div>`:''}
+        ${x.out?`<div style="height:${outH}%;background:var(--danger);border-radius:1px;" title="₱${x.out.toFixed(2)} out"></div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+  view.innerHTML=`<div class="section-title">💰 Cash Flow — Last 60 Days</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);">Daily inflow (green) and outflow (red). Hover any bar for details.</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;overflow-x:auto;">
+      <div style="display:flex;gap:2px;align-items:flex-end;min-width:1000px;">${bars}</div>
+      <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10px;color:var(--text3);font-family:var(--mono);">
+        <span>${days[0]}</span>
+        <span>${days[Math.floor(days.length/2)]}</span>
+        <span>${days[days.length-1]}</span>
+      </div>
+      <div style="display:flex;gap:14px;margin-top:14px;font-size:12px;">
+        <span style="color:var(--ok);">█ Income</span>
+        <span style="color:var(--danger);">█ Expense</span>
+      </div>
+    </div>`;
+};
+
+// Hook into v94's switchView dispatcher
+(function _hookAcctViews(){
+  function attempt(){
+    if(!window.switchView||window.switchView.__acctHooked)return;
+    const orig=window.switchView;
+    window.switchView=function(v){
+      const r=orig.apply(this,arguments);
+      if(v==='acct_dash')setTimeout(_renderAcctDash,80);
+      if(v==='acct_transactions')setTimeout(_renderAcctTransactions,80);
+      if(v==='acct_pnl')setTimeout(_renderAcctPnl,80);
+      if(v==='acct_cashflow')setTimeout(_renderAcctCashflow,80);
+      return r;
+    };
+    window.switchView.__acctHooked=true;
+  }
+  setInterval(attempt,1500);
+  setTimeout(attempt,500);
+})();
+
 // ============= SMART CALL AUTO-ASSIGNMENT =============
 // Routing rules per department. When a call is raised, the system suggests an
 // assignee based on the call's department. Admins manage the rules; regular
@@ -48405,16 +48735,17 @@ function _addPairedCall(calls,opts){
   });
   return callId;
 }
+// CHANGED: Auto-resolutions no longer fully close. They flag the call as
+// "pending verification" so a human must finalize with a reason + note.
 function _autoCloseCall(calls,callId,reason){
   const c=calls.find(x=>x.id===callId);
   if(!c||isCallClosed(c))return false;
   const today=new Date().toISOString().slice(0,10);
-  c.status='closed_finalize';
-  c.closedAt=Date.now();
-  c.closedBy='system';
-  c.closeNote=reason||'Auto-closed';
+  c.autoResolved=true;
+  c.autoResolvedAt=Date.now();
+  c.autoResolvedReason=reason||'condition cleared';
   c.updates=c.updates||[];
-  c.updates.push({ts:Date.now(),date:today,by:'system',note:'🤖 Auto-closed — '+(reason||'resolved.')});
+  c.updates.push({ts:Date.now(),date:today,by:'system',note:'🤖 Underlying issue appears resolved — '+(reason||'cleared')+' · please verify and close with details.'});
   return true;
 }
 function _autoCloseTask(tasks,taskId,reason){
