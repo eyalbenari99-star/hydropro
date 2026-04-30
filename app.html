@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777517102;
+const APP_BUILD=1777530071;
 const APP_BUILD_DATE='2026-04-30';
 
 // Store version in localStorage on first run
@@ -43835,7 +43835,7 @@ const VIEW_TO_MODULE={
   // Irrigation
   irr_dash:'irrigation',irr_pools:'irrigation',irr_mix:'irrigation',irr_calibration:'irrigation',
   // Inventory
-  inv_dash:'inventory',inv_tools:'inventory',inv_consumables:'inventory',
+  inv_dash:'inventory',inv_tools:'inventory',inv_consumables:'inventory',inv_files:'inventory',inv_matrix:'inventory',inv_expiry:'inventory',
   // Packaging
   packaging:'packaging',pack_wash_trim:'packaging',
   // Logistics / Fleet
@@ -47415,6 +47415,11 @@ const EXTRA_SUBTABS={
     {id:'hr_assets', label:'🎒 Assets Issued'},
     {id:'hr_clearance', label:'📋 Clearance / Turnover'}
   ],
+  inventory:[
+    {id:'inv_files', label:'📁 Item Files'},
+    {id:'inv_matrix', label:'📊 Inventory Matrix'},
+    {id:'inv_expiry', label:'⏳ Expiry Tracker'}
+  ],
   it:[
     {id:'it_matrix', label:'📊 Equipment Matrix'}
   ],
@@ -48932,6 +48937,458 @@ window._hrClearanceCancel=function(empId){
       return r;
     };
     window.switchView.__hrPlusHooked=true;
+  }
+  setInterval(attempt,1500);
+  setTimeout(attempt,500);
+})();
+
+// === INVENTORY ITEM FILES + MATRIX + EXPIRY TRACKER ===
+//
+// Per-SKU document file with auto-status:
+//   CRITICAL: expired, or missing required docs (MSDS for chemicals, COA for products)
+//   WARNING: near expiry (≤30d), low stock, missing optional docs
+//   OK: complete + in stock + not near expiry
+const INV_ITEM_FILES_KEY='hydroPro_inv_item_files';
+const INV_ITEM_LOTS_KEY='hydroPro_inv_item_lots';
+
+// Required docs by category — expand as needed
+const INV_DOC_TEMPLATES={
+  default:[
+    {id:'spec_sheet',name:'Specification Sheet / Product Spec',critical:false},
+    {id:'supplier_invoice',name:'Latest Supplier Invoice',critical:false},
+    {id:'photo',name:'Item Photo',critical:false},
+    {id:'safety_data',name:'Safety Data Sheet (MSDS) — if hazardous',critical:false}
+  ],
+  chemical:[
+    {id:'msds',name:'MSDS (Material Safety Data Sheet)',critical:true},
+    {id:'coa',name:'Certificate of Analysis (per lot)',critical:true},
+    {id:'spec_sheet',name:'Specification Sheet',critical:false},
+    {id:'supplier_invoice',name:'Supplier Invoice',critical:false},
+    {id:'photo',name:'Item Photo / Label',critical:false},
+    {id:'storage_guide',name:'Storage / Handling Guide',critical:true}
+  ],
+  food:[
+    {id:'coa',name:'Certificate of Analysis',critical:true},
+    {id:'haccp',name:'HACCP / Food Safety Cert',critical:true},
+    {id:'supplier_invoice',name:'Supplier Invoice',critical:false},
+    {id:'spec_sheet',name:'Product Spec',critical:false},
+    {id:'photo',name:'Photo',critical:false},
+    {id:'allergen_info',name:'Allergen / Nutrition Info',critical:false}
+  ],
+  packaging:[
+    {id:'spec_sheet',name:'Spec Sheet',critical:false},
+    {id:'food_grade_cert',name:'Food-Grade Certification',critical:true},
+    {id:'supplier_invoice',name:'Supplier Invoice',critical:false},
+    {id:'photo',name:'Photo',critical:false}
+  ],
+  equipment:[
+    {id:'manual',name:'User / Service Manual',critical:false},
+    {id:'warranty',name:'Warranty Certificate',critical:false},
+    {id:'photo',name:'Photo',critical:false},
+    {id:'spec_sheet',name:'Spec Sheet',critical:false},
+    {id:'invoice',name:'Purchase Invoice',critical:false}
+  ]
+};
+
+function _invDocsForItem(item){
+  const cat=String(item.category||'').toLowerCase();
+  if(/chemical|fertili|pesticide|nutrient/.test(cat))return INV_DOC_TEMPLATES.chemical;
+  if(/food|harvest|produce|seed/.test(cat))return INV_DOC_TEMPLATES.food;
+  if(/pack|wrap|label|box|carton/.test(cat))return INV_DOC_TEMPLATES.packaging;
+  if(/equipment|tool|machine/.test(cat))return INV_DOC_TEMPLATES.equipment;
+  return INV_DOC_TEMPLATES.default;
+}
+
+function _invLoadStock(){
+  try{return JSON.parse(localStorage.getItem('hydroPro_inv_stock')||'[]');}catch(e){return [];}
+}
+function _invLoadFiles(){try{return JSON.parse(localStorage.getItem(INV_ITEM_FILES_KEY)||'{}');}catch(e){return {};}}
+function _invSaveFiles(d){localStorage.setItem(INV_ITEM_FILES_KEY,JSON.stringify(d));}
+function _invLoadLots(){try{return JSON.parse(localStorage.getItem(INV_ITEM_LOTS_KEY)||'{}');}catch(e){return {};}}
+function _invSaveLots(d){localStorage.setItem(INV_ITEM_LOTS_KEY,JSON.stringify(d));}
+
+function _invItemStatus(item){
+  const docs=_invDocsForItem(item);
+  const allFiles=_invLoadFiles();
+  const docState=allFiles[item.sku]||allFiles[item.id]||{};
+  const allLots=_invLoadLots();
+  const lots=allLots[item.sku]||allLots[item.id]||[];
+  const today=new Date().toISOString().slice(0,10);
+  let missingCrit=0,missingNonCrit=0,present=0;
+  docs.forEach(d=>{
+    if(docState[d.id]&&docState[d.id].present)present++;
+    else if(d.critical)missingCrit++;
+    else missingNonCrit++;
+  });
+  // Lot expiry analysis
+  let expired=0,nearExp=0,activeLots=0;
+  lots.forEach(l=>{
+    if(!l.expirationDate)return;
+    activeLots++;
+    if(l.expirationDate<today)expired++;
+    else {
+      const daysLeft=Math.floor((new Date(l.expirationDate)-new Date(today))/86400000);
+      if(daysLeft<=30)nearExp++;
+    }
+  });
+  // Stock status
+  const onHand=Number(item.onHand||0);
+  const minStock=Number(item.minStock||0);
+  const lowStock=minStock>0&&onHand<=minStock;
+  const outOfStock=onHand<=0;
+  // Compute overall status
+  let status='ok';
+  if(missingCrit>0||expired>0||outOfStock)status='critical';
+  else if(missingNonCrit>0||nearExp>0||lowStock)status='warning';
+  return {status,missingCrit,missingNonCrit,present,total:docs.length,lots,expired,nearExp,activeLots,onHand,minStock,lowStock,outOfStock};
+}
+
+let _invSelectedSku=null;
+
+window.renderInvFiles=function(){
+  let view=document.getElementById('view-inv_files');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-inv_files';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const items=_invLoadStock();
+  if(_invSelectedSku){
+    const it=items.find(x=>(x.sku||x.id)===_invSelectedSku);
+    if(it){view.innerHTML=_invItemDetail(it);return;}
+    _invSelectedSku=null;
+  }
+  // Status summary
+  const statuses=items.map(it=>({item:it,status:_invItemStatus(it)}));
+  let critCt=0,warnCt=0,okCt=0;
+  statuses.forEach(s=>{if(s.status.status==='critical')critCt++;else if(s.status.status==='warning')warnCt++;else okCt++;});
+  // Sort: critical first
+  statuses.sort((a,b)=>{
+    const order={critical:0,warning:1,ok:2};
+    if(order[a.status.status]!==order[b.status.status])return order[a.status.status]-order[b.status.status];
+    return (a.item.name||'').localeCompare(b.item.name||'');
+  });
+  const rows=statuses.map(s=>{
+    const it=s.item;const st=s.status;
+    const color=st.status==='critical'?'var(--danger)':st.status==='warning'?'var(--warn)':'var(--ok)';
+    const icon=st.status==='critical'?'✕':st.status==='warning'?'⚠':'✓';
+    const lotInfo=st.expired>0?`<span style="color:var(--danger);">${st.expired} expired</span>`:st.nearExp>0?`<span style="color:var(--warn);">${st.nearExp} near-exp</span>`:st.activeLots?`<span style="color:var(--ok);">${st.activeLots} lots</span>`:'<span style="color:var(--text3);">no lots</span>';
+    const stockInfo=st.outOfStock?'<span style="color:var(--danger);font-weight:700;">OUT</span>':st.lowStock?'<span style="color:var(--warn);font-weight:700;">LOW</span>':'<span style="color:var(--text2);">'+st.onHand+'</span>';
+    return `<tr style="cursor:pointer;border-left:3px solid ${color};" onclick="_invSelectedSku='${(it.sku||it.id||'').replace(/'/g,'')}';renderInvFiles();">
+      <td style="font-weight:600;">${(it.name||'').replace(/[<>]/g,'')}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${(it.sku||it.id||'').replace(/[<>]/g,'')}</td>
+      <td style="font-size:11px;">${(it.category||'—').replace(/[<>]/g,'')}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${stockInfo}</td>
+      <td style="text-align:center;color:${color};font-weight:700;font-size:12px;">${icon} ${st.status.toUpperCase()}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--ok);">${st.present}/${st.total}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:11px;">${lotInfo}</td>
+    </tr>`;
+  }).join('');
+  view.innerHTML=`<div class="section-title">📁 Inventory Item Files</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>📁 Per-SKU file management:</strong> Each item has a complete document file (MSDS, COA, supplier invoice, photo). Required docs depend on category — chemicals need MSDS, food needs HACCP, etc. Items with expired lots, missing critical docs, or out-of-stock flag as <span style="color:var(--danger);font-weight:700;">CRITICAL</span>.
+    </div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Total items</div><div class="fleet-stat-val">${items.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✕ Critical</div><div class="fleet-stat-val ${critCt>0?'danger':''}">${critCt}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">⚠ Warning</div><div class="fleet-stat-val ${warnCt>0?'warn':''}">${warnCt}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✓ OK</div><div class="fleet-stat-val green">${okCt}</div></div>
+    </div>
+    ${items.length?`<div class="fleet-table-wrap" style="margin-top:14px;"><table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Item</th><th>SKU</th><th>Category</th><th>Stock</th><th>Status</th><th>Docs</th><th>Lots / Expiry</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`:'<div style="text-align:center;padding:30px;color:var(--text3);">No inventory items yet. Add via Inventory → Stock.</div>'}`;
+};
+
+function _invItemDetail(item){
+  const sku=item.sku||item.id;
+  const docs=_invDocsForItem(item);
+  const allFiles=_invLoadFiles();
+  const docState=allFiles[sku]||{};
+  const allLots=_invLoadLots();
+  const lots=(allLots[sku]||[]).slice().sort((a,b)=>(a.expirationDate||'').localeCompare(b.expirationDate||''));
+  const st=_invItemStatus(item);
+  const today=new Date().toISOString().slice(0,10);
+
+  const docRows=docs.map(d=>{
+    const s=docState[d.id]||{};const present=s.present;
+    const stColor=present?'var(--ok)':d.critical?'var(--danger)':'var(--warn)';
+    const stLabel=present?'✓ ON FILE':d.critical?'✕ MISSING (CRITICAL)':'⚠ MISSING';
+    return `<tr>
+      <td>${d.name}${d.critical?' <span style="color:var(--danger);font-size:10px;font-weight:700;">★ KEY</span>':''}</td>
+      <td style="text-align:center;color:${stColor};font-weight:700;font-size:11px;">${stLabel}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${s.dateAdded||'—'}</td>
+      <td style="font-size:11px;">${s.addedBy||'—'}</td>
+      <td style="font-size:11px;color:var(--text3);">${(s.notes||'').replace(/[<>]/g,'').slice(0,80)}</td>
+      <td style="text-align:right;white-space:nowrap;">
+        ${present?'':`<label class="btn btn-primary" style="font-size:11px;padding:4px 10px;cursor:pointer;">📷 Upload<input type="file" accept="image/*,.pdf" style="display:none;" onchange="_invDocUpload('${sku}','${d.id}',this)"></label>`}
+        ${present?`<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="_invDocView('${sku}','${d.id}')">👁</button><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--danger);" onclick="_invDocRemove('${sku}','${d.id}')">🗑</button>`:''}
+        <button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="_invDocNote('${sku}','${d.id}')">📝</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const lotRows=lots.map(l=>{
+    const isExpired=l.expirationDate&&l.expirationDate<today;
+    const days=l.expirationDate?Math.floor((new Date(l.expirationDate)-new Date(today))/86400000):null;
+    const stColor=isExpired?'var(--danger)':days!=null&&days<=30?'var(--warn)':'var(--ok)';
+    const stLabel=isExpired?`✕ EXPIRED ${-days}d ago`:days!=null?days<=30?`⚠ ${days}d left`:`✓ ${days}d left`:'—';
+    return `<tr style="${isExpired?'background:rgba(239,83,80,0.06);':''}">
+      <td style="font-family:var(--mono);">${(l.lotNumber||'').replace(/[<>]/g,'')}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${l.receivedDate||'—'}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${l.expirationDate||'—'}</td>
+      <td style="text-align:right;font-family:var(--mono);">${Number(l.qty||0)}</td>
+      <td style="font-family:var(--mono);font-size:11px;color:${stColor};font-weight:700;">${stLabel}</td>
+      <td style="font-size:11px;color:var(--text3);">${(l.notes||'').replace(/[<>]/g,'').slice(0,60)}</td>
+      <td style="text-align:right;"><button class="btn btn-outline" style="padding:3px 8px;font-size:10px;color:var(--danger);" onclick="_invLotRemove('${sku}','${l.id}')">🗑</button></td>
+    </tr>`;
+  }).join('');
+
+  return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+    <button class="btn btn-outline" onclick="_invSelectedSku=null;renderInvFiles();">← All items</button>
+    <div style="font-size:18px;font-weight:700;">📁 ${(item.name||'').replace(/[<>]/g,'')} <span style="font-size:11px;color:var(--text3);font-family:var(--mono);">· ${sku} · ${item.category||''}</span></div>
+    <div></div>
+  </div>
+  <div class="fleet-stat-row">
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Status</div><div class="fleet-stat-val" style="color:${st.status==='critical'?'var(--danger)':st.status==='warning'?'var(--warn)':'var(--ok)'};">${st.status==='critical'?'✕ CRITICAL':st.status==='warning'?'⚠ WARNING':'✓ OK'}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">On hand</div><div class="fleet-stat-val ${st.outOfStock?'danger':st.lowStock?'warn':''}">${st.onHand}</div><div class="fleet-stat-sub">min ${st.minStock}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Docs on file</div><div class="fleet-stat-val green">${st.present}/${st.total}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Critical missing</div><div class="fleet-stat-val ${st.missingCrit>0?'danger':''}">${st.missingCrit}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Lots</div><div class="fleet-stat-val">${st.activeLots}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Expired / Near</div><div class="fleet-stat-val ${st.expired>0?'danger':st.nearExp>0?'warn':''}">${st.expired}/${st.nearExp}</div></div>
+  </div>
+
+  <div class="section-title" style="margin-top:18px;">📋 Document Checklist (${item.category||'general'} category)</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div style="font-size:11px;color:var(--text3);">★ KEY = critical document required for compliance</div>
+      <button class="btn btn-outline" onclick="_invDocAddCustom('${sku}')">➕ Add custom document</button>
+    </div>
+    <div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Document</th><th style="text-align:center;">Status</th><th>Date Added</th><th>By</th><th>Notes</th><th style="text-align:right;">Actions</th></tr></thead>
+      <tbody>${docRows}</tbody>
+    </table></div>
+  </div>
+
+  <div class="section-title" style="margin-top:14px;">⏳ Lot / Batch Tracking (FEFO)</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+    <div style="display:grid;grid-template-columns:1fr 130px 130px 100px 2fr auto;gap:8px;align-items:end;margin-bottom:10px;">
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Lot # / Batch ID</div><input id="invLotNum_${sku}" class="input" placeholder="e.g. LOT-2026-A123"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Received</div><input id="invLotRecv_${sku}" type="date" class="input" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Expires</div><input id="invLotExp_${sku}" type="date" class="input"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Qty</div><input id="invLotQty_${sku}" type="number" step="0.01" class="input" placeholder="0"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Notes</div><input id="invLotNotes_${sku}" class="input" placeholder="Storage location / supplier"></div>
+      <div><button class="btn btn-primary" onclick="_invLotAdd('${sku}')">➕ Add lot</button></div>
+    </div>
+    ${lots.length?`<table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Lot #</th><th>Received</th><th>Expires</th><th style="text-align:right;">Qty</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+      <tbody>${lotRows}</tbody>
+    </table>`:'<div style="text-align:center;color:var(--text3);font-size:12px;padding:14px;">No lots tracked. Add the first one above.</div>'}
+  </div>`;
+}
+
+window._invDocUpload=function(sku,docId,input){
+  const file=input.files&&input.files[0];if(!file)return;
+  if(file.size>3*1024*1024){alert('File too large (>3 MB).');input.value='';return;}
+  const reader=new FileReader();
+  reader.onload=function(e){
+    const all=_invLoadFiles();
+    if(!all[sku])all[sku]={};
+    all[sku][docId]={present:true,scanUrl:e.target.result,dateAdded:new Date().toISOString().slice(0,10),addedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user',notes:(all[sku][docId]&&all[sku][docId].notes)||''};
+    try{_invSaveFiles(all);}catch(e){alert('Storage full.');return;}
+    if(typeof showToast==='function')showToast('Document uploaded','ok');
+    renderInvFiles();
+  };
+  reader.readAsDataURL(file);
+  input.value='';
+};
+window._invDocView=function(sku,docId){
+  const all=_invLoadFiles();const doc=all[sku]&&all[sku][docId];
+  if(!doc||!doc.scanUrl)return;
+  let host=document.getElementById('invDocViewModal');
+  if(!host){host=document.createElement('div');host.id='invDocViewModal';host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';host.onclick=()=>host.remove();document.body.appendChild(host);}
+  const isPdf=doc.scanUrl.startsWith('data:application/pdf');
+  host.innerHTML=isPdf?`<iframe src="${doc.scanUrl}" style="width:90%;height:90%;border:none;border-radius:8px;background:#fff;"></iframe><button style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%;cursor:pointer;" onclick="document.getElementById('invDocViewModal').remove();">✕</button>`:`<img src="${doc.scanUrl}" style="max-width:95%;max-height:95%;border-radius:8px;"><button style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%;cursor:pointer;" onclick="document.getElementById('invDocViewModal').remove();">✕</button>`;
+};
+window._invDocRemove=function(sku,docId){
+  if(!confirm('Remove this document?'))return;
+  const all=_invLoadFiles();
+  if(all[sku]&&all[sku][docId])delete all[sku][docId];
+  _invSaveFiles(all);renderInvFiles();
+};
+window._invDocNote=function(sku,docId){
+  const all=_invLoadFiles();
+  const cur=(all[sku]&&all[sku][docId]&&all[sku][docId].notes)||'';
+  const note=prompt('Note for this document:',cur);
+  if(note===null)return;
+  all[sku]=all[sku]||{};all[sku][docId]=all[sku][docId]||{};
+  all[sku][docId].notes=note;
+  _invSaveFiles(all);renderInvFiles();
+};
+window._invDocAddCustom=function(sku){
+  const name=prompt('Custom document name:');if(!name)return;
+  const isCrit=confirm('Mark as CRITICAL?');
+  const items=_invLoadStock();
+  // Custom docs are tracked in the same docState — give them a unique ID
+  const all=_invLoadFiles();
+  all[sku]=all[sku]||{};
+  // We need to store the doc definition itself
+  all['_customDocs_'+sku]=all['_customDocs_'+sku]||[];
+  // (Simplified: just push into custom defs in a side key — for full feature would integrate with template lookup)
+  alert('Custom docs not yet persisted with templates — coming in next build. For now, use the existing doc list and notes field.');
+};
+
+window._invLotAdd=function(sku){
+  const lotNumber=(document.getElementById('invLotNum_'+sku).value||'').trim();
+  if(!lotNumber){alert('Lot # is required.');return;}
+  const all=_invLoadLots();
+  all[sku]=all[sku]||[];
+  all[sku].push({
+    id:'lot_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),
+    lotNumber,
+    receivedDate:document.getElementById('invLotRecv_'+sku).value,
+    expirationDate:document.getElementById('invLotExp_'+sku).value,
+    qty:Number(document.getElementById('invLotQty_'+sku).value||0),
+    notes:(document.getElementById('invLotNotes_'+sku).value||'').trim(),
+    addedAt:Date.now()
+  });
+  _invSaveLots(all);
+  if(typeof showToast==='function')showToast('Lot added','ok');
+  renderInvFiles();
+};
+window._invLotRemove=function(sku,lotId){
+  if(!confirm('Remove this lot?'))return;
+  const all=_invLoadLots();
+  all[sku]=(all[sku]||[]).filter(x=>x.id!==lotId);
+  _invSaveLots(all);renderInvFiles();
+};
+
+// === Inventory Matrix: Issues × Categories ===
+const INV_MATRIX_ISSUES=[
+  {id:'in_stock',label:'In stock (≥ min level)',critical:false},
+  {id:'docs_complete',label:'Critical docs on file',critical:true},
+  {id:'has_lots',label:'Lot tracking active',critical:false},
+  {id:'no_expired',label:'No expired lots',critical:true},
+  {id:'no_near_expiry',label:'No lots expiring ≤30d',critical:false},
+  {id:'has_supplier',label:'Supplier identified',critical:false},
+  {id:'has_unit_cost',label:'Unit cost recorded',critical:false}
+];
+
+window.renderInvMatrix=function(){
+  let view=document.getElementById('view-inv_matrix');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-inv_matrix';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const items=_invLoadStock();
+  const today=new Date().toISOString().slice(0,10);
+  // Group by category
+  const byCat={};
+  items.forEach(it=>{
+    const c=it.category||'(uncategorised)';
+    if(!byCat[c])byCat[c]=[];
+    byCat[c].push(it);
+  });
+  const cats=Object.keys(byCat).sort();
+  const allFiles=_invLoadFiles();const allLots=_invLoadLots();
+  function check(item,issueId){
+    const sku=item.sku||item.id;
+    const docState=allFiles[sku]||{};
+    const lots=allLots[sku]||[];
+    if(issueId==='in_stock'){const min=Number(item.minStock||0);return Number(item.onHand||0)>=Math.max(min,1);}
+    if(issueId==='docs_complete'){const docs=_invDocsForItem(item);return docs.filter(d=>d.critical&&!(docState[d.id]&&docState[d.id].present)).length===0;}
+    if(issueId==='has_lots')return lots.length>0;
+    if(issueId==='no_expired')return !lots.some(l=>l.expirationDate&&l.expirationDate<today);
+    if(issueId==='no_near_expiry')return !lots.some(l=>{if(!l.expirationDate||l.expirationDate<today)return false;const d=Math.floor((new Date(l.expirationDate)-new Date(today))/86400000);return d<=30;});
+    if(issueId==='has_supplier')return !!(item.supplier&&String(item.supplier).trim());
+    if(issueId==='has_unit_cost')return Number(item.unitCost||0)>0;
+    return false;
+  }
+  const headerRow=`<tr><th style="position:sticky;left:0;z-index:2;background:var(--surface2);min-width:280px;">Issue</th>${cats.map(c=>`<th style="text-align:center;font-family:var(--mono);font-size:11px;">${c}</th>`).join('')}<th style="text-align:center;font-family:var(--mono);font-size:11px;">Total</th></tr>`;
+  const bodyRows=INV_MATRIX_ISSUES.map(issue=>{
+    let totalIt=0,totalOk=0;
+    const cells=cats.map(c=>{
+      const list=byCat[c];let okCt=0;
+      list.forEach(it=>{if(check(it,issue.id))okCt++;});
+      const total=list.length;const pct=total?Math.round(okCt/total*100):0;
+      const bg=pct===100?'#0f2e10':pct>=70?'#2e1e00':'#2e0808';
+      const tc=pct===100?'var(--ok)':pct>=70?'var(--warn)':'var(--danger)';
+      totalIt+=total;totalOk+=okCt;
+      return `<td style="text-align:center;background:${bg};color:${tc};font-family:var(--mono);font-weight:700;padding:8px 4px;">${pct}%<div style="font-size:9px;font-weight:400;opacity:0.8;">${okCt}/${total}</div></td>`;
+    }).join('');
+    const grandPct=totalIt?Math.round(totalOk/totalIt*100):0;
+    const tc=grandPct===100?'var(--ok)':grandPct>=70?'var(--warn)':'var(--danger)';
+    return `<tr><th style="position:sticky;left:0;z-index:1;background:var(--surface2);text-align:left;padding:8px 10px;font-size:12px;">${issue.label}${issue.critical?' <span style="color:var(--danger);font-size:10px;">★</span>':''}</th>${cells}<td style="text-align:center;color:${tc};font-weight:700;font-family:var(--mono);">${grandPct}%</td></tr>`;
+  }).join('');
+  view.innerHTML=`<div class="section-title">📊 Inventory Compliance Matrix — Issues × Categories</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);">Each cell = % of items in that category that pass the issue. Red <70%, orange 70-99%, green 100%.</div>
+    ${cats.length?`<div class="fleet-table-wrap" style="overflow-x:auto;"><table class="fleet-table" style="width:100%;border-collapse:separate;border-spacing:1px;">
+      <thead>${headerRow}</thead>
+      <tbody>${bodyRows}</tbody>
+    </table></div>`:'<div style="text-align:center;padding:30px;color:var(--text3);">No inventory items yet.</div>'}`;
+};
+
+// === Expiry Tracker — across all items ===
+window.renderInvExpiry=function(){
+  let view=document.getElementById('view-inv_expiry');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-inv_expiry';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const items=_invLoadStock();
+  const allLots=_invLoadLots();
+  const today=new Date().toISOString().slice(0,10);
+  const flat=[];
+  items.forEach(it=>{
+    const sku=it.sku||it.id;
+    (allLots[sku]||[]).forEach(l=>{
+      if(!l.expirationDate)return;
+      flat.push({...l,sku,itemName:it.name,category:it.category});
+    });
+  });
+  // Sort by expiration ascending
+  flat.sort((a,b)=>(a.expirationDate||'').localeCompare(b.expirationDate||''));
+  const expired=flat.filter(l=>l.expirationDate<today);
+  const within30=flat.filter(l=>l.expirationDate>=today&&Math.floor((new Date(l.expirationDate)-new Date(today))/86400000)<=30);
+  const within90=flat.filter(l=>{const d=Math.floor((new Date(l.expirationDate)-new Date(today))/86400000);return d>30&&d<=90;});
+  const beyond=flat.filter(l=>{const d=Math.floor((new Date(l.expirationDate)-new Date(today))/86400000);return d>90;});
+  function rowsFor(arr){
+    return arr.map(l=>{
+      const days=Math.floor((new Date(l.expirationDate)-new Date(today))/86400000);
+      const isExp=days<0;
+      return `<tr style="cursor:pointer;${isExp?'background:rgba(239,83,80,0.06);':''}" onclick="_invSelectedSku='${l.sku}';switchView('inv_files');">
+        <td>${(l.itemName||'').replace(/[<>]/g,'')}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${l.sku}</td>
+        <td style="font-size:11px;">${l.category||'—'}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${(l.lotNumber||'').replace(/[<>]/g,'')}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${l.expirationDate}</td>
+        <td style="font-family:var(--mono);font-size:11px;font-weight:700;color:${isExp?'var(--danger)':days<=30?'var(--warn)':'var(--ok)'};">${isExp?'EXPIRED '+(-days)+'d ago':days+'d left'}</td>
+        <td style="font-family:var(--mono);font-size:11px;text-align:right;">${Number(l.qty||0)}</td>
+      </tr>`;
+    }).join('');
+  }
+  view.innerHTML=`<div class="section-title">⏳ Inventory Expiry Tracker</div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">⚠ Expired</div><div class="fleet-stat-val ${expired.length>0?'danger':''}">${expired.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">≤30 days</div><div class="fleet-stat-val ${within30.length>0?'warn':''}">${within30.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">31-90 days</div><div class="fleet-stat-val">${within90.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">>90 days</div><div class="fleet-stat-val green">${beyond.length}</div></div>
+    </div>
+    ${expired.length?`<div class="section-title" style="margin-top:18px;color:var(--danger);">⚠ Expired (action required)</div>
+      <table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Item</th><th>SKU</th><th>Category</th><th>Lot</th><th>Expired</th><th>Status</th><th style="text-align:right;">Qty</th></tr></thead><tbody>${rowsFor(expired)}</tbody></table>`:''}
+    ${within30.length?`<div class="section-title" style="margin-top:18px;color:var(--warn);">⏰ Expiring in next 30 days</div>
+      <table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Item</th><th>SKU</th><th>Category</th><th>Lot</th><th>Expires</th><th>Status</th><th style="text-align:right;">Qty</th></tr></thead><tbody>${rowsFor(within30)}</tbody></table>`:''}
+    ${within90.length?`<div class="section-title" style="margin-top:18px;">📅 Expiring 31-90 days</div>
+      <table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Item</th><th>SKU</th><th>Category</th><th>Lot</th><th>Expires</th><th>Status</th><th style="text-align:right;">Qty</th></tr></thead><tbody>${rowsFor(within90)}</tbody></table>`:''}
+    ${flat.length===0?'<div style="text-align:center;padding:30px;color:var(--text3);">No lots with expiration dates yet. Add lots via Item Files.</div>':''}`;
+};
+
+// Hook switchView
+(function _hookInvViews(){
+  function attempt(){
+    if(!window.switchView||window.switchView.__invFilesHooked)return;
+    const orig=window.switchView;
+    window.switchView=function(v){
+      const r=orig.apply(this,arguments);
+      if(v==='inv_files')setTimeout(renderInvFiles,80);
+      if(v==='inv_matrix')setTimeout(renderInvMatrix,80);
+      if(v==='inv_expiry')setTimeout(renderInvExpiry,80);
+      return r;
+    };
+    window.switchView.__invFilesHooked=true;
   }
   setInterval(attempt,1500);
   setTimeout(attempt,500);
