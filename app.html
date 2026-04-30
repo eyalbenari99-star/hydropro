@@ -41766,8 +41766,8 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777506581;
-const APP_BUILD_DATE='2026-04-29';
+const APP_BUILD=1777507669;
+const APP_BUILD_DATE='2026-04-30';
 
 // Store version in localStorage on first run
 (function initVersionTracking(){
@@ -47589,7 +47589,454 @@ setTimeout(_suppressV94UpdateChecker,200);
 })();
 
 // Manual check button next to the version indicator in the topbar
-function injectVersionCheckButton(){
+// ============= SEED STUDIES MODULE =============
+// Full CRUD for hydroponic seed trials. Tracks variety, supplier, batch, dates
+// across stages (rockwool / zigzag / NFT / harvest), parameter measurements over time,
+// and photos per stage.
+const SEED_STUDIES_KEY='hydroPro_seed_studies';
+function loadSeedStudies(){try{return JSON.parse(localStorage.getItem(SEED_STUDIES_KEY)||'[]');}catch(e){return [];}}
+function saveSeedStudies(arr){localStorage.setItem(SEED_STUDIES_KEY,JSON.stringify(arr));}
+
+const SEED_PARAMS=[
+  {id:'germ_rate',  label:'Germination Rate (%)',         unit:'%',     type:'number'},
+  {id:'germ_time',  label:'Time to Germination (days)',   unit:'days',  type:'number'},
+  {id:'growth_dur', label:'Growth Duration (days)',       unit:'days',  type:'number'},
+  {id:'height',     label:'Average Plant Height (cm)',    unit:'cm',    type:'number'},
+  {id:'leaf_uniformity', label:'Leaf Density & Uniformity', unit:'', type:'text'},
+  {id:'root_health', label:'Root Health (1-5)',           unit:'1-5',   type:'number'},
+  {id:'ph',         label:'pH Range',                     unit:'pH',    type:'text'},
+  {id:'ec',         label:'EC Range (mS/cm)',             unit:'mS/cm', type:'text'},
+  {id:'wilting',    label:'Wilting / Stress Signs',       unit:'',      type:'text'},
+  {id:'leaves',     label:'Leaves Condition',             unit:'',      type:'text'},
+  {id:'yield',      label:'Yield (kg or pcs)',            unit:'',      type:'text'},
+  {id:'taste',      label:'Taste / Quality',              unit:'',      type:'text'},
+  {id:'shelf_life', label:'Shelf Life (days)',            unit:'days',  type:'number'},
+  {id:'commercial', label:'Commercial Viability (1-5)',   unit:'1-5',   type:'number'}
+];
+const SEED_STAGES=['supplier','nursery','zigzag','nft','harvest'];
+const SEED_STAGE_LABELS={supplier:'🏷 Supplier Image',nursery:'🌱 Nursery',zigzag:'🪡 ZigZag',nft:'🚿 NFT Pipe',harvest:'🥬 Harvest'};
+
+function _newSeedStudy(){
+  return {
+    id:'ss_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),
+    variety:'',supplier:'',lotNumber:'',
+    datePlanted:'',trialZone:'',
+    trialStart:'',trialEnd:'',
+    dateRockwool:'',dateZigzag:'',dateNft:'',dateHarvest:'',
+    harvestCheckedBy:'',evaluation:'',
+    parameters:[],
+    photos:{supplier:[],nursery:[],zigzag:[],nft:[],harvest:[]},
+    createdAt:Date.now(),createdBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user',
+    status:'active'   // active | completed | archived
+  };
+}
+
+let _seedSelectedId=null;
+let _seedView='list';   // 'list' | 'detail' | 'compare'
+
+window.renderSeedStudy=function(){
+  const body=document.getElementById('seedStudyBody');
+  if(!body)return;
+  if(_seedView==='detail'&&_seedSelectedId)body.innerHTML=_renderSeedDetail();
+  else if(_seedView==='compare')body.innerHTML=_renderSeedCompare();
+  else body.innerHTML=_renderSeedList();
+};
+
+function _renderSeedList(){
+  const studies=loadSeedStudies().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const stats={active:0,completed:0,archived:0};
+  studies.forEach(s=>{stats[s.status||'active']=(stats[s.status||'active']||0)+1;});
+  const cards=studies.map(s=>{
+    const stCol=s.status==='completed'?'var(--ok)':s.status==='archived'?'var(--text3)':'var(--accent)';
+    const stLabel=s.status==='completed'?'✓ COMPLETED':s.status==='archived'?'📦 ARCHIVED':'🌱 ACTIVE';
+    const lastParam=(s.parameters||[]).slice().sort((a,b)=>(b.recordedAt||0)-(a.recordedAt||0))[0];
+    const photoCt=Object.values(s.photos||{}).reduce((a,arr)=>a+(arr&&arr.length||0),0);
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${stCol};border-radius:10px;padding:14px;cursor:pointer;" onclick="_seedSelectedId='${s.id}';_seedView='detail';renderSeedStudy();">
+      <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:200px;">
+          <div style="font-size:16px;font-weight:700;">${(s.variety||'(no name)').replace(/[<>]/g,'')}</div>
+          <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-top:2px;">${s.trialZone||'—'} · started ${s.trialStart||s.datePlanted||'?'}</div>
+        </div>
+        <div style="font-size:10px;color:${stCol};font-weight:700;font-family:var(--mono);">${stLabel}</div>
+      </div>
+      <div style="display:flex;gap:14px;margin-top:10px;font-size:11px;color:var(--text2);font-family:var(--mono);flex-wrap:wrap;">
+        <span>📊 ${(s.parameters||[]).length} measurements</span>
+        <span>📷 ${photoCt} photos</span>
+        ${s.dateHarvest?`<span>🥬 Harvested ${s.dateHarvest}</span>`:''}
+      </div>
+      ${lastParam?`<div style="margin-top:8px;font-size:11px;color:var(--text3);">Last: ${(SEED_PARAMS.find(p=>p.id===lastParam.paramId)||{}).label||lastParam.paramId} = <strong>${(lastParam.value||'').toString().slice(0,30)}</strong></div>`:''}
+    </div>`;
+  }).join('');
+  return `<div class="section-title">🌾 Hydroponic Seed Studies</div>
+    <div style="padding:12px 14px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>🌾 Seed trials:</strong> Track every variety from seeding through harvest. Capture germination rate, growth metrics, root health, pH/EC, photos at each stage, and final commercial viability.
+    </div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Total trials</div><div class="fleet-stat-val">${studies.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">🌱 Active</div><div class="fleet-stat-val" style="color:var(--accent);">${stats.active||0}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✓ Completed</div><div class="fleet-stat-val green">${stats.completed||0}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">📦 Archived</div><div class="fleet-stat-val">${stats.archived||0}</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin:14px 0;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="_seedNewStudy()">➕ New Seed Trial</button>
+      ${studies.length>=2?`<button class="btn btn-outline" onclick="_seedView='compare';renderSeedStudy();">📊 Compare Trials</button>`:''}
+      <button class="btn btn-outline" onclick="_seedExportAll()">⬇ Export CSV</button>
+    </div>
+    ${studies.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;">${cards}</div>`:'<div style="text-align:center;padding:30px;color:var(--text3);">No seed trials yet. Click <strong>New Seed Trial</strong> to start tracking your first variety.</div>'}`;
+}
+
+window._seedNewStudy=function(){
+  const studies=loadSeedStudies();
+  const s=_newSeedStudy();
+  studies.push(s);
+  saveSeedStudies(studies);
+  _seedSelectedId=s.id;_seedView='detail';
+  renderSeedStudy();
+};
+
+function _renderSeedDetail(){
+  const s=loadSeedStudies().find(x=>x.id===_seedSelectedId);
+  if(!s)return '<div>Trial not found.</div>';
+  const ghs=(typeof GREENHOUSES!=='undefined')?GREENHOUSES:['GH1','GH2','GH3','GH4','GH5','GH6','GH7','GH8','GH9','GH10','PRJ11','PRJ12','GH15','GH16'];
+
+  // Parameters table
+  const sortedParams=(s.parameters||[]).slice().sort((a,b)=>(a.recordedAt||0)-(b.recordedAt||0));
+  const paramRows=sortedParams.map((p,idx)=>{
+    const def=SEED_PARAMS.find(x=>x.id===p.paramId);
+    return `<tr>
+      <td>${def?def.label:p.paramId}</td>
+      <td><strong>${(p.value||'').toString().replace(/[<>]/g,'')}</strong>${def&&def.unit?' '+def.unit:''}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${p.greenhouse||'—'}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${p.date||'—'}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${p.time||'—'}</td>
+      <td style="font-size:11px;color:var(--text3);">${(p.remarks||'').replace(/[<>]/g,'').slice(0,50)}</td>
+      <td style="text-align:right;"><button class="btn btn-outline" style="padding:3px 8px;font-size:10px;" onclick="_seedDeleteParam('${s.id}',${idx})">🗑</button></td>
+    </tr>`;
+  }).join('');
+
+  // Photos per stage
+  const photoSections=SEED_STAGES.map(stg=>{
+    const arr=(s.photos&&s.photos[stg])||[];
+    const thumbs=arr.map((p,i)=>`<div style="position:relative;width:80px;height:80px;border-radius:6px;overflow:hidden;background:var(--surface2);border:1px solid var(--border);">
+      <img src="${p}" style="width:100%;height:100%;object-fit:cover;cursor:pointer;" onclick="_seedShowPhoto('${s.id}','${stg}',${i})">
+      <button onclick="_seedDeletePhoto('${s.id}','${stg}',${i})" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.6);border:none;color:#fff;width:18px;height:18px;border-radius:50%;cursor:pointer;font-size:10px;">✕</button>
+    </div>`).join('');
+    return `<div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div style="font-size:12px;font-weight:600;">${SEED_STAGE_LABELS[stg]} <span style="color:var(--text3);font-family:var(--mono);font-size:10px;">(${arr.length})</span></div>
+        <label class="btn btn-outline" style="font-size:11px;cursor:pointer;">📷 Add photo<input type="file" accept="image/*" capture="environment" style="display:none;" onchange="_seedAddPhoto('${s.id}','${stg}',this)"></label>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">${thumbs||'<div style="font-size:11px;color:var(--text3);padding:10px;background:var(--surface2);border-radius:6px;">No photos yet</div>'}</div>
+    </div>`;
+  }).join('');
+
+  return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+    <div>
+      <button class="btn btn-outline" onclick="_seedView='list';renderSeedStudy();" style="margin-right:10px;">← All Trials</button>
+      <span style="font-size:18px;font-weight:700;">🌾 ${(s.variety||'(unnamed)').replace(/[<>]/g,'')}</span>
+    </div>
+    <div style="display:flex;gap:6px;">
+      <select class="call-select" onchange="_seedSetStatus('${s.id}',this.value)" style="font-size:11px;">
+        <option value="active" ${s.status==='active'?'selected':''}>🌱 Active</option>
+        <option value="completed" ${s.status==='completed'?'selected':''}>✓ Completed</option>
+        <option value="archived" ${s.status==='archived'?'selected':''}>📦 Archived</option>
+      </select>
+      <button class="btn btn-outline" style="color:var(--danger);" onclick="if(confirm('Delete this trial?'))_seedDelete('${s.id}')">🗑 Delete</button>
+    </div>
+  </div>
+
+  <div class="section-title">📋 Trial Details</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;">
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Plant / Variety Name *</div>
+        <input class="input" value="${(s.variety||'').replace(/"/g,'&quot;')}" style="width:100%;" onchange="_seedField('${s.id}','variety',this.value)" placeholder="e.g. CG164"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Seed Supplier</div>
+        <input class="input" value="${(s.supplier||'').replace(/"/g,'&quot;')}" style="width:100%;" onchange="_seedField('${s.id}','supplier',this.value)" placeholder="Supplier name"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Lot / Batch ID</div>
+        <input class="input" value="${(s.lotNumber||'').replace(/"/g,'&quot;')}" style="width:100%;" onchange="_seedField('${s.id}','lotNumber',this.value)"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Trial Zone / Tray ID</div>
+        <input class="input" value="${(s.trialZone||'').replace(/"/g,'&quot;')}" style="width:100%;" onchange="_seedField('${s.id}','trialZone',this.value)" placeholder="GH10 - Table B"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Date Planted (Seeding)</div>
+        <input type="date" class="input" value="${s.datePlanted||''}" style="width:100%;" onchange="_seedField('${s.id}','datePlanted',this.value)"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Trial Start Date</div>
+        <input type="date" class="input" value="${s.trialStart||''}" style="width:100%;" onchange="_seedField('${s.id}','trialStart',this.value)"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Trial End Date</div>
+        <input type="date" class="input" value="${s.trialEnd||''}" style="width:100%;" onchange="_seedField('${s.id}','trialEnd',this.value)"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Date in Rockwool</div>
+        <input type="date" class="input" value="${s.dateRockwool||''}" style="width:100%;" onchange="_seedField('${s.id}','dateRockwool',this.value)"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Date in ZigZag</div>
+        <input type="date" class="input" value="${s.dateZigzag||''}" style="width:100%;" onchange="_seedField('${s.id}','dateZigzag',this.value)"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Date in NFT Pipes</div>
+        <input type="date" class="input" value="${s.dateNft||''}" style="width:100%;" onchange="_seedField('${s.id}','dateNft',this.value)"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Date of Harvesting</div>
+        <input type="date" class="input" value="${s.dateHarvest||''}" style="width:100%;" onchange="_seedField('${s.id}','dateHarvest',this.value)"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Harvest Checked By</div>
+        <input class="input" value="${(s.harvestCheckedBy||'').replace(/"/g,'&quot;')}" style="width:100%;" onchange="_seedField('${s.id}','harvestCheckedBy',this.value)"></div>
+    </div>
+    <div style="margin-top:14px;">
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Overview / Final Evaluation</div>
+      <textarea class="input" style="width:100%;min-height:60px;" onchange="_seedField('${s.id}','evaluation',this.value)" placeholder="Final notes, conclusions, recommendations...">${(s.evaluation||'').replace(/</g,'&lt;')}</textarea>
+    </div>
+  </div>
+
+  <div class="section-title">📊 Parameter Measurements</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+    <div style="display:grid;grid-template-columns:2fr 1.5fr 1fr 1fr 1fr 2fr auto;gap:8px;align-items:end;margin-bottom:10px;">
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Parameter</div>
+        <select id="seedNewParam" class="call-select" style="width:100%;font-size:12px;">
+          ${SEED_PARAMS.map(p=>`<option value="${p.id}">${p.label}</option>`).join('')}
+        </select></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Measurement</div>
+        <input id="seedNewVal" class="input" style="width:100%;" placeholder="value"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Greenhouse</div>
+        <select id="seedNewGh" class="call-select" style="width:100%;font-size:12px;">
+          <option value="">—</option>
+          ${ghs.map(g=>`<option value="${g}">${g}</option>`).join('')}
+        </select></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Date</div>
+        <input id="seedNewDate" type="date" class="input" value="${new Date().toISOString().slice(0,10)}" style="width:100%;"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Time</div>
+        <input id="seedNewTime" type="time" class="input" value="${new Date().toTimeString().slice(0,5)}" style="width:100%;"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Remarks</div>
+        <input id="seedNewRemarks" class="input" style="width:100%;" placeholder="optional notes"></div>
+      <div><button class="btn btn-primary" onclick="_seedAddParam('${s.id}')">➕ Add</button></div>
+    </div>
+    ${sortedParams.length?`<div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Parameter</th><th>Value</th><th>GH</th><th>Date</th><th>Time</th><th>Remarks</th><th></th></tr></thead>
+      <tbody>${paramRows}</tbody>
+    </table></div>`:'<div style="text-align:center;color:var(--text3);font-size:12px;padding:14px;">No measurements yet. Add the first one above.</div>'}
+  </div>
+
+  <div class="section-title">📷 Photos by Stage</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+    ${photoSections}
+  </div>`;
+}
+
+window._seedField=function(id,field,value){
+  const studies=loadSeedStudies();
+  const s=studies.find(x=>x.id===id);if(!s)return;
+  s[field]=value;s.updatedAt=Date.now();
+  saveSeedStudies(studies);
+};
+
+window._seedSetStatus=function(id,status){
+  const studies=loadSeedStudies();
+  const s=studies.find(x=>x.id===id);if(!s)return;
+  s.status=status;s.updatedAt=Date.now();
+  saveSeedStudies(studies);
+  if(typeof showToast==='function')showToast('Status updated','ok');
+};
+
+window._seedDelete=function(id){
+  let studies=loadSeedStudies().filter(x=>x.id!==id);
+  saveSeedStudies(studies);
+  _seedView='list';_seedSelectedId=null;
+  if(typeof showToast==='function')showToast('Trial deleted','warn');
+  renderSeedStudy();
+};
+
+window._seedAddParam=function(id){
+  const studies=loadSeedStudies();
+  const s=studies.find(x=>x.id===id);if(!s)return;
+  const paramId=document.getElementById('seedNewParam').value;
+  const value=(document.getElementById('seedNewVal').value||'').trim();
+  if(!value){alert('Enter a measurement value first.');return;}
+  const greenhouse=document.getElementById('seedNewGh').value;
+  const date=document.getElementById('seedNewDate').value;
+  const time=document.getElementById('seedNewTime').value;
+  const remarks=(document.getElementById('seedNewRemarks').value||'').trim();
+  s.parameters=s.parameters||[];
+  s.parameters.push({paramId,value,greenhouse,date,time,remarks,recordedAt:Date.now(),recordedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user'});
+  s.updatedAt=Date.now();
+  saveSeedStudies(studies);
+  // Clear inputs
+  document.getElementById('seedNewVal').value='';
+  document.getElementById('seedNewRemarks').value='';
+  renderSeedStudy();
+  if(typeof showToast==='function')showToast('Measurement added','ok');
+};
+
+window._seedDeleteParam=function(id,idx){
+  if(!confirm('Delete this measurement?'))return;
+  const studies=loadSeedStudies();
+  const s=studies.find(x=>x.id===id);if(!s)return;
+  s.parameters=(s.parameters||[]).slice();s.parameters.splice(idx,1);
+  s.updatedAt=Date.now();
+  saveSeedStudies(studies);
+  renderSeedStudy();
+};
+
+window._seedAddPhoto=function(id,stage,input){
+  const file=input.files&&input.files[0];if(!file)return;
+  if(file.size>3*1024*1024){alert('Photo too large (>3 MB). Pick a smaller one.');input.value='';return;}
+  const reader=new FileReader();
+  reader.onload=function(e){
+    const dataUrl=e.target.result;
+    const studies=loadSeedStudies();
+    const s=studies.find(x=>x.id===id);if(!s)return;
+    s.photos=s.photos||{};
+    s.photos[stage]=s.photos[stage]||[];
+    s.photos[stage].push(dataUrl);
+    s.updatedAt=Date.now();
+    try{saveSeedStudies(studies);}catch(err){alert('Storage full — delete some photos or trials first.');return;}
+    renderSeedStudy();
+    if(typeof showToast==='function')showToast('Photo added','ok');
+  };
+  reader.readAsDataURL(file);
+  input.value='';
+};
+
+window._seedDeletePhoto=function(id,stage,idx){
+  if(!confirm('Delete this photo?'))return;
+  const studies=loadSeedStudies();
+  const s=studies.find(x=>x.id===id);if(!s)return;
+  if(!s.photos||!s.photos[stage])return;
+  s.photos[stage].splice(idx,1);
+  saveSeedStudies(studies);
+  renderSeedStudy();
+};
+
+window._seedShowPhoto=function(id,stage,idx){
+  const s=loadSeedStudies().find(x=>x.id===id);if(!s||!s.photos||!s.photos[stage])return;
+  const url=s.photos[stage][idx];if(!url)return;
+  let host=document.getElementById('seedPhotoModal');
+  if(!host){
+    host=document.createElement('div');host.id='seedPhotoModal';
+    host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    host.onclick=()=>host.remove();
+    document.body.appendChild(host);
+  }
+  host.innerHTML=`<img src="${url}" style="max-width:95%;max-height:95%;border-radius:8px;"><button style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%;cursor:pointer;" onclick="document.getElementById('seedPhotoModal').remove();">✕</button>`;
+};
+
+function _renderSeedCompare(){
+  const studies=loadSeedStudies();
+  if(studies.length<2)return '<div>Need at least 2 trials to compare.</div>';
+  const cols=studies.map(s=>{
+    return {
+      id:s.id,name:s.variety||'(unnamed)',supplier:s.supplier,trialZone:s.trialZone,
+      planted:s.datePlanted,harvested:s.dateHarvest,status:s.status,
+      parameters:s.parameters||[]
+    };
+  });
+  const paramHeaders=SEED_PARAMS.map(p=>{
+    const cellsH=cols.map(c=>{
+      // Most recent value for this param
+      const matching=c.parameters.filter(x=>x.paramId===p.id).sort((a,b)=>(b.recordedAt||0)-(a.recordedAt||0));
+      const v=matching[0];
+      return `<td style="font-family:var(--mono);font-size:11px;">${v?(v.value||'').toString().slice(0,20):'<span style="color:var(--text3);">—</span>'}</td>`;
+    }).join('');
+    return `<tr><th style="text-align:left;font-weight:600;background:var(--surface2);padding:8px 10px;">${p.label}</th>${cellsH}</tr>`;
+  }).join('');
+  return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+    <button class="btn btn-outline" onclick="_seedView='list';renderSeedStudy();">← Back to list</button>
+    <div style="font-size:18px;font-weight:700;">📊 Trial Comparison</div>
+    <div></div>
+  </div>
+  <div class="fleet-table-wrap" style="overflow-x:auto;"><table class="fleet-table" style="width:100%;border-collapse:separate;border-spacing:0;">
+    <thead><tr><th style="background:var(--surface2);position:sticky;left:0;z-index:1;min-width:200px;">Field</th>${cols.map(c=>`<th style="text-align:left;font-size:12px;background:var(--surface2);">${c.name}</th>`).join('')}</tr></thead>
+    <tbody>
+      <tr><th style="text-align:left;background:var(--surface2);padding:8px 10px;">Supplier</th>${cols.map(c=>`<td style="font-size:12px;">${c.supplier||'—'}</td>`).join('')}</tr>
+      <tr><th style="text-align:left;background:var(--surface2);padding:8px 10px;">Trial Zone</th>${cols.map(c=>`<td style="font-size:12px;">${c.trialZone||'—'}</td>`).join('')}</tr>
+      <tr><th style="text-align:left;background:var(--surface2);padding:8px 10px;">Planted</th>${cols.map(c=>`<td style="font-family:var(--mono);font-size:11px;">${c.planted||'—'}</td>`).join('')}</tr>
+      <tr><th style="text-align:left;background:var(--surface2);padding:8px 10px;">Harvested</th>${cols.map(c=>`<td style="font-family:var(--mono);font-size:11px;">${c.harvested||'—'}</td>`).join('')}</tr>
+      <tr><th style="text-align:left;background:var(--surface2);padding:8px 10px;">Status</th>${cols.map(c=>`<td style="font-size:11px;">${c.status||'active'}</td>`).join('')}</tr>
+      ${paramHeaders}
+    </tbody>
+  </table></div>`;
+}
+
+window._seedExportAll=function(){
+  const studies=loadSeedStudies();
+  const out=[['Trial ID','Variety','Supplier','Lot','Trial Zone','Date Planted','Trial Start','Trial End','Date Rockwool','Date ZigZag','Date NFT','Date Harvest','Harvest By','Status','Evaluation','Parameters Count','Photos Count']];
+  studies.forEach(s=>{
+    const photoCt=Object.values(s.photos||{}).reduce((a,arr)=>a+(arr&&arr.length||0),0);
+    out.push([s.id,s.variety||'',s.supplier||'',s.lotNumber||'',s.trialZone||'',s.datePlanted||'',s.trialStart||'',s.trialEnd||'',s.dateRockwool||'',s.dateZigzag||'',s.dateNft||'',s.dateHarvest||'',s.harvestCheckedBy||'',s.status||'',(s.evaluation||'').slice(0,200),(s.parameters||[]).length,photoCt]);
+  });
+  const csv=out.map(r=>r.map(c=>{const s=String(c==null?'':c);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='seed-studies-'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(a.href);
+  if(typeof showToast==='function')showToast('Exported '+studies.length+' trials','ok');
+};
+
+// ============= UNIFIED TOOLS MENU =============
+// Single ⚙ button in topbar that opens a popover with all secondary actions.
+// Keeps Search 🔍 and Bell 🔔 inline since they're heavily used.
+function _buildToolsMenu(){
+  const items=[
+    {icon:'🖥',label:'Operations Wall',hint:'Big-screen ops dashboard',action:'openOpsWall()'},
+    {icon:'📋',label:'Daily Summary',hint:'End-of-shift report',action:'openDailySummaryModal()'},
+    {icon:'📊',label:'Custom Reports',hint:'Build, save, schedule reports',action:'openReportsHub()'},
+    {icon:'💾',label:'Backup &amp; Restore',hint:'Save / restore data',action:'openBackupRestoreModal()'},
+    {icon:'🔄',label:'Check for Updates',hint:'Manually check for new version',action:'_checkVersionUpdate&&_checkVersionUpdate()'}
+  ];
+  return items.map(it=>`<button onclick="document.getElementById('toolsMenuPopover').remove();${it.action}" style="display:flex;align-items:center;gap:12px;width:100%;padding:10px 14px;background:none;border:none;color:var(--text);text-align:left;cursor:pointer;font-family:var(--sans);font-size:13px;border-radius:6px;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">
+    <span style="font-size:18px;flex-shrink:0;">${it.icon}</span>
+    <div style="flex:1;">
+      <div style="font-weight:600;">${it.label}</div>
+      <div style="font-size:11px;color:var(--text3);">${it.hint}</div>
+    </div>
+  </button>`).join('');
+}
+
+window.openToolsMenu=function(){
+  const existing=document.getElementById('toolsMenuPopover');
+  if(existing){existing.remove();return;}
+  const btn=document.getElementById('toolsMenuBtn');
+  if(!btn)return;
+  const r=btn.getBoundingClientRect();
+  const pop=document.createElement('div');
+  pop.id='toolsMenuPopover';
+  pop.style.cssText=`position:fixed;top:${r.bottom+6}px;right:${Math.max(8,window.innerWidth-r.right)}px;z-index:99999;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,0.4);min-width:260px;padding:6px;font-family:var(--sans);`;
+  pop.innerHTML=_buildToolsMenu();
+  document.body.appendChild(pop);
+  // Close on outside click
+  setTimeout(()=>{
+    const onClick=(e)=>{
+      if(pop.contains(e.target)||e.target===btn||btn.contains(e.target))return;
+      pop.remove();
+      document.removeEventListener('click',onClick);
+    };
+    document.addEventListener('click',onClick);
+  },50);
+  // Esc to close
+  pop.addEventListener('keydown',(e)=>{if(e.key==='Escape')pop.remove();});
+};
+
+function injectToolsMenuButton(){
+  if(document.getElementById('toolsMenuBtn'))return;
+  const tb=document.getElementById('topbar');if(!tb)return;
+  const btn=document.createElement('button');
+  btn.id='toolsMenuBtn';
+  btn.title='Tools — Daily Summary, Reports, Ops Wall, Backup, Updates';
+  btn.style.cssText='background:none;border:1px solid var(--border);color:var(--text2);font-size:14px;padding:6px 10px;border-radius:7px;cursor:pointer;margin-left:6px;flex-shrink:0;';
+  btn.innerHTML='⚙';
+  btn.onclick=openToolsMenu;
+  // Place before the bell so menu is on the far right area
+  const bell=document.getElementById('notifBellBtn');
+  const search=document.getElementById('globalSearchBtn');
+  const ver=document.getElementById('versionIndicator');
+  const anchor=bell||search||ver;
+  if(anchor&&anchor.parentNode)anchor.parentNode.insertBefore(btn,anchor.nextSibling);
+  else tb.appendChild(btn);
+}
+setInterval(injectToolsMenuButton,3000);
+setTimeout(injectToolsMenuButton,1500);
+
+// Suppress the individual button injections — they all live in the tools menu now.
+// Search 🔍 and Bell 🔔 stay inline as quick-access buttons.
+function _suppressLegacyTopbarButtons(){
+  ['addonCheckUpdateBtn','dailySummaryBtn','reportsBtn','opsWallBtn','backupBtn'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el)el.remove();
+  });
+}
+setInterval(_suppressLegacyTopbarButtons,2000);
+setTimeout(_suppressLegacyTopbarButtons,1600);
+
+function injectVersionCheckButton(){return;
+  /* moved into the unified ⚙ tools menu — code below kept for reference */
   if(document.getElementById('addonCheckUpdateBtn'))return;
   const tb=document.getElementById('topbar');if(!tb)return;
   const ver=document.getElementById('versionIndicator');
@@ -51698,24 +52145,7 @@ window._opsWallToggleFullscreen=function(){
 };
 
 // 🖥 button in topbar
-function injectOpsWallButton(){
-  if(document.getElementById('opsWallBtn'))return;
-  const tb=document.getElementById('topbar');if(!tb)return;
-  const btn=document.createElement('button');
-  btn.id='opsWallBtn';
-  btn.title='Operations Wall — big-screen dashboard';
-  btn.style.cssText='background:none;border:1px solid var(--border);color:var(--text2);font-size:14px;padding:6px 10px;border-radius:7px;cursor:pointer;margin-left:6px;flex-shrink:0;';
-  btn.innerHTML='🖥';
-  btn.onclick=openOpsWall;
-  const rep=document.getElementById('reportsBtn');
-  const ds=document.getElementById('dailySummaryBtn');
-  const search=document.getElementById('globalSearchBtn');
-  const anchor=rep||ds||search;
-  if(anchor&&anchor.parentNode)anchor.parentNode.insertBefore(btn,anchor.nextSibling);
-  else tb.appendChild(btn);
-}
-setInterval(injectOpsWallButton,3000);
-setTimeout(injectOpsWallButton,1400);
+function injectOpsWallButton(){return;}   // moved into the unified ⚙ tools menu
 
 // ============= CUSTOM REPORTS BUILDER + SCHEDULED EMAIL REPORTS =============
 // User can pick which sections + which modules + date range + output format,
@@ -52375,24 +52805,7 @@ window._sendDueReports=function(){
 setTimeout(_checkDueSchedules,12000);
 setInterval(_checkDueSchedules,30*60*1000);
 
-// 📊 Reports button in topbar
-function injectReportsButton(){
-  if(document.getElementById('reportsBtn'))return;
-  const tb=document.getElementById('topbar');if(!tb)return;
-  const btn=document.createElement('button');
-  btn.id='reportsBtn';
-  btn.title='Custom reports + scheduled email reports';
-  btn.style.cssText='background:none;border:1px solid var(--border);color:var(--text2);font-size:14px;padding:6px 10px;border-radius:7px;cursor:pointer;margin-left:6px;flex-shrink:0;';
-  btn.innerHTML='📊';
-  btn.onclick=openReportsHub;
-  const ds=document.getElementById('dailySummaryBtn');
-  const search=document.getElementById('globalSearchBtn');
-  const anchor=ds||search;
-  if(anchor&&anchor.parentNode)anchor.parentNode.insertBefore(btn,anchor.nextSibling);
-  else tb.appendChild(btn);
-}
-setInterval(injectReportsButton,3000);
-setTimeout(injectReportsButton,1300);
+function injectReportsButton(){return;}   // moved into the unified ⚙ tools menu
 
 // ============= DAILY SUMMARY REPORT =============
 // Aggregated end-of-day report: critical items, open calls, RFID compliance today,
@@ -52697,26 +53110,7 @@ window._dsPrintSummary=function(){
   setTimeout(()=>{w.print();},300);
 };
 
-// Add a 📋 button in the topbar
-function injectDailySummaryButton(){
-  if(document.getElementById('dailySummaryBtn'))return;
-  const tb=document.getElementById('topbar');if(!tb)return;
-  const btn=document.createElement('button');
-  btn.id='dailySummaryBtn';
-  btn.title='Daily summary — open calls, RFID, flagged items, recurring tasks';
-  btn.style.cssText='background:none;border:1px solid var(--border);color:var(--text2);font-size:14px;padding:6px 10px;border-radius:7px;cursor:pointer;margin-left:6px;flex-shrink:0;';
-  btn.innerHTML='📋';
-  btn.onclick=openDailySummaryModal;
-  const search=document.getElementById('globalSearchBtn');
-  const backup=document.getElementById('backupBtn');
-  const bell=document.getElementById('notifBellBtn');
-  const ver=document.getElementById('versionIndicator');
-  const anchor=search||backup||bell||ver;
-  if(anchor&&anchor.parentNode)anchor.parentNode.insertBefore(btn,anchor.nextSibling);
-  else tb.appendChild(btn);
-}
-setInterval(injectDailySummaryButton,3000);
-setTimeout(injectDailySummaryButton,1200);
+function injectDailySummaryButton(){return;}   // moved into the unified ⚙ tools menu
 
 // ============= SIM EXPIRY ALERTS (RADIOS) =============
 // Scans radios for SIM expiration. Fires notifications + auto-creates a
@@ -52841,23 +53235,7 @@ window.rescanSimExpiry=function(){
   if(typeof showToast==='function')showToast('SIM expiry scan complete','ok');
 };
 
-function injectBackupButton(){
-  if(document.getElementById('backupBtn'))return;
-  const tb=document.getElementById('topbar');if(!tb)return;
-  const btn=document.createElement('button');
-  btn.id='backupBtn';
-  btn.title='Backup & restore data';
-  btn.style.cssText='background:none;border:1px solid var(--border);color:var(--text2);font-size:14px;padding:6px 10px;border-radius:7px;cursor:pointer;margin-left:6px;flex-shrink:0;';
-  btn.innerHTML='💾';
-  btn.onclick=openBackupRestoreModal;
-  const bell=document.getElementById('notifBellBtn');
-  const ver=document.getElementById('versionIndicator');
-  const anchor=bell||ver;
-  if(anchor&&anchor.parentNode)anchor.parentNode.insertBefore(btn,anchor.nextSibling);
-  else tb.appendChild(btn);
-}
-setInterval(injectBackupButton,3000);
-setTimeout(injectBackupButton,1000);
+function injectBackupButton(){return;}   // moved into the unified ⚙ tools menu
 
 })();
 
