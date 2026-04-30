@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777537370;
+const APP_BUILD=1777546502;
 const APP_BUILD_DATE='2026-04-30';
 
 // Store version in localStorage on first run
@@ -44031,6 +44031,59 @@ function renderFleetDashboard(){
       });
       html+=`</tbody></table></div>`;
     }
+
+    // === 7-day per-vehicle summary ===
+    const last7Start=new Date();last7Start.setDate(last7Start.getDate()-6);
+    const last7StartStr=last7Start.toISOString().slice(0,10);
+    const dates7=[];
+    for(let i=6;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);dates7.push(d.toISOString().slice(0,10));}
+    const allReports=Object.values(allGps).filter(r=>r.date>=last7StartStr&&r.date<=today);
+    if(allReports.length){
+      const byVeh={};
+      allReports.forEach(r=>{
+        if(!byVeh[r.vehicleId])byVeh[r.vehicleId]={km:0,liters:0,cost:0,reports:0,byDate:{}};
+        const odoOutN=Number(r.odoOut),odoInN=Number(r.odoIn);
+        const dKm=(!isNaN(odoOutN)&&!isNaN(odoInN)&&odoInN>=odoOutN)?(odoInN-odoOutN):0;
+        const fill=Number(r.fillUpLiters)||0;
+        const c=fill*(Number(r.perLiter)||0);
+        byVeh[r.vehicleId].km+=dKm;
+        byVeh[r.vehicleId].liters+=fill;
+        byVeh[r.vehicleId].cost+=c;
+        byVeh[r.vehicleId].reports++;
+        byVeh[r.vehicleId].byDate[r.date]={km:dKm,liters:fill,kmL:fill>0?dKm/fill:null};
+      });
+      html+=`<div style="margin:24px 0 12px;display:flex;align-items:center;gap:10px;">
+        <span class="section-title" style="margin:0;">📊 7-Day Fuel & Distance — by Vehicle</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--text3);">${last7StartStr} → ${today}</span>
+      </div>
+      <div class="fleet-table-wrap"><table class="fleet-table"><thead><tr>
+        <th>Vehicle</th><th>Plate</th><th>Reports</th><th>Total KM</th><th>Total Liters</th><th>Total Cost</th><th>Avg KM/L</th>
+        ${dates7.map(d=>`<th style="font-family:var(--mono);font-size:10px;">${d.slice(5)}</th>`).join('')}
+      </tr></thead><tbody>`;
+      veh.forEach(v=>{
+        const stats=byVeh[v.id];
+        if(!stats||!stats.reports)return;
+        const avgKmL=stats.liters>0?stats.km/stats.liters:null;
+        const avgClass=avgKmL==null?'var(--text3)':avgKmL<3?'var(--danger)':avgKmL<5?'var(--warn)':'var(--ok)';
+        html+=`<tr style="cursor:pointer;" onclick="_gpsSelVehId='${v.id}';if(typeof switchView==='function')switchView('fleet_gps');">
+          <td><strong>${_esc(v.name||'—')}</strong></td>
+          <td style="font-family:var(--mono);">${_esc(v.plate||'—')}</td>
+          <td>${stats.reports}</td>
+          <td style="font-family:var(--mono);font-weight:700;">${stats.km.toFixed(1)}</td>
+          <td style="font-family:var(--mono);">${stats.liters.toFixed(2)}</td>
+          <td style="font-family:var(--mono);">${stats.cost.toFixed(0)}</td>
+          <td style="font-family:var(--mono);font-weight:700;color:${avgClass};">${avgKmL==null?'—':avgKmL.toFixed(2)}</td>
+          ${dates7.map(d=>{
+            const dd=stats.byDate[d];
+            if(!dd)return `<td style="text-align:center;color:var(--text3);font-size:10px;">·</td>`;
+            const kmlClass=dd.kmL==null?'':dd.kmL<3?'var(--danger)':dd.kmL<5?'var(--warn)':'var(--ok)';
+            return `<td style="font-family:var(--mono);font-size:10px;text-align:center;color:${kmlClass};" title="${dd.km.toFixed(1)} km · ${dd.liters.toFixed(2)} L">${dd.km.toFixed(0)}</td>`;
+          }).join('')}
+        </tr>`;
+      });
+      html+=`</tbody></table></div>
+        <div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.6;">Each daily cell shows KM driven that day. Hover for liters. Color: <span style="color:var(--ok);">≥5</span> KM/L good · <span style="color:var(--warn);">3-5</span> warning · <span style="color:var(--danger);">&lt;3</span> poor.</div>`;
+    }
   }
 
   el.innerHTML=html;
@@ -44343,6 +44396,14 @@ function renderFleetGps(){
     </div>
   </div>`;
 
+  // Build location autocomplete list from ALL historical stops across all reports
+  const _locSet=new Set();
+  Object.values(all).forEach(rep=>{
+    (rep.stops||[]).forEach(s=>{if(s.location)_locSet.add(s.location.trim());});
+  });
+  const _locOpts=Array.from(_locSet).sort().map(l=>`<option value="${_esc(l)}">`).join('');
+  html+=`<datalist id="gpsLocList">${_locOpts}</datalist>`;
+
   // Stops table
   if(!computed.length){
     html+=`<div class="fleet-empty">No stops yet. Click "➕ Add Stop" to log the first one.</div>`;
@@ -44364,7 +44425,7 @@ function renderFleetGps(){
     computed.forEach((s,i)=>{
       html+=`<tr>
         <td style="font-family:var(--mono);color:var(--text3);">${i+1}</td>
-        <td><input class="call-input" style="padding:5px 7px;font-size:12px;" value="${_esc(s.location||'')}" placeholder="e.g. APAC, SHANG FORT…" oninput="updGpsStop(${i},'location',this.value)"></td>
+        <td><input class="call-input" list="gpsLocList" style="padding:5px 7px;font-size:12px;" value="${_esc(s.location||'')}" placeholder="e.g. APAC, SHANG FORT…" oninput="updGpsStop(${i},'location',this.value)"></td>
         <td><input type="time" step="1" class="call-input" style="padding:5px 7px;font-size:12px;font-family:var(--mono);" value="${_esc(s.timeIn||'')}" oninput="updGpsStop(${i},'timeIn',this.value)"></td>
         <td><input type="time" step="1" class="call-input" style="padding:5px 7px;font-size:12px;font-family:var(--mono);" value="${_esc(s.timeOut||'')}" oninput="updGpsStop(${i},'timeOut',this.value)"></td>
         <td style="font-family:var(--mono);color:var(--text2);font-size:11px;">${s._drivingTime||'—'}</td>
@@ -57394,7 +57455,7 @@ const FLEET_GPS_DRAFT_TRIPS_KEY='hydroPro_fleet_gps_draft_trips';
 function loadFleetGpsConfig(){
   try{
     const c=JSON.parse(localStorage.getItem(FLEET_GPS_CONFIG_KEY)||'{}');
-    return Object.assign({
+    const merged=Object.assign({
       source:'gps18_manual',
       pollingSec:60,
       stopThresholdMin:5,
@@ -57403,7 +57464,13 @@ function loadFleetGpsConfig(){
       autoDetectTrips:true,
       geofences:[]
     },c);
-  }catch(e){return{source:'gps18_manual',pollingSec:60,stopThresholdMin:5,geofences:[]};}
+    // Force types — guard against corrupt saved state
+    if(!Array.isArray(merged.geofences))merged.geofences=[];
+    if(typeof merged.source!=='string')merged.source='gps18_manual';
+    if(typeof merged.pollingSec!=='number')merged.pollingSec=60;
+    if(typeof merged.stopThresholdMin!=='number')merged.stopThresholdMin=5;
+    return merged;
+  }catch(e){return{source:'gps18_manual',pollingSec:60,stopThresholdMin:5,geofences:[],traccarUrl:'',traccarToken:'',autoDetectTrips:true};}
 }
 function saveFleetGpsConfig(c){localStorage.setItem(FLEET_GPS_CONFIG_KEY,JSON.stringify(c));}
 
@@ -57615,6 +57682,37 @@ const FLEET_DEFAULT_GEOFENCES=[
 
 // =================== LIVE MAP VIEW ===================
 let _liveMap=null,_liveMarkers={};
+function _gpsErrorFallback(view,where,err){
+  console.error('[GPS]',where,err);
+  view.innerHTML='<div class="section-card"><div class="section-head"><span class="section-title">⚠️ '+where+' — error</span></div>'+
+    '<div style="padding:14px;background:#1a2620;border-left:4px solid #f44336;border-radius:6px;font-size:13px;line-height:1.6;">'+
+    '<div style="color:#f44336;font-weight:700;margin-bottom:8px;">A runtime error occurred while rendering this view.</div>'+
+    '<div style="font-family:monospace;font-size:11px;background:#0a1612;padding:10px;border-radius:4px;color:#ffb300;overflow-x:auto;">'+(err&&err.message?err.message:String(err))+'</div>'+
+    '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">'+
+      '<button class="btn btn-outline" onclick="window.gpsDebug&&gpsDebug()" style="padding:6px 12px;font-size:12px;">📋 Copy debug info</button>'+
+      '<button class="btn btn-outline" onclick="if(confirm(\'Reset GPS Config to defaults? This wipes geofences + tracker settings only.\')){localStorage.removeItem(\'hydroPro_fleet_gps_config\');location.reload();}" style="padding:6px 12px;font-size:12px;color:#ffb300;">↻ Reset GPS Config</button>'+
+      '<button class="btn btn-outline" onclick="if(confirm(\'Clear ALL GPS positions + draft trips? Keeps Daily Reports.\')){localStorage.removeItem(\'hydroPro_fleet_gps_positions\');localStorage.removeItem(\'hydroPro_fleet_gps_draft_trips\');location.reload();}" style="padding:6px 12px;font-size:12px;color:#f44336;">🗑 Clear GPS data</button>'+
+      '<button class="btn btn-outline" onclick="if(typeof switchView===\'function\')switchView(\'fleet_dash\')" style="padding:6px 12px;font-size:12px;">← Back to Fleet</button>'+
+    '</div></div></div>';
+}
+window.gpsDebug=function(){
+  try{
+    const dbg={
+      build:typeof APP_BUILD!=='undefined'?APP_BUILD:'?',
+      cfg:loadFleetGpsConfig(),
+      positionCount:Object.keys(loadFleetGpsPositions()).reduce((a,k)=>a+(loadFleetGpsPositions()[k]||[]).length,0),
+      vehicleCount:typeof loadFVeh==='function'?loadFVeh().length:'?',
+      gpsReportsCount:typeof loadGpsReports==='function'?Object.keys(loadGpsReports()).length:'?',
+      draftTripsCount:loadFleetGpsDraftTrips().length,
+      bootstrapDone:localStorage.getItem('hydroPro_gps_bootstrap_done'),
+      ua:navigator.userAgent
+    };
+    const txt=JSON.stringify(dbg,null,2);
+    if(navigator.clipboard)navigator.clipboard.writeText(txt);
+    alert('GPS DEBUG:\n\n'+txt);
+  }catch(e){alert('Debug failed: '+e.message);}
+};
+
 function renderFleetLiveMap(){
   let view=document.getElementById('view-fleet_live_map');
   if(!view){
@@ -57623,6 +57721,11 @@ function renderFleetLiveMap(){
   }
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   view.classList.add('active');
+  try{
+  return _renderFleetLiveMap_inner(view);
+  }catch(err){_gpsErrorFallback(view,'Fleet Live Map',err);}
+}
+function _renderFleetLiveMap_inner(view){
 
   const positions=loadFleetGpsPositions();
   const veh=(typeof loadFVeh==='function')?loadFVeh():[];
@@ -57755,6 +57858,9 @@ function renderFleetGpsOps(){
   }
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   view.classList.add('active');
+  try{return _renderFleetGpsOps_inner(view);}catch(err){_gpsErrorFallback(view,'GPS Operator Workstation',err);}
+}
+function _renderFleetGpsOps_inner(view){
 
   if(!_opsSelDate)_opsSelDate=new Date().toISOString().slice(0,10);
   const date=_opsSelDate;
@@ -57914,6 +58020,9 @@ function renderFleetGpsConfig(){
   }
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   view.classList.add('active');
+  try{return _renderFleetGpsConfig_inner(view);}catch(err){_gpsErrorFallback(view,'GPS Config',err);}
+}
+function _renderFleetGpsConfig_inner(view){
   const cfg=loadFleetGpsConfig();
   const positions=loadFleetGpsPositions();
   const veh=(typeof loadFVeh==='function')?loadFVeh():[];
@@ -58405,6 +58514,224 @@ setInterval(()=>{
     try{regenerateDraftTrips(new Date().toISOString().slice(0,10));}catch(e){}
   }
 },60*60*1000);
+
+// =================== IRRIGATION MATRIX ===================
+// Rows = irrigation issues, columns = greenhouses. Same color pattern as HR/IT/Inv matrices.
+const IRR_MATRIX_ISSUES=[
+  {id:'ec_in_range',label:'EC in range today (1.2–3.2 mS/cm)',critical:true},
+  {id:'ph_in_range',label:'pH in range today (5.5–6.5)',critical:true},
+  {id:'reading_today',label:'Pool reading logged today',critical:true},
+  {id:'no_critical_calls',label:'No critical irrigation calls open',critical:true},
+  {id:'drums_ok',label:'Drum levels ≥ 20%'},
+  {id:'calib_30d',label:'Last calibration ≤ 30 days'},
+  {id:'filter_7d',label:'Filter cleaned ≤ 7 days'},
+  {id:'recipe_set',label:'Nutrient mix recipe documented'}
+];
+
+function _irrLoadPoolReadings(){
+  try{return JSON.parse(localStorage.getItem('hydroPro_irr_pool')||'{}');}catch(e){return{};}
+}
+function _irrLoadPools(){
+  try{
+    if(typeof loadIrrPools==='function')return loadIrrPools()||[];
+    return JSON.parse(localStorage.getItem('hydroPro_pool_dimensions')||'[]');
+  }catch(e){return[];}
+}
+function _irrLoadDrums(){
+  try{return JSON.parse(localStorage.getItem('hydroPro_irr_drums')||'{}');}catch(e){return{};}
+}
+function _irrLoadCalib(){
+  try{return JSON.parse(localStorage.getItem('hydroPro_irr_calibration')||'{}');}catch(e){return{};}
+}
+function _irrLoadFilters(){
+  try{return JSON.parse(localStorage.getItem('hydroPro_irr_filter_cleaning')||'{}');}catch(e){return{};}
+}
+function _irrLoadRecipes(){
+  try{return JSON.parse(localStorage.getItem('hydroPro_irr_nutrient_recipes')||'{}');}catch(e){return{};}
+}
+
+// Map a pool to a greenhouse by parsing its label/name
+function _irrPoolToGh(p){
+  const s=((p.label||'')+' '+(p.name||'')+' '+(p.location||'')+' '+(p.id||'')).toUpperCase();
+  // Match GH15, GH16, GH10 first to avoid GH1 capturing them
+  const ghCols=['GH16','GH15','GH10','GH9','GH8','GH7','GH6','GH5','GH4','GH3','GH2','GH1','PRJ12','PRJ11'];
+  for(const g of ghCols){if(s.includes(g))return g;}
+  return null;
+}
+
+function _irrCheckIssue(gh,issueId){
+  const today=new Date().toISOString().slice(0,10);
+  const pools=_irrLoadPools();
+  const ghPools=pools.filter(p=>_irrPoolToGh(p)===gh);
+  const readings=_irrLoadPoolReadings();
+  const todayReadings=readings[today]||{};
+  const drums=_irrLoadDrums();
+  const calib=_irrLoadCalib();
+  const filters=_irrLoadFilters();
+  const recipes=_irrLoadRecipes();
+  const ghDrums=drums[gh]||{};
+  const ghCalib=calib[gh]||{};
+  const ghFilter=filters[gh]||null;
+  const ghRecipe=recipes[gh]||null;
+
+  // Helper: does this gh have any reading today?
+  function getGhReadings(){
+    const out=[];
+    ghPools.forEach(p=>{
+      const r=todayReadings[p.id];
+      if(!r)return;
+      Object.values(r).forEach(slot=>out.push(slot));
+    });
+    return out;
+  }
+
+  if(issueId==='ec_in_range'){
+    const all=getGhReadings();
+    if(!all.length)return null; // unknown — treat as no data
+    return all.every(r=>{const v=parseFloat(r.EC);return isNaN(v)||(v>=1.2&&v<=3.2);});
+  }
+  if(issueId==='ph_in_range'){
+    const all=getGhReadings();
+    if(!all.length)return null;
+    return all.every(r=>{const v=parseFloat(r.pH);return isNaN(v)||(v>=5.5&&v<=6.5);});
+  }
+  if(issueId==='reading_today'){
+    return getGhReadings().length>0;
+  }
+  if(issueId==='no_critical_calls'){
+    let calls=[];
+    try{calls=(typeof loadCalls==='function')?loadCalls():JSON.parse(localStorage.getItem('hydroPro_calls')||'[]');}catch(e){}
+    if(!Array.isArray(calls))calls=[];
+    const open=calls.filter(c=>{
+      const dept=(c.department||'').toLowerCase();
+      const area=((c.areaText||'')+' '+(c.subject||'')+' '+(c.description||'')).toUpperCase();
+      const isOpen=c.status&&c.status!=='closed'&&c.status!=='resolved'&&c.status!=='closed_finalize';
+      const isIrr=dept==='irrigation';
+      const matchGh=area.includes(gh);
+      const isCritical=c.priority==='urgent'||c.priority==='priority';
+      return isOpen&&isIrr&&matchGh&&isCritical;
+    });
+    return open.length===0;
+  }
+  if(issueId==='drums_ok'){
+    if(!ghDrums||!Object.keys(ghDrums).length)return null;
+    return Object.values(ghDrums).every(d=>{const lv=Number(d.level||d.percent||0);return lv>=20;});
+  }
+  if(issueId==='calib_30d'){
+    if(!ghCalib.lastDate)return false;
+    const days=Math.floor((new Date(today)-new Date(ghCalib.lastDate))/86400000);
+    return days<=30;
+  }
+  if(issueId==='filter_7d'){
+    if(!ghFilter||!ghFilter.lastClean)return false;
+    const days=Math.floor((new Date(today)-new Date(ghFilter.lastClean))/86400000);
+    return days<=7;
+  }
+  if(issueId==='recipe_set'){
+    return !!(ghRecipe&&Object.keys(ghRecipe).length);
+  }
+  return null;
+}
+
+function renderIrrMatrix(){
+  let view=document.getElementById('view-irr_matrix');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-irr_matrix';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  try{
+  const FACILITIES=(typeof FACILITY_COLUMNS!=='undefined')?FACILITY_COLUMNS:['GH1','GH2','GH3','GH4','GH5','GH6','GH7','GH8','GH9','GH10','PRJ11','PRJ12','GH15','GH16'];
+  const headerRow=`<tr><th style="position:sticky;left:0;z-index:2;background:var(--surface2);min-width:280px;">Issue</th>${FACILITIES.map(f=>`<th style="text-align:center;font-family:var(--mono);font-size:11px;">${f}</th>`).join('')}<th style="text-align:center;font-family:var(--mono);font-size:11px;">Total</th></tr>`;
+  const bodyRows=IRR_MATRIX_ISSUES.map(issue=>{
+    let okCt=0,knownCt=0;
+    const cells=FACILITIES.map(gh=>{
+      const r=_irrCheckIssue(gh,issue.id);
+      let bg,tc,txt;
+      if(r===null){bg='#1a1f1a';tc='var(--text3)';txt='—';}
+      else if(r===true){bg='#0f2e10';tc='var(--ok)';txt='✓';okCt++;knownCt++;}
+      else{bg='#2e0808';tc='var(--danger)';txt=issue.critical?'✗':'!';knownCt++;}
+      return `<td style="text-align:center;background:${bg};color:${tc};font-family:var(--mono);font-weight:700;padding:8px 4px;cursor:pointer;" onclick="_irrMatrixDrill('${gh}','${issue.id}')">${txt}</td>`;
+    }).join('');
+    const grandPct=knownCt?Math.round(okCt/knownCt*100):0;
+    const tc=knownCt===0?'var(--text3)':grandPct===100?'var(--ok)':grandPct>=70?'var(--warn)':'var(--danger)';
+    const safeLabel=(issue.label||'').replace(/['"<>]/g,'');
+    return `<tr><th style="position:sticky;left:0;z-index:1;background:var(--surface2);text-align:left;padding:8px 10px;font-size:12px;">${safeLabel}${issue.critical?' <span style="color:var(--danger);font-size:10px;">★</span>':''}</th>${cells}<td style="text-align:center;color:${tc};font-weight:700;font-family:var(--mono);">${knownCt?grandPct+'%':'—'}</td></tr>`;
+  }).join('');
+  // Compute summary stats
+  let totalCritical=0,totalWarn=0;
+  IRR_MATRIX_ISSUES.forEach(issue=>{
+    FACILITIES.forEach(gh=>{
+      const r=_irrCheckIssue(gh,issue.id);
+      if(r===false){
+        if(issue.critical)totalCritical++;
+        else totalWarn++;
+      }
+    });
+  });
+  view.innerHTML=`<div class="section-title">📊 Irrigation Matrix — Issues × Greenhouses</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.6;">
+      Each cell shows whether that greenhouse passes the issue today. Click any cell to drill in.
+      <br><strong style="color:var(--ok);">✓</strong> ok · <strong style="color:var(--danger);">✗</strong> critical fail · <strong style="color:var(--danger);">!</strong> warning · <strong style="color:var(--text3);">—</strong> no data
+    </div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Critical issues</div><div class="fleet-stat-val ${totalCritical>0?'danger':'green'}">${totalCritical}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Warnings</div><div class="fleet-stat-val ${totalWarn>0?'warn':''}">${totalWarn}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Greenhouses</div><div class="fleet-stat-val">${FACILITIES.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Issues tracked</div><div class="fleet-stat-val">${IRR_MATRIX_ISSUES.length}</div></div>
+    </div>
+    <div class="fleet-table-wrap" style="overflow-x:auto;margin-top:14px;"><table class="fleet-table" style="width:100%;border-collapse:separate;border-spacing:1px;">
+      <thead>${headerRow}</thead>
+      <tbody>${bodyRows}</tbody>
+    </table></div>
+    <div style="margin-top:18px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-outline" style="padding:6px 12px;font-size:12px;" onclick="if(typeof switchView==='function')switchView('irr_dash')">← Irrigation Dashboard</button>
+      <button class="btn btn-outline" style="padding:6px 12px;font-size:12px;" onclick="renderIrrMatrix()">↻ Refresh</button>
+    </div>`;
+  }catch(err){
+    console.error('[IrrMatrix]',err);
+    view.innerHTML='<div class="section-card"><div class="section-title">⚠️ Irrigation Matrix error</div><pre style="background:#0a1612;padding:10px;border-radius:6px;color:#ffb300;font-size:11px;">'+(err.message||String(err))+'</pre></div>';
+  }
+}
+window.renderIrrMatrix=renderIrrMatrix;
+
+window._irrMatrixDrill=function(gh,issueId){
+  const issue=IRR_MATRIX_ISSUES.find(i=>i.id===issueId);
+  if(!issue)return;
+  const r=_irrCheckIssue(gh,issueId);
+  let extra='';
+  if(issueId==='no_critical_calls'){
+    extra='\n\nClick OK then go to the Calls panel and filter by department: Irrigation + area: '+gh;
+  }else if(issueId==='reading_today'||issueId==='ec_in_range'||issueId==='ph_in_range'){
+    extra='\n\nGo to Irrigation → Pools to log today\'s reading.';
+  }else if(issueId==='drums_ok'){
+    extra='\n\nGo to Irrigation → Drum Levels.';
+  }else if(issueId==='calib_30d'){
+    extra='\n\nGo to Irrigation → Calibration to record the latest calibration.';
+  }
+  alert(gh+' · '+issue.label+'\n\nStatus: '+(r===null?'NO DATA':r?'OK':'FAIL')+extra);
+};
+
+// Hook irrigation matrix into the EXTRA_SUBTABS / VIEW_TO_MODULE / switchView
+(function _registerIrrMatrix(){
+  setTimeout(()=>{
+    if(typeof EXTRA_SUBTABS!=='undefined'&&EXTRA_SUBTABS.irrigation){
+      const arr=EXTRA_SUBTABS.irrigation;
+      if(!arr.some(x=>x.id==='irr_matrix')){arr.push({id:'irr_matrix',label:'📊 Irrigation Matrix'});}
+    }else if(typeof EXTRA_SUBTABS!=='undefined'){
+      EXTRA_SUBTABS.irrigation=[{id:'irr_matrix',label:'📊 Irrigation Matrix'}];
+    }
+    if(typeof VIEW_TO_MODULE!=='undefined'){VIEW_TO_MODULE.irr_matrix='irrigation';}
+  },500);
+  setTimeout(()=>{
+    if(typeof window.switchView!=='function')return;
+    const orig=window.switchView;
+    if(orig.__irrMatrixHooked)return;
+    window.switchView=function(v){
+      const r=orig.apply(this,arguments);
+      if(v==='irr_matrix')setTimeout(renderIrrMatrix,80);
+      return r;
+    };
+    window.switchView.__irrMatrixHooked=true;
+  },800);
+})();
 
 // =================== HISTORICAL GPS REPORTS — BOOTSTRAP DATA ===================
 // Parsed from the user's actual uploaded GPS reports (April 24 + 27, 2026).
