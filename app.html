@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777534135;
+const APP_BUILD=1777537370;
 const APP_BUILD_DATE='2026-04-30';
 
 // Store version in localStorage on first run
@@ -43841,7 +43841,7 @@ const VIEW_TO_MODULE={
   // Logistics / Fleet
   fleet_dash:'logistics',fleet_vehicles:'logistics',fleet_drivers:'logistics',fleet_fuel:'logistics',fleet_files:'logistics',fleet_matrix:'logistics',fleet_expiry:'logistics',
   // CRM
-  crm:'crm',
+  crm:'crm',crm_customer_files:'crm',crm_customer_matrix:'crm',
   // Security
   security:'security',sec_patrols:'security',sec_incidents:'security',sec_guards:'security',sec_rfid:'security',
   // Cross-module overview tabs — leave un-tracked so banner doesn't show
@@ -47423,6 +47423,10 @@ const EXTRA_SUBTABS={
     {id:'inv_matrix', label:'📊 Inventory Matrix'},
     {id:'inv_expiry', label:'⏳ Expiry Tracker'}
   ],
+  crm:[
+    {id:'crm_customer_files', label:'📁 Customer 360° Files'},
+    {id:'crm_customer_matrix', label:'📊 Customer Matrix'}
+  ],
   it:[
     {id:'it_matrix', label:'📊 Equipment Matrix'}
   ],
@@ -50072,6 +50076,326 @@ window.renderFleetExpiry=function(){
       return r;
     };
     window.switchView.__fleetFilesHooked=true;
+  }
+  setInterval(attempt,1500);
+  setTimeout(attempt,500);
+})();
+
+// === CRM CUSTOMER 360° FILES + MATRIX ===
+const CRM_CUSTOMER_FILES_KEY='hydroPro_crm_customer_files';
+const CRM_CUSTOMER_DOC_TEMPLATES=[
+  {id:'signed_contract',name:'Signed Sales Contract / Agreement',critical:true},
+  {id:'business_permit',name:'Business Permit / Mayor\'s Permit',critical:true},
+  {id:'bir_2303',name:'BIR Certificate of Registration (2303)',critical:true},
+  {id:'tin_id',name:'TIN ID / TIN Verification',critical:true},
+  {id:'sec_dti',name:'SEC / DTI Registration',critical:false},
+  {id:'credit_application',name:'Credit Application Form',critical:false},
+  {id:'bank_reference',name:'Bank Reference Letter',critical:false},
+  {id:'2307_form',name:'BIR 2307 (Certificate of Withholding)',critical:false},
+  {id:'price_list_ack',name:'Price List Acknowledgement',critical:false},
+  {id:'delivery_address',name:'Delivery Address / Map',critical:false},
+  {id:'authorized_persons',name:'Authorized Persons List',critical:false},
+  {id:'photo_facility',name:'Customer Facility / Storefront Photo',critical:false},
+  {id:'nda',name:'Non-Disclosure Agreement (if any)',critical:false},
+  {id:'sla',name:'Service Level Agreement',critical:false}
+];
+
+function _crmLoadCustomerFiles(){try{return JSON.parse(localStorage.getItem(CRM_CUSTOMER_FILES_KEY)||'{}');}catch(e){return {};}}
+function _crmSaveCustomerFiles(d){localStorage.setItem(CRM_CUSTOMER_FILES_KEY,JSON.stringify(d));}
+
+function _crmLoadAllCustomers(){
+  // Customers = leads with stage='Customer' / 'Won' / 'Active', or all leads if no clear stage
+  let leads=[];try{leads=JSON.parse(localStorage.getItem('hydroPro_crm_leads')||'[]');}catch(e){}
+  if(!Array.isArray(leads))return [];
+  // Filter to active customers
+  return leads.filter(l=>{
+    const s=String(l.stage||'').toLowerCase();
+    return s==='customer'||s==='won'||s==='active'||s==='converted'||l.isCustomer===true;
+  });
+}
+
+function _crmCustomerStatus(c){
+  const docs=CRM_CUSTOMER_DOC_TEMPLATES;
+  const all=_crmLoadCustomerFiles();
+  const ds=all[c.id]||{};
+  let missingCrit=0,missingNonCrit=0,present=0;
+  docs.forEach(d=>{
+    if(ds[d.id]&&ds[d.id].present)present++;
+    else if(d.critical)missingCrit++;
+    else missingNonCrit++;
+  });
+  // Check basic profile fields
+  const fieldChecks=[
+    {f:'name',label:'Customer / Company Name',critical:true},
+    {f:'phone',label:'Phone',critical:true},
+    {f:'email',label:'Email',critical:false},
+    {f:'address',label:'Address',critical:false}
+  ];
+  const missingFields=[];
+  fieldChecks.forEach(fc=>{
+    if(!c[fc.f]||(typeof c[fc.f]==='string'&&!c[fc.f].trim())){
+      missingFields.push(fc);
+      if(fc.critical)missingCrit++;else missingNonCrit++;
+    }
+  });
+  let status='ok';
+  if(missingCrit>0)status='critical';
+  else if(missingNonCrit>0)status='warning';
+  return {status,missingCrit,missingNonCrit,present,total:docs.length,missingFields};
+}
+
+let _crmCustSelectedId=null;
+
+window.renderCrmCustomerFiles=function(){
+  let view=document.getElementById('view-crm_customer_files');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-crm_customer_files';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const customers=_crmLoadAllCustomers();
+  if(_crmCustSelectedId){
+    const c=customers.find(x=>x.id===_crmCustSelectedId);
+    if(c){view.innerHTML=_crmCustomerDetail(c);return;}
+    _crmCustSelectedId=null;
+  }
+  const status=customers.map(c=>({c,st:_crmCustomerStatus(c)}));
+  let critCt=0,warnCt=0,okCt=0;
+  status.forEach(s=>{if(s.st.status==='critical')critCt++;else if(s.st.status==='warning')warnCt++;else okCt++;});
+  status.sort((a,b)=>{
+    const ord={critical:0,warning:1,ok:2};
+    if(ord[a.st.status]!==ord[b.st.status])return ord[a.st.status]-ord[b.st.status];
+    return (a.c.name||a.c.company||'').localeCompare(b.c.name||b.c.company||'');
+  });
+  // Quote / order count for each customer
+  let quotes=[];try{quotes=JSON.parse(localStorage.getItem('hydroPro_crm_quotes')||'[]');}catch(e){}
+  let orders=[];try{orders=JSON.parse(localStorage.getItem('hydroPro_crm_orders')||'[]');}catch(e){}
+  const rows=status.map(s=>{
+    const c=s.c;const st=s.st;
+    const color=st.status==='critical'?'var(--danger)':st.status==='warning'?'var(--warn)':'var(--ok)';
+    const icon=st.status==='critical'?'✕':st.status==='warning'?'⚠':'✓';
+    const qct=quotes.filter(q=>q.leadId===c.id||q.customerId===c.id).length;
+    const oct=orders.filter(o=>o.leadId===c.id||o.customerId===c.id).length;
+    return `<tr style="cursor:pointer;border-left:3px solid ${color};" onclick="_crmCustSelectedId='${c.id}';renderCrmCustomerFiles();">
+      <td style="font-weight:600;">${(c.name||c.company||'').replace(/[<>]/g,'')}</td>
+      <td style="font-size:11px;">${(c.industry||'—').replace(/[<>]/g,'')}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${(c.phone||'—').replace(/[<>]/g,'')}</td>
+      <td style="text-align:center;color:${color};font-weight:700;font-size:12px;">${icon} ${st.status.toUpperCase()}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--ok);">${st.present}/${st.total}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:11px;">${qct}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:11px;">${oct}</td>
+    </tr>`;
+  }).join('');
+  view.innerHTML=`<div class="section-title">📁 Customer 360° Files</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>📁 Customer files:</strong> Each customer's complete document file — signed contract, business permit, BIR registration, credit info, contact log, plus all related quotes, orders, samples, meetings, and touchpoints. Click any customer to drill into their 360° view.
+    </div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Customers</div><div class="fleet-stat-val">${customers.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✕ Critical</div><div class="fleet-stat-val ${critCt>0?'danger':''}">${critCt}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">⚠ Warning</div><div class="fleet-stat-val ${warnCt>0?'warn':''}">${warnCt}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✓ Complete</div><div class="fleet-stat-val green">${okCt}</div></div>
+    </div>
+    ${customers.length?`<div class="fleet-table-wrap" style="margin-top:14px;"><table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Customer</th><th>Industry</th><th>Phone</th><th>Doc Status</th><th>Docs</th><th>Quotes</th><th>Orders</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`:'<div style="text-align:center;padding:30px;color:var(--text3);">No customers yet. Customers are leads marked as Won / Customer / Active in CRM → Leads.</div>'}`;
+};
+
+function _crmCustomerDetail(c){
+  const docs=CRM_CUSTOMER_DOC_TEMPLATES;
+  const all=_crmLoadCustomerFiles();
+  const ds=all[c.id]||{};
+  const st=_crmCustomerStatus(c);
+  // Pull related data
+  let touchpoints=[],samples=[],meetings=[],quotes=[],orders=[];
+  try{touchpoints=JSON.parse(localStorage.getItem('hydroPro_crm_touchpoints')||'[]').filter(t=>t.leadId===c.id);}catch(e){}
+  try{samples=JSON.parse(localStorage.getItem('hydroPro_crm_samples')||'[]').filter(s=>s.leadId===c.id);}catch(e){}
+  try{meetings=JSON.parse(localStorage.getItem('hydroPro_crm_meetings')||'[]').filter(m=>m.leadId===c.id);}catch(e){}
+  try{quotes=JSON.parse(localStorage.getItem('hydroPro_crm_quotes')||'[]').filter(q=>q.leadId===c.id||q.customerId===c.id);}catch(e){}
+  try{orders=JSON.parse(localStorage.getItem('hydroPro_crm_orders')||'[]').filter(o=>o.leadId===c.id||o.customerId===c.id);}catch(e){}
+
+  const docRows=docs.map(d=>{
+    const s=ds[d.id]||{};const present=s.present;
+    const stCol=present?'var(--ok)':d.critical?'var(--danger)':'var(--warn)';
+    const stLbl=present?'✓ ON FILE':d.critical?'✕ MISSING (CRITICAL)':'⚠ MISSING';
+    return `<tr>
+      <td>${d.name}${d.critical?' <span style="color:var(--danger);font-size:10px;font-weight:700;">★ KEY</span>':''}</td>
+      <td style="text-align:center;color:${stCol};font-weight:700;font-size:11px;">${stLbl}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${s.dateAdded||'—'}</td>
+      <td style="font-size:11px;">${s.addedBy||'—'}</td>
+      <td style="font-size:11px;color:var(--text3);">${(s.notes||'').replace(/[<>]/g,'').slice(0,60)}</td>
+      <td style="text-align:right;white-space:nowrap;">
+        ${present?'':`<label class="btn btn-primary" style="font-size:11px;padding:4px 10px;cursor:pointer;">📷 Upload<input type="file" accept="image/*,.pdf" style="display:none;" onchange="_crmCustDocUpload('${c.id}','${d.id}',this)"></label>`}
+        ${present?`<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="_crmCustDocView('${c.id}','${d.id}')">👁</button><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--danger);" onclick="_crmCustDocRemove('${c.id}','${d.id}')">🗑</button>`:''}
+        <button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="_crmCustDocNote('${c.id}','${d.id}')">📝</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Build summary tabs for related data
+  const tpRows=touchpoints.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,10).map(t=>`<tr><td style="font-family:var(--mono);font-size:11px;">${t.date||''}</td><td style="font-size:11px;">${(t.type||'').replace(/[<>]/g,'')}</td><td>${(t.subject||'').replace(/[<>]/g,'')}</td><td style="font-size:11px;color:var(--text3);">${(t.summary||'').replace(/[<>]/g,'').slice(0,80)}</td></tr>`).join('');
+  const qRows=quotes.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,10).map(q=>`<tr><td style="font-family:var(--mono);font-size:11px;">${(q.number||q.id||'').replace(/[<>]/g,'')}</td><td style="font-family:var(--mono);font-size:11px;">${q.date||''}</td><td style="font-family:var(--mono);font-size:11px;">${q.status||'—'}</td><td style="font-family:var(--mono);font-size:11px;text-align:right;">₱${Number(q.total||0).toFixed(2)}</td></tr>`).join('');
+  const oRows=orders.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,10).map(o=>`<tr><td style="font-family:var(--mono);font-size:11px;">${(o.number||o.id||'').replace(/[<>]/g,'')}</td><td style="font-family:var(--mono);font-size:11px;">${o.date||''}</td><td style="font-family:var(--mono);font-size:11px;">${o.status||'—'}</td><td style="font-family:var(--mono);font-size:11px;text-align:right;">₱${Number(o.total||0).toFixed(2)}</td></tr>`).join('');
+  const sRows=samples.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,10).map(s=>`<tr><td style="font-family:var(--mono);font-size:11px;">${s.date||''}</td><td>${(s.products||[]).join(', ').replace(/[<>]/g,'')}</td><td style="font-family:var(--mono);font-size:11px;">${s.status||'—'}</td><td style="font-size:11px;color:var(--text3);">${(s.feedback||'').replace(/[<>]/g,'').slice(0,60)}</td></tr>`).join('');
+  const mRows=meetings.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,10).map(m=>`<tr><td style="font-family:var(--mono);font-size:11px;">${m.date||''}</td><td>${(m.type||'').replace(/[<>]/g,'')}</td><td>${(m.location||'').replace(/[<>]/g,'')}</td><td style="font-size:11px;color:var(--text3);">${(m.minutes||m.agenda||'').replace(/[<>]/g,'').slice(0,80)}</td></tr>`).join('');
+  // Total revenue / outstanding
+  const totalRevenue=orders.reduce((a,o)=>a+Number(o.total||0),0);
+  const totalOutstanding=orders.filter(o=>o.paymentStatus!=='paid').reduce((a,o)=>a+Number(o.balanceDue||o.total||0),0);
+
+  return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+    <button class="btn btn-outline" onclick="_crmCustSelectedId=null;renderCrmCustomerFiles();">← All customers</button>
+    <div style="font-size:18px;font-weight:700;">📁 ${(c.name||c.company||'').replace(/[<>]/g,'')} <span style="font-size:11px;color:var(--text3);font-family:var(--mono);">· ${c.industry||''} · ${c.stage||'customer'}</span></div>
+    <div></div>
+  </div>
+  <div class="fleet-stat-row">
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Status</div><div class="fleet-stat-val" style="color:${st.status==='critical'?'var(--danger)':st.status==='warning'?'var(--warn)':'var(--ok)'};">${st.status==='critical'?'✕ CRITICAL':st.status==='warning'?'⚠ WARNING':'✓ OK'}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Docs on file</div><div class="fleet-stat-val green">${st.present}/${st.total}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Critical missing</div><div class="fleet-stat-val ${st.missingCrit>0?'danger':''}">${st.missingCrit}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Total Revenue</div><div class="fleet-stat-val green">₱${totalRevenue.toFixed(2)}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Outstanding</div><div class="fleet-stat-val ${totalOutstanding>0?'warn':''}">₱${totalOutstanding.toFixed(2)}</div></div>
+  </div>
+
+  <div class="section-title" style="margin-top:18px;">🔗 Contact</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;font-size:12px;">
+      <div><strong>Phone:</strong> ${(c.phone||'—').replace(/[<>]/g,'')}</div>
+      <div><strong>Email:</strong> ${(c.email||'—').replace(/[<>]/g,'')}</div>
+      <div><strong>Address:</strong> ${(c.address||'—').replace(/[<>]/g,'')}</div>
+      <div><strong>Owner / Acct mgr:</strong> ${(c.owner||'—').replace(/[<>]/g,'')}</div>
+      <div><strong>Source:</strong> ${(c.source||'—').replace(/[<>]/g,'')}</div>
+      <div><strong>Customer since:</strong> ${c.createdAt?new Date(c.createdAt).toISOString().slice(0,10):'—'}</div>
+    </div>
+  </div>
+
+  <div class="section-title" style="margin-top:14px;">📋 Document Checklist</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">★ KEY = critical document required for compliance</div>
+    <div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Document</th><th style="text-align:center;">Status</th><th>Date Added</th><th>By</th><th>Notes</th><th style="text-align:right;">Actions</th></tr></thead>
+      <tbody>${docRows}</tbody>
+    </table></div>
+  </div>
+
+  ${quotes.length?`<div class="section-title" style="margin-top:14px;">📄 Recent Quotes (${quotes.length})</div>
+    <table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Number</th><th>Date</th><th>Status</th><th style="text-align:right;">Total</th></tr></thead><tbody>${qRows}</tbody></table>`:''}
+
+  ${orders.length?`<div class="section-title" style="margin-top:14px;">📦 Recent Orders (${orders.length})</div>
+    <table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Number</th><th>Date</th><th>Status</th><th style="text-align:right;">Total</th></tr></thead><tbody>${oRows}</tbody></table>`:''}
+
+  ${samples.length?`<div class="section-title" style="margin-top:14px;">🎁 Samples Sent (${samples.length})</div>
+    <table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Date</th><th>Products</th><th>Status</th><th>Feedback</th></tr></thead><tbody>${sRows}</tbody></table>`:''}
+
+  ${meetings.length?`<div class="section-title" style="margin-top:14px;">🤝 Meetings (${meetings.length})</div>
+    <table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Date</th><th>Type</th><th>Location</th><th>Minutes</th></tr></thead><tbody>${mRows}</tbody></table>`:''}
+
+  ${touchpoints.length?`<div class="section-title" style="margin-top:14px;">💬 Recent Touchpoints (${touchpoints.length})</div>
+    <table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Date</th><th>Type</th><th>Subject</th><th>Summary</th></tr></thead><tbody>${tpRows}</tbody></table>`:''}`;
+}
+
+window._crmCustDocUpload=function(custId,docId,input){
+  const file=input.files&&input.files[0];if(!file)return;
+  if(file.size>3*1024*1024){alert('File too large (>3 MB).');input.value='';return;}
+  const reader=new FileReader();
+  reader.onload=function(e){
+    const all=_crmLoadCustomerFiles();
+    if(!all[custId])all[custId]={};
+    all[custId][docId]={present:true,scanUrl:e.target.result,dateAdded:new Date().toISOString().slice(0,10),addedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user',notes:(all[custId][docId]&&all[custId][docId].notes)||''};
+    try{_crmSaveCustomerFiles(all);}catch(err){alert('Storage full.');return;}
+    if(typeof showToast==='function')showToast('Document uploaded','ok');
+    renderCrmCustomerFiles();
+  };
+  reader.readAsDataURL(file);input.value='';
+};
+window._crmCustDocView=function(custId,docId){
+  const all=_crmLoadCustomerFiles();const doc=all[custId]&&all[custId][docId];
+  if(!doc||!doc.scanUrl)return;
+  let host=document.getElementById('crmCustDocViewModal');
+  if(!host){host=document.createElement('div');host.id='crmCustDocViewModal';host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';host.onclick=()=>host.remove();document.body.appendChild(host);}
+  const isPdf=doc.scanUrl.startsWith('data:application/pdf');
+  host.innerHTML=isPdf?`<iframe src="${doc.scanUrl}" style="width:90%;height:90%;border:none;border-radius:8px;background:#fff;"></iframe><button style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%;cursor:pointer;" onclick="document.getElementById('crmCustDocViewModal').remove();">✕</button>`:`<img src="${doc.scanUrl}" style="max-width:95%;max-height:95%;border-radius:8px;"><button style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%;cursor:pointer;" onclick="document.getElementById('crmCustDocViewModal').remove();">✕</button>`;
+};
+window._crmCustDocRemove=function(custId,docId){
+  if(!confirm('Remove this document?'))return;
+  const all=_crmLoadCustomerFiles();
+  if(all[custId]&&all[custId][docId])delete all[custId][docId];
+  _crmSaveCustomerFiles(all);renderCrmCustomerFiles();
+};
+window._crmCustDocNote=function(custId,docId){
+  const all=_crmLoadCustomerFiles();
+  const cur=(all[custId]&&all[custId][docId]&&all[custId][docId].notes)||'';
+  const note=prompt('Note:',cur);if(note===null)return;
+  all[custId]=all[custId]||{};all[custId][docId]=all[custId][docId]||{};all[custId][docId].notes=note;
+  _crmSaveCustomerFiles(all);renderCrmCustomerFiles();
+};
+
+// === CRM Customer Matrix ===
+const CRM_MATRIX_ISSUES=[
+  {id:'signed_contract',label:'Signed contract on file',critical:true},
+  {id:'business_permit',label:'Business permit',critical:true},
+  {id:'bir_2303',label:'BIR 2303',critical:true},
+  {id:'tin_id',label:'TIN ID',critical:true},
+  {id:'has_phone',label:'Phone number',critical:true},
+  {id:'has_email',label:'Email',critical:false},
+  {id:'has_address',label:'Address',critical:false},
+  {id:'has_owner',label:'Account manager assigned',critical:false}
+];
+
+window.renderCrmCustomerMatrix=function(){
+  let view=document.getElementById('view-crm_customer_matrix');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-crm_customer_matrix';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const customers=_crmLoadAllCustomers();
+  const allFiles=_crmLoadCustomerFiles();
+  // Group by industry (or fallback to "Other")
+  const byInd={};
+  customers.forEach(c=>{const i=c.industry||'(other)';if(!byInd[i])byInd[i]=[];byInd[i].push(c);});
+  const inds=Object.keys(byInd).sort();
+  function check(c,issueId){
+    const ds=allFiles[c.id]||{};
+    function p(id){return !!(ds[id]&&ds[id].present);}
+    if(issueId==='signed_contract')return p('signed_contract');
+    if(issueId==='business_permit')return p('business_permit');
+    if(issueId==='bir_2303')return p('bir_2303');
+    if(issueId==='tin_id')return p('tin_id');
+    if(issueId==='has_phone')return !!(c.phone&&String(c.phone).trim());
+    if(issueId==='has_email')return !!(c.email&&String(c.email).trim());
+    if(issueId==='has_address')return !!(c.address&&String(c.address).trim());
+    if(issueId==='has_owner')return !!(c.owner&&String(c.owner).trim());
+    return false;
+  }
+  const headerRow=`<tr><th style="position:sticky;left:0;z-index:2;background:var(--surface2);min-width:280px;">Issue</th>${inds.map(i=>`<th style="text-align:center;font-family:var(--mono);font-size:11px;">${i}</th>`).join('')}<th style="text-align:center;font-family:var(--mono);font-size:11px;">Total</th></tr>`;
+  const bodyRows=CRM_MATRIX_ISSUES.map(issue=>{
+    let totalC=0,totalOk=0;
+    const cells=inds.map(i=>{
+      const list=byInd[i];let okCt=0;
+      list.forEach(c=>{if(check(c,issue.id))okCt++;});
+      const total=list.length;const pct=total?Math.round(okCt/total*100):0;
+      const bg=pct===100?'#0f2e10':pct>=70?'#2e1e00':'#2e0808';
+      const tc=pct===100?'var(--ok)':pct>=70?'var(--warn)':'var(--danger)';
+      totalC+=total;totalOk+=okCt;
+      return `<td style="text-align:center;background:${bg};color:${tc};font-family:var(--mono);font-weight:700;padding:8px 4px;">${pct}%<div style="font-size:9px;font-weight:400;opacity:0.8;">${okCt}/${total}</div></td>`;
+    }).join('');
+    const grandPct=totalC?Math.round(totalOk/totalC*100):0;
+    const tc=grandPct===100?'var(--ok)':grandPct>=70?'var(--warn)':'var(--danger)';
+    return `<tr><th style="position:sticky;left:0;z-index:1;background:var(--surface2);text-align:left;padding:8px 10px;font-size:12px;">${issue.label}${issue.critical?' <span style="color:var(--danger);font-size:10px;">★</span>':''}</th>${cells}<td style="text-align:center;color:${tc};font-weight:700;font-family:var(--mono);">${grandPct}%</td></tr>`;
+  }).join('');
+  view.innerHTML=`<div class="section-title">📊 CRM Customer Compliance Matrix</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);">Each cell shows % of customers in that industry that have the issue resolved.</div>
+    ${inds.length?`<div class="fleet-table-wrap" style="overflow-x:auto;"><table class="fleet-table" style="width:100%;border-collapse:separate;border-spacing:1px;">
+      <thead>${headerRow}</thead>
+      <tbody>${bodyRows}</tbody>
+    </table></div>`:'<div style="text-align:center;padding:30px;color:var(--text3);">No customers yet.</div>'}`;
+};
+
+(function _hookCrmFilesViews(){
+  function attempt(){
+    if(!window.switchView||window.switchView.__crmFilesHooked)return;
+    const orig=window.switchView;
+    window.switchView=function(v){
+      const r=orig.apply(this,arguments);
+      if(v==='crm_customer_files')setTimeout(renderCrmCustomerFiles,80);
+      if(v==='crm_customer_matrix')setTimeout(renderCrmCustomerMatrix,80);
+      return r;
+    };
+    window.switchView.__crmFilesHooked=true;
   }
   setInterval(attempt,1500);
   setTimeout(attempt,500);
@@ -57045,7 +57369,1167 @@ window.rescanSimExpiry=function(){
 
 function injectBackupButton(){return;}   // moved into the unified ⚙ tools menu
 
+// ============================================================
+// FLEET LIVE MAP + GPS OPERATOR WORKSTATION
+// ============================================================
+// Three sub-tabs added to Fleet:
+//   fleet_live_map    — Leaflet+OSM live map of all vehicles
+//   fleet_gps_ops     — Operator workstation: split map+draft trips, fast daily-report fill
+//   fleet_gps_config  — Tracker source, geofences (GH1-GH16), stop threshold, polling
+//
+// Data sources supported:
+//   - GPS18 manual paste/upload  (operator pastes from gps18.com export)
+//   - Driver Phone Mode          (driver opens HydroPro on phone, broadcasts location)
+//   - Traccar API live polling   (CORS-friendly, future)
+//   - CSV import                 (any tracker portal export)
+//
+// CRITICAL: We never store gps18.com credentials in the app — browser CORS blocks
+// direct login anyway. Operator either pastes/imports OR sets up a small relay.
+// ============================================================
+
+const FLEET_GPS_CONFIG_KEY='hydroPro_fleet_gps_config';
+const FLEET_GPS_POSITIONS_KEY='hydroPro_fleet_gps_positions';
+const FLEET_GPS_DRAFT_TRIPS_KEY='hydroPro_fleet_gps_draft_trips';
+
+function loadFleetGpsConfig(){
+  try{
+    const c=JSON.parse(localStorage.getItem(FLEET_GPS_CONFIG_KEY)||'{}');
+    return Object.assign({
+      source:'gps18_manual',
+      pollingSec:60,
+      stopThresholdMin:5,
+      traccarUrl:'',
+      traccarToken:'',
+      autoDetectTrips:true,
+      geofences:[]
+    },c);
+  }catch(e){return{source:'gps18_manual',pollingSec:60,stopThresholdMin:5,geofences:[]};}
+}
+function saveFleetGpsConfig(c){localStorage.setItem(FLEET_GPS_CONFIG_KEY,JSON.stringify(c));}
+
+function loadFleetGpsPositions(){
+  try{return JSON.parse(localStorage.getItem(FLEET_GPS_POSITIONS_KEY)||'{}');}
+  catch(e){return{};}
+}
+function saveFleetGpsPositions(d){
+  // Cap each vehicle's history at 2000 points to avoid quota issues
+  Object.keys(d).forEach(vid=>{
+    if(Array.isArray(d[vid])&&d[vid].length>2000){
+      d[vid]=d[vid].slice(-2000);
+    }
+  });
+  try{localStorage.setItem(FLEET_GPS_POSITIONS_KEY,JSON.stringify(d));}
+  catch(e){_toast&&_toast('Position storage full — purging oldest','warn');
+    Object.keys(d).forEach(vid=>{if(Array.isArray(d[vid]))d[vid]=d[vid].slice(-500);});
+    localStorage.setItem(FLEET_GPS_POSITIONS_KEY,JSON.stringify(d));
+  }
+}
+function addFleetGpsPosition(vehicleId,p){
+  const all=loadFleetGpsPositions();
+  if(!all[vehicleId])all[vehicleId]=[];
+  all[vehicleId].push({
+    ts:p.ts||Date.now(),
+    lat:Number(p.lat),
+    lng:Number(p.lng),
+    speed:p.speed!=null?Number(p.speed):null,
+    heading:p.heading!=null?Number(p.heading):null,
+    ignition:!!p.ignition,
+    source:p.source||'manual',
+    raw:p.raw||null
+  });
+  saveFleetGpsPositions(all);
+}
+
+function loadFleetGpsDraftTrips(){
+  try{return JSON.parse(localStorage.getItem(FLEET_GPS_DRAFT_TRIPS_KEY)||'[]');}
+  catch(e){return[];}
+}
+function saveFleetGpsDraftTrips(d){localStorage.setItem(FLEET_GPS_DRAFT_TRIPS_KEY,JSON.stringify(d));}
+
+// Haversine distance (meters)
+function _gpsDist(lat1,lng1,lat2,lng2){
+  const R=6371000,toRad=x=>x*Math.PI/180;
+  const dLat=toRad(lat2-lat1),dLng=toRad(lng2-lng1);
+  const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+
+// Match a position to nearest geofence (GH1, GH2, ...) within radius
+function _gpsMatchGeofence(lat,lng){
+  const cfg=loadFleetGpsConfig();
+  if(!cfg.geofences||!cfg.geofences.length)return null;
+  let best=null,bestD=Infinity;
+  cfg.geofences.forEach(g=>{
+    if(g.lat==null||g.lng==null)return;
+    const d=_gpsDist(lat,lng,Number(g.lat),Number(g.lng));
+    const r=Number(g.radiusM)||200;
+    if(d<=r&&d<bestD){best=g;bestD=d;}
+  });
+  return best?best.name:null;
+}
+
+// Detect trips from a vehicle's position stream for a given date
+// A "trip" is a continuous moving segment between two stops > stopThresholdMin minutes
+function detectTripsFromPositions(vehicleId,date){
+  const cfg=loadFleetGpsConfig();
+  const stopMs=(cfg.stopThresholdMin||5)*60*1000;
+  const all=loadFleetGpsPositions();
+  let positions=(all[vehicleId]||[]).slice();
+  if(!positions.length)return[];
+  // Filter to date if given (YYYY-MM-DD)
+  if(date){
+    const dayStart=new Date(date+'T00:00:00').getTime();
+    const dayEnd=dayStart+86400000;
+    positions=positions.filter(p=>p.ts>=dayStart&&p.ts<dayEnd);
+  }
+  positions.sort((a,b)=>a.ts-b.ts);
+  if(positions.length<2)return[];
+
+  // Cluster nearby points (< 80m and < stopMs apart) into "stops"
+  const STOP_RADIUS=80;
+  const stops=[];
+  let currentStop=null;
+  for(let i=0;i<positions.length;i++){
+    const p=positions[i];
+    if(!currentStop){
+      currentStop={startTs:p.ts,endTs:p.ts,lat:p.lat,lng:p.lng,points:[p]};
+      continue;
+    }
+    const d=_gpsDist(currentStop.lat,currentStop.lng,p.lat,p.lng);
+    if(d<STOP_RADIUS){
+      currentStop.endTs=p.ts;currentStop.points.push(p);
+    }else{
+      // moving — close the current cluster only if it lasted >= stopThresholdMin
+      if(currentStop.endTs-currentStop.startTs>=stopMs){
+        stops.push(currentStop);
+        currentStop={startTs:p.ts,endTs:p.ts,lat:p.lat,lng:p.lng,points:[p]};
+      }else{
+        // Was a brief pause, treat as still-moving — extend cluster center
+        currentStop.endTs=p.ts;currentStop.lat=p.lat;currentStop.lng=p.lng;
+        currentStop.points.push(p);
+      }
+    }
+  }
+  if(currentStop&&currentStop.endTs-currentStop.startTs>=stopMs){
+    stops.push(currentStop);
+  }
+
+  // Build trips between consecutive stops
+  const trips=[];
+  for(let i=0;i<stops.length-1;i++){
+    const a=stops[i],b=stops[i+1];
+    // Total distance traveled along path
+    let dist=0;const tripPts=[];
+    for(let j=0;j<positions.length;j++){
+      const p=positions[j];
+      if(p.ts>=a.endTs&&p.ts<=b.startTs)tripPts.push(p);
+    }
+    for(let j=1;j<tripPts.length;j++){
+      dist+=_gpsDist(tripPts[j-1].lat,tripPts[j-1].lng,tripPts[j].lat,tripPts[j].lng);
+    }
+    let maxSpeed=0;
+    tripPts.forEach(p=>{if(p.speed!=null&&p.speed>maxSpeed)maxSpeed=p.speed;});
+    trips.push({
+      id:'trip_'+a.endTs+'_'+b.startTs,
+      vehicleId:vehicleId,
+      date:date,
+      startTs:a.endTs,
+      endTs:b.startTs,
+      startLat:a.lat,startLng:a.lng,
+      endLat:b.lat,endLng:b.lng,
+      startGeofence:_gpsMatchGeofence(a.lat,a.lng),
+      endGeofence:_gpsMatchGeofence(b.lat,b.lng),
+      distanceKm:Math.round(dist/10)/100,
+      durationMin:Math.round((b.startTs-a.endTs)/60000),
+      maxSpeed:Math.round(maxSpeed),
+      stopAfterMin:Math.round((b.endTs-b.startTs)/60000),
+      status:'draft'
+    });
+  }
+  return trips;
+}
+
+// Generate / refresh draft trips for ALL vehicles for a given date
+function regenerateDraftTrips(date){
+  if(!date)date=new Date().toISOString().slice(0,10);
+  const veh=(typeof loadFVeh==='function')?loadFVeh():[];
+  const drafts=loadFleetGpsDraftTrips();
+  // Remove old drafts for this date with status='draft' (keep confirmed ones)
+  const kept=drafts.filter(t=>!(t.date===date&&t.status==='draft'));
+  let added=0;
+  veh.forEach(v=>{
+    const trips=detectTripsFromPositions(v.id,date);
+    trips.forEach(t=>{
+      // Skip if already confirmed (match by id)
+      if(drafts.some(x=>x.id===t.id&&x.status!=='draft'))return;
+      kept.push(t);added++;
+    });
+  });
+  saveFleetGpsDraftTrips(kept);
+  return added;
+}
+
+// ===== Leaflet loader (lazy-load from CDN) =====
+let _leafletLoading=null;
+function _loadLeaflet(){
+  if(window.L)return Promise.resolve(window.L);
+  if(_leafletLoading)return _leafletLoading;
+  _leafletLoading=new Promise((resolve,reject)=>{
+    const css=document.createElement('link');
+    css.rel='stylesheet';
+    css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(css);
+    const s=document.createElement('script');
+    s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    s.onload=()=>resolve(window.L);
+    s.onerror=()=>reject(new Error('Leaflet CDN failed'));
+    document.head.appendChild(s);
+  });
+  return _leafletLoading;
+}
+
+// Default geofences seeded for HydroPro greenhouses (PH/APAC region — Manila approx)
+// Operator can adjust lat/lng/radius in the GPS Config tab once they have real coords.
+const FLEET_DEFAULT_GEOFENCES=[
+  {name:'GH1',lat:null,lng:null,radiusM:200},
+  {name:'GH2',lat:null,lng:null,radiusM:200},
+  {name:'GH3',lat:null,lng:null,radiusM:200},
+  {name:'GH4',lat:null,lng:null,radiusM:200},
+  {name:'GH5',lat:null,lng:null,radiusM:200},
+  {name:'GH6',lat:null,lng:null,radiusM:200},
+  {name:'GH7',lat:null,lng:null,radiusM:200},
+  {name:'GH8',lat:null,lng:null,radiusM:200},
+  {name:'GH9',lat:null,lng:null,radiusM:200},
+  {name:'GH10',lat:null,lng:null,radiusM:200},
+  {name:'PRJ11',lat:null,lng:null,radiusM:200},
+  {name:'PRJ12',lat:null,lng:null,radiusM:200},
+  {name:'GH15',lat:null,lng:null,radiusM:200},
+  {name:'GH16',lat:null,lng:null,radiusM:200},
+  {name:'Main Office',lat:null,lng:null,radiusM:300},
+  {name:'Warehouse',lat:null,lng:null,radiusM:300}
+];
+(function _seedGeofences(){
+  const c=loadFleetGpsConfig();
+  if(!c.geofences||!c.geofences.length){c.geofences=FLEET_DEFAULT_GEOFENCES.slice();saveFleetGpsConfig(c);}
 })();
+
+// =================== LIVE MAP VIEW ===================
+let _liveMap=null,_liveMarkers={};
+function renderFleetLiveMap(){
+  let view=document.getElementById('view-fleet_live_map');
+  if(!view){
+    view=document.createElement('div');view.className='view';view.id='view-fleet_live_map';
+    (document.getElementById('appMain')||document.body).appendChild(view);
+  }
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  view.classList.add('active');
+
+  const positions=loadFleetGpsPositions();
+  const veh=(typeof loadFVeh==='function')?loadFVeh():[];
+  const cfg=loadFleetGpsConfig();
+  const lastByVeh={};
+  veh.forEach(v=>{
+    const arr=positions[v.id]||[];
+    if(arr.length)lastByVeh[v.id]=arr[arr.length-1];
+  });
+  const tracked=Object.keys(lastByVeh).length;
+
+  view.innerHTML=`
+    <div class="section-card">
+      <div class="section-head">
+        <span class="section-title">🗺️ Fleet Live Map</span>
+        <span class="badge ${tracked?'badge-ok':'badge-warn'}">${tracked} of ${veh.length} vehicles tracked</span>
+        <span style="margin-left:auto;display:flex;gap:8px;">
+          <button class="btn btn-outline" onclick="renderFleetLiveMap()" style="padding:6px 12px;font-size:12px;">↻ Refresh</button>
+          <button class="btn btn-outline" onclick="if(typeof switchView==='function')switchView('fleet_gps_ops')" style="padding:6px 12px;font-size:12px;">🎯 Operator Workstation</button>
+          <button class="btn btn-outline" onclick="if(typeof switchView==='function')switchView('fleet_gps_config')" style="padding:6px 12px;font-size:12px;">⚙ Config</button>
+        </span>
+      </div>
+      <div id="liveMapContainer" style="height:500px;width:100%;background:#0a1612;border-radius:8px;border:1px solid var(--border,#1f3a2c);"></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--text3);">
+        <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#4caf50;border-radius:50%;display:inline-block;"></span> Moving</span>
+        <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#ffb300;border-radius:50%;display:inline-block;"></span> Idle &lt; 30 min</span>
+        <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#f44336;border-radius:50%;display:inline-block;"></span> Stopped &gt; 30 min</span>
+        <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#888;border-radius:50%;display:inline-block;"></span> No data</span>
+      </div>
+    </div>
+    <div class="section-card">
+      <div class="section-head"><span class="section-title">Vehicle Roster</span></div>
+      <div class="fleet-table-wrap"><table class="fleet-table"><thead><tr>
+        <th>Vehicle</th><th>Plate</th><th>Last Seen</th><th>Status</th><th>Speed</th><th>Geofence</th><th>Action</th>
+      </tr></thead><tbody>
+        ${veh.map(v=>{
+          const last=lastByVeh[v.id];
+          if(!last)return `<tr><td>${v.name||'—'}</td><td>${v.plate||'—'}</td><td colspan="4" style="color:var(--text3);">— no GPS data —</td><td><button class="btn-mini" onclick="_fleetMapImportFor('${v.id}')">📥 Import</button></td></tr>`;
+          const ageMin=Math.round((Date.now()-last.ts)/60000);
+          const status=last.speed>5?'Moving':(ageMin<30?'Idle':'Stopped');
+          const color=last.speed>5?'#4caf50':(ageMin<30?'#ffb300':'#f44336');
+          const geo=_gpsMatchGeofence(last.lat,last.lng)||'—';
+          return `<tr>
+            <td>${v.name||'—'}</td>
+            <td>${v.plate||'—'}</td>
+            <td>${ageMin<60?ageMin+' min ago':Math.round(ageMin/60)+'h ago'}</td>
+            <td><span style="color:${color};font-weight:700;">● ${status}</span></td>
+            <td>${last.speed!=null?Math.round(last.speed)+' km/h':'—'}</td>
+            <td>${geo}</td>
+            <td><button class="btn-mini" onclick="_fleetMapZoomTo(${last.lat},${last.lng})">🔍 Zoom</button></td>
+          </tr>`;
+        }).join('')}
+      </tbody></table></div>
+    </div>
+  `;
+
+  // Init Leaflet
+  _loadLeaflet().then(L=>{
+    const ctn=document.getElementById('liveMapContainer');
+    if(!ctn)return;
+    if(_liveMap){try{_liveMap.remove();}catch(e){}_liveMap=null;_liveMarkers={};}
+    // Default center: Manila if no positions
+    let center=[14.5995,120.9842],zoom=10;
+    const pts=Object.values(lastByVeh);
+    if(pts.length){
+      const lats=pts.map(p=>p.lat),lngs=pts.map(p=>p.lng);
+      center=[lats.reduce((a,b)=>a+b,0)/lats.length,lngs.reduce((a,b)=>a+b,0)/lngs.length];
+      zoom=pts.length===1?13:11;
+    }
+    _liveMap=L.map(ctn).setView(center,zoom);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      attribution:'© OpenStreetMap',maxZoom:19
+    }).addTo(_liveMap);
+    // Geofence circles
+    cfg.geofences.forEach(g=>{
+      if(g.lat==null||g.lng==null)return;
+      L.circle([Number(g.lat),Number(g.lng)],{
+        radius:Number(g.radiusM)||200,color:'#4caf50',fillOpacity:0.08,weight:1
+      }).bindTooltip(g.name).addTo(_liveMap);
+    });
+    // Vehicle pins
+    veh.forEach(v=>{
+      const last=lastByVeh[v.id];
+      if(!last)return;
+      const ageMin=(Date.now()-last.ts)/60000;
+      const color=last.speed>5?'#4caf50':(ageMin<30?'#ffb300':'#f44336');
+      const icon=L.divIcon({
+        className:'',
+        html:`<div style="width:30px;height:30px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#000;">${(v.name||'?').slice(0,2).toUpperCase()}</div>`,
+        iconSize:[30,30],iconAnchor:[15,15]
+      });
+      const marker=L.marker([last.lat,last.lng],{icon:icon}).addTo(_liveMap);
+      const ageTxt=ageMin<60?Math.round(ageMin)+' min ago':Math.round(ageMin/60)+'h ago';
+      marker.bindPopup(`
+        <div style="min-width:180px;font-family:-apple-system,sans-serif;">
+          <div style="font-weight:700;font-size:13px;margin-bottom:4px;">${v.name||v.plate||v.id}</div>
+          <div style="font-size:11px;color:#666;">${v.plate||''}</div>
+          <hr style="margin:6px 0;border:none;border-top:1px solid #eee;">
+          <div style="font-size:11px;line-height:1.6;">
+            <strong>Last:</strong> ${ageTxt}<br>
+            <strong>Speed:</strong> ${last.speed!=null?Math.round(last.speed)+' km/h':'—'}<br>
+            <strong>Position:</strong> ${last.lat.toFixed(5)}, ${last.lng.toFixed(5)}<br>
+            <strong>Geofence:</strong> ${_gpsMatchGeofence(last.lat,last.lng)||'—'}
+          </div>
+        </div>
+      `);
+      _liveMarkers[v.id]=marker;
+    });
+    setTimeout(()=>{try{_liveMap.invalidateSize();}catch(e){}},200);
+  }).catch(err=>{
+    const ctn=document.getElementById('liveMapContainer');
+    if(ctn)ctn.innerHTML='<div style="padding:20px;color:#f44336;text-align:center;">Map failed to load: '+err.message+'<br>Check your internet connection.</div>';
+  });
+}
+
+window._fleetMapZoomTo=function(lat,lng){
+  if(_liveMap){_liveMap.setView([lat,lng],16);}
+};
+window._fleetMapImportFor=function(vehId){
+  if(typeof switchView==='function')switchView('fleet_gps_config');
+};
+
+// =================== OPERATOR WORKSTATION ===================
+let _opsSelDate=null,_opsMap=null;
+function renderFleetGpsOps(){
+  let view=document.getElementById('view-fleet_gps_ops');
+  if(!view){
+    view=document.createElement('div');view.className='view';view.id='view-fleet_gps_ops';
+    (document.getElementById('appMain')||document.body).appendChild(view);
+  }
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  view.classList.add('active');
+
+  if(!_opsSelDate)_opsSelDate=new Date().toISOString().slice(0,10);
+  const date=_opsSelDate;
+  const drafts=loadFleetGpsDraftTrips().filter(t=>t.date===date);
+  const veh=(typeof loadFVeh==='function')?loadFVeh():[];
+  const vehById={};veh.forEach(v=>{vehById[v.id]=v;});
+
+  const draftCount=drafts.filter(t=>t.status==='draft').length;
+  const confirmedCount=drafts.filter(t=>t.status==='confirmed').length;
+  const rejectedCount=drafts.filter(t=>t.status==='rejected').length;
+
+  view.innerHTML=`
+    <div class="section-card">
+      <div class="section-head">
+        <span class="section-title">🎯 GPS Operator Workstation</span>
+        <span style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+          <label style="font-size:12px;color:var(--text3);">Date:</label>
+          <input type="date" value="${date}" onchange="_opsSelDate=this.value;renderFleetGpsOps();" style="padding:6px;background:#0a1612;border:1px solid #1f3a2c;border-radius:6px;color:#e8eae6;">
+          <button class="btn btn-outline" onclick="_opsRegenDrafts()" style="padding:6px 12px;font-size:12px;">⟲ Re-detect Trips</button>
+          <button class="btn btn-outline" onclick="if(typeof switchView==='function')switchView('fleet_live_map')" style="padding:6px 12px;font-size:12px;">🗺️ Live Map</button>
+        </span>
+      </div>
+      <div style="display:flex;gap:8px;margin:10px 0;">
+        <span class="badge badge-warn">${draftCount} draft</span>
+        <span class="badge badge-ok">${confirmedCount} confirmed</span>
+        <span class="badge">${rejectedCount} rejected</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--text3);">Confirm a trip → it lands in the GPS Daily Report. Reject = ignore (e.g., personal/test).</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch;">
+        <div id="opsMapContainer" style="height:520px;background:#0a1612;border-radius:8px;border:1px solid var(--border,#1f3a2c);"></div>
+        <div style="height:520px;overflow-y:auto;border:1px solid var(--border,#1f3a2c);border-radius:8px;background:#0a1612;padding:10px;">
+          <div style="font-family:var(--mono,monospace);font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">Draft Trips — ${date}</div>
+          ${drafts.length===0?
+            `<div style="padding:30px;text-align:center;color:var(--text3);">
+              <div style="font-size:14px;margin-bottom:10px;">No trips detected for ${date}.</div>
+              <div style="font-size:11px;line-height:1.6;">Either:<br>• Import positions in <strong>GPS Config</strong>, then click <strong>⟲ Re-detect Trips</strong><br>• Use Driver Phone Mode<br>• Or fill manually in <strong>📍 GPS Daily Report</strong></div>
+            </div>`:
+            drafts.sort((a,b)=>a.startTs-b.startTs).map(t=>{
+              const v=vehById[t.vehicleId]||{name:'(unknown)',plate:''};
+              const startT=new Date(t.startTs).toTimeString().slice(0,5);
+              const endT=new Date(t.endTs).toTimeString().slice(0,5);
+              const stColor=t.status==='draft'?'#ffb300':(t.status==='confirmed'?'#4caf50':'#888');
+              const stIcon=t.status==='draft'?'●':(t.status==='confirmed'?'✓':'✗');
+              return `<div style="border-left:3px solid ${stColor};padding:10px 12px;margin-bottom:8px;background:#13201a;border-radius:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                  <div><strong>${v.name||v.plate||t.vehicleId}</strong> <span style="color:var(--text3);font-size:11px;">${startT} → ${endT}</span></div>
+                  <span style="color:${stColor};font-weight:700;">${stIcon} ${t.status}</span>
+                </div>
+                <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:6px;">
+                  <strong>From:</strong> ${t.startGeofence||t.startLat.toFixed(4)+', '+t.startLng.toFixed(4)} →
+                  <strong>To:</strong> ${t.endGeofence||t.endLat.toFixed(4)+', '+t.endLng.toFixed(4)}<br>
+                  <strong>${t.distanceKm} km</strong> · ${t.durationMin} min · max ${t.maxSpeed} km/h
+                </div>
+                ${t.status==='draft'?`<div style="display:flex;gap:6px;">
+                  <button class="btn-mini" style="background:#4caf50;color:#000;font-weight:700;" onclick="_opsConfirmTrip('${t.id}')">✓ Confirm → Daily Report</button>
+                  <button class="btn-mini" onclick="_opsEditTrip('${t.id}')">✎ Edit</button>
+                  <button class="btn-mini danger" onclick="_opsRejectTrip('${t.id}')">✗ Reject</button>
+                </div>`:''}
+                ${t.status==='confirmed'?`<div style="font-size:10px;color:var(--text3);">Confirmed by ${t.operator||'operator'} · ${t.confirmedAt||''}</div>`:''}
+              </div>`;
+            }).join('')
+          }
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Init the ops map
+  _loadLeaflet().then(L=>{
+    const ctn=document.getElementById('opsMapContainer');
+    if(!ctn)return;
+    if(_opsMap){try{_opsMap.remove();}catch(e){}_opsMap=null;}
+    _opsMap=L.map(ctn).setView([14.5995,120.9842],10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      attribution:'© OpenStreetMap',maxZoom:19
+    }).addTo(_opsMap);
+    // Plot draft trip lines
+    const positions=loadFleetGpsPositions();
+    const allPts=[];
+    drafts.forEach(t=>{
+      const arr=(positions[t.vehicleId]||[]).filter(p=>p.ts>=t.startTs&&p.ts<=t.endTs);
+      if(arr.length>=2){
+        const path=arr.map(p=>[p.lat,p.lng]);
+        const col=t.status==='confirmed'?'#4caf50':(t.status==='draft'?'#ffb300':'#888');
+        L.polyline(path,{color:col,weight:3,opacity:0.7}).addTo(_opsMap);
+        allPts.push(...path);
+      }
+      L.circleMarker([t.startLat,t.startLng],{radius:6,color:'#4caf50',fillOpacity:1}).addTo(_opsMap).bindTooltip('Start: '+(t.startGeofence||''));
+      L.circleMarker([t.endLat,t.endLng],{radius:6,color:'#f44336',fillOpacity:1}).addTo(_opsMap).bindTooltip('End: '+(t.endGeofence||''));
+    });
+    if(allPts.length){
+      try{_opsMap.fitBounds(allPts,{padding:[20,20]});}catch(e){}
+    }
+    setTimeout(()=>{try{_opsMap.invalidateSize();}catch(e){}},200);
+  });
+}
+
+window._opsRegenDrafts=function(){
+  const n=regenerateDraftTrips(_opsSelDate);
+  _toast&&_toast(n+' trips detected','ok');
+  renderFleetGpsOps();
+};
+window._opsRejectTrip=function(id){
+  const drafts=loadFleetGpsDraftTrips();
+  const t=drafts.find(x=>x.id===id);if(!t)return;
+  t.status='rejected';t.rejectedAt=new Date().toISOString();
+  saveFleetGpsDraftTrips(drafts);renderFleetGpsOps();
+};
+window._opsEditTrip=function(id){
+  const drafts=loadFleetGpsDraftTrips();
+  const t=drafts.find(x=>x.id===id);if(!t)return;
+  const purpose=prompt('Trip purpose / cargo / notes:',t.purpose||'');
+  if(purpose==null)return;
+  t.purpose=purpose;
+  saveFleetGpsDraftTrips(drafts);renderFleetGpsOps();
+};
+window._opsConfirmTrip=function(id){
+  const drafts=loadFleetGpsDraftTrips();
+  const t=drafts.find(x=>x.id===id);if(!t)return;
+  // Push to GPS Daily Report
+  if(typeof getGpsReport==='function'){
+    const r=getGpsReport(t.date,t.vehicleId,true);
+    const startT=new Date(t.startTs).toTimeString().slice(0,8);
+    const endT=new Date(t.endTs).toTimeString().slice(0,8);
+    if(!r.stops)r.stops=[];
+    // First stop = origin (only add once per day per vehicle)
+    if(r.stops.length===0&&t.startGeofence){
+      r.stops.push({location:t.startGeofence,timeIn:'',timeOut:startT,km:null,purpose:'Day start'});
+    }
+    r.stops.push({
+      location:t.endGeofence||(t.endLat.toFixed(4)+', '+t.endLng.toFixed(4)),
+      timeIn:endT,
+      timeOut:'',
+      km:null,
+      purpose:t.purpose||''
+    });
+    if(typeof loadGpsReports==='function'&&typeof saveGpsReports==='function'){
+      const all=loadGpsReports();
+      all[_gpsKey(t.date,t.vehicleId)]=r;
+      saveGpsReports(all);
+    }
+  }
+  t.status='confirmed';
+  t.confirmedAt=new Date().toLocaleString();
+  t.operator=(typeof getCurrentUser==='function'?(getCurrentUser()||{}).name:'')||'operator';
+  saveFleetGpsDraftTrips(drafts);
+  _toast&&_toast('Trip → Daily Report ✓','ok');
+  renderFleetGpsOps();
+};
+
+// =================== GPS CONFIG ===================
+function renderFleetGpsConfig(){
+  let view=document.getElementById('view-fleet_gps_config');
+  if(!view){
+    view=document.createElement('div');view.className='view';view.id='view-fleet_gps_config';
+    (document.getElementById('appMain')||document.body).appendChild(view);
+  }
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  view.classList.add('active');
+  const cfg=loadFleetGpsConfig();
+  const positions=loadFleetGpsPositions();
+  const veh=(typeof loadFVeh==='function')?loadFVeh():[];
+  const totalPts=Object.values(positions).reduce((s,a)=>s+(a||[]).length,0);
+
+  view.innerHTML=`
+    <div class="section-card">
+      <div class="section-head">
+        <span class="section-title">⚙ GPS Configuration</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--text3);">${totalPts} positions stored across ${Object.keys(positions).length} vehicles</span>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <div style="font-family:var(--mono,monospace);font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Position Source</div>
+        <select id="gpsSource" onchange="_gpsCfgSet('source',this.value)" style="width:100%;padding:8px;background:#0a1612;border:1px solid #1f3a2c;border-radius:6px;color:#e8eae6;">
+          <option value="gps18_manual" ${cfg.source==='gps18_manual'?'selected':''}>GPS18 — Manual import (paste / Excel)</option>
+          <option value="driver_phone" ${cfg.source==='driver_phone'?'selected':''}>Driver Phone Mode (drivers broadcast from their phone)</option>
+          <option value="traccar" ${cfg.source==='traccar'?'selected':''}>Traccar API (live polling, CORS-friendly)</option>
+          <option value="csv" ${cfg.source==='csv'?'selected':''}>Generic CSV upload</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom:16px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div>
+          <div style="font-family:var(--mono,monospace);font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Polling interval</div>
+          <input type="number" min="10" max="600" value="${cfg.pollingSec}" onchange="_gpsCfgSet('pollingSec',Number(this.value))" style="width:100%;padding:8px;background:#0a1612;border:1px solid #1f3a2c;border-radius:6px;color:#e8eae6;"> <span style="font-size:11px;color:var(--text3);">seconds</span>
+        </div>
+        <div>
+          <div style="font-family:var(--mono,monospace);font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Stop threshold (trip break)</div>
+          <input type="number" min="1" max="120" value="${cfg.stopThresholdMin}" onchange="_gpsCfgSet('stopThresholdMin',Number(this.value))" style="width:100%;padding:8px;background:#0a1612;border:1px solid #1f3a2c;border-radius:6px;color:#e8eae6;"> <span style="font-size:11px;color:var(--text3);">minutes</span>
+        </div>
+        <div>
+          <div style="font-family:var(--mono,monospace);font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Auto-detect trips</div>
+          <label style="display:flex;align-items:center;gap:6px;padding:8px;cursor:pointer;"><input type="checkbox" ${cfg.autoDetectTrips?'checked':''} onchange="_gpsCfgSet('autoDetectTrips',this.checked)"> Generate drafts hourly</label>
+        </div>
+      </div>
+
+      <div id="gpsSourceDetail" style="background:#13201a;border:1px solid #1f3a2c;border-radius:8px;padding:14px;margin-bottom:16px;"></div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-head">
+        <span class="section-title">📍 Geofences</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--text3);">Trips entering/leaving these areas auto-tag with the geofence name</span>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Enter coordinates for each greenhouse / project / facility. Operator can also click on the Live Map to capture coordinates.</div>
+      <div class="fleet-table-wrap"><table class="fleet-table"><thead><tr>
+        <th>Name</th><th>Latitude</th><th>Longitude</th><th>Radius (m)</th><th></th>
+      </tr></thead><tbody>
+        ${cfg.geofences.map((g,i)=>`<tr>
+          <td><input value="${g.name||''}" onchange="_gpsGeoEdit(${i},'name',this.value)" style="width:100%;padding:4px;background:transparent;border:1px solid #1f3a2c;color:#e8eae6;"></td>
+          <td><input value="${g.lat||''}" placeholder="e.g. 14.5995" onchange="_gpsGeoEdit(${i},'lat',this.value)" style="width:100%;padding:4px;background:transparent;border:1px solid #1f3a2c;color:#e8eae6;"></td>
+          <td><input value="${g.lng||''}" placeholder="e.g. 120.9842" onchange="_gpsGeoEdit(${i},'lng',this.value)" style="width:100%;padding:4px;background:transparent;border:1px solid #1f3a2c;color:#e8eae6;"></td>
+          <td><input type="number" value="${g.radiusM||200}" onchange="_gpsGeoEdit(${i},'radiusM',Number(this.value))" style="width:80px;padding:4px;background:transparent;border:1px solid #1f3a2c;color:#e8eae6;"></td>
+          <td><button class="btn-mini danger" onclick="_gpsGeoDel(${i})">🗑</button></td>
+        </tr>`).join('')}
+      </tbody></table></div>
+      <div style="margin-top:8px;">
+        <button class="btn btn-outline" onclick="_gpsGeoAdd()" style="padding:6px 12px;font-size:12px;">+ Add geofence</button>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-head"><span class="section-title">🗑 Data Maintenance</span></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-outline" onclick="_gpsClearOldPositions()" style="padding:6px 12px;font-size:12px;">Clear positions &gt; 7 days old</button>
+        <button class="btn btn-outline" onclick="_gpsClearAll()" style="padding:6px 12px;font-size:12px;color:#f44336;">Clear ALL position data</button>
+        <button class="btn btn-outline" onclick="_gpsExportPositions()" style="padding:6px 12px;font-size:12px;">📊 Export all positions (CSV)</button>
+      </div>
+    </div>
+  `;
+  _renderGpsSourceDetail();
+}
+
+function _renderGpsSourceDetail(){
+  const cfg=loadFleetGpsConfig();
+  const el=document.getElementById('gpsSourceDetail');if(!el)return;
+  if(cfg.source==='gps18_manual'){
+    el.innerHTML=`
+      <div style="font-weight:700;margin-bottom:6px;">GPS18 Manual Import</div>
+      <div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:10px;">
+        Browser CORS prevents HydroPro from logging into <a href="https://en.gps18.com" target="_blank" style="color:#4caf50;">en.gps18.com</a> directly.
+        The operator should:
+        <ol style="margin:8px 0 8px 20px;line-height:1.7;">
+          <li>Log into gps18.com</li>
+          <li>Go to <strong>Reports → Trip Detail</strong> or <strong>Position History</strong></li>
+          <li>Export positions to Excel/CSV (most portals have an export button)</li>
+          <li>Drop the file below — HydroPro will detect the format and import</li>
+        </ol>
+        For true live polling, deploy the <strong>Cloudflare Worker relay</strong> (template below).
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input type="file" id="gpsCfgImportFile" accept=".csv,.xlsx,.xls,.txt" style="font-size:12px;">
+        <select id="gpsImportVehicle" style="padding:6px;background:#0a1612;border:1px solid #1f3a2c;border-radius:6px;color:#e8eae6;font-size:12px;">
+          <option value="">— Auto-detect by plate —</option>
+          ${(typeof loadFVeh==='function'?loadFVeh():[]).map(v=>`<option value="${v.id}">${v.name||v.plate}</option>`).join('')}
+        </select>
+        <button class="btn btn-outline" onclick="_gpsImportFile()" style="padding:6px 12px;font-size:12px;">📥 Import positions</button>
+        <button class="btn btn-outline" onclick="_gpsPasteImport()" style="padding:6px 12px;font-size:12px;">📋 Paste from clipboard</button>
+      </div>
+      <details style="margin-top:14px;">
+        <summary style="cursor:pointer;font-size:12px;color:#4caf50;">Show Cloudflare Worker relay template (free, 5 min setup)</summary>
+        <pre style="background:#0a1612;border:1px solid #1f3a2c;border-radius:6px;padding:10px;font-size:11px;overflow-x:auto;margin-top:8px;color:#aab2a8;">
+// Deploy at workers.cloudflare.com (free tier)
+// Set env vars: GPS18_USER, GPS18_PASS
+export default {
+  async fetch(request, env) {
+    // 1. Login to gps18 (returns session cookie)
+    const login = await fetch('https://en.gps18.com/api/login', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({user:env.GPS18_USER, pass:env.GPS18_PASS})
+    });
+    const cookie = login.headers.get('set-cookie');
+    // 2. Fetch positions
+    const pos = await fetch('https://en.gps18.com/api/devices/positions', {
+      headers:{'Cookie':cookie}
+    });
+    const data = await pos.json();
+    // 3. Return with CORS
+    return new Response(JSON.stringify(data), {
+      headers:{
+        'Content-Type':'application/json',
+        'Access-Control-Allow-Origin':'*'
+      }
+    });
+  }
+};</pre>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px;">Once deployed, paste the worker URL into the Traccar URL field below and switch source to Traccar.</div>
+      </details>
+    `;
+  }else if(cfg.source==='driver_phone'){
+    const baseUrl=window.location.href.split('#')[0].split('?')[0].replace(/[^/]*$/,'');
+    el.innerHTML=`
+      <div style="font-weight:700;margin-bottom:6px;">Driver Phone Mode</div>
+      <div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:10px;">
+        Each driver opens a personalized HydroPro link on their phone. The page asks for location permission once, then broadcasts position every ${cfg.pollingSec}s while the tab is open.
+        <strong>Limitation:</strong> Without a backend, the driver's phone and the operator's desktop need a shared sync channel (cloud localStorage or a Cloudflare Worker relay).
+        <br><br>For a pure no-backend version, use this for drivers who use the same phone/laptop as their primary HydroPro device (e.g., supervisor on patrol).
+      </div>
+      <div style="font-family:var(--mono,monospace);font-size:11px;background:#0a1612;border:1px solid #1f3a2c;border-radius:6px;padding:10px;line-height:1.7;">
+        Driver link template:<br>
+        <span style="color:#4caf50;">${baseUrl}driver.html?vehicleId=&lt;ID&gt;&amp;driver=&lt;name&gt;</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+        ${(typeof loadFVeh==='function'?loadFVeh():[]).map(v=>{
+          const url=baseUrl+'driver.html?vehicleId='+encodeURIComponent(v.id)+'&driver='+encodeURIComponent(v.driverId||'');
+          return `<button class="btn-mini" onclick="navigator.clipboard.writeText('${url}').then(()=>_toast&&_toast('Link copied','ok'))">📋 ${v.name||v.plate}</button>`;
+        }).join('')}
+      </div>
+    `;
+  }else if(cfg.source==='traccar'){
+    el.innerHTML=`
+      <div style="font-weight:700;margin-bottom:6px;">Traccar API</div>
+      <div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:10px;">
+        Traccar (<a href="https://www.traccar.org" target="_blank" style="color:#4caf50;">traccar.org</a>) is free open-source GPS tracking software. Most hardware trackers (Coban, GT06, Concox, Teltonika) speak its protocol. Self-host or use traccar.org cloud.
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+        <div>
+          <label style="font-size:11px;color:var(--text3);">Server URL</label>
+          <input type="text" id="traccarUrl" value="${cfg.traccarUrl||''}" placeholder="https://demo.traccar.org/api" style="width:100%;padding:8px;background:#0a1612;border:1px solid #1f3a2c;border-radius:6px;color:#e8eae6;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text3);">Token (Generate in Traccar → Account → Token)</label>
+          <input type="password" id="traccarToken" value="${cfg.traccarToken||''}" style="width:100%;padding:8px;background:#0a1612;border:1px solid #1f3a2c;border-radius:6px;color:#e8eae6;">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-outline" onclick="_gpsTraccarSave()" style="padding:6px 12px;font-size:12px;">💾 Save</button>
+        <button class="btn btn-outline" onclick="_gpsTraccarTest()" style="padding:6px 12px;font-size:12px;">🔌 Test connection</button>
+        <button class="btn btn-outline" onclick="_gpsTraccarStartPoll()" style="padding:6px 12px;font-size:12px;color:#4caf50;">▶ Start live polling</button>
+        <button class="btn btn-outline" onclick="_gpsTraccarStopPoll()" style="padding:6px 12px;font-size:12px;color:#f44336;">■ Stop polling</button>
+      </div>
+      <div id="traccarStatus" style="margin-top:10px;font-size:11px;color:var(--text3);"></div>
+    `;
+  }else{
+    el.innerHTML=`
+      <div style="font-weight:700;margin-bottom:6px;">Generic CSV Import</div>
+      <div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:10px;">
+        Required columns (first row = header): <code>plate,timestamp,lat,lng</code> · optional: <code>speed,heading,ignition</code>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="file" id="gpsImportFile" accept=".csv,.txt" style="font-size:12px;">
+        <button class="btn btn-outline" onclick="_gpsImportFile()" style="padding:6px 12px;font-size:12px;">📥 Import</button>
+      </div>
+    `;
+  }
+}
+
+window._gpsCfgSet=function(key,val){
+  const c=loadFleetGpsConfig();c[key]=val;saveFleetGpsConfig(c);
+  if(key==='source')_renderGpsSourceDetail();
+};
+window._gpsGeoEdit=function(i,key,val){
+  const c=loadFleetGpsConfig();
+  if(!c.geofences[i])return;
+  if(key==='lat'||key==='lng')val=val===''?null:Number(val);
+  c.geofences[i][key]=val;saveFleetGpsConfig(c);
+};
+window._gpsGeoAdd=function(){
+  const c=loadFleetGpsConfig();
+  c.geofences.push({name:'New site',lat:null,lng:null,radiusM:200});
+  saveFleetGpsConfig(c);renderFleetGpsConfig();
+};
+window._gpsGeoDel=function(i){
+  if(!confirm('Delete this geofence?'))return;
+  const c=loadFleetGpsConfig();c.geofences.splice(i,1);saveFleetGpsConfig(c);renderFleetGpsConfig();
+};
+window._gpsClearOldPositions=function(){
+  if(!confirm('Delete all positions older than 7 days?'))return;
+  const all=loadFleetGpsPositions();
+  const cutoff=Date.now()-7*86400000;
+  Object.keys(all).forEach(k=>{all[k]=(all[k]||[]).filter(p=>p.ts>=cutoff);});
+  saveFleetGpsPositions(all);renderFleetGpsConfig();
+  _toast&&_toast('Old positions cleared','ok');
+};
+window._gpsClearAll=function(){
+  if(!confirm('CLEAR ALL position data and draft trips? This cannot be undone.'))return;
+  localStorage.removeItem(FLEET_GPS_POSITIONS_KEY);
+  localStorage.removeItem(FLEET_GPS_DRAFT_TRIPS_KEY);
+  renderFleetGpsConfig();
+  _toast&&_toast('All GPS data cleared','warn');
+};
+window._gpsExportPositions=function(){
+  const all=loadFleetGpsPositions();
+  const veh=(typeof loadFVeh==='function')?loadFVeh():[];
+  const vById={};veh.forEach(v=>{vById[v.id]=v;});
+  let csv='vehicle,plate,timestamp,lat,lng,speed,heading,source\n';
+  Object.keys(all).forEach(vid=>{
+    const v=vById[vid]||{name:vid,plate:''};
+    (all[vid]||[]).forEach(p=>{
+      csv+=[v.name||vid,v.plate||'',new Date(p.ts).toISOString(),p.lat,p.lng,p.speed||'',p.heading||'',p.source||''].map(x=>'"'+String(x).replace(/"/g,'""')+'"').join(',')+'\n';
+    });
+  });
+  const blob=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='hydropro-gps-positions-'+new Date().toISOString().slice(0,10)+'.csv';a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+// ===== File / paste import =====
+function _parseGpsCsvText(text){
+  // Detect separator: tab, comma, semicolon
+  const firstLine=text.split(/\r?\n/)[0]||'';
+  const sep=firstLine.includes('\t')?'\t':(firstLine.includes(';')?';':',');
+  const lines=text.split(/\r?\n/).filter(l=>l.trim());
+  if(lines.length<2)return[];
+  const header=lines[0].split(sep).map(h=>h.trim().toLowerCase().replace(/[^a-z0-9]/g,''));
+  // Map header variations
+  const colMap={};
+  header.forEach((h,i)=>{
+    if(['plate','license','licenseplate','vehicle','device','imei','platenumber'].includes(h))colMap.plate=i;
+    else if(['timestamp','time','datetime','dateTime','date','positiontime','fixtime','gpstime'].includes(h))colMap.ts=i;
+    else if(['lat','latitude'].includes(h))colMap.lat=i;
+    else if(['lng','lon','long','longitude'].includes(h))colMap.lng=i;
+    else if(['speed','speedkmh','velocity'].includes(h))colMap.speed=i;
+    else if(['heading','course','bearing','direction'].includes(h))colMap.heading=i;
+    else if(['ignition','acc','engine'].includes(h))colMap.ignition=i;
+  });
+  const rows=[];
+  for(let i=1;i<lines.length;i++){
+    const cells=lines[i].split(sep);
+    const tsRaw=colMap.ts!=null?cells[colMap.ts]:'';
+    let ts=Date.parse(tsRaw);
+    if(isNaN(ts)){
+      // Try DD/MM/YYYY HH:MM:SS
+      const m=/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(tsRaw);
+      if(m){
+        const yr=Number(m[3])<100?2000+Number(m[3]):Number(m[3]);
+        ts=new Date(yr,Number(m[2])-1,Number(m[1]),Number(m[4]),Number(m[5]),Number(m[6]||0)).getTime();
+      }
+    }
+    if(isNaN(ts))continue;
+    const lat=Number(cells[colMap.lat]),lng=Number(cells[colMap.lng]);
+    if(isNaN(lat)||isNaN(lng))continue;
+    rows.push({
+      plate:colMap.plate!=null?cells[colMap.plate].trim():'',
+      ts:ts,lat:lat,lng:lng,
+      speed:colMap.speed!=null?Number(cells[colMap.speed])||null:null,
+      heading:colMap.heading!=null?Number(cells[colMap.heading])||null:null,
+      ignition:colMap.ignition!=null?(/^(on|true|1|yes)$/i.test((cells[colMap.ignition]||'').trim())):false
+    });
+  }
+  return rows;
+}
+
+function _ingestGpsRows(rows,defaultVehicleId){
+  const veh=(typeof loadFVeh==='function')?loadFVeh():[];
+  const byPlate={};veh.forEach(v=>{byPlate[(v.plate||'').toLowerCase().replace(/\s/g,'')]=v.id;});
+  let imported=0,skipped=0;
+  const all=loadFleetGpsPositions();
+  rows.forEach(r=>{
+    let vid=defaultVehicleId;
+    if(!vid&&r.plate){
+      const k=r.plate.toLowerCase().replace(/\s/g,'');
+      vid=byPlate[k];
+    }
+    if(!vid){skipped++;return;}
+    if(!all[vid])all[vid]=[];
+    all[vid].push({
+      ts:r.ts,lat:r.lat,lng:r.lng,
+      speed:r.speed,heading:r.heading,ignition:r.ignition,
+      source:'import'
+    });
+    imported++;
+  });
+  // Sort each vehicle's stream
+  Object.keys(all).forEach(k=>{all[k].sort((a,b)=>a.ts-b.ts);});
+  saveFleetGpsPositions(all);
+  return{imported,skipped};
+}
+
+window._gpsImportFile=function(){
+  const f=document.getElementById('gpsCfgImportFile');
+  if(!f||!f.files||!f.files[0]){_toast&&_toast('Pick a file first','warn');return;}
+  const file=f.files[0];
+  const vehSel=document.getElementById('gpsImportVehicle');
+  const defaultVid=vehSel?vehSel.value||'':'';
+  const reader=new FileReader();
+  if(/\.(xlsx|xls)$/i.test(file.name)&&typeof XLSX!=='undefined'){
+    reader.onload=e=>{
+      try{
+        const wb=XLSX.read(e.target.result,{type:'array'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const csv=XLSX.utils.sheet_to_csv(ws);
+        const rows=_parseGpsCsvText(csv);
+        const r=_ingestGpsRows(rows,defaultVid);
+        _toast&&_toast('Imported '+r.imported+' positions ('+r.skipped+' skipped)','ok');
+        renderFleetGpsConfig();
+      }catch(err){_toast&&_toast('Excel parse error: '+err.message,'warn');}
+    };
+    reader.readAsArrayBuffer(file);
+  }else{
+    reader.onload=e=>{
+      const rows=_parseGpsCsvText(e.target.result);
+      const r=_ingestGpsRows(rows,defaultVid);
+      _toast&&_toast('Imported '+r.imported+' positions ('+r.skipped+' skipped)','ok');
+      renderFleetGpsConfig();
+    };
+    reader.readAsText(file);
+  }
+};
+
+window._gpsPasteImport=function(){
+  const txt=prompt('Paste GPS positions (CSV, TSV, or plain text with columns: plate, timestamp, lat, lng):');
+  if(!txt)return;
+  const vehSel=document.getElementById('gpsImportVehicle');
+  const defaultVid=vehSel?vehSel.value||'':'';
+  const rows=_parseGpsCsvText(txt);
+  const r=_ingestGpsRows(rows,defaultVid);
+  _toast&&_toast('Imported '+r.imported+' positions ('+r.skipped+' skipped)','ok');
+  renderFleetGpsConfig();
+};
+
+// ===== Traccar API =====
+window._gpsTraccarSave=function(){
+  const c=loadFleetGpsConfig();
+  c.traccarUrl=(document.getElementById('traccarUrl')||{}).value||'';
+  c.traccarToken=(document.getElementById('traccarToken')||{}).value||'';
+  saveFleetGpsConfig(c);
+  _toast&&_toast('Saved','ok');
+};
+window._gpsTraccarTest=async function(){
+  const c=loadFleetGpsConfig();
+  if(!c.traccarUrl){_toast&&_toast('Set Traccar URL first','warn');return;}
+  const url=c.traccarUrl.replace(/\/$/,'')+'/devices';
+  const status=document.getElementById('traccarStatus');
+  if(status)status.textContent='Testing…';
+  try{
+    const r=await fetch(url,{headers:{'Authorization':'Bearer '+c.traccarToken}});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const data=await r.json();
+    if(status)status.innerHTML='<span style="color:#4caf50;">✓ Connected — '+data.length+' devices found</span>';
+  }catch(e){
+    if(status)status.innerHTML='<span style="color:#f44336;">✗ '+e.message+'</span>';
+  }
+};
+let _traccarPollHandle=null;
+window._gpsTraccarStartPoll=function(){
+  const c=loadFleetGpsConfig();
+  if(!c.traccarUrl){_toast&&_toast('Set Traccar URL first','warn');return;}
+  if(_traccarPollHandle){clearInterval(_traccarPollHandle);}
+  const tick=async()=>{
+    try{
+      const r=await fetch(c.traccarUrl.replace(/\/$/,'')+'/positions',{headers:{'Authorization':'Bearer '+c.traccarToken}});
+      if(!r.ok)return;
+      const positions=await r.json();
+      const veh=(typeof loadFVeh==='function')?loadFVeh():[];
+      const all=loadFleetGpsPositions();
+      positions.forEach(p=>{
+        // Match by deviceId — assume vehicle.gpsDeviceId is set
+        const v=veh.find(x=>x.gpsDeviceId==p.deviceId||x.id==p.deviceId);
+        if(!v)return;
+        if(!all[v.id])all[v.id]=[];
+        all[v.id].push({
+          ts:new Date(p.fixTime||p.deviceTime).getTime(),
+          lat:p.latitude,lng:p.longitude,
+          speed:p.speed*1.852,heading:p.course,
+          ignition:p.attributes&&p.attributes.ignition,
+          source:'traccar'
+        });
+      });
+      saveFleetGpsPositions(all);
+    }catch(e){console.warn('Traccar poll failed',e);}
+  };
+  tick();
+  _traccarPollHandle=setInterval(tick,(c.pollingSec||60)*1000);
+  _toast&&_toast('Live polling started','ok');
+  const status=document.getElementById('traccarStatus');
+  if(status)status.innerHTML='<span style="color:#4caf50;">▶ Polling every '+(c.pollingSec||60)+'s</span>';
+};
+window._gpsTraccarStopPoll=function(){
+  if(_traccarPollHandle){clearInterval(_traccarPollHandle);_traccarPollHandle=null;}
+  _toast&&_toast('Polling stopped','warn');
+  const status=document.getElementById('traccarStatus');
+  if(status)status.innerHTML='<span style="color:var(--text3);">■ Stopped</span>';
+};
+
+// =================== HOOK INTO FLEET MODULE ===================
+(function _registerFleetGpsViews(){
+  setTimeout(()=>{
+    if(typeof EXTRA_SUBTABS!=='undefined'&&EXTRA_SUBTABS.logistics){
+      // Insert live map + ops + config tabs right after fleet_gps
+      const arr=EXTRA_SUBTABS.logistics;
+      const gpsIdx=arr.findIndex(x=>x.id==='fleet_gps');
+      const newTabs=[
+        {id:'fleet_live_map',  label:'🗺️ Live Map'},
+        {id:'fleet_gps_ops',   label:'🎯 GPS Operator'},
+        {id:'fleet_gps_config',label:'⚙ GPS Config'}
+      ];
+      // Avoid duplicates
+      newTabs.forEach(t=>{
+        if(!arr.some(x=>x.id===t.id)){
+          if(gpsIdx>=0)arr.splice(gpsIdx+1,0,t);
+          else arr.push(t);
+        }
+      });
+    }
+    if(typeof VIEW_TO_MODULE!=='undefined'){
+      VIEW_TO_MODULE.fleet_live_map='logistics';
+      VIEW_TO_MODULE.fleet_gps_ops='logistics';
+      VIEW_TO_MODULE.fleet_gps_config='logistics';
+    }
+  },500);
+})();
+
+// Hook switchView dispatcher
+(function _hookFleetGpsSwitch(){
+  setTimeout(()=>{
+    if(typeof window.switchView!=='function')return;
+    const orig=window.switchView;
+    if(orig.__fleetGpsHooked)return;
+    window.switchView=function(v){
+      const r=orig.apply(this,arguments);
+      if(v==='fleet_live_map')setTimeout(renderFleetLiveMap,80);
+      else if(v==='fleet_gps_ops')setTimeout(renderFleetGpsOps,80);
+      else if(v==='fleet_gps_config')setTimeout(renderFleetGpsConfig,80);
+      return r;
+    };
+    window.switchView.__fleetGpsHooked=true;
+  },800);
+})();
+
+// Listen for driver phone broadcasts via BroadcastChannel (same-browser, cross-tab)
+(function _listenDriverBroadcast(){
+  try{
+    const bc=new BroadcastChannel('hydroPro_gps');
+    bc.onmessage=ev=>{
+      if(!ev.data||ev.data.type!=='position'||!ev.data.pos)return;
+      const p=ev.data.pos;
+      if(!p.vehicleId||p.lat==null||p.lng==null)return;
+      addFleetGpsPosition(p.vehicleId,{
+        ts:p.ts,lat:p.lat,lng:p.lng,speed:p.speed,heading:p.heading,
+        ignition:p.speed>1,source:'driver_phone'
+      });
+      // If live map is currently visible, auto-refresh
+      const liveView=document.getElementById('view-fleet_live_map');
+      if(liveView&&liveView.classList.contains('active')){
+        if(typeof renderFleetLiveMap==='function')renderFleetLiveMap();
+      }
+    };
+  }catch(e){/* BroadcastChannel not supported */}
+})();
+
+// Auto-detect drafts hourly if enabled
+setInterval(()=>{
+  const c=loadFleetGpsConfig();
+  if(c.autoDetectTrips){
+    try{regenerateDraftTrips(new Date().toISOString().slice(0,10));}catch(e){}
+  }
+},60*60*1000);
+
+// =================== HISTORICAL GPS REPORTS — BOOTSTRAP DATA ===================
+// Parsed from the user's actual uploaded GPS reports (April 24 + 27, 2026).
+// On first run, app shows a banner offering to import these into hydroPro_gps_reports.
+const GPS_HISTORICAL_BOOTSTRAP=`[{"date":"2026-04-27","reports":[{"vehicleName":"ISUZU TRUCK TRAVIS NEQ 4101 (KADJO & SHERNAN)","plate":"NEQ-4101","date":"2026-04-27","stops":[{"location":"APAC","timeIn":"","timeOut":"05:47:58","km":null,"note":""},{"location":"SHANG FORT","timeIn":"06:30:30","timeOut":"07:38:30","km":31.8,"note":""},{"location":"CONRAD","timeIn":"08:06:01","timeOut":"08:43:30","km":38.2,"note":""},{"location":"SHERATON","timeIn":"09:05:32","timeOut":"09:49:01","km":43.6,"note":""},{"location":"CRIMSON","timeIn":"10:07:32","timeOut":"10:40:32","km":59.5,"note":""},{"location":"CARMONA EATERY","timeIn":"11:07:32","timeOut":"11:45:16","km":85.8,"note":""},{"location":"MAX'S","timeIn":"11:45:46","timeOut":"12:51:17","km":85.9,"note":""},{"location":"APAC","timeIn":"13:23:18","timeOut":"16:10:51","km":112.1,"note":""},{"location":"PETRON","timeIn":"16:16:50","timeOut":"16:34:00","km":null,"note":""},{"location":"APAC","timeIn":"16:40:21","timeOut":"","km":null,"note":""}],"odoOut":107310,"odoIn":107412,"perLiter":96.8,"fillUpLiters":19.345,"dashCam":"WORKING","generalNote":""},{"vehicleName":"TRUCK ISUZU TRAVIS NIF 6891 (JERRY & JESSIE)","plate":"NIF-6891","date":"2026-04-27","stops":[{"location":"APAC","timeIn":"","timeOut":"05:45:23","km":null,"note":""},{"location":"Drahniel's Carinderia","timeIn":"05:51:23","timeOut":"06:02:53","km":0.26,"note":""},{"location":"EDSA SHANG","timeIn":"06:41:54","timeOut":"07:52:56","km":54.2,"note":""},{"location":"NOVOTEL","timeIn":"08:04:26","timeOut":"08:33:27","km":58.4,"note":""},{"location":"IBIS","timeIn":"08:38:57","timeOut":"09:13:58","km":58.6,"note":""},{"location":"BROTZEIT PODIUM","timeIn":"09:31:28","timeOut":"09:52:28","km":62.4,"note":""},{"location":"BROTZEIT BGC","timeIn":"10:06:58","timeOut":"10:12:00","km":67.3,"note":""},{"location":"APAC","timeIn":"11:03:00","timeOut":"13:45:14","km":92.3,"note":""},{"location":"SOUTH SUPERMARKET","timeIn":"14:08:44","timeOut":"14:43:45","km":134.3,"note":""},{"location":"MA'AM GINA","timeIn":"15:01:16","timeOut":"15:15:16","km":140.7,"note":""},{"location":"APAC","timeIn":"15:37:17","timeOut":"16:09:16","km":156.2,"note":""},{"location":"PETRON","timeIn":"16:13:32","timeOut":"16:21:47","km":null,"note":""},{"location":"APAC","timeIn":"16:28:47","timeOut":"","km":null,"note":""}],"odoOut":72041,"odoIn":72120,"perLiter":96.8,"fillUpLiters":17.08,"dashCam":"WORKING","generalNote":""}],"driverAttendance":[{"name":"ARCADIO OLAZO","timeIn":"04:48:00","timeOut":"16:44:00"},{"name":"ANTONIO GARCIA","timeIn":"05:32:00","timeOut":"16:34:00"},{"name":"JERRY DINOROG","timeIn":"05:14:00","timeOut":"16:31:00"},{"name":"JESSIE LAVARES","timeIn":"04:50:00","timeOut":"15:42:00"},{"name":"SHERNAN TABIOS","timeIn":"04:38:00","timeOut":"15:42:00"}]},{"date":"2026-04-24","reports":[{"vehicleName":"ISUZU TRUCK TRAVIS NEQ 4101 (KADJO & SHERNAN)","plate":"NEQ-4101","date":"2026-04-24","stops":[{"location":"APAC","timeIn":"","timeOut":"05:59:23","km":null,"note":""},{"location":"PICASSO","timeIn":"06:39:53","timeOut":"06:41:55","km":27.5,"note":""},{"location":"NEW WORLD","timeIn":"06:56:53","timeOut":"07:47:55","km":38,"note":""},{"location":"TEMPUS","timeIn":"08:07:24","timeOut":"08:24:54","km":40.6,"note":""},{"location":"SHANG FORT","timeIn":"08:46:55","timeOut":"09:23:25","km":45.1,"note":""},{"location":"MACROASIA","timeIn":"09:49:26","timeOut":"11:52:06","km":58.3,"note":""},{"location":"CARMONA EATERY","timeIn":"12:27:25","timeOut":"14:01:37","km":101.1,"note":""},{"location":"MAX'S","timeIn":"14:02:08","timeOut":"14:26:39","km":101.2,"note":""},{"location":"SOUTHWOODS","timeIn":"14:44:38","timeOut":"15:17:39","km":112.3,"note":""},{"location":"BROZEIT ALABANG","timeIn":"15:37:43","timeOut":"15:42:39","km":130.1,"note":""},{"location":"APAC","timeIn":"15:55:10","timeOut":"17:07:40","km":null,"note":""},{"location":"PETRON","timeIn":"17:15:41","timeOut":"17:28:41","km":null,"note":""},{"location":"APAC","timeIn":"17:35:41","timeOut":"","km":null,"note":""}],"odoOut":107185,"odoIn":107303,"perLiter":96.8,"fillUpLiters":19.67,"dashCam":"WORKING","generalNote":""},{"vehicleName":"TRUCK ISUZU TRAVIS NIF 6891 (JERRY & JESSIE)","plate":"NIF-6891","date":"2026-04-24","stops":[{"location":"APAC","timeIn":"","timeOut":"05:57:19","km":0,"note":""},{"location":"Drahniel's Carinderia","timeIn":"06:03:50","timeOut":"06:16:49","km":0.27,"note":""},{"location":"EDSA SHANG","timeIn":"06:58:24","timeOut":"07:26:55","km":40,"note":""},{"location":"NOVOTEL","timeIn":"07:37:55","timeOut":"09:07:57","km":44.2,"note":""},{"location":"IBIS","timeIn":"09:08:27","timeOut":"09:42:54","km":44.2,"note":""},{"location":"SOLAIRE NORTH","timeIn":"10:01:54","timeOut":"10:50:55","km":48.7,"note":""},{"location":"BROTZEIT PODIUM","timeIn":"11:23:40","timeOut":"11:40:40","km":58.2,"note":""},{"location":"BROTZEIT BGC","timeIn":"11:58:03","timeOut":"12:06:11","km":62,"note":""},{"location":"APAC","timeIn":"12:53:41","timeOut":"14:00:30","km":92,"note":""},{"location":"SOUTH SUPERMARKET","timeIn":"14:24:42","timeOut":"15:13:32","km":153.6,"note":""},{"location":"APAC","timeIn":"15:33:02","timeOut":"16:24:02","km":161.6,"note":""},{"location":"SOUTHWOODS","timeIn":"16:39:02","timeOut":"16:55:33","km":184,"note":""},{"location":"PETRON","timeIn":"17:06:03","timeOut":"17:24:04","km":null,"note":""},{"location":"APAC","timeIn":"17:29:34","timeOut":"","km":null,"note":""}],"odoOut":71837,"odoIn":71922,"perLiter":96.8,"fillUpLiters":18.262,"dashCam":"WORKING","generalNote":""}],"driverAttendance":[{"name":"ARCADIO OLAZO","timeIn":"05:09:00","timeOut":"17:37:00"},{"name":"ANTONIO GARCIA","timeIn":"05:49:00","timeOut":"17:17:00"},{"name":"JERRY DINOROG","timeIn":"05:04:00","timeOut":"17:30:00"},{"name":"JESSIE LAVARES","timeIn":"04:47:00","timeOut":"17:35:00"},{"name":"SHERNAN TABIOS","timeIn":"05:06:00","timeOut":"17:02:00"}]}]`;
+
+window.importHistoricalGpsReports=function(){
+  let pkg;
+  try{pkg=JSON.parse(GPS_HISTORICAL_BOOTSTRAP);}
+  catch(e){_toast&&_toast('Bootstrap data corrupt','warn');return;}
+  if(typeof loadGpsReports!=='function'||typeof saveGpsReports!=='function'||typeof loadFVeh!=='function'||typeof saveFVeh!=='function'){
+    alert('App not fully loaded — try again in a moment.');return;
+  }
+  let veh=loadFVeh();
+  // Match or create vehicles by plate
+  function findOrCreate(name,plate){
+    const np=(plate||'').toUpperCase().replace(/[\s-]/g,'');
+    let hit=veh.find(v=>{
+      const vp=(v.plate||'').toUpperCase().replace(/[\s-]/g,'');
+      return vp&&np&&vp===np;
+    });
+    if(hit)return hit.id;
+    // Try by name
+    hit=veh.find(v=>(v.name||'').toUpperCase().includes((name||'').toUpperCase().split(' ')[0]));
+    if(hit){
+      // Update plate if missing
+      if(!hit.plate&&plate){hit.plate=plate;saveFVeh(veh);}
+      return hit.id;
+    }
+    const newVeh={id:(typeof uid==='function'?uid():'veh_'+Date.now()+'_'+Math.random().toString(36).slice(2,7)),
+      name:name,plate:plate,type:'truck',status:'active',fuel:null,lat:null,lng:null,gpsTs:null,driverId:''};
+    veh.push(newVeh);saveFVeh(veh);
+    return newVeh.id;
+  }
+  const all=loadGpsReports();
+  let imported=0,vehiclesCreated=0;
+  const startVehCount=veh.length;
+  pkg.forEach(day=>{
+    day.reports.forEach(r=>{
+      const vid=findOrCreate(r.vehicleName,r.plate);
+      const key=day.date+'::'+vid;
+      // Don't overwrite if already there
+      if(all[key])return;
+      all[key]={
+        date:day.date,
+        vehicleId:vid,
+        odoOut:r.odoOut,odoIn:r.odoIn,
+        fillUpLiters:r.fillUpLiters,perLiter:r.perLiter,
+        dashCam:r.dashCam||'WORKING',
+        generalNote:r.generalNote||'',
+        stops:r.stops||[]
+      };
+      imported++;
+    });
+    // Driver attendance
+    if(day.driverAttendance&&day.driverAttendance.length){
+      try{
+        const attAll=JSON.parse(localStorage.getItem('hydroPro_gps_driver_attendance')||'{}');
+        if(!attAll[day.date])attAll[day.date]=day.driverAttendance;
+        localStorage.setItem('hydroPro_gps_driver_attendance',JSON.stringify(attAll));
+      }catch(e){}
+    }
+  });
+  saveGpsReports(all);
+  vehiclesCreated=loadFVeh().length-startVehCount;
+  localStorage.setItem('hydroPro_gps_bootstrap_done','1');
+  _toast&&_toast('Imported '+imported+' GPS reports'+(vehiclesCreated?' · '+vehiclesCreated+' new vehicles':''),'ok');
+  if(typeof audit==='function')audit('gps_bootstrap','Imported '+imported+' historical GPS reports from bundled bootstrap');
+  // Refresh views
+  if(typeof renderFleetGps==='function')renderFleetGps();
+  if(typeof renderFleetDashboard==='function')renderFleetDashboard();
+  // Hide banner
+  const b=document.getElementById('gpsBootstrapBanner');if(b)b.remove();
+};
+
+window.dismissGpsBootstrap=function(){
+  localStorage.setItem('hydroPro_gps_bootstrap_done','dismissed');
+  const b=document.getElementById('gpsBootstrapBanner');if(b)b.remove();
+};
+
+// Show banner on GPS Daily Report tab if bootstrap not yet done
+function _maybeShowGpsBootstrapBanner(){
+  if(localStorage.getItem('hydroPro_gps_bootstrap_done'))return;
+  const view=document.getElementById('view-fleet_gps');
+  if(!view||!view.classList.contains('active'))return;
+  if(document.getElementById('gpsBootstrapBanner'))return;
+  const b=document.createElement('div');
+  b.id='gpsBootstrapBanner';
+  b.style.cssText='background:linear-gradient(135deg,#1f3a2c,#13201a);border:2px solid #4caf50;border-radius:10px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;';
+  b.innerHTML='<div style="font-size:24px;">📥</div>'+
+    '<div style="flex:1;min-width:240px;">'+
+      '<div style="font-weight:700;color:#4caf50;font-size:14px;margin-bottom:3px;">4 historical GPS reports ready to import</div>'+
+      '<div style="font-size:12px;color:#aab2a8;line-height:1.5;">From your uploaded files: <strong>April 24, 2026</strong> + <strong>April 27, 2026</strong> · 2 trucks (NEQ-4101, NIF-6891) · 50 stops · 5 driver attendance entries each day</div>'+
+    '</div>'+
+    '<div style="display:flex;gap:8px;">'+
+      '<button class="btn btn-primary" onclick="importHistoricalGpsReports()" style="padding:8px 16px;font-weight:700;">📥 Import All</button>'+
+      '<button class="btn btn-outline" onclick="dismissGpsBootstrap()" style="padding:8px 16px;">Dismiss</button>'+
+    '</div>';
+  view.insertBefore(b,view.firstChild);
+}
+
+// Hook into renderFleetGps so banner appears whenever the tab opens
+(function _hookGpsBanner(){
+  setTimeout(()=>{
+    if(typeof window.renderFleetGps!=='function')return;
+    const orig=window.renderFleetGps;
+    if(orig.__bannerHooked)return;
+    window.renderFleetGps=function(){
+      const r=orig.apply(this,arguments);
+      setTimeout(_maybeShowGpsBootstrapBanner,50);
+      return r;
+    };
+    window.renderFleetGps.__bannerHooked=true;
+  },1000);
+})();
+
+// Also flash a one-time toast 4s after first load if not yet imported
+setTimeout(()=>{
+  if(!localStorage.getItem('hydroPro_gps_bootstrap_done')){
+    if(typeof _toast==='function')_toast('🚚 Open Fleet → GPS Daily Report to import your 4 historical GPS reports','ok');
+  }
+},4000);
+
+})();
+
 
 </script>
 </body>

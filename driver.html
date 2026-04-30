@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a0e0c">
+<title>HydroPro Driver — GPS Broadcast</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0a0e0c;color:#e8eae6;min-height:100vh;padding:16px;}
+.card{background:#13201a;border:1px solid #1f3a2c;border-radius:14px;padding:20px;max-width:480px;margin:0 auto;}
+h1{font-size:20px;margin-bottom:6px;color:#4caf50;}
+.sub{font-size:12px;color:#7c8a7e;margin-bottom:18px;}
+.status{font-family:"Space Mono",monospace;background:#0a1612;border:1px solid #1f3a2c;border-radius:8px;padding:14px;margin:14px 0;font-size:13px;line-height:1.8;}
+.status .lbl{color:#7c8a7e;font-size:11px;text-transform:uppercase;letter-spacing:1px;}
+.status .val{color:#e8eae6;}
+.big{font-size:16px;font-weight:700;}
+.ok{color:#4caf50;}
+.warn{color:#ffb300;}
+.err{color:#f44336;}
+button{background:#4caf50;color:#000;border:none;padding:14px 24px;border-radius:8px;font-weight:700;cursor:pointer;font-size:15px;width:100%;margin-top:10px;}
+button:hover{background:#5cd860;}
+button.stop{background:#f44336;color:#fff;}
+button.stop:hover{background:#ff6659;}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#888;animation:pulse 2s infinite;margin-right:6px;}
+.dot.ok{background:#4caf50;}
+.dot.warn{background:#ffb300;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+.coord{font-family:"Space Mono",monospace;font-size:14px;color:#4caf50;}
+.note{background:#1a2620;border-radius:8px;padding:10px;font-size:11px;color:#aab2a8;line-height:1.6;margin-top:14px;}
+input[type=text],select{width:100%;padding:10px;background:#0a1612;border:1px solid #1f3a2c;border-radius:6px;color:#e8eae6;font-size:14px;margin-top:6px;}
+.field{margin-bottom:12px;}
+.field label{font-size:11px;color:#7c8a7e;text-transform:uppercase;letter-spacing:1px;}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>🚛 HydroPro Driver</h1>
+  <div class="sub">GPS broadcast — keep this tab open while driving</div>
+
+  <div id="setupPane">
+    <div class="field">
+      <label>Vehicle</label>
+      <input type="text" id="vehicleId" placeholder="e.g. truck1">
+    </div>
+    <div class="field">
+      <label>Driver name</label>
+      <input type="text" id="driverName" placeholder="Your name">
+    </div>
+    <button onclick="startBroadcast()">▶ Start GPS Broadcast</button>
+  </div>
+
+  <div id="livePane" style="display:none;">
+    <div class="status">
+      <div><span class="lbl">Vehicle:</span> <span class="val big" id="vehLbl">—</span></div>
+      <div><span class="lbl">Driver:</span> <span class="val" id="drvLbl">—</span></div>
+      <div><span class="lbl">Status:</span> <span id="statusLbl"><span class="dot"></span>Acquiring GPS…</span></div>
+      <div><span class="lbl">Position:</span> <span class="coord" id="coordLbl">—</span></div>
+      <div><span class="lbl">Speed:</span> <span class="val" id="speedLbl">—</span></div>
+      <div><span class="lbl">Last sent:</span> <span class="val" id="lastSent">—</span></div>
+      <div><span class="lbl">Sent count:</span> <span class="val" id="countLbl">0</span></div>
+    </div>
+    <button class="stop" onclick="stopBroadcast()">■ Stop Broadcast</button>
+    <div class="note">
+      <strong>How this works:</strong><br>
+      • Position is captured every 30 seconds<br>
+      • Broadcast to HydroPro via BroadcastChannel (same browser) AND saved to localStorage<br>
+      • For cross-device sync (driver phone → operator desktop), a Cloudflare Worker relay is needed — see GPS Config in HydroPro<br>
+      • <strong>Keep this tab visible</strong> — phones throttle background GPS
+    </div>
+  </div>
+</div>
+
+<script>
+const POS_KEY='hydroPro_fleet_gps_positions';
+let watchId=null,sendCount=0;
+const params=new URLSearchParams(location.search);
+
+// Pre-fill from URL
+window.addEventListener('load',()=>{
+  if(params.get('vehicleId'))document.getElementById('vehicleId').value=params.get('vehicleId');
+  if(params.get('driver'))document.getElementById('driverName').value=params.get('driver');
+});
+
+function startBroadcast(){
+  const vid=document.getElementById('vehicleId').value.trim();
+  const drv=document.getElementById('driverName').value.trim();
+  if(!vid){alert('Vehicle ID required');return;}
+  if(!navigator.geolocation){alert('GPS not supported on this device');return;}
+  document.getElementById('setupPane').style.display='none';
+  document.getElementById('livePane').style.display='block';
+  document.getElementById('vehLbl').textContent=vid;
+  document.getElementById('drvLbl').textContent=drv||'(no name)';
+  // Wake-lock to keep screen on (may not be supported on all devices)
+  if('wakeLock' in navigator){
+    navigator.wakeLock.request('screen').catch(()=>{});
+  }
+  // Try BroadcastChannel for cross-tab sync within same browser
+  let bc=null;
+  try{bc=new BroadcastChannel('hydroPro_gps');}catch(e){}
+  watchId=navigator.geolocation.watchPosition(p=>{
+    const pos={
+      vehicleId:vid,driver:drv,
+      ts:Date.now(),
+      lat:p.coords.latitude,lng:p.coords.longitude,
+      speed:p.coords.speed!=null?p.coords.speed*3.6:null, // m/s → km/h
+      heading:p.coords.heading,
+      accuracy:p.coords.accuracy,
+      source:'driver_phone'
+    };
+    // Save to localStorage (visible if HydroPro is open in same browser)
+    try{
+      const all=JSON.parse(localStorage.getItem(POS_KEY)||'{}');
+      if(!all[vid])all[vid]=[];
+      all[vid].push({ts:pos.ts,lat:pos.lat,lng:pos.lng,speed:pos.speed,heading:pos.heading,source:'driver_phone'});
+      if(all[vid].length>2000)all[vid]=all[vid].slice(-2000);
+      localStorage.setItem(POS_KEY,JSON.stringify(all));
+    }catch(e){}
+    if(bc)bc.postMessage({type:'position',pos:pos});
+    sendCount++;
+    document.getElementById('statusLbl').innerHTML='<span class="dot ok"></span><span class="ok">● Broadcasting</span>';
+    document.getElementById('coordLbl').textContent=pos.lat.toFixed(5)+', '+pos.lng.toFixed(5);
+    document.getElementById('speedLbl').textContent=pos.speed!=null?Math.round(pos.speed)+' km/h':'—';
+    document.getElementById('lastSent').textContent=new Date().toLocaleTimeString();
+    document.getElementById('countLbl').textContent=sendCount;
+  },err=>{
+    document.getElementById('statusLbl').innerHTML='<span class="dot warn"></span><span class="err">GPS error: '+err.message+'</span>';
+  },{enableHighAccuracy:true,maximumAge:25000,timeout:30000});
+}
+
+function stopBroadcast(){
+  if(watchId!=null)navigator.geolocation.clearWatch(watchId);
+  watchId=null;
+  document.getElementById('setupPane').style.display='block';
+  document.getElementById('livePane').style.display='none';
+}
+</script>
+</body>
+</html>
