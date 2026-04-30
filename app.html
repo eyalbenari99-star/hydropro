@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777516359;
+const APP_BUILD=1777517102;
 const APP_BUILD_DATE='2026-04-30';
 
 // Store version in localStorage on first run
@@ -43825,7 +43825,7 @@ const VIEW_TO_MODULE={
   indoor_projects:'production',open_issues:'production',history:'production',
   prj11_cold_storage:'production',prod_matrix:'production',
   // HR
-  hr:'hr',attendance:'hr',memos:'hr',reconcile:'hr',
+  hr:'hr',attendance:'hr',memos:'hr',reconcile:'hr',hr_201:'hr',hr_matrix:'hr',hr_assets:'hr',hr_clearance:'hr',
   // Payroll
   payroll:'payroll',
   // Maintenance
@@ -47409,7 +47409,11 @@ const EXTRA_SUBTABS={
     {id:'fleet_gps',      label:'📍 GPS Daily Report'}
   ],
   hr:[
-    {id:'licenses', label:'📜 Licenses'}
+    {id:'licenses', label:'📜 Licenses'},
+    {id:'hr_201', label:'📁 Employee 201'},
+    {id:'hr_matrix', label:'📊 HR Matrix'},
+    {id:'hr_assets', label:'🎒 Assets Issued'},
+    {id:'hr_clearance', label:'📋 Clearance / Turnover'}
   ],
   it:[
     {id:'it_matrix', label:'📊 Equipment Matrix'}
@@ -48229,6 +48233,709 @@ window._acctTaxDelete=function(id){
   _acctSave(ACCT_TAX_KEY,filings);
   _renderAcctTax();
 };
+
+// === HR EMPLOYEE 201 SYSTEM + HR MATRIX + ASSETS + CLEARANCE ===
+//
+// Employee 201 is the HR file: every doc, signed agreement, ID, contract per
+// employee. The system shows what's complete vs missing, with auto-status:
+//   CRITICAL: signed contract / temp contract for trainees
+//   WARNING: missing important info like photo, valid IDs
+//   OK: all complete
+//
+// Storage:
+//   hydroPro_hr_201_docs    {empId: {docId: {present, scanUrl, dateAdded, addedBy, notes}}}
+//   hydroPro_hr_201_custom  {empId: [{id,name,critical}]}   per-employee custom docs
+//   hydroPro_hr_assets      {empId: [{id,name,issuedDate,returned,returnedDate,notes}]}
+//   hydroPro_hr_clearance   {empId: {status,initiatedAt,steps:{stepId:{done,doneBy,doneAt,notes}}}}
+
+const HR_201_DOCS_KEY='hydroPro_hr_201_docs';
+const HR_201_CUSTOM_KEY='hydroPro_hr_201_custom';
+const HR_ASSETS_KEY='hydroPro_hr_assets';
+const HR_CLEARANCE_KEY='hydroPro_hr_clearance';
+
+// Default documents per employee type. Each has a `critical` flag.
+const HR_DOC_TEMPLATES={
+  Regular:[
+    {id:'signed_contract',name:'Signed Employment Contract',critical:true},
+    {id:'job_description',name:'Job Description (signed)',critical:false},
+    {id:'photo',name:'Recent Photo (1x1 / 2x2)',critical:false},
+    {id:'gov_id',name:'Government ID (front+back)',critical:true},
+    {id:'birth_cert',name:'Birth Certificate',critical:false},
+    {id:'sss',name:'SSS Number / E-1 / E-4',critical:true},
+    {id:'philhealth',name:'PhilHealth Number',critical:true},
+    {id:'pagibig',name:'Pag-IBIG Number',critical:true},
+    {id:'bir_tin',name:'BIR TIN / 1902 / 2305',critical:true},
+    {id:'nbi',name:'NBI / Police Clearance',critical:false},
+    {id:'medical',name:'Medical Certificate',critical:false},
+    {id:'resume',name:'Resume / CV',critical:false},
+    {id:'transcripts',name:'Transcripts / Diploma',critical:false},
+    {id:'bank_account',name:'Bank Account Details (for payroll)',critical:true},
+    {id:'nda',name:'Non-Disclosure Agreement (signed)',critical:true},
+    {id:'polygraph_waiver',name:'Polygraph / Lie-Detector Waiver (signed)',critical:true},
+    {id:'employee_handbook_ack',name:'Employee Handbook Acknowledgement',critical:false},
+    {id:'emergency_contact',name:'Emergency Contact Form',critical:false}
+  ],
+  Trainee:[
+    {id:'signed_temp_contract',name:'Signed Temporary / Trainee Contract',critical:true},
+    {id:'photo',name:'Recent Photo',critical:false},
+    {id:'gov_id',name:'Government ID',critical:true},
+    {id:'school_endorsement',name:'School Endorsement / Practicum Letter',critical:true},
+    {id:'parent_consent',name:'Parent Consent (if minor)',critical:true},
+    {id:'birth_cert',name:'Birth Certificate',critical:false},
+    {id:'medical',name:'Medical Certificate',critical:false},
+    {id:'resume',name:'Resume / CV',critical:false},
+    {id:'nda',name:'Non-Disclosure Agreement (signed)',critical:true},
+    {id:'polygraph_waiver',name:'Polygraph Waiver (signed)',critical:true},
+    {id:'training_plan',name:'Training Plan / Schedule',critical:false},
+    {id:'emergency_contact',name:'Emergency Contact Form',critical:false}
+  ],
+  Temporary:[
+    {id:'signed_temp_contract',name:'Signed Temporary Contract',critical:true},
+    {id:'photo',name:'Recent Photo',critical:false},
+    {id:'gov_id',name:'Government ID',critical:true},
+    {id:'sss',name:'SSS Number',critical:true},
+    {id:'philhealth',name:'PhilHealth Number',critical:false},
+    {id:'pagibig',name:'Pag-IBIG Number',critical:false},
+    {id:'bir_tin',name:'BIR TIN',critical:true},
+    {id:'nbi',name:'NBI / Police Clearance',critical:false},
+    {id:'medical',name:'Medical Certificate',critical:false},
+    {id:'bank_account',name:'Bank Account Details',critical:false},
+    {id:'nda',name:'Non-Disclosure Agreement (signed)',critical:true},
+    {id:'polygraph_waiver',name:'Polygraph Waiver (signed)',critical:true},
+    {id:'emergency_contact',name:'Emergency Contact Form',critical:false}
+  ],
+  Contractual:[
+    {id:'signed_contract',name:'Signed Service Contract',critical:true},
+    {id:'photo',name:'Recent Photo',critical:false},
+    {id:'gov_id',name:'Government ID',critical:true},
+    {id:'business_permit',name:'Business Permit (if independent)',critical:false},
+    {id:'bir_tin',name:'BIR TIN / 2303',critical:true},
+    {id:'sss',name:'SSS Number',critical:false},
+    {id:'philhealth',name:'PhilHealth Number',critical:false},
+    {id:'pagibig',name:'Pag-IBIG Number',critical:false},
+    {id:'bank_account',name:'Bank / Payment Details',critical:true},
+    {id:'nda',name:'Non-Disclosure Agreement (signed)',critical:true},
+    {id:'polygraph_waiver',name:'Polygraph Waiver (signed)',critical:true},
+    {id:'work_specifications',name:'Work / Deliverable Specs',critical:false}
+  ]
+};
+
+function _hrLoad(key){try{return JSON.parse(localStorage.getItem(key)||'{}');}catch(e){return {};}}
+function _hrSave(key,data){localStorage.setItem(key,JSON.stringify(data));}
+function _hrLoadEmployees(){
+  let emps=[];
+  try{if(typeof loadEmployees==='function')emps=loadEmployees()||[];}catch(e){}
+  if(!Array.isArray(emps))emps=[];
+  // Filter to active or non-archived
+  return emps;
+}
+
+function _hrDocsForEmployee(emp){
+  const type=emp.type||'Regular';
+  const base=(HR_DOC_TEMPLATES[type]||HR_DOC_TEMPLATES.Regular).slice();
+  // Append custom docs added by user for this employee
+  const custom=_hrLoad(HR_201_CUSTOM_KEY);
+  const extra=custom[emp.id]||[];
+  return base.concat(extra);
+}
+
+function _hrEmpStatus(emp,docs,docState){
+  let missingCrit=0,missingNonCrit=0,present=0;
+  docs.forEach(d=>{
+    const s=docState[d.id];
+    if(s&&s.present)present++;
+    else if(d.critical)missingCrit++;
+    else missingNonCrit++;
+  });
+  // Also check basic profile fields
+  const fieldsToCheck=[
+    {f:'name',label:'Full name',critical:true},
+    {f:'photo',label:'Photo',critical:false},
+    {f:'phone',label:'Phone',critical:false},
+    {f:'address',label:'Address',critical:false},
+    {f:'dateHired',label:'Date hired',critical:true},
+    {f:'birthday',label:'Birthday',critical:false},
+    {f:'emergName',label:'Emergency contact name',critical:false},
+    {f:'emergPhone',label:'Emergency contact phone',critical:false},
+    {f:'sss',label:'SSS',critical:emp.type==='Regular'},
+    {f:'phic',label:'PhilHealth',critical:emp.type==='Regular'},
+    {f:'hdmf',label:'Pag-IBIG',critical:emp.type==='Regular'},
+    {f:'tin',label:'TIN',critical:true}
+  ];
+  const missingFields=[];
+  fieldsToCheck.forEach(fc=>{
+    if(!emp[fc.f]||(typeof emp[fc.f]==='string'&&!emp[fc.f].trim())){
+      missingFields.push(fc);
+      if(fc.critical)missingCrit++;
+      else missingNonCrit++;
+    }
+  });
+  let status='ok';
+  if(missingCrit>0)status='critical';
+  else if(missingNonCrit>0)status='warning';
+  return {status,missingCrit,missingNonCrit,present,total:docs.length,missingFields};
+}
+
+let _hr201SelectedId=null;
+
+window.renderHr201=function(){
+  let view=document.getElementById('view-hr_201');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-hr_201';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const employees=_hrLoadEmployees();
+  if(_hr201SelectedId){
+    const emp=employees.find(e=>e.id===_hr201SelectedId);
+    if(emp){view.innerHTML=_hr201Detail(emp);return;}
+    _hr201SelectedId=null;
+  }
+  // Compute summary status per employee
+  const allDocs=_hrLoad(HR_201_DOCS_KEY);
+  const summary=employees.map(e=>{
+    const docs=_hrDocsForEmployee(e);
+    const docState=allDocs[e.id]||{};
+    const st=_hrEmpStatus(e,docs,docState);
+    return {emp:e,status:st};
+  });
+  // Sort: critical first, then warning, then ok; alphabetical within each
+  summary.sort((a,b)=>{
+    const order={critical:0,warning:1,ok:2};
+    if(order[a.status.status]!==order[b.status.status])return order[a.status.status]-order[b.status.status];
+    return (a.emp.name||'').localeCompare(b.emp.name||'');
+  });
+  let critCt=0,warnCt=0,okCt=0;
+  summary.forEach(s=>{if(s.status.status==='critical')critCt++;else if(s.status.status==='warning')warnCt++;else okCt++;});
+
+  const rows=summary.map(s=>{
+    const e=s.emp;const st=s.status;
+    const color=st.status==='critical'?'var(--danger)':st.status==='warning'?'var(--warn)':'var(--ok)';
+    const icon=st.status==='critical'?'✕':st.status==='warning'?'⚠':'✓';
+    return `<tr style="cursor:pointer;border-left:3px solid ${color};" onclick="_hr201SelectedId='${e.id}';renderHr201();">
+      <td style="font-weight:600;">${(e.name||'').replace(/[<>]/g,'')}</td>
+      <td style="font-size:11px;font-family:var(--mono);">${e.dept||'—'}</td>
+      <td style="font-size:11px;">${e.type||'Regular'}</td>
+      <td style="font-size:11px;">${e.status||'Active'}</td>
+      <td style="text-align:center;color:${color};font-weight:700;font-size:13px;">${icon} ${st.status.toUpperCase()}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--ok);">${st.present}/${st.total}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--danger);">${st.missingCrit}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--warn);">${st.missingNonCrit}</td>
+    </tr>`;
+  }).join('');
+
+  view.innerHTML=`<div class="section-title">📁 Employee 201 Files</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>📁 201 file management:</strong> Each employee's complete document file. Critical missing items (signed contract, government IDs, NDA, polygraph waiver) flag as <span style="color:var(--danger);font-weight:700;">CRITICAL</span>. Other missing items (photo, medical, etc.) flag as <span style="color:var(--warn);font-weight:700;">WARNING</span>. Click any employee to drill into their 201.
+    </div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Total employees</div><div class="fleet-stat-val">${employees.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✕ Critical (missing key docs)</div><div class="fleet-stat-val ${critCt>0?'danger':''}">${critCt}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">⚠ Warning (missing some)</div><div class="fleet-stat-val ${warnCt>0?'warn':''}">${warnCt}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✓ Complete</div><div class="fleet-stat-val green">${okCt}</div></div>
+    </div>
+    ${employees.length?`<div class="fleet-table-wrap" style="margin-top:14px;"><table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Employee</th><th>Dept</th><th>Type</th><th>Status</th><th>Doc Status</th><th>Docs</th><th>Crit Missing</th><th>Warn Missing</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`:'<div style="text-align:center;padding:30px;color:var(--text3);">No employees yet. Add via the HR module.</div>'}`;
+};
+
+function _hr201Detail(emp){
+  const docs=_hrDocsForEmployee(emp);
+  const allDocs=_hrLoad(HR_201_DOCS_KEY);
+  const docState=allDocs[emp.id]||{};
+  const st=_hrEmpStatus(emp,docs,docState);
+  const docRows=docs.map(d=>{
+    const s=docState[d.id]||{};
+    const present=s.present;
+    const stColor=present?'var(--ok)':d.critical?'var(--danger)':'var(--warn)';
+    const stLabel=present?'✓ ON FILE':d.critical?'✕ MISSING (CRITICAL)':'⚠ MISSING';
+    return `<tr>
+      <td>${d.name}${d.critical?' <span style="color:var(--danger);font-size:10px;font-weight:700;">★ KEY</span>':''}</td>
+      <td style="text-align:center;color:${stColor};font-weight:700;font-size:11px;">${stLabel}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${s.dateAdded||'—'}</td>
+      <td style="font-size:11px;">${s.addedBy||'—'}</td>
+      <td style="font-size:11px;color:var(--text3);">${(s.notes||'').replace(/[<>]/g,'').slice(0,80)}</td>
+      <td style="text-align:right;white-space:nowrap;">
+        ${present?'':`<label class="btn btn-primary" style="font-size:11px;padding:4px 10px;cursor:pointer;">📷 Upload<input type="file" accept="image/*,.pdf" style="display:none;" onchange="_hr201Upload('${emp.id}','${d.id}',this)"></label>`}
+        ${present?`<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="_hr201View('${emp.id}','${d.id}')">👁 View</button><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--danger);" onclick="_hr201Remove('${emp.id}','${d.id}')">🗑</button>`:''}
+        <button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="_hr201ToggleNote('${emp.id}','${d.id}')">📝</button>
+      </td>
+    </tr>`;
+  }).join('');
+  // Asset list for this employee
+  const allAssets=_hrLoad(HR_ASSETS_KEY);
+  const empAssets=allAssets[emp.id]||[];
+  const assetRows=empAssets.map(a=>`<tr>
+    <td>${(a.name||'').replace(/[<>]/g,'')}</td>
+    <td style="font-family:var(--mono);font-size:11px;">${a.issuedDate||'—'}</td>
+    <td style="text-align:center;">${a.returned?'<span style="color:var(--ok);font-weight:700;">✓ Returned '+(a.returnedDate||'')+'</span>':'<span style="color:var(--warn);font-weight:700;">⚠ Outstanding</span>'}</td>
+    <td style="font-size:11px;color:var(--text3);">${(a.notes||'').replace(/[<>]/g,'').slice(0,60)}</td>
+    <td style="text-align:right;">
+      ${a.returned?'':`<button class="btn btn-outline" style="font-size:11px;padding:3px 8px;color:var(--ok);" onclick="_hrAssetMarkReturned('${emp.id}','${a.id}')">✓ Returned</button>`}
+      <button class="btn btn-outline" style="font-size:11px;padding:3px 8px;color:var(--danger);" onclick="_hrAssetRemove('${emp.id}','${a.id}')">🗑</button>
+    </td>
+  </tr>`).join('');
+
+  // Missing fields banner
+  const fieldRows=st.missingFields.map(f=>`<li>${f.label}${f.critical?' <span style="color:var(--danger);font-weight:700;">[CRITICAL]</span>':''}</li>`).join('');
+
+  return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+    <button class="btn btn-outline" onclick="_hr201SelectedId=null;renderHr201();">← All employees</button>
+    <div style="font-size:18px;font-weight:700;">📁 ${(emp.name||'').replace(/[<>]/g,'')} <span style="font-size:11px;color:var(--text3);font-family:var(--mono);">· ${emp.dept||''} · ${emp.type||'Regular'}</span></div>
+    <div></div>
+  </div>
+  <div class="fleet-stat-row">
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Status</div><div class="fleet-stat-val" style="color:${st.status==='critical'?'var(--danger)':st.status==='warning'?'var(--warn)':'var(--ok)'};">${st.status==='critical'?'✕ CRITICAL':st.status==='warning'?'⚠ WARNING':'✓ COMPLETE'}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Docs on file</div><div class="fleet-stat-val green">${st.present}/${st.total}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Critical missing</div><div class="fleet-stat-val ${st.missingCrit>0?'danger':''}">${st.missingCrit}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Other missing</div><div class="fleet-stat-val ${st.missingNonCrit>0?'warn':''}">${st.missingNonCrit}</div></div>
+  </div>
+  ${st.missingFields.length?`<div style="background:rgba(239,83,80,0.08);border:1px solid rgba(239,83,80,0.30);border-radius:8px;padding:12px 16px;margin-top:14px;">
+    <div style="font-size:13px;font-weight:700;margin-bottom:6px;color:var(--danger);">⚠ Missing profile fields (edit employee record in HR):</div>
+    <ul style="margin:0;padding-left:20px;font-size:12px;line-height:1.6;color:var(--text2);">${fieldRows}</ul>
+  </div>`:''}
+
+  <div class="section-title" style="margin-top:18px;">📋 Document Checklist (${emp.type||'Regular'} employee)</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div style="font-size:11px;color:var(--text3);">★ KEY = critical document required for this employee type</div>
+      <button class="btn btn-outline" onclick="_hr201AddCustomDoc('${emp.id}')">➕ Add custom document</button>
+    </div>
+    <div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Document</th><th style="text-align:center;">Status</th><th>Date Added</th><th>By</th><th>Notes</th><th style="text-align:right;">Actions</th></tr></thead>
+      <tbody>${docRows}</tbody>
+    </table></div>
+  </div>
+
+  <div class="section-title" style="margin-top:14px;">🎒 Company Assets Issued</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+    <div style="display:grid;grid-template-columns:2fr 130px 2fr auto;gap:8px;align-items:end;margin-bottom:10px;">
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Asset</div><input id="hraAssetName_${emp.id}" class="input" placeholder="e.g. ID badge, laptop, uniform, key, radio"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Issued date</div><input id="hraAssetDate_${emp.id}" type="date" class="input" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Notes</div><input id="hraAssetNotes_${emp.id}" class="input" placeholder="Serial / colour / size"></div>
+      <div><button class="btn btn-primary" onclick="_hrAssetAdd('${emp.id}')">➕ Issue</button></div>
+    </div>
+    ${empAssets.length?`<table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Asset</th><th>Issued</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+      <tbody>${assetRows}</tbody>
+    </table>`:'<div style="text-align:center;color:var(--text3);font-size:12px;padding:14px;">No assets issued to this employee yet.</div>'}
+  </div>`;
+}
+
+window._hr201Upload=function(empId,docId,input){
+  const file=input.files&&input.files[0];if(!file)return;
+  if(file.size>3*1024*1024){alert('File too large (>3 MB).');input.value='';return;}
+  const reader=new FileReader();
+  reader.onload=function(e){
+    const all=_hrLoad(HR_201_DOCS_KEY);
+    if(!all[empId])all[empId]={};
+    all[empId][docId]={present:true,scanUrl:e.target.result,dateAdded:new Date().toISOString().slice(0,10),addedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user',notes:(all[empId][docId]&&all[empId][docId].notes)||''};
+    try{_hrSave(HR_201_DOCS_KEY,all);}catch(e){alert('Storage full. Delete old scans first.');return;}
+    if(typeof showToast==='function')showToast('Document uploaded','ok');
+    renderHr201();
+  };
+  reader.readAsDataURL(file);
+  input.value='';
+};
+
+window._hr201View=function(empId,docId){
+  const all=_hrLoad(HR_201_DOCS_KEY);
+  const doc=all[empId]&&all[empId][docId];
+  if(!doc||!doc.scanUrl)return;
+  let host=document.getElementById('hr201ViewModal');
+  if(!host){host=document.createElement('div');host.id='hr201ViewModal';host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';host.onclick=()=>host.remove();document.body.appendChild(host);}
+  if(doc.scanUrl.startsWith('data:application/pdf')||doc.scanUrl.includes(';base64,')&&doc.scanUrl.indexOf('image/')<0){
+    host.innerHTML=`<iframe src="${doc.scanUrl}" style="width:90%;height:90%;border:none;border-radius:8px;background:#fff;"></iframe><button style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%;cursor:pointer;" onclick="document.getElementById('hr201ViewModal').remove();">✕</button>`;
+  } else {
+    host.innerHTML=`<img src="${doc.scanUrl}" style="max-width:95%;max-height:95%;border-radius:8px;"><button style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%;cursor:pointer;" onclick="document.getElementById('hr201ViewModal').remove();">✕</button>`;
+  }
+};
+
+window._hr201Remove=function(empId,docId){
+  if(!confirm('Remove this document from the 201 file?'))return;
+  const all=_hrLoad(HR_201_DOCS_KEY);
+  if(all[empId]&&all[empId][docId])delete all[empId][docId];
+  _hrSave(HR_201_DOCS_KEY,all);
+  renderHr201();
+};
+
+window._hr201ToggleNote=function(empId,docId){
+  const all=_hrLoad(HR_201_DOCS_KEY);
+  const cur=(all[empId]&&all[empId][docId]&&all[empId][docId].notes)||'';
+  const note=prompt('Note for this document:',cur);
+  if(note===null)return;
+  if(!all[empId])all[empId]={};
+  all[empId][docId]=all[empId][docId]||{};
+  all[empId][docId].notes=note;
+  _hrSave(HR_201_DOCS_KEY,all);
+  renderHr201();
+};
+
+window._hr201AddCustomDoc=function(empId){
+  const name=prompt('Custom document name (e.g. "Driver license", "Special clearance"):');
+  if(!name)return;
+  const isCritical=confirm('Is this a CRITICAL document (required for compliance)?\n\nClick OK = Critical (red flag if missing). Click Cancel = Optional (warning only).');
+  const custom=_hrLoad(HR_201_CUSTOM_KEY);
+  custom[empId]=custom[empId]||[];
+  custom[empId].push({id:'cust_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),name:name.trim(),critical:isCritical});
+  _hrSave(HR_201_CUSTOM_KEY,custom);
+  renderHr201();
+};
+
+window._hrAssetAdd=function(empId){
+  const name=(document.getElementById('hraAssetName_'+empId).value||'').trim();
+  if(!name){alert('Asset name is required.');return;}
+  const issuedDate=document.getElementById('hraAssetDate_'+empId).value;
+  const notes=(document.getElementById('hraAssetNotes_'+empId).value||'').trim();
+  const all=_hrLoad(HR_ASSETS_KEY);
+  all[empId]=all[empId]||[];
+  all[empId].push({id:'as_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),name,issuedDate,notes,returned:false,issuedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user'});
+  _hrSave(HR_ASSETS_KEY,all);
+  if(typeof showToast==='function')showToast('Asset issued','ok');
+  renderHr201();
+};
+
+window._hrAssetMarkReturned=function(empId,assetId){
+  const all=_hrLoad(HR_ASSETS_KEY);
+  const arr=all[empId]||[];
+  const a=arr.find(x=>x.id===assetId);
+  if(!a)return;
+  a.returned=true;
+  a.returnedDate=new Date().toISOString().slice(0,10);
+  a.returnedBy=((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user';
+  _hrSave(HR_ASSETS_KEY,all);
+  renderHr201();
+};
+
+window._hrAssetRemove=function(empId,assetId){
+  if(!confirm('Remove this asset record?'))return;
+  const all=_hrLoad(HR_ASSETS_KEY);
+  all[empId]=(all[empId]||[]).filter(x=>x.id!==assetId);
+  _hrSave(HR_ASSETS_KEY,all);
+  renderHr201();
+};
+
+// === HR MATRIX (issues × departments) ===
+const HR_MATRIX_ISSUES=[
+  {id:'201_complete',label:'201 file complete (all critical docs on file)',critical:true},
+  {id:'signed_contract',label:'Signed contract (regular) / temp contract (trainees)',critical:true},
+  {id:'polygraph_waiver',label:'Polygraph / lie-detector waiver signed',critical:true},
+  {id:'nda',label:'NDA signed',critical:true},
+  {id:'gov_ids',label:'Government IDs on file',critical:true},
+  {id:'sss_phic_pagibig',label:'SSS / PhilHealth / Pag-IBIG on file',critical:true},
+  {id:'tin_bir',label:'TIN / BIR registration',critical:true},
+  {id:'photo',label:'Photo on file',critical:false},
+  {id:'medical',label:'Medical certificate',critical:false},
+  {id:'attendance_clean',label:'Attendance reconciled (no AWOL)',critical:false},
+  {id:'training_current',label:'Training records current',critical:false},
+  {id:'pe_issued',label:'PPE issued',critical:false}
+];
+
+window.renderHrMatrix=function(){
+  let view=document.getElementById('view-hr_matrix');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-hr_matrix';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const employees=_hrLoadEmployees();
+  const allDocs=_hrLoad(HR_201_DOCS_KEY);
+  // Group employees by dept
+  const byDept={};
+  employees.forEach(e=>{
+    const d=e.dept||'(unassigned)';
+    if(!byDept[d])byDept[d]=[];
+    byDept[d].push(e);
+  });
+  const depts=Object.keys(byDept).sort();
+  // For each (issue × dept), compute % compliant
+  function computeIssue(emp,issueId,docState){
+    if(issueId==='201_complete'){
+      const docs=_hrDocsForEmployee(emp);
+      const miss=docs.filter(d=>d.critical&&!(docState[d.id]&&docState[d.id].present)).length;
+      return miss===0;
+    }
+    if(issueId==='signed_contract'){
+      const docId=emp.type==='Trainee'||emp.type==='Temporary'?'signed_temp_contract':'signed_contract';
+      return !!(docState[docId]&&docState[docId].present);
+    }
+    if(issueId==='polygraph_waiver')return !!(docState.polygraph_waiver&&docState.polygraph_waiver.present);
+    if(issueId==='nda')return !!(docState.nda&&docState.nda.present);
+    if(issueId==='gov_ids')return !!(docState.gov_id&&docState.gov_id.present);
+    if(issueId==='sss_phic_pagibig')return !!(emp.sss&&emp.phic&&emp.hdmf);
+    if(issueId==='tin_bir')return !!emp.tin;
+    if(issueId==='photo')return !!emp.photo||!!(docState.photo&&docState.photo.present);
+    if(issueId==='medical')return !!(docState.medical&&docState.medical.present);
+    if(issueId==='attendance_clean')return true;   // Placeholder — would pull from attendance module
+    if(issueId==='training_current')return true;   // Placeholder
+    if(issueId==='pe_issued')return true;          // Placeholder
+    return false;
+  }
+  // Build matrix
+  const headerRow=`<tr><th style="position:sticky;left:0;z-index:2;background:var(--surface2);min-width:280px;">HR Issue</th>${depts.map(d=>`<th style="text-align:center;font-family:var(--mono);font-size:11px;">${d}</th>`).join('')}<th style="text-align:center;font-family:var(--mono);font-size:11px;">Total</th></tr>`;
+  const bodyRows=HR_MATRIX_ISSUES.map(issue=>{
+    let totalEmp=0,totalCompliant=0;
+    const cellsHtml=depts.map(d=>{
+      const emps=byDept[d];
+      let compliant=0;
+      emps.forEach(e=>{
+        const ds=allDocs[e.id]||{};
+        if(computeIssue(e,issue.id,ds))compliant++;
+      });
+      const total=emps.length;
+      const pct=total?Math.round(compliant/total*100):0;
+      const color=pct===100?'#0f2e10':pct>=70?'#2e1e00':'#2e0808';
+      const txtCol=pct===100?'var(--ok)':pct>=70?'var(--warn)':'var(--danger)';
+      totalEmp+=total;totalCompliant+=compliant;
+      const cellTitle=`${d} · ${issue.label}: ${compliant}/${total} compliant`;
+      const safeLabel=(issue.label||'').replace(/['"<>]/g,'');
+      return `<td style="text-align:center;background:${color};color:${txtCol};font-family:var(--mono);font-weight:700;padding:8px 4px;cursor:pointer;" title="${cellTitle}" onclick="_hrMatrixDrill('${d}','${issue.id}','${safeLabel}')">${pct}%<div style="font-size:9px;font-weight:400;opacity:0.8;">${compliant}/${total}</div></td>`;
+    }).join('');
+    const grandPct=totalEmp?Math.round(totalCompliant/totalEmp*100):0;
+    const totalCol=grandPct===100?'var(--ok)':grandPct>=70?'var(--warn)':'var(--danger)';
+    return `<tr><th style="position:sticky;left:0;z-index:1;background:var(--surface2);text-align:left;padding:8px 10px;font-size:12px;">${issue.label}${issue.critical?' <span style="color:var(--danger);font-size:10px;">★</span>':''}</th>${cellsHtml}<td style="text-align:center;color:${totalCol};font-weight:700;font-family:var(--mono);">${grandPct}%</td></tr>`;
+  }).join('');
+  view.innerHTML=`<div class="section-title">📊 HR Compliance Matrix — Issues × Departments</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>📊 HR matrix:</strong> Each cell shows the % of employees in that department who have that issue resolved. Red = <70%, orange = 70-99%, green = 100%. Click any cell to drill down to non-compliant employees. Critical issues (★) require immediate attention.
+    </div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Total employees</div><div class="fleet-stat-val">${employees.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Departments</div><div class="fleet-stat-val">${depts.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Issues tracked</div><div class="fleet-stat-val">${HR_MATRIX_ISSUES.length}</div></div>
+    </div>
+    <div class="fleet-table-wrap" style="overflow-x:auto;margin-top:14px;">
+      <table class="fleet-table" style="width:100%;border-collapse:separate;border-spacing:1px;">
+        <thead>${headerRow}</thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+    </div>`;
+};
+
+window._hrMatrixDrill=function(dept,issueId,issueLabel){
+  const employees=_hrLoadEmployees().filter(e=>(e.dept||'(unassigned)')===dept);
+  const allDocs=_hrLoad(HR_201_DOCS_KEY);
+  function ok(emp){
+    const ds=allDocs[emp.id]||{};
+    if(issueId==='201_complete'){const docs=_hrDocsForEmployee(emp);return docs.filter(d=>d.critical&&!(ds[d.id]&&ds[d.id].present)).length===0;}
+    if(issueId==='signed_contract'){const did=emp.type==='Trainee'||emp.type==='Temporary'?'signed_temp_contract':'signed_contract';return !!(ds[did]&&ds[did].present);}
+    if(issueId==='polygraph_waiver')return !!(ds.polygraph_waiver&&ds.polygraph_waiver.present);
+    if(issueId==='nda')return !!(ds.nda&&ds.nda.present);
+    if(issueId==='gov_ids')return !!(ds.gov_id&&ds.gov_id.present);
+    if(issueId==='sss_phic_pagibig')return !!(emp.sss&&emp.phic&&emp.hdmf);
+    if(issueId==='tin_bir')return !!emp.tin;
+    if(issueId==='photo')return !!emp.photo||!!(ds.photo&&ds.photo.present);
+    if(issueId==='medical')return !!(ds.medical&&ds.medical.present);
+    return false;
+  }
+  const noncomp=employees.filter(e=>!ok(e));
+  const comp=employees.filter(e=>ok(e));
+  let host=document.getElementById('hrMatrixDrillModal');
+  if(!host){host=document.createElement('div');host.id='hrMatrixDrillModal';host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;';document.body.appendChild(host);}
+  const ncRows=noncomp.map(e=>`<tr style="cursor:pointer;" onclick="_hr201SelectedId='${e.id}';document.getElementById('hrMatrixDrillModal').remove();switchView('hr_201');"><td>${(e.name||'').replace(/[<>]/g,'')}</td><td style="font-size:11px;">${e.type||'Regular'}</td><td style="font-size:11px;color:var(--text3);">Click to open 201 →</td></tr>`).join('');
+  const cRows=comp.map(e=>`<tr><td>${(e.name||'').replace(/[<>]/g,'')}</td><td style="font-size:11px;">${e.type||'Regular'}</td></tr>`).join('');
+  host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:680px;width:100%;max-height:90vh;overflow-y:auto;padding:22px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div><div style="font-size:18px;font-weight:700;">${dept} · ${issueLabel.replace(/[<>]/g,'')}</div><div style="font-size:12px;color:var(--text3);">${comp.length}/${employees.length} compliant</div></div>
+      <button onclick="document.getElementById('hrMatrixDrillModal').remove();" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 10px;border-radius:6px;cursor:pointer;">✕</button>
+    </div>
+    ${noncomp.length?`<div style="margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:700;color:var(--danger);margin-bottom:6px;">✕ Non-compliant (${noncomp.length})</div>
+      <table class="fleet-table" style="width:100%;font-size:12px;"><tbody>${ncRows}</tbody></table>
+    </div>`:'<div style="color:var(--ok);text-align:center;padding:14px;">All compliant ✓</div>'}
+    ${comp.length?`<div>
+      <div style="font-size:13px;font-weight:700;color:var(--ok);margin-bottom:6px;">✓ Compliant (${comp.length})</div>
+      <table class="fleet-table" style="width:100%;font-size:12px;"><tbody>${cRows}</tbody></table>
+    </div>`:''}
+  </div>`;
+};
+
+// === HR ASSETS (organisation-wide view) ===
+window.renderHrAssets=function(){
+  let view=document.getElementById('view-hr_assets');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-hr_assets';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const all=_hrLoad(HR_ASSETS_KEY);
+  const employees=_hrLoadEmployees();
+  // Flatten
+  const flat=[];
+  Object.keys(all).forEach(empId=>{
+    const emp=employees.find(e=>e.id===empId);
+    (all[empId]||[]).forEach(a=>{flat.push({...a,empId,empName:emp?emp.name:'(unknown)',empDept:emp?emp.dept:''});});
+  });
+  flat.sort((a,b)=>{if(a.returned!==b.returned)return a.returned?1:-1;return (b.issuedDate||'').localeCompare(a.issuedDate||'');});
+  const outstanding=flat.filter(x=>!x.returned);
+  const returned=flat.filter(x=>x.returned);
+  const rows=flat.map(a=>`<tr style="cursor:pointer;" onclick="_hr201SelectedId='${a.empId}';switchView('hr_201');">
+    <td>${(a.empName||'').replace(/[<>]/g,'')}</td>
+    <td style="font-size:11px;">${a.empDept||'—'}</td>
+    <td>${(a.name||'').replace(/[<>]/g,'')}</td>
+    <td style="font-family:var(--mono);font-size:11px;">${a.issuedDate||'—'}</td>
+    <td style="text-align:center;">${a.returned?`<span style="color:var(--ok);">✓ Returned ${a.returnedDate||''}</span>`:'<span style="color:var(--warn);font-weight:700;">⚠ Outstanding</span>'}</td>
+    <td style="font-size:11px;color:var(--text3);">${(a.notes||'').replace(/[<>]/g,'').slice(0,60)}</td>
+  </tr>`).join('');
+  view.innerHTML=`<div class="section-title">🎒 Company Assets Issued — Organisation-wide</div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Total assets</div><div class="fleet-stat-val">${flat.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">⚠ Outstanding</div><div class="fleet-stat-val ${outstanding.length>0?'warn':''}">${outstanding.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✓ Returned</div><div class="fleet-stat-val green">${returned.length}</div></div>
+    </div>
+    ${flat.length?`<div class="fleet-table-wrap" style="margin-top:14px;"><table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Employee</th><th>Dept</th><th>Asset</th><th>Issued</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`:'<div style="text-align:center;padding:30px;color:var(--text3);">No assets issued yet. Open an employee\'s 201 file to issue assets.</div>'}`;
+};
+
+// === HR CLEARANCE / TURNOVER (resignation / dismissal process) ===
+const HR_CLEARANCE_STEPS=[
+  {id:'resignation_letter',label:'Resignation letter received / dismissal notice issued',critical:true},
+  {id:'turnover_doc',label:'Turnover document signed (handover of duties)',critical:true},
+  {id:'assets_returned',label:'All issued assets returned (ID, uniform, key, equipment)',critical:true},
+  {id:'access_revoked',label:'System access revoked (email, app, gates)',critical:true},
+  {id:'final_pay_computed',label:'Final pay / 13th month / leave conversion computed',critical:true},
+  {id:'taxes_settled',label:'Final tax (BIR 2316) prepared / issued',critical:true},
+  {id:'sss_philhealth_separation',label:'SSS / PhilHealth / Pag-IBIG separation report',critical:false},
+  {id:'coe_issued',label:'Certificate of Employment issued',critical:false},
+  {id:'exit_interview',label:'Exit interview conducted',critical:false},
+  {id:'201_archived',label:'201 file archived (kept per retention policy)',critical:true}
+];
+
+window.renderHrClearance=function(){
+  let view=document.getElementById('view-hr_clearance');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-hr_clearance';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const employees=_hrLoadEmployees();
+  const clearance=_hrLoad(HR_CLEARANCE_KEY);
+  // Active clearances (in progress)
+  const inProgress=Object.keys(clearance).map(empId=>{
+    const emp=employees.find(e=>e.id===empId);
+    if(!emp)return null;
+    const c=clearance[empId];
+    if(c.status==='completed')return null;
+    const stepDone=Object.values(c.steps||{}).filter(s=>s.done).length;
+    return {emp,clearance:c,stepDone};
+  }).filter(Boolean);
+  const completed=Object.keys(clearance).map(empId=>{
+    const emp=employees.find(e=>e.id===empId);
+    if(!emp)return null;
+    const c=clearance[empId];
+    if(c.status!=='completed')return null;
+    return {emp,clearance:c};
+  }).filter(Boolean);
+
+  const activeCards=inProgress.map(p=>{
+    const c=p.clearance;
+    const stepRows=HR_CLEARANCE_STEPS.map(s=>{
+      const done=c.steps&&c.steps[s.id]&&c.steps[s.id].done;
+      const doneInfo=done?`<span style="color:var(--ok);font-size:11px;">✓ ${c.steps[s.id].doneAt||''} by ${c.steps[s.id].doneBy||''}</span>`:'';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">
+        <input type="checkbox" ${done?'checked':''} onchange="_hrClearanceToggle('${p.emp.id}','${s.id}',this.checked)">
+        <span style="flex:1;font-size:12px;">${s.label}${s.critical?' <span style="color:var(--danger);font-size:9px;font-weight:700;">CRITICAL</span>':''}</span>
+        ${doneInfo}
+      </div>`;
+    }).join('');
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--warn);border-radius:10px;padding:14px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div>
+          <div style="font-size:14px;font-weight:700;">${(p.emp.name||'').replace(/[<>]/g,'')}</div>
+          <div style="font-size:11px;color:var(--text3);">${p.emp.dept||''} · ${c.reason||'separation'} · started ${c.initiatedAt?new Date(c.initiatedAt).toISOString().slice(0,10):''}</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <span style="font-family:var(--mono);font-size:11px;font-weight:700;">${p.stepDone}/${HR_CLEARANCE_STEPS.length} steps</span>
+          <button class="btn btn-primary" onclick="_hrClearanceComplete('${p.emp.id}')">✓ Complete clearance</button>
+          <button class="btn btn-outline" style="color:var(--danger);" onclick="_hrClearanceCancel('${p.emp.id}')">Cancel</button>
+        </div>
+      </div>
+      ${stepRows}
+    </div>`;
+  }).join('');
+
+  const completedRows=completed.map(p=>`<tr><td>${(p.emp.name||'').replace(/[<>]/g,'')}</td><td style="font-size:11px;">${p.emp.dept||''}</td><td style="font-size:11px;">${p.clearance.reason||'—'}</td><td style="font-family:var(--mono);font-size:11px;">${p.clearance.completedAt?new Date(p.clearance.completedAt).toISOString().slice(0,10):''}</td></tr>`).join('');
+
+  view.innerHTML=`<div class="section-title">📋 Clearance / Turnover</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>📋 Resignation / dismissal:</strong> When an employee leaves, complete their clearance to document asset returns, system revocation, final pay, and other separation steps.
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+      <div style="display:grid;grid-template-columns:2fr 1fr 2fr auto;gap:8px;align-items:end;">
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Employee</div>
+          <select id="hrClearEmp" class="call-select" style="width:100%;">
+            ${employees.filter(e=>!clearance[e.id]||clearance[e.id].status==='completed').map(e=>`<option value="${e.id}">${(e.name||'').replace(/[<>]/g,'')} · ${e.dept||''}</option>`).join('')}
+          </select></div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Reason</div>
+          <select id="hrClearReason" class="call-select" style="width:100%;">
+            <option value="resignation">Resignation</option>
+            <option value="dismissal">Dismissal</option>
+            <option value="end_of_contract">End of contract</option>
+            <option value="retirement">Retirement</option>
+            <option value="other">Other</option>
+          </select></div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Notes</div>
+          <input id="hrClearNotes" class="input" placeholder="optional"></div>
+        <div><button class="btn btn-primary" onclick="_hrClearanceStart()">▶ Start clearance</button></div>
+      </div>
+    </div>
+    ${inProgress.length?`<div class="section-title">⏳ In progress (${inProgress.length})</div>${activeCards}`:''}
+    ${completed.length?`<div class="section-title" style="margin-top:18px;">✓ Completed (${completed.length})</div>
+      <table class="fleet-table" style="width:100%;font-size:12px;">
+        <thead><tr><th>Employee</th><th>Dept</th><th>Reason</th><th>Completed</th></tr></thead>
+        <tbody>${completedRows}</tbody>
+      </table>`:''}`;
+};
+
+window._hrClearanceStart=function(){
+  const empId=document.getElementById('hrClearEmp').value;
+  const reason=document.getElementById('hrClearReason').value;
+  const notes=(document.getElementById('hrClearNotes').value||'').trim();
+  if(!empId){alert('Pick an employee.');return;}
+  const all=_hrLoad(HR_CLEARANCE_KEY);
+  all[empId]={status:'in_progress',reason,notes,initiatedAt:Date.now(),initiatedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user',steps:{}};
+  _hrSave(HR_CLEARANCE_KEY,all);
+  if(typeof showToast==='function')showToast('Clearance started','ok');
+  renderHrClearance();
+};
+window._hrClearanceToggle=function(empId,stepId,done){
+  const all=_hrLoad(HR_CLEARANCE_KEY);
+  if(!all[empId])return;
+  all[empId].steps=all[empId].steps||{};
+  if(done){all[empId].steps[stepId]={done:true,doneAt:new Date().toISOString().slice(0,10),doneBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user'};}
+  else delete all[empId].steps[stepId];
+  _hrSave(HR_CLEARANCE_KEY,all);
+};
+window._hrClearanceComplete=function(empId){
+  const all=_hrLoad(HR_CLEARANCE_KEY);
+  if(!all[empId])return;
+  // Verify all critical steps done
+  const missingCrit=HR_CLEARANCE_STEPS.filter(s=>s.critical&&!(all[empId].steps&&all[empId].steps[s.id]&&all[empId].steps[s.id].done));
+  if(missingCrit.length){alert('Cannot complete — these critical steps are still open:\n\n'+missingCrit.map(s=>'• '+s.label).join('\n'));return;}
+  if(!confirm('Mark clearance complete? This will archive the employee\'s 201 file.'))return;
+  all[empId].status='completed';
+  all[empId].completedAt=Date.now();
+  _hrSave(HR_CLEARANCE_KEY,all);
+  if(typeof showToast==='function')showToast('Clearance completed','ok');
+  renderHrClearance();
+};
+window._hrClearanceCancel=function(empId){
+  if(!confirm('Cancel this clearance? All step progress will be lost.'))return;
+  const all=_hrLoad(HR_CLEARANCE_KEY);
+  delete all[empId];
+  _hrSave(HR_CLEARANCE_KEY,all);
+  renderHrClearance();
+};
+
+// Hook switchView for new HR views
+(function _hookHrViews(){
+  function attempt(){
+    if(!window.switchView||window.switchView.__hrPlusHooked)return;
+    const orig=window.switchView;
+    window.switchView=function(v){
+      const r=orig.apply(this,arguments);
+      if(v==='hr_201')setTimeout(renderHr201,80);
+      if(v==='hr_matrix')setTimeout(renderHrMatrix,80);
+      if(v==='hr_assets')setTimeout(renderHrAssets,80);
+      if(v==='hr_clearance')setTimeout(renderHrClearance,80);
+      return r;
+    };
+    window.switchView.__hrPlusHooked=true;
+  }
+  setInterval(attempt,1500);
+  setTimeout(attempt,500);
+})();
 
 // === CROSS-MODULE CHECKLIST ROLLUP ===
 // Single dashboard rolling up all module checklists. Shows per-module completion,
