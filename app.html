@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777530071;
+const APP_BUILD=1777534135;
 const APP_BUILD_DATE='2026-04-30';
 
 // Store version in localStorage on first run
@@ -43839,7 +43839,7 @@ const VIEW_TO_MODULE={
   // Packaging
   packaging:'packaging',pack_wash_trim:'packaging',
   // Logistics / Fleet
-  fleet_dash:'logistics',fleet_vehicles:'logistics',fleet_drivers:'logistics',fleet_fuel:'logistics',
+  fleet_dash:'logistics',fleet_vehicles:'logistics',fleet_drivers:'logistics',fleet_fuel:'logistics',fleet_files:'logistics',fleet_matrix:'logistics',fleet_expiry:'logistics',
   // CRM
   crm:'crm',
   // Security
@@ -47406,7 +47406,10 @@ const EXTRA_SUBTABS={
     {id:'fleet_vehicles', label:'🚗 Vehicles'},
     {id:'fleet_drivers',  label:'👤 Drivers'},
     {id:'fleet_fuel',     label:'⛽ Fuel'},
-    {id:'fleet_gps',      label:'📍 GPS Daily Report'}
+    {id:'fleet_gps',      label:'📍 GPS Daily Report'},
+    {id:'fleet_files',    label:'📁 Vehicle Files'},
+    {id:'fleet_matrix',   label:'📊 Fleet Matrix'},
+    {id:'fleet_expiry',   label:'⏳ Expiry Tracker'}
   ],
   hr:[
     {id:'licenses', label:'📜 Licenses'},
@@ -47691,6 +47694,15 @@ setInterval(_setupAccountingModule,2000);
     if(typeof VIEW_TO_MODULE==='undefined')return;
     Object.assign(VIEW_TO_MODULE,adds);
   },400);
+})();
+
+// Inject CSS that hides the legacy Payroll module button (it's now inside Accounting)
+(function _hidePayrollCss(){
+  if(document.getElementById('hidePayrollStyle'))return;
+  const s=document.createElement('style');
+  s.id='hidePayrollStyle';
+  s.textContent='#modBtn-payroll{display:none !important;}';
+  document.head.appendChild(s);
 })();
 
 // Patch the sidebar so Accounting appears (replacing the now-hidden Payroll slot)
@@ -48238,6 +48250,263 @@ window._acctTaxDelete=function(id){
   _acctSave(ACCT_TAX_KEY,filings);
   _renderAcctTax();
 };
+
+// === REPORTS MODULE (top-level) ===
+// New top-level module with sub-tabs grouped per business module.
+// Each sub-tab shows templates pre-filtered to that module's data + a Build New button.
+function _setupReportsModule(){
+  if(typeof MODULES==='undefined')return;
+  if(MODULES.reports)return;
+  MODULES.reports={
+    icon:'📊',
+    name:'REPORTS',
+    description:'Custom reports per module · save · schedule · auto-email',
+    views:[
+      {id:'rep_hub',label:'📋 All Templates',perm:null,title:'All saved report templates'},
+      {id:'rep_builder',label:'➕ New Report',perm:null,title:'Build a new custom report'},
+      {id:'rep_scheduled',label:'📅 Scheduled',perm:null,title:'Recurring email reports'},
+      {id:'rep_prod',label:'🌱 Production',perm:null,title:'Production-related reports'},
+      {id:'rep_hr',label:'👥 HR & Admin',perm:null,title:'HR / payroll reports'},
+      {id:'rep_acct',label:'💼 Accounting',perm:null,title:'Accounting / finance reports'},
+      {id:'rep_maint',label:'🔧 Maintenance',perm:null,title:'Maintenance reports'},
+      {id:'rep_it',label:'💻 IT',perm:null,title:'IT / equipment reports'},
+      {id:'rep_logistics',label:'🚛 Logistics / Fleet',perm:null,title:'Fleet / GPS reports'},
+      {id:'rep_security',label:'🛡️ Security',perm:null,title:'Security / RFID reports'},
+      {id:'rep_inventory',label:'📊 Inventory',perm:null,title:'Inventory reports'},
+      {id:'rep_quality',label:'✅ Quality',perm:null,title:'Quality / inspection reports'},
+      {id:'rep_cross',label:'🌍 Cross-module',perm:null,title:'Reports spanning multiple modules'}
+    ]
+  };
+}
+setTimeout(_setupReportsModule,300);
+setInterval(_setupReportsModule,2000);
+
+// Add reports views to view-to-module map
+(function _addRepViewsToMap(){
+  const adds={rep_hub:'reports',rep_builder:'reports',rep_scheduled:'reports',rep_prod:'reports',rep_hr:'reports',rep_acct:'reports',rep_maint:'reports',rep_it:'reports',rep_logistics:'reports',rep_security:'reports',rep_inventory:'reports',rep_quality:'reports',rep_cross:'reports'};
+  setTimeout(()=>{if(typeof VIEW_TO_MODULE!=='undefined')Object.assign(VIEW_TO_MODULE,adds);},400);
+})();
+
+// Patch sidebar to inject the Reports button after Overview
+function _patchSidebarReports(){
+  if(!window.renderModuleSidebar||window.renderModuleSidebar.__reportsPatched)return;
+  const orig=window.renderModuleSidebar;
+  window.renderModuleSidebar=function(){
+    if(typeof window.SIDEBAR_LABELS==='object'){window.SIDEBAR_LABELS.reports='REPORTS';}
+    const r=orig.apply(this,arguments);
+    try{
+      const sb=document.getElementById('moduleSidebar');
+      if(!sb||!MODULES.reports||document.getElementById('modBtn-reports'))return r;
+      const mod=MODULES.reports;
+      const btn=document.createElement('button');
+      btn.className='module-btn';
+      btn.id='modBtn-reports';
+      btn.setAttribute('data-module','reports');
+      btn.title=`${mod.icon} ${mod.name}${mod.description?' — '+mod.description:''}`;
+      btn.onclick=function(){if(typeof switchModule==='function')switchModule('reports');};
+      btn.innerHTML=`<span class="module-btn-icon">${mod.icon}</span>
+        <span class="module-btn-label">${(window.SIDEBAR_LABELS&&window.SIDEBAR_LABELS.reports)||mod.name}</span>
+        <span class="module-btn-tooltip">${mod.icon} ${mod.name}</span>`;
+      // Insert at top after Overview
+      const overviewBtn=document.getElementById('modBtn-overview');
+      if(overviewBtn&&overviewBtn.nextSibling)overviewBtn.parentNode.insertBefore(btn,overviewBtn.nextSibling);
+      else sb.insertBefore(btn,sb.firstChild);
+    }catch(e){console.warn('reports sidebar inject',e);}
+    return r;
+  };
+  window.renderModuleSidebar.__reportsPatched=true;
+  setTimeout(()=>{if(typeof renderModuleSidebar==='function')renderModuleSidebar();},100);
+}
+setInterval(_patchSidebarReports,800);
+setTimeout(_patchSidebarReports,500);
+
+// Map sub-tab id → which sections belong to it (so templates and pre-built reports filter correctly)
+const REPORT_GROUPS={
+  rep_prod:{label:'🌱 Production',sections:['urgent_calls','open_calls','checklist_flagged','recurring_today','additional_open']},
+  rep_hr:{label:'👥 HR & Admin',sections:['open_calls','urgent_calls','dept_summary']},
+  rep_acct:{label:'💼 Accounting',sections:['dept_summary']},
+  rep_maint:{label:'🔧 Maintenance',sections:['maint_tasks','urgent_calls','open_calls','recurring_today']},
+  rep_it:{label:'💻 IT',sections:['sim_expiry','urgent_calls','open_calls','recurring_today']},
+  rep_logistics:{label:'🚛 Logistics / Fleet',sections:['gps_summary','driver_attendance','urgent_calls','open_calls']},
+  rep_security:{label:'🛡️ Security',sections:['rfid_compliance','urgent_calls','open_calls']},
+  rep_inventory:{label:'📊 Inventory',sections:['urgent_calls','open_calls']},
+  rep_quality:{label:'✅ Quality',sections:['urgent_calls','open_calls','checklist_flagged']},
+  rep_cross:{label:'🌍 Cross-module',sections:['urgent_calls','open_calls','recurring_today','dept_summary','rfid_compliance','gps_summary']}
+};
+
+// Render a per-module reports tab — filtered templates + suggested defaults + builder shortcut
+function renderReportsByModule(viewId){
+  const group=REPORT_GROUPS[viewId];
+  if(!group)return;
+  let view=document.getElementById('view-'+viewId);
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-'+viewId;(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const allTpls=_loadReportTemplates();
+  const allScheds=_loadReportSchedules();
+  // Filter templates whose sections overlap with this group's sections
+  const groupSet=new Set(group.sections);
+  const tpls=allTpls.filter(t=>(t.sections||[]).some(s=>groupSet.has(s))&&_canAccessLevel(t.accessLevel||'all'));
+  const tplCards=tpls.map(t=>{
+    const scheduled=allScheds.filter(s=>s.templateId===t.id);
+    const accBadge=ACCESS_BADGE[t.accessLevel||'all']||'';
+    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:240px;">
+          <div style="font-weight:700;">${_esc2(t.name)}${accBadge}</div>
+          <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-top:2px;">${(t.sections||[]).length} sections${scheduled.length?' · 📅 '+scheduled.length+' scheduled':''}</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-outline" onclick="_runReportTpl('${t.id}')">▶ Run</button>
+          <button class="btn btn-outline" onclick="openCustomReportBuilder('${t.id}')">✏ Edit</button>
+          <button class="btn btn-outline" onclick="openReportScheduler('${t.id}')">📅 Schedule</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  // Suggested quick-build templates: pre-fill with this group's sections
+  const today=new Date().toISOString().slice(0,10);
+  const past7=(()=>{const d=new Date();d.setDate(d.getDate()-7);return d.toISOString().slice(0,10);})();
+  const sectionLabels=group.sections.map(sid=>{const s=REPORT_SECTIONS.find(x=>x.id===sid);return s?s.label:sid;}).join(', ');
+  view.innerHTML=`<div class="section-title">${group.label} Reports</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>${group.label} reports:</strong> Templates here include sections relevant to this module. Build a new report below pre-filled with default sections, or run/edit any saved template.
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px;">Quick build for ${group.label}</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Default sections: ${sectionLabels}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="_repQuickBuild('${viewId}','last7')">📊 Last 7 days</button>
+        <button class="btn btn-outline" onclick="_repQuickBuild('${viewId}','last30')">📊 Last 30 days</button>
+        <button class="btn btn-outline" onclick="_repQuickBuild('${viewId}','today')">📊 Today only</button>
+        <button class="btn btn-outline" onclick="_repQuickBuild('${viewId}','custom')">⚙ Custom (open builder)</button>
+      </div>
+    </div>
+    <div class="section-title" style="margin-top:18px;">📋 Saved Templates (${tpls.length})</div>
+    ${tpls.length?tplCards:'<div style="text-align:center;padding:20px;color:var(--text3);">No templates yet for this group. Click <strong>Quick build</strong> above to create one.</div>'}`;
+}
+
+window._repQuickBuild=function(viewId,range){
+  const group=REPORT_GROUPS[viewId];if(!group)return;
+  const today=new Date().toISOString().slice(0,10);
+  let from=today;
+  if(range==='last7'){const d=new Date();d.setDate(d.getDate()-7);from=d.toISOString().slice(0,10);}
+  else if(range==='last30'){const d=new Date();d.setDate(d.getDate()-30);from=d.toISOString().slice(0,10);}
+  else if(range==='today'){from=today;}
+  if(range==='custom'){
+    // Open builder with group sections pre-filled
+    openCustomReportBuilder();
+    setTimeout(()=>{
+      // Pre-tick the group's sections
+      group.sections.forEach(sid=>{const cb=document.querySelector(`#rbSections input[data-sec="${sid}"]`);if(cb)cb.checked=true;});
+      const nameEl=document.getElementById('rbName');if(nameEl)nameEl.value=group.label.replace(/^[^a-zA-Z]+/,'')+' Report';
+    },200);
+    return;
+  }
+  // Run report immediately with selected range + group sections
+  const cfg={name:group.label+' — '+(range==='last7'?'Last 7 days':range==='last30'?'Last 30 days':'Today'),fromDate:from,toDate:today,modules:['*'],sections:group.sections,accessLevel:'all'};
+  const html=_buildCustomReport(cfg);
+  _showReportOutput(html,cfg);
+};
+
+// Render the main hub (all templates) and scheduled tabs as views in this module
+window._renderRepHub=function(){
+  let view=document.getElementById('view-rep_hub');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-rep_hub';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  // Render the same content as openReportsHub but as an embedded view
+  const tpls=_loadReportTemplates();
+  const scheds=_loadReportSchedules();
+  const visibleTpls=tpls.filter(t=>_canAccessLevel(t.accessLevel||'all'));
+  const hiddenCt=tpls.length-visibleTpls.length;
+  const tplCards=visibleTpls.map(t=>{
+    const scheduled=scheds.filter(s=>s.templateId===t.id);
+    const accBadge=ACCESS_BADGE[t.accessLevel||'all']||'';
+    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:240px;">
+          <div style="font-weight:700;">${_esc2(t.name)}${accBadge}</div>
+          <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-top:2px;">${(t.sections||[]).length} sections${scheduled.length?' · 📅 '+scheduled.length+' scheduled':''}</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-outline" onclick="_runReportTpl('${t.id}')">▶ Run</button>
+          <button class="btn btn-outline" onclick="openCustomReportBuilder('${t.id}')">✏ Edit</button>
+          <button class="btn btn-outline" onclick="openReportScheduler('${t.id}')">📅 Schedule</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  view.innerHTML=`<div class="section-title">📋 All Report Templates</div>
+    <div style="font-size:11px;color:var(--text3);background:var(--surface2);padding:8px 12px;border-radius:6px;margin-bottom:14px;">Your access level: <strong>${_userAccessLevel().toUpperCase()}</strong>${hiddenCt?' · '+hiddenCt+' template'+(hiddenCt===1?'':'s')+' hidden (require higher role)':''}</div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="openCustomReportBuilder()">➕ New Report</button>
+      <button class="btn btn-outline" onclick="switchView('rep_scheduled')">📅 View Scheduled (${scheds.length})</button>
+    </div>
+    ${visibleTpls.length?tplCards:'<div style="text-align:center;padding:30px;color:var(--text3);">No saved templates yet. Click <strong>New Report</strong> or pick a module tab to start with defaults.</div>'}`;
+};
+
+window._renderRepScheduled=function(){
+  let view=document.getElementById('view-rep_scheduled');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-rep_scheduled';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  const tpls=_loadReportTemplates();
+  const scheds=_loadReportSchedules();
+  const rows=scheds.map(s=>{
+    const tpl=tpls.find(t=>t.id===s.templateId);
+    const next=_nextScheduleRun(s);
+    return `<tr>
+      <td>${_esc2((tpl&&tpl.name)||'(deleted template)')}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${s.frequency}${(s.daysOfWeek||[]).length?' · '+s.daysOfWeek.join(',') :''}${s.timeOfDay?' @ '+s.timeOfDay:''}</td>
+      <td style="font-size:11px;">${_esc2((s.recipients||'').slice(0,40))}${(s.recipients||'').length>40?'…':''}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${next||'—'}</td>
+      <td style="text-align:center;font-size:11px;">${s.enabled!==false?'<span style="color:var(--ok);">✓ Active</span>':'<span style="color:var(--text3);">paused</span>'}</td>
+      <td style="text-align:right;"><button class="btn btn-outline" onclick="_deleteSchedule('${s.id}')" style="color:var(--danger);">🗑</button></td>
+    </tr>`;
+  }).join('');
+  view.innerHTML=`<div class="section-title">📅 Scheduled Reports</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>📅 About scheduled reports:</strong> The app checks each time you open it. When a scheduled report is due, you'll see a banner with "Send Now" that opens your email app pre-filled. <em>Real-time auto-send needs a backend.</em>
+    </div>
+    ${scheds.length?`<table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Template</th><th>Schedule</th><th>Recipients</th><th>Next run</th><th style="text-align:center;">Status</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`:'<div style="text-align:center;padding:20px;color:var(--text3);">No scheduled reports. Open any template and click "📅 Schedule" to set one up.</div>'}`;
+};
+
+window._renderRepBuilder=function(){
+  // Just open the builder modal
+  setTimeout(openCustomReportBuilder,80);
+  // Also display a placeholder under the rep_builder view in case modal closes
+  let view=document.getElementById('view-rep_builder');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-rep_builder';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  view.innerHTML=`<div class="section-title">➕ New Custom Report</div>
+    <div style="text-align:center;padding:30px;">
+      <button class="btn btn-primary" onclick="openCustomReportBuilder()" style="font-size:14px;">📊 Open Report Builder</button>
+      <div style="margin-top:14px;font-size:11px;color:var(--text3);">Or pick a module tab on the left to start with that module's default sections.</div>
+    </div>`;
+};
+
+// Hook reports views into switchView
+(function _hookReportsViews(){
+  function attempt(){
+    if(!window.switchView||window.switchView.__reportsHooked)return;
+    const orig=window.switchView;
+    window.switchView=function(v){
+      const r=orig.apply(this,arguments);
+      if(v==='rep_hub')setTimeout(_renderRepHub,80);
+      if(v==='rep_builder')setTimeout(_renderRepBuilder,80);
+      if(v==='rep_scheduled')setTimeout(_renderRepScheduled,80);
+      // Per-module groups
+      ['rep_prod','rep_hr','rep_acct','rep_maint','rep_it','rep_logistics','rep_security','rep_inventory','rep_quality','rep_cross'].forEach(viewId=>{
+        if(v===viewId)setTimeout(()=>renderReportsByModule(viewId),80);
+      });
+      return r;
+    };
+    window.switchView.__reportsHooked=true;
+  }
+  setInterval(attempt,1500);
+  setTimeout(attempt,500);
+})();
 
 // === HR EMPLOYEE 201 SYSTEM + HR MATRIX + ASSETS + CLEARANCE ===
 //
@@ -49389,6 +49658,420 @@ window.renderInvExpiry=function(){
       return r;
     };
     window.switchView.__invFilesHooked=true;
+  }
+  setInterval(attempt,1500);
+  setTimeout(attempt,500);
+})();
+
+// === FLEET VEHICLE FILES + MATRIX + EXPIRY ===
+// Per-vehicle file: docs with expiration dates, service history, photos.
+// Auto-status:
+//   CRITICAL: expired registration / insurance, missing OR/CR
+//   WARNING: docs expiring within 30 days, missing optional docs
+//   OK: all current
+const FLEET_FILES_KEY='hydroPro_fleet_vehicle_files';
+const FLEET_SERVICE_KEY='hydroPro_fleet_vehicle_service';
+
+const FLEET_DOC_TEMPLATES={
+  truck:[
+    {id:'or_cr',name:'Official Receipt (OR) / Certificate of Registration (CR)',critical:true,hasExpiry:true},
+    {id:'lto_reg',name:'LTO Registration',critical:true,hasExpiry:true},
+    {id:'insurance_ctpl',name:'CTPL Insurance',critical:true,hasExpiry:true},
+    {id:'insurance_compre',name:'Comprehensive Insurance',critical:false,hasExpiry:true},
+    {id:'emission',name:'Emission Test Certificate',critical:true,hasExpiry:true},
+    {id:'private_to_yellow',name:'Authority to Operate / Yellow Plate',critical:false,hasExpiry:true},
+    {id:'photos',name:'Vehicle Photos (front, back, sides)',critical:false},
+    {id:'inspection_log',name:'Daily Inspection Log',critical:false},
+    {id:'tire_record',name:'Tire Service Record',critical:false},
+    {id:'oil_change',name:'Oil / Lubricant Records',critical:false}
+  ],
+  car:[
+    {id:'or_cr',name:'OR / CR',critical:true,hasExpiry:true},
+    {id:'lto_reg',name:'LTO Registration',critical:true,hasExpiry:true},
+    {id:'insurance_ctpl',name:'CTPL Insurance',critical:true,hasExpiry:true},
+    {id:'insurance_compre',name:'Comprehensive Insurance',critical:false,hasExpiry:true},
+    {id:'emission',name:'Emission Test',critical:true,hasExpiry:true},
+    {id:'photos',name:'Vehicle Photos',critical:false},
+    {id:'inspection_log',name:'Daily Inspection Log',critical:false}
+  ],
+  motorcycle:[
+    {id:'or_cr',name:'OR / CR',critical:true,hasExpiry:true},
+    {id:'lto_reg',name:'LTO Registration',critical:true,hasExpiry:true},
+    {id:'insurance_ctpl',name:'CTPL Insurance',critical:true,hasExpiry:true},
+    {id:'photos',name:'Photos',critical:false}
+  ],
+  default:[
+    {id:'or_cr',name:'OR / CR',critical:true,hasExpiry:true},
+    {id:'lto_reg',name:'LTO Registration',critical:true,hasExpiry:true},
+    {id:'insurance_ctpl',name:'CTPL Insurance',critical:true,hasExpiry:true},
+    {id:'photos',name:'Photos',critical:false}
+  ]
+};
+
+function _fleetDocsForVehicle(v){
+  const t=String(v.type||'').toLowerCase();
+  if(/truck|van/.test(t))return FLEET_DOC_TEMPLATES.truck;
+  if(/car|sedan|pickup|suv/.test(t))return FLEET_DOC_TEMPLATES.car;
+  if(/motorcycle|bike|scooter/.test(t))return FLEET_DOC_TEMPLATES.motorcycle;
+  return FLEET_DOC_TEMPLATES.default;
+}
+
+function _fleetLoadFiles(){try{return JSON.parse(localStorage.getItem(FLEET_FILES_KEY)||'{}');}catch(e){return {};}}
+function _fleetSaveFiles(d){localStorage.setItem(FLEET_FILES_KEY,JSON.stringify(d));}
+function _fleetLoadService(){try{return JSON.parse(localStorage.getItem(FLEET_SERVICE_KEY)||'{}');}catch(e){return {};}}
+function _fleetSaveService(d){localStorage.setItem(FLEET_SERVICE_KEY,JSON.stringify(d));}
+
+function _fleetVehicleStatus(v){
+  const docs=_fleetDocsForVehicle(v);
+  const all=_fleetLoadFiles();
+  const ds=all[v.id]||{};
+  const today=new Date().toISOString().slice(0,10);
+  let missingCrit=0,missingNonCrit=0,present=0,expired=0,nearExp=0;
+  docs.forEach(d=>{
+    const s=ds[d.id];
+    if(s&&s.present){
+      present++;
+      if(d.hasExpiry&&s.expirationDate){
+        if(s.expirationDate<today){if(d.critical)expired++;else nearExp++;}
+        else {
+          const daysLeft=Math.floor((new Date(s.expirationDate)-new Date(today))/86400000);
+          if(daysLeft<=30)nearExp++;
+        }
+      }
+    } else if(d.critical)missingCrit++;
+    else missingNonCrit++;
+  });
+  let status='ok';
+  if(missingCrit>0||expired>0)status='critical';
+  else if(missingNonCrit>0||nearExp>0)status='warning';
+  return {status,missingCrit,missingNonCrit,present,total:docs.length,expired,nearExp};
+}
+
+let _fleetSelectedVehId=null;
+
+window.renderFleetFiles=function(){
+  let view=document.getElementById('view-fleet_files');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-fleet_files';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  let vehicles=[];try{if(typeof loadFVeh==='function')vehicles=loadFVeh();}catch(e){}
+  if(!Array.isArray(vehicles))vehicles=[];
+  if(_fleetSelectedVehId){
+    const v=vehicles.find(x=>x.id===_fleetSelectedVehId);
+    if(v){view.innerHTML=_fleetVehicleDetail(v);return;}
+    _fleetSelectedVehId=null;
+  }
+  const status=vehicles.map(v=>({v,st:_fleetVehicleStatus(v)}));
+  let critCt=0,warnCt=0,okCt=0;
+  status.forEach(s=>{if(s.st.status==='critical')critCt++;else if(s.st.status==='warning')warnCt++;else okCt++;});
+  status.sort((a,b)=>{
+    const ord={critical:0,warning:1,ok:2};
+    if(ord[a.st.status]!==ord[b.st.status])return ord[a.st.status]-ord[b.st.status];
+    return (a.v.name||'').localeCompare(b.v.name||'');
+  });
+  const rows=status.map(s=>{
+    const v=s.v;const st=s.st;
+    const color=st.status==='critical'?'var(--danger)':st.status==='warning'?'var(--warn)':'var(--ok)';
+    const icon=st.status==='critical'?'✕':st.status==='warning'?'⚠':'✓';
+    return `<tr style="cursor:pointer;border-left:3px solid ${color};" onclick="_fleetSelectedVehId='${v.id}';renderFleetFiles();">
+      <td style="font-weight:600;">${(v.name||'').replace(/[<>]/g,'')}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${(v.plate||'').replace(/[<>]/g,'')}</td>
+      <td style="font-size:11px;">${(v.type||'—').replace(/[<>]/g,'')}</td>
+      <td style="font-size:11px;">${(v.status||'active').replace(/[<>]/g,'')}</td>
+      <td style="text-align:center;color:${color};font-weight:700;font-size:12px;">${icon} ${st.status.toUpperCase()}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--ok);">${st.present}/${st.total}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:11px;color:${st.expired>0?'var(--danger)':'var(--text3)'};">${st.expired||'—'}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:11px;color:${st.nearExp>0?'var(--warn)':'var(--text3)'};">${st.nearExp||'—'}</td>
+    </tr>`;
+  }).join('');
+  view.innerHTML=`<div class="section-title">📁 Vehicle Files</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>📁 Per-vehicle file:</strong> Each vehicle's complete document file — OR/CR, LTO registration, insurance, emission test, plus service history. Vehicles with expired key documents or missing critical files flag as <span style="color:var(--danger);font-weight:700;">CRITICAL</span>.
+    </div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Vehicles</div><div class="fleet-stat-val">${vehicles.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✕ Critical</div><div class="fleet-stat-val ${critCt>0?'danger':''}">${critCt}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">⚠ Warning</div><div class="fleet-stat-val ${warnCt>0?'warn':''}">${warnCt}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">✓ OK</div><div class="fleet-stat-val green">${okCt}</div></div>
+    </div>
+    ${vehicles.length?`<div class="fleet-table-wrap" style="margin-top:14px;"><table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Vehicle</th><th>Plate</th><th>Type</th><th>Status</th><th>Doc Status</th><th>Docs</th><th>Expired</th><th>Near-Expiry</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`:'<div style="text-align:center;padding:30px;color:var(--text3);">No vehicles yet. Add via Fleet → 🚗 Vehicles.</div>'}`;
+};
+
+function _fleetVehicleDetail(v){
+  const docs=_fleetDocsForVehicle(v);
+  const allFiles=_fleetLoadFiles();const ds=allFiles[v.id]||{};
+  const allSvc=_fleetLoadService();const svc=(allSvc[v.id]||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const st=_fleetVehicleStatus(v);
+  const today=new Date().toISOString().slice(0,10);
+
+  const docRows=docs.map(d=>{
+    const s=ds[d.id]||{};const present=s.present;
+    const hasExp=d.hasExpiry;
+    let expColor=null,expLabel='';
+    if(present&&hasExp&&s.expirationDate){
+      const days=Math.floor((new Date(s.expirationDate)-new Date(today))/86400000);
+      if(days<0){expColor='var(--danger)';expLabel='✕ EXPIRED '+(-days)+'d ago';}
+      else if(days<=30){expColor='var(--warn)';expLabel='⚠ '+days+'d left';}
+      else {expColor='var(--ok)';expLabel='✓ '+days+'d left';}
+    }
+    const statusCol=!present?(d.critical?'var(--danger)':'var(--warn)'):(expColor||'var(--ok)');
+    const statusLbl=!present?(d.critical?'✕ MISSING (CRITICAL)':'⚠ MISSING'):(expLabel||'✓ ON FILE');
+    return `<tr>
+      <td>${d.name}${d.critical?' <span style="color:var(--danger);font-size:10px;font-weight:700;">★ KEY</span>':''}</td>
+      <td style="text-align:center;color:${statusCol};font-weight:700;font-size:11px;">${statusLbl}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${hasExp?(`<input type="date" class="input" style="font-size:11px;width:140px;" value="${s.expirationDate||''}" onchange="_fleetDocSetExpiry('${v.id}','${d.id}',this.value)">`):'—'}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${s.dateAdded||'—'}</td>
+      <td style="font-size:11px;color:var(--text3);">${(s.notes||'').replace(/[<>]/g,'').slice(0,60)}</td>
+      <td style="text-align:right;white-space:nowrap;">
+        ${present?'':`<label class="btn btn-primary" style="font-size:11px;padding:4px 10px;cursor:pointer;">📷 Upload<input type="file" accept="image/*,.pdf" style="display:none;" onchange="_fleetDocUpload('${v.id}','${d.id}',this)"></label>`}
+        ${present?`<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="_fleetDocView('${v.id}','${d.id}')">👁</button><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--danger);" onclick="_fleetDocRemove('${v.id}','${d.id}')">🗑</button>`:''}
+        <button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="_fleetDocNote('${v.id}','${d.id}')">📝</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const svcRows=svc.map(s=>`<tr>
+    <td style="font-family:var(--mono);font-size:11px;">${s.date||''}</td>
+    <td>${(s.type||'').replace(/[<>]/g,'')}</td>
+    <td style="font-family:var(--mono);font-size:11px;">${s.mileage?Number(s.mileage).toLocaleString()+' km':'—'}</td>
+    <td style="font-family:var(--mono);font-size:11px;text-align:right;">${s.cost?'₱'+Number(s.cost).toFixed(2):'—'}</td>
+    <td style="font-size:11px;color:var(--text3);">${(s.notes||'').replace(/[<>]/g,'').slice(0,80)}</td>
+    <td style="text-align:right;"><button class="btn btn-outline" style="padding:3px 8px;font-size:10px;color:var(--danger);" onclick="_fleetSvcRemove('${v.id}','${s.id}')">🗑</button></td>
+  </tr>`).join('');
+
+  return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+    <button class="btn btn-outline" onclick="_fleetSelectedVehId=null;renderFleetFiles();">← All vehicles</button>
+    <div style="font-size:18px;font-weight:700;">📁 ${(v.name||'').replace(/[<>]/g,'')} <span style="font-size:11px;color:var(--text3);font-family:var(--mono);">· ${v.plate||''} · ${v.type||''}</span></div>
+    <div></div>
+  </div>
+  <div class="fleet-stat-row">
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Status</div><div class="fleet-stat-val" style="color:${st.status==='critical'?'var(--danger)':st.status==='warning'?'var(--warn)':'var(--ok)'};">${st.status==='critical'?'✕ CRITICAL':st.status==='warning'?'⚠ WARNING':'✓ OK'}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Docs on file</div><div class="fleet-stat-val green">${st.present}/${st.total}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">⚠ Expired</div><div class="fleet-stat-val ${st.expired>0?'danger':''}">${st.expired}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">⏰ Near-expiry</div><div class="fleet-stat-val ${st.nearExp>0?'warn':''}">${st.nearExp}</div></div>
+    <div class="fleet-stat-card"><div class="fleet-stat-label">Service entries</div><div class="fleet-stat-val">${svc.length}</div></div>
+  </div>
+
+  <div class="section-title" style="margin-top:18px;">📋 Document Checklist</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">★ KEY = critical document required for legal compliance</div>
+    <div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Document</th><th style="text-align:center;">Status</th><th>Expires</th><th>Date Added</th><th>Notes</th><th style="text-align:right;">Actions</th></tr></thead>
+      <tbody>${docRows}</tbody>
+    </table></div>
+  </div>
+
+  <div class="section-title" style="margin-top:14px;">🔧 Service History</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+    <div style="display:grid;grid-template-columns:130px 2fr 130px 130px 2fr auto;gap:8px;align-items:end;margin-bottom:10px;">
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Date</div><input id="fsvDate_${v.id}" type="date" class="input" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Service type</div><input id="fsvType_${v.id}" class="input" placeholder="e.g. Oil change, tire rotation, brake service"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Mileage (km)</div><input id="fsvMileage_${v.id}" type="number" class="input" placeholder="0"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Cost (₱)</div><input id="fsvCost_${v.id}" type="number" step="0.01" class="input" placeholder="0.00"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Notes</div><input id="fsvNotes_${v.id}" class="input" placeholder="Vendor / parts / next service"></div>
+      <div><button class="btn btn-primary" onclick="_fleetSvcAdd('${v.id}')">➕ Add</button></div>
+    </div>
+    ${svc.length?`<table class="fleet-table" style="width:100%;font-size:12px;">
+      <thead><tr><th>Date</th><th>Service</th><th>Mileage</th><th style="text-align:right;">Cost</th><th>Notes</th><th></th></tr></thead>
+      <tbody>${svcRows}</tbody>
+    </table>`:'<div style="text-align:center;color:var(--text3);font-size:12px;padding:14px;">No service history yet. Add the first entry above.</div>'}
+  </div>`;
+}
+
+window._fleetDocUpload=function(vid,docId,input){
+  const file=input.files&&input.files[0];if(!file)return;
+  if(file.size>3*1024*1024){alert('File too large (>3 MB).');input.value='';return;}
+  const reader=new FileReader();
+  reader.onload=function(e){
+    const all=_fleetLoadFiles();
+    if(!all[vid])all[vid]={};
+    all[vid][docId]=Object.assign(all[vid][docId]||{},{present:true,scanUrl:e.target.result,dateAdded:new Date().toISOString().slice(0,10),addedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user'});
+    try{_fleetSaveFiles(all);}catch(e){alert('Storage full.');return;}
+    if(typeof showToast==='function')showToast('Document uploaded','ok');
+    renderFleetFiles();
+  };
+  reader.readAsDataURL(file);
+  input.value='';
+};
+window._fleetDocSetExpiry=function(vid,docId,date){
+  const all=_fleetLoadFiles();
+  if(!all[vid])all[vid]={};
+  all[vid][docId]=all[vid][docId]||{};
+  all[vid][docId].expirationDate=date;
+  _fleetSaveFiles(all);
+  // Re-render to update colors
+  setTimeout(renderFleetFiles,100);
+};
+window._fleetDocView=function(vid,docId){
+  const all=_fleetLoadFiles();const doc=all[vid]&&all[vid][docId];
+  if(!doc||!doc.scanUrl)return;
+  let host=document.getElementById('fleetDocViewModal');
+  if(!host){host=document.createElement('div');host.id='fleetDocViewModal';host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';host.onclick=()=>host.remove();document.body.appendChild(host);}
+  const isPdf=doc.scanUrl.startsWith('data:application/pdf');
+  host.innerHTML=isPdf?`<iframe src="${doc.scanUrl}" style="width:90%;height:90%;border:none;border-radius:8px;background:#fff;"></iframe><button style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%;cursor:pointer;" onclick="document.getElementById('fleetDocViewModal').remove();">✕</button>`:`<img src="${doc.scanUrl}" style="max-width:95%;max-height:95%;border-radius:8px;"><button style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%;cursor:pointer;" onclick="document.getElementById('fleetDocViewModal').remove();">✕</button>`;
+};
+window._fleetDocRemove=function(vid,docId){
+  if(!confirm('Remove this document?'))return;
+  const all=_fleetLoadFiles();
+  if(all[vid]&&all[vid][docId])delete all[vid][docId];
+  _fleetSaveFiles(all);renderFleetFiles();
+};
+window._fleetDocNote=function(vid,docId){
+  const all=_fleetLoadFiles();
+  const cur=(all[vid]&&all[vid][docId]&&all[vid][docId].notes)||'';
+  const note=prompt('Note:',cur);if(note===null)return;
+  all[vid]=all[vid]||{};all[vid][docId]=all[vid][docId]||{};all[vid][docId].notes=note;
+  _fleetSaveFiles(all);renderFleetFiles();
+};
+window._fleetSvcAdd=function(vid){
+  const type=(document.getElementById('fsvType_'+vid).value||'').trim();
+  if(!type){alert('Service type is required.');return;}
+  const all=_fleetLoadService();
+  all[vid]=all[vid]||[];
+  all[vid].push({
+    id:'svc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),
+    date:document.getElementById('fsvDate_'+vid).value,
+    type,
+    mileage:Number(document.getElementById('fsvMileage_'+vid).value||0),
+    cost:Number(document.getElementById('fsvCost_'+vid).value||0),
+    notes:(document.getElementById('fsvNotes_'+vid).value||'').trim(),
+    addedAt:Date.now()
+  });
+  _fleetSaveService(all);
+  if(typeof showToast==='function')showToast('Service entry added','ok');
+  renderFleetFiles();
+};
+window._fleetSvcRemove=function(vid,sid){
+  if(!confirm('Remove this service entry?'))return;
+  const all=_fleetLoadService();
+  all[vid]=(all[vid]||[]).filter(x=>x.id!==sid);
+  _fleetSaveService(all);renderFleetFiles();
+};
+
+// === Fleet Matrix: Issues × Vehicle types ===
+const FLEET_MATRIX_ISSUES=[
+  {id:'or_cr',label:'OR/CR on file',critical:true},
+  {id:'lto_current',label:'LTO Registration current',critical:true},
+  {id:'insurance_current',label:'Insurance current',critical:true},
+  {id:'emission_current',label:'Emission test current',critical:true},
+  {id:'photos',label:'Photos on file',critical:false},
+  {id:'service_logged',label:'Service history started',critical:false}
+];
+
+window.renderFleetMatrix=function(){
+  let view=document.getElementById('view-fleet_matrix');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-fleet_matrix';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  let vehicles=[];try{if(typeof loadFVeh==='function')vehicles=loadFVeh();}catch(e){}
+  if(!Array.isArray(vehicles))vehicles=[];
+  const today=new Date().toISOString().slice(0,10);
+  const allFiles=_fleetLoadFiles();const allSvc=_fleetLoadService();
+  // Group by type
+  const byType={};
+  vehicles.forEach(v=>{const t=v.type||'(unknown)';if(!byType[t])byType[t]=[];byType[t].push(v);});
+  const types=Object.keys(byType).sort();
+  function check(v,issueId){
+    const ds=allFiles[v.id]||{};
+    function isPresent(id){return !!(ds[id]&&ds[id].present);}
+    function isCurrent(id){const s=ds[id];if(!s||!s.present)return false;if(!s.expirationDate)return true;return s.expirationDate>=today;}
+    if(issueId==='or_cr')return isPresent('or_cr');
+    if(issueId==='lto_current')return isCurrent('lto_reg');
+    if(issueId==='insurance_current')return isCurrent('insurance_ctpl');
+    if(issueId==='emission_current')return isCurrent('emission');
+    if(issueId==='photos')return isPresent('photos');
+    if(issueId==='service_logged')return (allSvc[v.id]||[]).length>0;
+    return false;
+  }
+  const headerRow=`<tr><th style="position:sticky;left:0;z-index:2;background:var(--surface2);min-width:280px;">Issue</th>${types.map(t=>`<th style="text-align:center;font-family:var(--mono);font-size:11px;">${t}</th>`).join('')}<th style="text-align:center;font-family:var(--mono);font-size:11px;">Total</th></tr>`;
+  const bodyRows=FLEET_MATRIX_ISSUES.map(issue=>{
+    let totalV=0,totalOk=0;
+    const cells=types.map(t=>{
+      const list=byType[t];let okCt=0;
+      list.forEach(v=>{if(check(v,issue.id))okCt++;});
+      const total=list.length;const pct=total?Math.round(okCt/total*100):0;
+      const bg=pct===100?'#0f2e10':pct>=70?'#2e1e00':'#2e0808';
+      const tc=pct===100?'var(--ok)':pct>=70?'var(--warn)':'var(--danger)';
+      totalV+=total;totalOk+=okCt;
+      return `<td style="text-align:center;background:${bg};color:${tc};font-family:var(--mono);font-weight:700;padding:8px 4px;">${pct}%<div style="font-size:9px;font-weight:400;opacity:0.8;">${okCt}/${total}</div></td>`;
+    }).join('');
+    const grandPct=totalV?Math.round(totalOk/totalV*100):0;
+    const tc=grandPct===100?'var(--ok)':grandPct>=70?'var(--warn)':'var(--danger)';
+    return `<tr><th style="position:sticky;left:0;z-index:1;background:var(--surface2);text-align:left;padding:8px 10px;font-size:12px;">${issue.label}${issue.critical?' <span style="color:var(--danger);font-size:10px;">★</span>':''}</th>${cells}<td style="text-align:center;color:${tc};font-weight:700;font-family:var(--mono);">${grandPct}%</td></tr>`;
+  }).join('');
+  view.innerHTML=`<div class="section-title">📊 Fleet Compliance Matrix</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);">Each cell = % of vehicles in that type that pass the issue.</div>
+    ${types.length?`<div class="fleet-table-wrap" style="overflow-x:auto;"><table class="fleet-table" style="width:100%;border-collapse:separate;border-spacing:1px;">
+      <thead>${headerRow}</thead>
+      <tbody>${bodyRows}</tbody>
+    </table></div>`:'<div style="text-align:center;padding:30px;color:var(--text3);">No vehicles yet.</div>'}`;
+};
+
+// === Fleet Expiry Tracker ===
+window.renderFleetExpiry=function(){
+  let view=document.getElementById('view-fleet_expiry');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-fleet_expiry';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));view.classList.add('active');
+  let vehicles=[];try{if(typeof loadFVeh==='function')vehicles=loadFVeh();}catch(e){}
+  if(!Array.isArray(vehicles))vehicles=[];
+  const allFiles=_fleetLoadFiles();
+  const today=new Date().toISOString().slice(0,10);
+  const flat=[];
+  vehicles.forEach(v=>{
+    const docs=_fleetDocsForVehicle(v);
+    const ds=allFiles[v.id]||{};
+    docs.forEach(d=>{
+      if(!d.hasExpiry)return;
+      const s=ds[d.id];if(!s||!s.present||!s.expirationDate)return;
+      flat.push({vehName:v.name,plate:v.plate,vehId:v.id,docName:d.name,docId:d.id,expirationDate:s.expirationDate,critical:d.critical});
+    });
+  });
+  flat.sort((a,b)=>(a.expirationDate||'').localeCompare(b.expirationDate||''));
+  const expired=flat.filter(x=>x.expirationDate<today);
+  const within30=flat.filter(x=>x.expirationDate>=today&&Math.floor((new Date(x.expirationDate)-new Date(today))/86400000)<=30);
+  const within90=flat.filter(x=>{const d=Math.floor((new Date(x.expirationDate)-new Date(today))/86400000);return d>30&&d<=90;});
+  function rowsFor(arr){
+    return arr.map(x=>{
+      const days=Math.floor((new Date(x.expirationDate)-new Date(today))/86400000);
+      const isExp=days<0;
+      return `<tr style="cursor:pointer;${isExp?'background:rgba(239,83,80,0.06);':''}" onclick="_fleetSelectedVehId='${x.vehId}';switchView('fleet_files');">
+        <td>${(x.vehName||'').replace(/[<>]/g,'')}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${(x.plate||'').replace(/[<>]/g,'')}</td>
+        <td>${x.docName}${x.critical?' <span style="color:var(--danger);font-size:10px;">★</span>':''}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${x.expirationDate}</td>
+        <td style="font-family:var(--mono);font-size:11px;font-weight:700;color:${isExp?'var(--danger)':days<=30?'var(--warn)':'var(--ok)'};">${isExp?'EXPIRED '+(-days)+'d':days+'d left'}</td>
+      </tr>`;
+    }).join('');
+  }
+  view.innerHTML=`<div class="section-title">⏳ Fleet Document Expiry Tracker</div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">⚠ Expired</div><div class="fleet-stat-val ${expired.length>0?'danger':''}">${expired.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">≤30 days</div><div class="fleet-stat-val ${within30.length>0?'warn':''}">${within30.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">31-90 days</div><div class="fleet-stat-val">${within90.length}</div></div>
+    </div>
+    ${expired.length?`<div class="section-title" style="margin-top:18px;color:var(--danger);">⚠ Expired (legal risk!)</div>
+      <table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Vehicle</th><th>Plate</th><th>Document</th><th>Expired</th><th>Status</th></tr></thead><tbody>${rowsFor(expired)}</tbody></table>`:''}
+    ${within30.length?`<div class="section-title" style="margin-top:18px;color:var(--warn);">⏰ Expiring in 30 days</div>
+      <table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Vehicle</th><th>Plate</th><th>Document</th><th>Expires</th><th>Status</th></tr></thead><tbody>${rowsFor(within30)}</tbody></table>`:''}
+    ${within90.length?`<div class="section-title" style="margin-top:18px;">📅 Expiring 31-90 days</div>
+      <table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Vehicle</th><th>Plate</th><th>Document</th><th>Expires</th><th>Status</th></tr></thead><tbody>${rowsFor(within90)}</tbody></table>`:''}
+    ${flat.length===0?'<div style="text-align:center;padding:30px;color:var(--text3);">No vehicle documents with expiration dates yet. Open a vehicle file and set expiration dates on docs.</div>':''}`;
+};
+
+// Hook switchView
+(function _hookFleetFilesViews(){
+  function attempt(){
+    if(!window.switchView||window.switchView.__fleetFilesHooked)return;
+    const orig=window.switchView;
+    window.switchView=function(v){
+      const r=orig.apply(this,arguments);
+      if(v==='fleet_files')setTimeout(renderFleetFiles,80);
+      if(v==='fleet_matrix')setTimeout(renderFleetMatrix,80);
+      if(v==='fleet_expiry')setTimeout(renderFleetExpiry,80);
+      return r;
+    };
+    window.switchView.__fleetFilesHooked=true;
   }
   setInterval(attempt,1500);
   setTimeout(attempt,500);
