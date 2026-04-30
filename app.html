@@ -41766,7 +41766,7 @@ function toggleWallFullscreen(){
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
 const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777549378;
+const APP_BUILD=1777550010;
 const APP_BUILD_DATE='2026-04-30';
 
 // Store version in localStorage on first run
@@ -43833,7 +43833,7 @@ const VIEW_TO_MODULE={
   // IT
   it:'it',it_radios:'it',it_cctv:'it',
   // Irrigation
-  irr_dash:'irrigation',irr_pools:'irrigation',irr_mix:'irrigation',irr_calibration:'irrigation',
+  irr_dash:'irrigation',irr_pools:'irrigation',irr_mix:'irrigation',irr_calibration:'irrigation',irr_matrix:'irrigation',
   // Inventory
   inv_dash:'inventory',inv_tools:'inventory',inv_consumables:'inventory',inv_files:'inventory',inv_matrix:'inventory',inv_expiry:'inventory',
   // Packaging
@@ -46547,6 +46547,70 @@ window.switchView=function(v){
     return;
   }
 
+  // CUSTOM VIEWS: matrix/files/expiry views I added.
+  // v94's findModuleForView() defaults unknown views to 'production', which
+  // causes the user to jump to Production with a black screen. We handle the
+  // module-switching ourselves using VIEW_TO_MODULE, then render the view.
+  const _customViews={
+    irr_matrix:{module:'irrigation',renderer:'renderIrrMatrix'},
+    hr_matrix:{module:'hr',renderer:'renderHrMatrix'},
+    hr_201:{module:'hr',renderer:'renderHr201'},
+    hr_assets:{module:'hr',renderer:'renderHrAssets'},
+    hr_clearance:{module:'hr',renderer:'renderHrClearance'},
+    inv_files:{module:'inventory',renderer:'renderInvFiles'},
+    inv_matrix:{module:'inventory',renderer:'renderInvMatrix'},
+    inv_expiry:{module:'inventory',renderer:'renderInvExpiry'},
+    crm_customer_files:{module:'crm',renderer:'renderCrmCustomerFiles'},
+    crm_customer_matrix:{module:'crm',renderer:'renderCrmCustomerMatrix'},
+    fleet_files:{module:'logistics',renderer:'renderFleetFiles'},
+    fleet_matrix:{module:'logistics',renderer:'renderFleetMatrix'},
+    fleet_expiry:{module:'logistics',renderer:'renderFleetExpiry'},
+    fleet_live_map:{module:'logistics',renderer:'renderFleetLiveMap'},
+    fleet_gps_ops:{module:'logistics',renderer:'renderFleetGpsOps'},
+    fleet_gps_config:{module:'logistics',renderer:'renderFleetGpsConfig'},
+    it_matrix:{module:'it',renderer:'renderItEquipmentMatrix'},
+    prod_matrix:{module:'production',renderer:'renderProdMatrix'},
+    sec_rfid:{module:'security',renderer:'renderSecRfid'},
+    dept_dashboards:{module:'overview',renderer:'renderDeptDashboards'},
+    checklist_rollup:{module:'overview',renderer:'renderChecklistRollup'}
+  };
+  if(_customViews[v]){
+    const cfg=_customViews[v];
+    // Switch module if needed (without calling v94's switchView, which has the bug)
+    const activeBtn=document.querySelector('.module-btn.active');
+    const activeMod=activeBtn?activeBtn.getAttribute('data-module'):null;
+    if(activeMod!==cfg.module){
+      try{
+        if(typeof window.currentModule!=='undefined')window.currentModule=cfg.module;
+        document.querySelectorAll('.module-btn').forEach(b=>b.classList.remove('active'));
+        const btn=document.getElementById('modBtn-'+cfg.module);
+        if(btn)btn.classList.add('active');
+        if(typeof renderModuleHeader==='function')renderModuleHeader(cfg.module);
+      }catch(e){console.warn('module switch err',e);}
+    }
+    // Hide all views, show our view
+    document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+    let viewEl=document.getElementById('view-'+v);
+    if(!viewEl){
+      // Create on demand if not present
+      viewEl=document.createElement('div');
+      viewEl.className='view';viewEl.id='view-'+v;
+      (document.getElementById('appMain')||document.body).appendChild(viewEl);
+    }
+    viewEl.classList.add('active');
+    // Mark active in the sub-tab bar
+    document.querySelectorAll('#modSubTabs .module-sub-tab,#modSubTabs .nav-tab').forEach(b=>b.classList.remove('active'));
+    const subBtn=document.getElementById('modTab-'+v)||document.querySelector('#modSubTabs [data-view="'+v+'"]');
+    if(subBtn)subBtn.classList.add('active');
+    // Run the renderer
+    setTimeout(()=>{
+      try{if(typeof window[cfg.renderer]==='function')window[cfg.renderer]();}
+      catch(e){console.error('[customView render]',v,e);viewEl.innerHTML='<div style="padding:30px;color:#f44336;">Error rendering '+v+': '+(e&&e.message||e)+'</div>';}
+    },50);
+    setTimeout(()=>{reorganizeModuleSidebar&&reorganizeModuleSidebar();injectExtraSubTabs&&injectExtraSubTabs();},120);
+    return;
+  }
+
   // Everything else — let v94's switchView handle it normally
   if(typeof _origSwitchView==='function'){
     try{_origSwitchView(v);}catch(e){console.warn('switchView err',e);}
@@ -47493,6 +47557,9 @@ const EXTRA_SUBTABS={
   ],
   production:[
     {id:'prod_matrix', label:'📊 Tech Open Calls Matrix'}
+  ],
+  irrigation:[
+    {id:'irr_matrix', label:'📊 Irrigation Matrix'}
   ],
   security:[
     {id:'sec_rfid', label:'📡 RFID Patrol Reports'}
