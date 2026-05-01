@@ -5600,7 +5600,7 @@ const MODULES={
     name:'OVERVIEW',
     views:[
       {id:'geo_dash',label:'🗺️ Global Dashboard',perm:null,title:'All sites at a glance'},
-      {id:'daily_briefing',label:'📊 Daily Briefing',perm:null,title:'Cross-module morning briefing — yesterday\'s ops summary across all 17 modules. One-click email to management.'},
+      {id:'daily_briefing',label:'🌅 Daily Summary Report',perm:null,title:'Comprehensive end-of-day rollup across all modules — faults raised, tasks closed, equipment status, and comparison vs yesterday. One-click email to management or PDF export.'},
       {id:'critical_summary',label:'🚨 Critical Summary',perm:null,title:'Filtered view: warnings + critical items only across all modules — what needs handling RIGHT NOW.'},
       {id:'calendar_all',label:'📅 Calendar',perm:null,title:'Unified calendar across all modules'},
       {id:'issues_board',label:'🚨 Issues Board',perm:null,title:'Cross-module issue tracking'},
@@ -8467,6 +8467,145 @@ function createIssue(data){
   try{audit('issue_created',`New ${issue.priority} issue: ${issue.title} [${issue.module}]`);}catch(e){}
   return issue;
 }
+
+// ============================================================================
+// 🚨 CANONICAL FAULT-HANDLING HELPER (v2.46.24, merged into IT-Umbrella lineage)
+// ============================================================================
+// Single entry point for any fault detected anywhere in the system. Ensures
+// every fault produces the same response: an issue, an auto-created
+// maintenance task, an audit log entry, and (where applicable) a recovery
+// path via clearFault when the underlying condition resolves.
+//
+// Usage:
+//   raiseFault({
+//     module:    'irrigation' | 'maintenance' | 'production' | etc.
+//     title:     short human-readable title
+//     description: full detail (newlines OK)
+//     priority:  'critical' | 'warning' | 'info'
+//     location:  where the fault is (facility, room, drum, etc.)
+//     source:    machine-readable category (e.g. 'tool_defective', 'drum_low')
+//     sourceId:  unique identifier within source (e.g. tool ID, drum cell ID)
+//     triggerEvent: optional name for downstream listeners
+//   })
+//
+// Same-day deduplication: if raiseFault is called twice for the same
+// source+sourceId on the same date, only the first call creates artifacts.
+//
+// clearFault({source, sourceId, note}): closes any open auto-task tied to the
+// matching dedup key, leaves the issue itself open for the supervisor to
+// review and close manually.
+//
+// Returns: {issueId, taskId, deduped}
+// ============================================================================
+function _faultDedupKey(source,sourceId,date){
+  return `${source||'generic'}:${sourceId||''}:${date||new Date().toISOString().slice(0,10)}`;
+}
+
+function _faultModuleIcon(module){
+  return ({irrigation:'💧',maintenance:'🔧',production:'🌱',security:'🛡',it:'🖥',hr:'👥'})[module]||'⚠️';
+}
+
+function raiseFault(args){
+  args=args||{};
+  const today=new Date().toISOString().slice(0,10);
+  const dedupKey=_faultDedupKey(args.source,args.sourceId,today);
+
+  // Check for existing open task with this dedup key (same-day dedup)
+  try{
+    const existingTasks=loadMaintTasks();
+    const dup=existingTasks.find(t=>t.faultDedupKey===dedupKey&&t.status!=='done'&&t.status!=='cancelled');
+    if(dup){
+      try{audit('fault_deduped',`[${args.source||''}/${args.sourceId||''}] Same-day duplicate suppressed (existing task ${dup.id})`);}catch(e){}
+      return {issueId:dup.linkedIssueId||null,taskId:dup.id,deduped:true};
+    }
+  }catch(e){}
+
+  // 1. Create the issue
+  let issue=null;
+  try{
+    issue=createIssue({
+      module:args.module||'maintenance',
+      title:args.title||'Fault detected',
+      description:args.description||'',
+      priority:args.priority||'warning',
+      facilityId:args.location||null
+    });
+  }catch(e){}
+
+  // 2. Create auto maintenance task linked back to the issue
+  let task=null;
+  try{
+    const tasks=loadMaintTasks();
+    const u=getCurrentUser();
+    task={
+      id:'TSK_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
+      title:`${_faultModuleIcon(args.module)} ${args.title||'Fault'}`,
+      description:args.description||'',
+      priority:args.priority==='critical'?'urgent':args.priority==='warning'?'high':'medium',
+      status:'not_started',
+      createdAt:Date.now(),
+      createdBy:(u&&u.username)||'system',
+      scheduledDate:today,
+      durationDays:1,
+      gantt:[],materials:[],
+      location:args.location||'',
+      sourceModule:args.module||'maintenance',
+      faultDedupKey:dedupKey,
+      faultSource:args.source||'',
+      faultSourceId:args.sourceId||'',
+      linkedIssueId:issue?issue.id:null,
+      autoNote:`🤖 Auto-created from raiseFault — source: ${args.source||'?'} / ${args.sourceId||'?'}`
+    };
+    tasks.push(task);
+    saveMaintTasks(tasks);
+  }catch(e){console.warn('raiseFault task creation failed:',e);}
+
+  // 3. Audit
+  try{
+    audit('fault_raised',`[${args.source||''}/${args.sourceId||''}] ${args.title||'Fault'} (priority:${args.priority||'warning'}, taskId:${task?task.id:'none'})`);
+  }catch(e){}
+
+  // 4. Toast (subtle — supervisors see this immediately)
+  try{
+    if(typeof showToast==='function'){
+      showToast(`🚨 Fault raised: ${args.title||'fault'} — task created`,(args.priority==='critical')?'err':'warn');
+    }
+  }catch(e){}
+
+  return {issueId:issue?issue.id:null,taskId:task?task.id:null,deduped:false};
+}
+
+function clearFault(args){
+  args=args||{};
+  const today=new Date().toISOString().slice(0,10);
+  const dedupKey=_faultDedupKey(args.source,args.sourceId,today);
+  let closedCount=0;
+  try{
+    const tasks=loadMaintTasks();
+    let dirty=false;
+    tasks.forEach(t=>{
+      if(t.faultSource===args.source&&t.faultSourceId===args.sourceId&&t.status!=='done'&&t.status!=='cancelled'){
+        t.status='done';
+        t.doneDate=today;
+        t.completedAt=Date.now();
+        t.doneNote=args.note||'Auto-closed by clearFault — underlying condition resolved.';
+        const u=getCurrentUser();
+        t.completedBy=(u&&u.username)||'system';
+        closedCount++;
+        dirty=true;
+      }
+    });
+    if(dirty)saveMaintTasks(tasks);
+  }catch(e){console.warn('clearFault failed:',e);}
+  try{audit('fault_cleared',`[${args.source||''}/${args.sourceId||''}] Cleared (closed ${closedCount} task${closedCount!==1?'s':''})`);}catch(e){}
+  if(closedCount&&typeof showToast==='function'){
+    try{showToast(`✅ ${closedCount} task${closedCount!==1?'s':''} auto-closed`,'ok');}catch(e){}
+  }
+  return {closedCount};
+}
+// ============================================================================
+// END raiseFault canonical helper
+// ============================================================================
 
 function updateIssueStatus(issueId,newStatus,note){
   const issues=loadIssues();
@@ -13823,16 +13962,16 @@ function renderDailyBriefing(){
   const data=collectBriefingData(_briefingDate);
 
   document.getElementById('dailyBriefingBody').innerHTML=`
-    <div class="section-title">📊 Daily Operations Briefing</div>
+    <div class="section-title">🌅 Daily Summary Report</div>
 
     <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:16px;font-size:12px;color:var(--text2);">
-      <strong>📊 Daily Briefing:</strong> Single-page summary of operations across all modules. Each module shows a status light (✓ healthy · ⚠ attention · 🚨 critical) with top 2-3 facts. <strong>Click 📧 Email Briefing</strong> to send to management.
+      <strong>🌅 Daily Summary Report:</strong> Comprehensive end-of-day rollup across every module — faults raised, tasks closed, equipment status, and comparison vs yesterday. Each module shows a status light (✓ healthy · ⚠ attention · 🚨 critical). <strong>Click 📧 Email Report</strong> to send to management, or <strong>🖨 Print</strong> for a one-click PDF.
     </div>
 
     <!-- HERO -->
     <div class="briefing-hero">
       <div style="flex:1;">
-        <div class="briefing-hero-label">DAILY OPERATIONS BRIEFING</div>
+        <div class="briefing-hero-label">DAILY SUMMARY REPORT</div>
         <div class="briefing-hero-title">${new Date(_briefingDate).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})}</div>
         <div class="briefing-hero-sub">${data.summaryLine}</div>
       </div>
@@ -13842,6 +13981,38 @@ function renderDailyBriefing(){
         <button class="btn btn-outline" onclick="briefingShiftDay(1)">Next ▶</button>
       </div>
     </div>
+
+    <!-- 🔥 CRITICAL ITEMS BANNER (v2.46.28) -->
+    ${(()=>{
+      const criticalAlerts=data.alerts.filter(a=>a.priority==='critical');
+      const criticalFaults=(data.faultsToday&&data.faultsToday.entries||[]).filter(f=>f.priority==='critical');
+      if(!criticalAlerts.length&&!criticalFaults.length)return '';
+      const all=[
+        ...criticalAlerts.map(a=>({text:a.text,from:a.moduleIcon||'⚠️'})),
+        ...criticalFaults.map(f=>({text:`${f.title} [${f.source}]`,from:'🔥'}))
+      ];
+      return `<div style="background:rgba(239,83,80,0.1);border:2px solid var(--danger);border-radius:10px;padding:14px 16px;margin-bottom:16px;">
+        <div style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--danger);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">🔥 ${all.length} Critical Item${all.length>1?'s':''} — Today</div>
+        ${all.slice(0,8).map(c=>`<div style="display:flex;gap:8px;padding:4px 0;font-size:12px;color:var(--text);"><span>${c.from}</span><span>${c.text}</span></div>`).join('')}
+        ${all.length>8?`<div style="font-size:11px;color:var(--text3);font-style:italic;margin-top:6px;">+ ${all.length-8} more — see sections below</div>`:''}
+      </div>`;
+    })()}
+
+    <!-- 📊 VS YESTERDAY (v2.46.28) -->
+    ${(()=>{
+      const v=data.vsYesterday;
+      if(!v)return '';
+      const arrow=(d)=>d>0?`<span style="color:var(--danger);">↑${d}</span>`:d<0?`<span style="color:var(--ok);">↓${Math.abs(d)}</span>`:`<span style="color:var(--text3);">→0</span>`;
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px;">
+        <div style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">📊 Versus Yesterday</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;">
+          <div><div style="font-size:11px;color:var(--text3);">Faults Raised</div><div style="font-family:var(--mono);font-size:18px;font-weight:700;">${v.faults.today} ${arrow(v.faults.delta)}</div><div style="font-size:10px;color:var(--text3);">yesterday: ${v.faults.yesterday}</div></div>
+          <div><div style="font-size:11px;color:var(--text3);">Critical Faults</div><div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${v.criticalFaults.today>0?'var(--danger)':'var(--text)'};">${v.criticalFaults.today}</div><div style="font-size:10px;color:var(--text3);">yesterday: ${v.criticalFaults.yesterday}</div></div>
+          <div><div style="font-size:11px;color:var(--text3);">Tasks Closed</div><div style="font-family:var(--mono);font-size:18px;font-weight:700;">${v.tasksClosed.today} ${arrow(-v.tasksClosed.delta)}</div><div style="font-size:10px;color:var(--text3);">yesterday: ${v.tasksClosed.yesterday}</div></div>
+          <div><div style="font-size:11px;color:var(--text3);">Open Issues Now</div><div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${v.criticalOpenNow>0?'var(--warn)':'var(--text)'};">${v.openIssuesNow}</div><div style="font-size:10px;color:var(--text3);">${v.criticalOpenNow} critical</div></div>
+        </div>
+      </div>`;
+    })()}
 
     <!-- TOP-LEVEL KPI CARDS -->
     <div class="briefing-kpi-grid">
@@ -13868,6 +14039,125 @@ function renderDailyBriefing(){
     </div>
     `:''}
 
+    <!-- ⚠️ FAULTS RAISED TODAY (v2.46.28) -->
+    ${(()=>{
+      const f=data.faultsToday;
+      if(!f||!f.entries.length){
+        return `<div style="background:rgba(102,187,106,0.05);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:12px;color:var(--ok);">
+          ✓ <strong>No faults raised today.</strong> All systems operating within normal parameters.
+        </div>`;
+      }
+      const byMod=Object.entries(f.byModule).sort((a,b)=>b[1]-a[1]);
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px;">
+        <div style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">⚠️ ${f.total} Fault${f.total>1?'s':''} Raised Today — ${f.critical} critical · ${f.warning} warning</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+          ${byMod.map(([src,n])=>`<span style="font-size:11px;padding:3px 9px;border-radius:6px;background:var(--surface2);color:var(--text2);font-family:var(--mono);">${src}: ${n}</span>`).join('')}
+        </div>
+        <div style="max-height:280px;overflow-y:auto;border-top:1px solid var(--border);padding-top:8px;">
+          ${f.entries.slice(0,40).map(e=>{
+            const c=e.priority==='critical'?'var(--danger)':e.priority==='warning'?'var(--warn)':'var(--text3)';
+            return `<div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px;">
+              <span style="color:${c};font-weight:700;font-family:var(--mono);">${e.priority.toUpperCase()}</span>
+              <span style="color:var(--text2);">${e.title}</span>
+              <span style="color:var(--text3);font-family:var(--mono);">${e.time} · ${e.source}${e.sourceId?'/'+e.sourceId:''}</span>
+            </div>`;
+          }).join('')}
+          ${f.entries.length>40?`<div style="font-size:10px;color:var(--text3);text-align:center;padding:6px;font-style:italic;">+ ${f.entries.length-40} more — view full audit log in Admin</div>`:''}
+        </div>
+      </div>`;
+    })()}
+
+    <!-- ✅ TASKS CLOSED TODAY (v2.46.28) -->
+    ${(()=>{
+      const t=data.tasksClosedToday;
+      if(!t||!t.entries.length){
+        return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:12px;color:var(--text3);">
+          📋 <strong>No tasks closed today.</strong>
+        </div>`;
+      }
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px;">
+        <div style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--ok);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">✅ ${t.total} Task${t.total>1?'s':''} Closed Today</div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text3);margin-bottom:10px;">
+          <span>📋 PM Templates: <strong style="color:var(--text2);">${t.byPM}</strong></span>
+          <span>🔥 Fault recovery: <strong style="color:var(--text2);">${t.byFault}</strong></span>
+          <span>✋ Manual: <strong style="color:var(--text2);">${t.byManual}</strong></span>
+        </div>
+        <div style="max-height:240px;overflow-y:auto;border-top:1px solid var(--border);padding-top:8px;">
+          ${t.entries.slice(0,30).map(e=>{
+            const tag=e.isFault?'🔥':e.isPm?'📋':'✋';
+            return `<div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px;">
+              <span>${tag}</span>
+              <span style="color:var(--text2);">${e.title}${e.location?` · 📍 ${e.location}`:''}</span>
+              <span style="color:var(--text3);font-family:var(--mono);">${e.team||'—'} · by ${e.completedBy||'?'}</span>
+            </div>`;
+          }).join('')}
+          ${t.entries.length>30?`<div style="font-size:10px;color:var(--text3);text-align:center;padding:6px;font-style:italic;">+ ${t.entries.length-30} more</div>`:''}
+        </div>
+      </div>`;
+    })()}
+
+    <!-- 🔧 EQUIPMENT STATUS ROLLUP (v2.46.28) -->
+    ${(()=>{
+      const e=data.equipmentRollup||{};
+      const cells=[];
+      if(e.ozone){
+        const cls=e.ozone.bad>0?'danger':e.ozone.warn>0?'warn':'ok';
+        cells.push({title:'🌀 Ozone',vals:`${e.ozone.good}✓ · ${e.ozone.warn}⚠ · ${e.ozone.bad}✕ · ${e.ozone.unchecked}—`,sub:`${e.ozone.total} machines`,cls});
+      }
+      if(e.ro){
+        const cls=e.ro.faultFields>0?'warn':'ok';
+        cells.push({title:'💧 RO Machine',vals:`${e.ro.paramsRecorded}/${e.ro.paramsTotal} recorded`,sub:`${e.ro.faultFields} fault fields`,cls});
+      }
+      if(e.solar){
+        const cls=e.solar.faulted>0?'danger':'ok';
+        cells.push({title:'☀️ Solar Inverters',vals:`${e.solar.working}✓ · ${e.solar.faulted}✕`,sub:`${e.solar.total} inverters`,cls});
+      }
+      if(e.tools){
+        const cls=e.tools.defective>5?'warn':'ok';
+        cells.push({title:'🔧 Tools',vals:`${e.tools.good}✓ · ${e.tools.defective}✕`,sub:`${e.tools.checkedOut} out · ${e.tools.total} total`,cls});
+      }
+      if(e.radio){
+        const cls=e.radio.missing>0?'danger':e.radio.damaged>0?'warn':'ok';
+        cells.push({title:'📻 Radios',vals:`${e.radio.working}✓ · ${e.radio.damaged}⚠ · ${e.radio.missing}✕`,sub:`${e.radio.total} units`,cls});
+      }
+      if(!cells.length)return '';
+      const colorMap={ok:'var(--ok)',warn:'var(--warn)',danger:'var(--danger)'};
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px;">
+        <div style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">🔧 Equipment Status</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
+          ${cells.map(c=>`<div style="background:var(--surface2);border-left:3px solid ${colorMap[c.cls]};border-radius:6px;padding:10px 12px;">
+            <div style="font-size:11px;color:var(--text3);font-weight:600;">${c.title}</div>
+            <div style="font-size:13px;font-family:var(--mono);font-weight:700;color:var(--text);margin-top:3px;">${c.vals}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px;">${c.sub}</div>
+          </div>`).join('')}
+        </div>
+      </div>`;
+    })()}
+
+    <!-- 🚨 RECURRING ISSUES (v2.46.28) -->
+    ${(()=>{
+      const r=data.recurringIssues||[];
+      if(!r.length)return '';
+      return `<div style="background:rgba(255,179,0,0.06);border:1px solid var(--warn);border-radius:10px;padding:14px 16px;margin-bottom:16px;">
+        <div style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--warn);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">🚨 Recurring Issues — Last 7 Days</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">These faults fired 3+ times in the past week. Investigate root cause.</div>
+        ${r.slice(0,10).map(i=>`<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px;align-items:center;">
+          <span style="font-family:var(--mono);font-weight:700;color:var(--warn);min-width:30px;">×${i.count}</span>
+          <span style="color:var(--text2);flex:1;">${i.title}</span>
+          <span style="color:var(--text3);font-family:var(--mono);font-size:10px;">${i.source}${i.sourceId?'/'+i.sourceId:''}</span>
+        </div>`).join('')}
+      </div>`;
+    })()}
+
+    <!-- 🚐 FLEET (v2.46.28) -->
+    ${(()=>{
+      const f=data.fleetTodayCount;
+      if(!f||!f.count)return '';
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:12px;color:var(--text2);">
+        🚐 <strong>Fleet:</strong> ${f.count} trip${f.count>1?'s':''} logged today across ${f.vehicles} vehicle${f.vehicles>1?'s':''}.
+      </div>`;
+    })()}
+
     <!-- MODULE SECTIONS -->
     <div class="briefing-modules-grid">
       ${data.modules.map(m=>renderBriefingModuleCard(m)).join('')}
@@ -13875,10 +14165,10 @@ function renderDailyBriefing(){
 
     <!-- ACTIONS -->
     <div class="briefing-actions">
-      <button class="btn btn-primary" onclick="briefingEmailReport()">📧 Email Briefing to Management</button>
+      <button class="btn btn-primary" onclick="briefingEmailReport()">📧 Email Report to Management</button>
       <button class="btn btn-outline" onclick="briefingPreviewEmail()">👁 Preview Email</button>
       <button class="btn btn-outline" onclick="briefingExportCSV()">📊 Export CSV</button>
-      <button class="btn btn-outline" onclick="window.print()">🖨 Print</button>
+      <button class="btn btn-outline" onclick="window.print()">🖨 Print / Save PDF</button>
     </div>
   `;
 }
@@ -13955,6 +14245,27 @@ function collectBriefingData(date){
   // -------- 🚨 ISSUES --------
   const iss=collectIssuesData(date);
   data.modules.push(iss);
+
+  // ============================================================
+  // 🌅 v2.46.28 — Daily Summary Report extensions
+  // ============================================================
+  try{ data.faultsToday        = collectFaultsToday(date); }
+  catch(e){ data.faultsToday  = {entries:[],byModule:{},total:0,critical:0,warning:0}; console.warn('faultsToday failed:',e); }
+
+  try{ data.tasksClosedToday   = collectTasksClosedToday(date); }
+  catch(e){ data.tasksClosedToday = {entries:[],total:0,byTeam:{},byPM:0,byFault:0,byManual:0}; console.warn('tasksClosedToday failed:',e); }
+
+  try{ data.equipmentRollup    = collectEquipmentRollup(date); }
+  catch(e){ data.equipmentRollup = {ozone:null,ro:null,solar:null,tools:null,radio:null}; console.warn('equipmentRollup failed:',e); }
+
+  try{ data.vsYesterday        = collectVsYesterday(date); }
+  catch(e){ data.vsYesterday  = null; console.warn('vsYesterday failed:',e); }
+
+  try{ data.recurringIssues    = collectRecurringIssues(date); }
+  catch(e){ data.recurringIssues = []; console.warn('recurringIssues failed:',e); }
+
+  try{ data.fleetTodayCount    = collectFleetTodayCount(date); }
+  catch(e){ data.fleetTodayCount = null; }
 
   // ============== KPI ROLLUP ==============
   // 6 top-level KPIs
@@ -14619,6 +14930,209 @@ function collectIssuesData(date){
 }
 
 // ===================== HELPERS =====================
+// ============================================================================
+// 🌅 v2.46.28 — DAILY SUMMARY REPORT COLLECTORS
+// ============================================================================
+function collectFaultsToday(date){
+  const out={entries:[],byModule:{},total:0,critical:0,warning:0};
+  if(typeof loadAuditLog!=='function')return out;
+  const log=loadAuditLog();
+
+  log.forEach(e=>{
+    if(e.a!=='fault_raised')return;
+    const day=(e.ts||'').slice(0,10);
+    if(day!==date)return;
+    const m=(e.d||'').match(/^\[([^/\]]+)(?:\/([^\]]+))?\]\s+(.+?)\s+\(priority:(\w+)/);
+    if(!m)return;
+    const [_,source,sourceId,title,priority]=m;
+    const entry={
+      ts:e.ts,
+      time:new Date(e.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),
+      source:source||'unknown',
+      sourceId:sourceId||'',
+      title:title||'',
+      priority:priority||'warning',
+      by:e.u||'system'
+    };
+    out.entries.push(entry);
+    out.byModule[source]=(out.byModule[source]||0)+1;
+    out.total++;
+    if(priority==='critical')out.critical++;
+    else if(priority==='warning')out.warning++;
+  });
+  out.entries.sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
+  return out;
+}
+
+function collectTasksClosedToday(date){
+  const out={entries:[],total:0,byTeam:{},byPM:0,byFault:0,byManual:0};
+  if(typeof loadMaintTasks!=='function')return out;
+  const tasks=loadMaintTasks()||[];
+
+  tasks.forEach(t=>{
+    if(t.status!=='done')return;
+    const d=t.doneDate||(t.completedAt?new Date(t.completedAt).toISOString().slice(0,10):'');
+    if(d!==date)return;
+    out.entries.push({
+      id:t.id,
+      title:t.title||'(no title)',
+      location:t.location||'',
+      team:t.team||'',
+      completedBy:t.completedBy||t.doneBy||'',
+      doneNote:t.doneNote||'',
+      isPm:!!t.fromPmTemplateId,
+      pmTitle:t.fromPmTemplateTitle||'',
+      isFault:!!t.faultDedupKey,
+      completedAt:t.completedAt||0
+    });
+    out.total++;
+    if(t.team)out.byTeam[t.team]=(out.byTeam[t.team]||0)+1;
+    if(t.fromPmTemplateId)out.byPM++;
+    if(t.faultDedupKey)out.byFault++;
+    if(!t.fromPmTemplateId&&!t.faultDedupKey)out.byManual++;
+  });
+  out.entries.sort((a,b)=>(b.completedAt||0)-(a.completedAt||0));
+  return out;
+}
+
+function collectEquipmentRollup(date){
+  const out={ozone:null,ro:null,solar:null,tools:null,radio:null};
+
+  // Ozone — fields differ slightly between lineages so guard
+  try{
+    if(typeof loadMaintOzone==='function'&&typeof MAINT_OZONE_MACHINES!=='undefined'){
+      const oz=loadMaintOzone()||{};
+      let good=0,warn=0,bad=0,unchecked=0;
+      MAINT_OZONE_MACHINES.forEach(m=>{
+        const r=oz[m.id]||{};
+        if(r.overall_status==='good')good++;
+        else if(r.overall_status==='warn')warn++;
+        else if(r.overall_status==='bad')bad++;
+        else unchecked++;
+      });
+      out.ozone={total:MAINT_OZONE_MACHINES.length,good,warn,bad,unchecked};
+    }
+  }catch(e){}
+
+  // RO
+  try{
+    if(typeof loadMaintRO==='function'&&typeof MAINT_RO_PARAMS!=='undefined'){
+      const ro=loadMaintRO()||{};
+      const today=ro[date]||{};
+      const faults=(today._faultFields)?Object.keys(today._faultFields).length:0;
+      let recorded=0;
+      MAINT_RO_PARAMS.forEach(p=>{ if(today[p.id])recorded++; });
+      out.ro={paramsRecorded:recorded,paramsTotal:MAINT_RO_PARAMS.length,faultFields:faults};
+    }
+  }catch(e){}
+
+  // Solar
+  try{
+    if(typeof loadSolarInverters==='function'){
+      const all=loadSolarInverters()||[];
+      let working=0,faulted=0;
+      all.forEach(s=>{
+        if(s.status==='fault'||s.status==='down')faulted++;
+        else working++;
+      });
+      out.solar={total:all.length,working,faulted};
+    } else if(typeof SOLAR_INVERTERS!=='undefined'){
+      out.solar={total:SOLAR_INVERTERS.length,working:SOLAR_INVERTERS.length,faulted:0};
+    }
+  }catch(e){}
+
+  // Tools — uses Phase 2 helper
+  try{
+    if(typeof TOOLS_INVENTORY!=='undefined'&&typeof effectiveToolStatus==='function'){
+      let good=0,defective=0;
+      TOOLS_INVENTORY.forEach(t=>{
+        const eff=effectiveToolStatus(t);
+        if(eff==='defective')defective++; else good++;
+      });
+      const checkedOut=(typeof getCheckedOutTools==='function')?getCheckedOutTools().size:0;
+      out.tools={total:TOOLS_INVENTORY.length,good,defective,checkedOut};
+    }
+  }catch(e){}
+
+  // Radio
+  try{
+    if(typeof loadMaintRadio==='function'&&typeof MAINT_RADIO_UNITS!=='undefined'){
+      const data=loadMaintRadio()||{};
+      const day=data[date]||{};
+      let working=0,damaged=0,missing=0,notChecked=0;
+      MAINT_RADIO_UNITS.forEach(u=>{
+        const s=(day[u.id]||{}).status;
+        if(s==='working')working++;
+        else if(s==='damaged')damaged++;
+        else if(s==='missing')missing++;
+        else notChecked++;
+      });
+      out.radio={total:MAINT_RADIO_UNITS.length,working,damaged,missing,notChecked};
+    }
+  }catch(e){}
+
+  return out;
+}
+
+function collectVsYesterday(date){
+  const yesterday=getOffsetDate(date,-1);
+  const todayF=collectFaultsToday(date);
+  const yestF=collectFaultsToday(yesterday);
+  const todayT=collectTasksClosedToday(date);
+  const yestT=collectTasksClosedToday(yesterday);
+
+  let openNow=0,criticalOpen=0;
+  try{
+    const issues=(typeof loadIssues==='function')?loadIssues():[];
+    issues.forEach(i=>{
+      if(i.status==='open'||i.status==='in_progress'){
+        openNow++;
+        if(i.priority==='critical')criticalOpen++;
+      }
+    });
+  }catch(e){}
+
+  return {
+    yesterday,
+    faults:{today:todayF.total,yesterday:yestF.total,delta:todayF.total-yestF.total},
+    criticalFaults:{today:todayF.critical,yesterday:yestF.critical},
+    tasksClosed:{today:todayT.total,yesterday:yestT.total,delta:todayT.total-yestT.total},
+    openIssuesNow:openNow,
+    criticalOpenNow:criticalOpen
+  };
+}
+
+function collectRecurringIssues(date){
+  if(typeof loadAuditLog!=='function')return [];
+  const log=loadAuditLog();
+  const cutoff=getOffsetDate(date,-6);
+  const counts={};
+  log.forEach(e=>{
+    if(e.a!=='fault_raised')return;
+    const day=(e.ts||'').slice(0,10);
+    if(day<cutoff||day>date)return;
+    const m=(e.d||'').match(/^\[([^/\]]+)(?:\/([^\]]+))?\]\s+(.+?)\s+\(/);
+    if(!m)return;
+    const [_,source,sourceId,title]=m;
+    const key=`${source}:${sourceId||''}`;
+    if(!counts[key])counts[key]={source,sourceId:sourceId||'',title,count:0,lastTs:''};
+    counts[key].count++;
+    if(e.ts>counts[key].lastTs)counts[key].lastTs=e.ts;
+  });
+  return Object.values(counts).filter(r=>r.count>=3).sort((a,b)=>b.count-a.count);
+}
+
+function collectFleetTodayCount(date){
+  try{
+    const trips=JSON.parse(localStorage.getItem('hydroPro_gps_trips')||'[]');
+    const todayTrips=trips.filter(t=>(t.date||'').slice(0,10)===date);
+    return {count:todayTrips.length,vehicles:new Set(todayTrips.map(t=>t.vehicle||t.vehicleId)).size};
+  }catch(e){return null;}
+}
+// ============================================================================
+// END v2.46.28 collectors
+// ============================================================================
+
 function getOffsetDate(dateStr,days){
   const d=new Date(dateStr);
   d.setDate(d.getDate()+days);
@@ -24433,6 +24947,111 @@ const TOOLS_CHECKOUT_KEY='hydroPro_tools_checkouts';
 function loadToolsCheckouts(){try{return JSON.parse(localStorage.getItem(TOOLS_CHECKOUT_KEY)||'{}');}catch(e){return {};}}
 function saveToolsCheckouts(d){localStorage.setItem(TOOLS_CHECKOUT_KEY,JSON.stringify(d));}
 
+// ============================================================================
+// 🔧 TOOL STATUS OVERRIDES + HISTORY (v2.46.27, merged into IT-Umbrella lineage)
+// ============================================================================
+// TOOLS_INVENTORY is a hardcoded array (source of truth for static metadata —
+// name, brand, location, qty). To allow supervisors to flag tools as defective
+// (or back to good after repair) from the UI, we layer per-tool status
+// overrides and a free-text note on top via localStorage.
+//
+//   loadToolsOverrides() → { [toolId]: {status, note, by, ts} }
+//   loadToolsHistory()   → [{toolId, ts, oldStatus, newStatus, note, by}]
+//
+// effectiveToolStatus(t) merges the override on top of the hardcoded status,
+// and the renderers use it everywhere instead of t.status directly.
+const TOOLS_OVERRIDES_KEY='hydroPro_tools_overrides';
+const TOOLS_HISTORY_KEY='hydroPro_tools_history';
+
+function loadToolsOverrides(){try{return JSON.parse(localStorage.getItem(TOOLS_OVERRIDES_KEY)||'{}');}catch(e){return {};}}
+function saveToolsOverrides(o){try{localStorage.setItem(TOOLS_OVERRIDES_KEY,JSON.stringify(o));}catch(e){}}
+function loadToolsHistory(){try{return JSON.parse(localStorage.getItem(TOOLS_HISTORY_KEY)||'[]');}catch(e){return [];}}
+function saveToolsHistory(arr){try{localStorage.setItem(TOOLS_HISTORY_KEY,JSON.stringify(arr));}catch(e){}}
+
+function effectiveToolStatus(toolOrId){
+  const t=typeof toolOrId==='string'?TOOLS_INVENTORY.find(x=>x.id===toolOrId):toolOrId;
+  if(!t)return null;
+  const ov=loadToolsOverrides()[t.id];
+  return ov&&ov.status?ov.status:t.status;
+}
+
+function effectiveToolNote(toolOrId){
+  const t=typeof toolOrId==='string'?TOOLS_INVENTORY.find(x=>x.id===toolOrId):toolOrId;
+  if(!t)return '';
+  const ov=loadToolsOverrides()[t.id];
+  return (ov&&ov.note)?ov.note:(t.note||'');
+}
+
+function setToolStatus(toolId, newStatus, note){
+  const t=TOOLS_INVENTORY.find(x=>x.id===toolId);
+  if(!t){if(typeof showToast==='function')showToast('Tool not found','warn');return;}
+  const me=((typeof getCurrentUser==='function'?getCurrentUser():null)||{username:'system'});
+  const oldStatus=effectiveToolStatus(t);
+  if(oldStatus===newStatus&&!note){return;}
+
+  // Apply override
+  const overrides=loadToolsOverrides();
+  overrides[toolId]={
+    status:newStatus,
+    note:note||'',
+    by:me.username||'system',
+    ts:Date.now()
+  };
+  saveToolsOverrides(overrides);
+
+  // Append history entry
+  try{
+    const hist=loadToolsHistory();
+    hist.push({
+      id:'TLH_'+Date.now()+'_'+Math.random().toString(36).slice(2,5),
+      ts:Date.now(),
+      date:new Date().toISOString().slice(0,10),
+      toolId:toolId,
+      toolName:t.name,
+      toolLocation:toolLoc(t),
+      oldStatus:oldStatus,
+      newStatus:newStatus,
+      note:note||'',
+      by:me.username||'system'
+    });
+    if(hist.length>5000)hist.splice(0,hist.length-5000);
+    saveToolsHistory(hist);
+  }catch(e){}
+
+  // Fire raiseFault on transition INTO defective (uses Phase 1 helper)
+  if(newStatus==='defective'&&oldStatus!=='defective'){
+    try{
+      if(typeof raiseFault==='function'){
+        raiseFault({
+          module:'maintenance',
+          title:`🔧 Defective tool: ${t.name} (${toolId})`,
+          description:`Tool flagged as defective.\n\nID: ${toolId}\nName: ${t.name}\nBrand: ${t.brand||'—'}\nDescription: ${t.description||'—'}\nQuantity: ${t.qty}\nLocation: ${toolLoc(t)}\n\nDefect note: ${note||'(no detail)'}\n\nReported by: ${me.username||'system'}\n\nDecide: Repair, Replace, or Dispose.`,
+          priority:'warning',
+          location:toolLoc(t),
+          source:'tool_defective',
+          sourceId:toolId,
+          triggerEvent:'tool_defective'
+        });
+      }
+    }catch(e){}
+  }
+
+  // Fire clearFault on transition OUT of defective (back to good)
+  if(newStatus==='good'&&oldStatus==='defective'){
+    try{
+      if(typeof clearFault==='function'){
+        clearFault({source:'tool_defective',sourceId:toolId,note:`Tool returned to service: ${note||'repair complete'}`});
+      }
+    }catch(e){}
+  }
+
+  if(typeof audit==='function')audit('tool_status_change',`${toolId} ${t.name}: ${oldStatus} → ${newStatus}`);
+  if(typeof showToast==='function')showToast(`✓ ${t.name} → ${newStatus}`,newStatus==='defective'?'warn':'ok');
+}
+// ============================================================================
+// END Tools override layer
+// ============================================================================
+
 let _toolsTab='inventory';
 let _toolsDate=new Date().toISOString().slice(0,10);
 let _toolsFilter='';
@@ -24443,6 +25062,7 @@ function renderMaintTools(){
   else if(_toolsTab==='checkout')renderToolsCheckout();
   else if(_toolsTab==='guard')renderToolsGuard();
   else if(_toolsTab==='defective')renderToolsDefective();
+  else if(_toolsTab==='history')renderToolsHistory();
 }
 function switchToolsTab(t){_toolsTab=t;renderMaintTools();}
 
@@ -24461,25 +25081,38 @@ function renderToolsInventory(){
   const openOut=getCheckedOutTools();
   const q=_toolsFilter.toLowerCase();
   const filtered=TOOLS_INVENTORY.filter(t=>{
-    if(_toolsStatusFilter==='good'&&t.status!=='good')return false;
-    if(_toolsStatusFilter==='defective'&&t.status!=='defective')return false;
+    if(_toolsStatusFilter==='good'&&effectiveToolStatus(t)!=='good')return false;
+    if(_toolsStatusFilter==='defective'&&effectiveToolStatus(t)!=='defective')return false;
     if(_toolsStatusFilter==='checked_out'&&!openOut.has(t.id))return false;
     if(!q)return true;
     return (t.name+' '+(t.brand||'')+' '+(t.description||'')+' '+(t.location||'')+' '+t.id).toLowerCase().includes(q);
   });
-  const totalGood=TOOLS_INVENTORY.filter(t=>t.status==='good').length;
-  const totalDefective=TOOLS_INVENTORY.filter(t=>t.status==='defective').length;
+  const totalGood=TOOLS_INVENTORY.filter(t=>effectiveToolStatus(t)==='good').length;
+  const totalDefective=TOOLS_INVENTORY.filter(t=>effectiveToolStatus(t)==='defective').length;
   const totalOut=openOut.size;
   const rows=filtered.map(t=>{
     const out=openOut.get(t.id);
-    const outBadge=out?`<span class="tool-status-pill out">OUT · ${out.takenBy||'?'} · ${out.date}</span>`:t.status==='defective'?`<span class="tool-status-pill defective">DEFECTIVE</span>`:`<span class="tool-status-pill good">AVAILABLE</span>`;
-    return `<tr class="tool-row ${t.status==='defective'?'defective':''}">
+    const eff=effectiveToolStatus(t);
+    const note=effectiveToolNote(t);
+    const outBadge=out?`<span class="tool-status-pill out">OUT · ${out.takenBy||'?'} · ${out.date}</span>`:eff==='defective'?`<span class="tool-status-pill defective">DEFECTIVE</span>`:`<span class="tool-status-pill good">AVAILABLE</span>`;
+    let actionBtns='';
+    if(eff==='good'&&!out){
+      actionBtns+=`<button class="btn btn-primary" style="font-size:10px;padding:5px 10px;margin-right:4px;" onclick="toolCheckoutPrompt('${t.id}')">📤 Check Out</button>`;
+      actionBtns+=`<button class="btn btn-outline" style="font-size:10px;padding:5px 10px;color:var(--warn);border-color:var(--warn);" onclick="toolMarkDefectivePrompt('${t.id}')">⚠️ Mark Defective</button>`;
+    }
+    if(out){
+      actionBtns+=`<button class="btn btn-outline" style="font-size:10px;padding:5px 10px;color:var(--ok);" onclick="toolReturnPrompt('${t.id}')">📥 Return</button>`;
+    }
+    if(eff==='defective'){
+      actionBtns+=`<button class="btn btn-outline" style="font-size:10px;padding:5px 10px;color:var(--ok);border-color:var(--ok);" onclick="toolMarkRepairedPrompt('${t.id}')">✓ Mark Repaired</button>`;
+    }
+    return `<tr class="tool-row ${eff==='defective'?'defective':''}">
       <td class="tool-id">${t.id}</td>
-      <td><div class="tool-name">${t.name}</div>${t.brand?`<div class="tool-brand">${t.brand}</div>`:''}${t.description?`<div class="tool-desc">${t.description}</div>`:''}${t.note?`<div class="tool-note">⚠ ${t.note}</div>`:''}</td>
+      <td><div class="tool-name">${t.name}</div>${t.brand?`<div class="tool-brand">${t.brand}</div>`:''}${t.description?`<div class="tool-desc">${t.description}</div>`:''}${note?`<div class="tool-note">⚠ ${note}</div>`:''}</td>
       <td class="tool-qty">×${t.qty}</td>
       <td class="tool-loc">${toolLoc(t)}</td>
       <td>${outBadge}</td>
-      <td>${t.status==='good'&&!out?`<button class="btn btn-primary" style="font-size:10px;padding:5px 10px;" onclick="toolCheckoutPrompt('${t.id}')">📤 Check Out</button>`:''}${out?`<button class="btn btn-outline" style="font-size:10px;padding:5px 10px;color:var(--ok);" onclick="toolReturnPrompt('${t.id}')">📥 Return</button>`:''}</td>
+      <td>${actionBtns}</td>
     </tr>`;
   }).join('');
 
@@ -24490,6 +25123,7 @@ function renderToolsInventory(){
       <button class="sensor-tab" onclick="switchToolsTab('checkout')">📤 Checkout Log</button>
       <button class="sensor-tab" onclick="switchToolsTab('guard')">🛡️ Guard Log</button>
       <button class="sensor-tab" onclick="switchToolsTab('defective')">⚠️ Defective (${totalDefective})</button>
+      <button class="sensor-tab" onclick="switchToolsTab('history')">📒 History</button>
     </div>
     <div class="pay-stat-row">
       <div class="pay-stat"><div class="pay-stat-label">Total Items</div><div class="pay-stat-val">${TOOLS_INVENTORY.length}</div></div>
@@ -24687,15 +25321,21 @@ function renderToolsGuard(){
 }
 
 function renderToolsDefective(){
-  const defective=TOOLS_INVENTORY.filter(t=>t.status==='defective');
-  const rows=defective.map(t=>`<tr>
+  const defective=TOOLS_INVENTORY.filter(t=>effectiveToolStatus(t)==='defective');
+  const rows=defective.map(t=>{
+    const note=effectiveToolNote(t);
+    return `<tr>
     <td class="tool-id">${t.id}</td>
     <td><div class="tool-name">${t.name}</div>${t.brand?`<div class="tool-brand">${t.brand}</div>`:''}${t.description?`<div class="tool-desc">${t.description}</div>`:''}</td>
     <td class="tool-qty">×${t.qty}</td>
     <td class="tool-loc">${toolLoc(t)}</td>
-    <td><div class="tool-note">⚠ ${t.note||t.condition||'Defective'}</div></td>
-    <td><button class="btn btn-outline" style="font-size:10px;padding:4px 9px;" onclick="raiseToolRepairIssue('${t.id}')">🎫 Raise Issue</button></td>
-  </tr>`).join('');
+    <td><div class="tool-note">⚠ ${note||t.condition||'Defective'}</div></td>
+    <td>
+      <button class="btn btn-outline" style="font-size:10px;padding:4px 9px;margin-right:4px;" onclick="raiseToolRepairIssue('${t.id}')">🎫 Raise Issue</button>
+      <button class="btn btn-outline" style="font-size:10px;padding:4px 9px;color:var(--ok);border-color:var(--ok);" onclick="toolMarkRepairedPrompt('${t.id}')">✓ Mark Repaired</button>
+    </td>
+  </tr>`;
+  }).join('');
   document.getElementById('stubMaintToolsBody').innerHTML=`
     <div class="section-title">🔧 Tools & Equipment</div>
     <div class="sensor-tabs">
@@ -24703,9 +25343,10 @@ function renderToolsDefective(){
       <button class="sensor-tab" onclick="switchToolsTab('checkout')">📤 Checkout Log</button>
       <button class="sensor-tab" onclick="switchToolsTab('guard')">🛡️ Guard Log</button>
       <button class="sensor-tab active" onclick="switchToolsTab('defective')">⚠️ Defective (${defective.length})</button>
+      <button class="sensor-tab" onclick="switchToolsTab('history')">📒 History</button>
     </div>
     <div style="padding:14px 16px;background:rgba(239,83,80,0.08);border-left:3px solid var(--danger);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);">
-      <strong>⚠️ Defective Tools — ${defective.length} items:</strong> These tools are flagged as not working. Decide: Repair, Dispose, or Replace. Raise an issue in the Issues Board to track status.
+      <strong>⚠️ Defective Tools — ${defective.length} items:</strong> Each defective tool has an auto-created maintenance task in Task Board (via raiseFault). Click "✓ Mark Repaired" when fixed — the system will auto-close the linked task.
     </div>
     <div class="tool-table-wrap">
       <table class="tool-table">
@@ -24714,6 +25355,149 @@ function renderToolsDefective(){
       </table>
     </div>
   `;
+}
+
+// ----- Status change prompts -----
+function toolMarkDefectivePrompt(toolId){
+  const t=TOOLS_INVENTORY.find(x=>x.id===toolId);
+  if(!t)return;
+  const note=prompt(`Mark "${t.name}" (${toolId}) as DEFECTIVE.\n\nWhat's the issue? (e.g. "Motor not starting", "Blade broken", "Won't power on")`,'');
+  if(note===null)return;
+  setToolStatus(toolId,'defective',note);
+  renderMaintTools();
+}
+
+function toolMarkRepairedPrompt(toolId){
+  const t=TOOLS_INVENTORY.find(x=>x.id===toolId);
+  if(!t)return;
+  const note=prompt(`Mark "${t.name}" (${toolId}) as REPAIRED / GOOD.\n\nWhat was done? (e.g. "Replaced motor", "New blade installed", "Disposed and replaced")`,'');
+  if(note===null)return;
+  setToolStatus(toolId,'good',note);
+  renderMaintTools();
+}
+
+// 📒 Tool history / timeline view
+function renderToolsHistory(){
+  const hist=loadToolsHistory();
+  const filterTool=window._toolsHistFilter||'all';
+
+  let entries=hist.slice();
+  if(filterTool!=='all')entries=entries.filter(h=>h.toolId===filterTool);
+  entries.sort((a,b)=>b.ts-a.ts);
+  const truncated=entries.length>200;
+  entries=entries.slice(0,200);
+
+  const recent30=hist.filter(h=>Date.now()-h.ts<30*86400000);
+  const breakdownsThisMonth=recent30.filter(h=>h.newStatus==='defective').length;
+  const repairsThisMonth=recent30.filter(h=>h.newStatus==='good'&&h.oldStatus==='defective').length;
+
+  const recent90=hist.filter(h=>Date.now()-h.ts<90*86400000&&h.newStatus==='defective');
+  const breakdownCounts={};
+  recent90.forEach(h=>{
+    if(!breakdownCounts[h.toolId])breakdownCounts[h.toolId]={tool:TOOLS_INVENTORY.find(x=>x.id===h.toolId),count:0};
+    breakdownCounts[h.toolId].count++;
+  });
+  const mostBroken=Object.values(breakdownCounts).filter(b=>b.tool).sort((a,b)=>b.count-a.count).slice(0,5);
+
+  let content='';
+  if(!hist.length){
+    content=`<div style="text-align:center;padding:50px 20px;background:var(--surface);border:1px dashed var(--border2);border-radius:10px;color:var(--text3);">
+      <div style="font-size:32px;margin-bottom:10px;">📒</div>
+      <div style="font-size:14px;color:var(--text2);font-weight:600;margin-bottom:6px;">No tool status changes yet</div>
+      <div style="font-size:12px;">Mark tools as defective or repaired from the Inventory tab — every change is logged here forever.</div>
+    </div>`;
+  } else {
+    content=`
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;">
+        <div class="stat-card"><div class="stat-label">📒 Total Logs</div><div class="stat-val">${hist.length}</div><div class="stat-sub">all-time changes</div></div>
+        <div class="stat-card"><div class="stat-label">🔧 Breakdowns (30d)</div><div class="stat-val ${breakdownsThisMonth>3?'warn':''}">${breakdownsThisMonth}</div><div class="stat-sub">tools flagged</div></div>
+        <div class="stat-card"><div class="stat-label">✓ Repairs (30d)</div><div class="stat-val ok">${repairsThisMonth}</div><div class="stat-sub">tools fixed</div></div>
+      </div>
+    `;
+
+    if(mostBroken.length){
+      content+=`<div style="background:rgba(239,83,80,0.06);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:14px;">
+        <div style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--danger);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">🚨 Most-Broken Tools — Last 90 Days</div>
+        ${mostBroken.map(b=>`<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--text3);">${b.tool.id}</span>
+          <span style="font-weight:600;color:var(--text2);">${b.tool.name}</span>
+          <span style="color:var(--text3);font-size:11px;">${b.tool.brand||''}</span>
+          <span style="margin-left:auto;font-family:var(--mono);font-weight:700;color:var(--danger);">${b.count} breakdown${b.count===1?'':'s'}</span>
+        </div>`).join('')}
+      </div>`;
+    }
+
+    const toolsWithHistory=Array.from(new Set(hist.map(h=>h.toolId))).map(id=>{
+      const t=TOOLS_INVENTORY.find(x=>x.id===id);
+      const c=hist.filter(h=>h.toolId===id).length;
+      return {id,name:t?t.name:id,count:c};
+    }).sort((a,b)=>b.count-a.count);
+
+    content+=`<div style="display:flex;gap:10px;align-items:center;background:var(--surface);padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:14px;">
+      <span style="font-size:11px;color:var(--text3);font-weight:600;">FILTER TOOL:</span>
+      <select onchange="window._toolsHistFilter=this.value;renderToolsHistory();" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:5px;font-size:12px;">
+        <option value="all" ${filterTool==='all'?'selected':''}>All tools (${hist.length} entries)</option>
+        ${toolsWithHistory.map(tw=>`<option value="${tw.id}" ${filterTool===tw.id?'selected':''}>${tw.id} ${tw.name} (${tw.count})</option>`).join('')}
+      </select>
+      <button onclick="exportToolsHistory()" style="margin-left:auto;font-size:11px;padding:6px 12px;border-radius:5px;border:1px solid var(--border2);background:none;color:var(--text2);cursor:pointer;font-weight:600;">⬇ Export CSV</button>
+    </div>`;
+
+    content+=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;">`;
+    entries.forEach(h=>{
+      const cls=h.newStatus==='good'?'var(--ok)':h.newStatus==='defective'?'var(--danger)':'var(--text3)';
+      const icon=h.newStatus==='good'?'✓':h.newStatus==='defective'?'✕':'·';
+      content+=`<div style="padding:10px 14px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:flex-start;">
+        <div style="font-size:18px;color:${cls};line-height:1.2;">${icon}</div>
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--text);">${h.toolId} ${h.toolName} <span style="color:var(--text3);font-weight:400;">📍 ${h.toolLocation||'—'}</span></div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px;">
+            <span style="color:${cls};font-weight:700;text-transform:uppercase;">${h.oldStatus||'unknown'} → ${h.newStatus}</span>
+          </div>
+          ${h.note?`<div style="font-size:10px;color:var(--text2);margin-top:4px;font-style:italic;">📝 ${h.note}</div>`:''}
+        </div>
+        <div style="text-align:right;font-size:10px;color:var(--text3);font-family:var(--mono);white-space:nowrap;">
+          <div>${h.date}</div>
+          <div>${new Date(h.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
+          <div style="margin-top:2px;">by ${h.by||'?'}</div>
+        </div>
+      </div>`;
+    });
+    content+='</div>';
+    if(truncated){
+      content+=`<div style="text-align:center;padding:12px;color:var(--text3);font-size:11px;font-style:italic;">Showing 200 most recent entries. Use Export CSV for complete history.</div>`;
+    }
+  }
+
+  document.getElementById('stubMaintToolsBody').innerHTML=`
+    <div class="section-title">🔧 Tools & Equipment</div>
+    <div class="sensor-tabs">
+      <button class="sensor-tab" onclick="switchToolsTab('inventory')">📋 Inventory (${TOOLS_INVENTORY.length})</button>
+      <button class="sensor-tab" onclick="switchToolsTab('checkout')">📤 Checkout Log</button>
+      <button class="sensor-tab" onclick="switchToolsTab('guard')">🛡️ Guard Log</button>
+      <button class="sensor-tab" onclick="switchToolsTab('defective')">⚠️ Defective</button>
+      <button class="sensor-tab active" onclick="switchToolsTab('history')">📒 History</button>
+    </div>
+    ${content}
+  `;
+}
+
+function exportToolsHistory(){
+  const hist=loadToolsHistory();
+  if(!hist.length){if(typeof showToast==='function')showToast('No history to export','warn');return;}
+  const headers=['Date','Time','Tool ID','Name','Location','Old Status','New Status','Note','By'];
+  const rows=hist.map(h=>[
+    h.date,
+    new Date(h.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),
+    h.toolId,h.toolName,h.toolLocation||'',h.oldStatus||'',h.newStatus,h.note||'',h.by
+  ]);
+  const csv=[headers,...rows].map(r=>r.map(c=>`"${(c==null?'':String(c)).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=`tools-history-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  if(typeof showToast==='function')showToast('Exported','ok');
 }
 
 function raiseToolRepairIssue(toolId){
@@ -44351,8 +45135,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.27-it-umbrella-group';  // ✅ NEW: EQUIPMENT CHECKLIST + AUTO-CALL + REAL CCTV IMPORT. Each generic equipment category now has a default daily-check checklist (e.g., Pumps: pressure/leaks/noise/seals; Cold Storage: temp/door seal/defrost/ice/alarm; Generators: fuel/oil/battery/coolant/load test). NEW "✅ Run Check" button on every equipment card opens a modal: each check item gets 🟢 OK / 🟡 Warning / 🔴 Critical / ➖ N/A radios + an optional note field. ANY Warning or Critical result automatically creates a maintenance task in the Task Board (priority warn=📌 Priority, critical=🚨 Urgent) AND opens a paired call in maintenance — tagged with subject "[Category Subject]" e.g. "Refrigeration / Cold Storage", "Pump Service", "Generators / Backup Power", so they show up in the matrix correctly. Item status auto-updates to reflect latest check (good/warn/bad). NEW "📜 History" button shows the last 30 checks per item with full per-item results. Equipment HUB FIX: existing modules (Radio/Ozone/RO/Tools) sub-tabs now navigate to the dedicated views (preserves all features) instead of buggy innerHTML embedding — added "← Back to Equipment Hub" links at top of those views. CCTV INVENTORY: imported 81 real cameras from CCTV CAMERA LIST 2.xlsx as REAL_CAMERAS constant, organized across 4 NVRs (TV1 Greenhouses 16ch, TV2 Perimeter 32ch, TV3 32ch, TV4 4ch), with real IPs/locations/types — new "📥 Import Real Cameras (81)" button in IT > CCTV inventory tab. Backup files removed (production-monitor.html and production-monitor100.html) — app.html is now the only source. localStorage adds: hydroPro_maint_equipment_v1, hydroPro_maint_equipment_checks_v1.
-const APP_BUILD=1777612800;
+const APP_VERSION='2.46.28-consolidated-merge';  // 🔀 CONSOLIDATED MERGE — combines IT-Umbrella-Group v2.46.27 with three features from the Tools-PM-History lineage. PHASE 1: canonical raiseFault() and clearFault() helpers inserted after createIssue. raiseFault creates an issue, an auto-maintenance task linked back to the issue, and an audit log entry, with same-day deduplication keyed by source+sourceId+date so the same fault does not produce duplicate artifacts. clearFault closes any open auto-task tied to the matching source/sourceId pair when the underlying condition resolves. Fields written to tasks: faultDedupKey, faultSource, faultSourceId, linkedIssueId. Toasts inform supervisors of fault raises and auto-closures. Adapted from v2.46.24 — the original PM-template auto-spawn step is replaced with direct task creation since PM templates do not exist in this lineage. PHASE 2: Tools status overrides + history. New TOOLS_OVERRIDES_KEY (hydroPro_tools_overrides) layer lets supervisors flag tools defective/repaired from the UI without modifying the hardcoded TOOLS_INVENTORY. effectiveToolStatus() and effectiveToolNote() merge override on top of static metadata. setToolStatus() is the canonical entry point — fires raiseFault on good→defective, clearFault on defective→good. New hydroPro_tools_history log (capped 5000) tracks every status change. Inventory rows now show "Mark Defective" (yellow) and "Mark Repaired" (green) buttons. New 📒 History tab with stat cards, Most-Broken Tools 90-day leaderboard, tool filter, CSV export. Defective tab also gets Mark Repaired action. PHASE 3: Daily Summary Report extensions. Renamed "Daily Briefing" → "Daily Summary Report" in sidebar and renderer. Six new collectors added to collectBriefingData: collectFaultsToday parses audit log for fault_raised entries with priorities grouped by module, collectTasksClosedToday classifies done-on-date tasks as PM/fault/manual, collectEquipmentRollup aggregates Ozone/RO/Solar/Tools/Radio health, collectVsYesterday returns deltas plus open-issues count, collectRecurringIssues flags faults firing 3+ times in 7 days, collectFleetTodayCount tallies GPS trips. Renderer adds 🔥 Critical Items banner, 📊 Versus Yesterday 4-cell grid, ⚠️ Faults Raised Today list, ✅ Tasks Closed Today list, 🔧 Equipment Status grid, 🚨 Recurring Issues banner, 🚐 Fleet trip count. Existing equipment checklist, CCTV inventory (81 cameras), and Equipment Hub from v2.46.27-it-umbrella-group are untouched.
+const APP_BUILD=1777613800;
 const APP_BUILD_DATE='2026-05-01';
 
 // Store version in localStorage on first run
