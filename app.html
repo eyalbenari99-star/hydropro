@@ -3022,8 +3022,19 @@ a{color:var(--accent2);text-decoration:none;}
 <div class="view" id="view-maint_ro"><div id="stubMaintROBody"></div></div>
 <div class="view" id="view-maint_radio"><div id="stubMaintRadioBody"></div></div>
 <div class="view" id="view-maint_tools"><div id="stubMaintToolsBody"></div></div>
+<div class="view" id="view-maint_equipment"><div id="stubMaintEquipmentBody"></div></div>
 
 <!-- Maintenance modals -->
+<div class="modal-overlay" id="maintEquipModal">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-header">
+      <div class="modal-title" id="maintEquipTitle">⚙️ EQUIPMENT</div>
+      <button class="modal-close" onclick="document.getElementById('maintEquipModal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body" id="maintEquipBody"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="maintTaskModal">
   <div class="modal" style="max-width:720px;">
     <div class="modal-header">
@@ -5624,10 +5635,7 @@ const MODULES={
       {id:'maint_tasks',label:'✅ Task Board',perm:'viewMaintenance',title:'Daily maintenance tasks with status & photos'},
       {id:'maint_calendar',label:'📅 PM Calendar',perm:'viewMaintenance',title:'Preventive maintenance schedule'},
       {id:'maint_materials',label:'📦 Material Requests',perm:'viewMaintenance',title:'Items needed from inventory for next-day tasks'},
-      {id:'maint_ozone',label:'🌀 Ozone Machines',perm:'viewMaintenance',title:'Ozone machine status (8 machines)'},
-      {id:'maint_ro',label:'💧 RO Machine',perm:'viewMaintenance',title:'Reverse Osmosis maintenance with multi-day trends + membrane lifecycle'},
-      {id:'maint_radio',label:'📻 Radio Report',perm:'viewMaintenance',title:'Daily radio unit check-in, missing/damaged tracking, history'},
-      {id:'maint_tools',label:'🔧 Tools & Equipment',perm:'viewMaintenance',title:'Full inventory, daily checkout log, guard log'}
+      {id:'maint_equipment',label:'⚙️ Equipment & Machines',perm:'viewMaintenance',title:'All equipment in one place: radios, ozone, RO, tools, cold storage, pumps, climate, dosing, lighting, CO₂, sensors, generators, vehicles, sprayers'}
     ]
   },
   it:{
@@ -5915,7 +5923,7 @@ function switchView(v,skipModuleCheck){
     hr:'manageHR',attendance:'manageHR',memos:'manageHR',reconcile:'manageHR',
     payroll_ops:'managePayroll',payroll_office:'managePayroll',payroll_history:'managePayroll',payroll_rates:'managePayroll',
     // New modules
-    maint_dash:'viewMaintenance',maint_tasks:'viewMaintenance',maint_calendar:'viewMaintenance',maint_materials:'viewMaintenance',maint_ozone:'viewMaintenance',maint_ro:'viewMaintenance',maint_radio:'viewMaintenance',maint_tools:'viewMaintenance',
+    maint_dash:'viewMaintenance',maint_tasks:'viewMaintenance',maint_calendar:'viewMaintenance',maint_materials:'viewMaintenance',maint_ozone:'viewMaintenance',maint_ro:'viewMaintenance',maint_radio:'viewMaintenance',maint_tools:'viewMaintenance',maint_equipment:'viewMaintenance',
     it_cctv:'viewIT',it_radios:'viewIT',it_devices:'viewIT',
     irr_dash:'viewIrrigation',irr_schedule:'viewIrrigation',irr_drums:'viewIrrigation',irr_nutrients:'viewIrrigation',irr_systems:'viewIrrigation',
     inv_dash:'viewInventory',inv_stock:'viewInventory',inv_movements:'viewInventory',inv_categories:'viewInventory',
@@ -6001,6 +6009,7 @@ function switchView(v,skipModuleCheck){
   if(v==='maint_ro')renderMaintRO();
   if(v==='maint_radio')renderMaintRadio();
   if(v==='maint_tools')renderMaintTools();
+  if(v==='maint_equipment')renderMaintEquipment();
   if(v==='it_cctv')renderItCctv();
   if(v==='it_radios')renderItRadios();
   if(v==='it_devices')renderItDevices();
@@ -19303,29 +19312,11 @@ function _renderMaintDash_inner(){
         <div class="maint-module-meta">Tomorrow's prep: ${pendingMats} items</div>
         <div class="maint-module-stat" style="color:${pendingMats>0?'var(--warn)':'var(--text3)'};">${pendingMats>0?'⚠ Prep today':'Nothing pending'}</div>
       </div>
-      <div class="maint-module-card" onclick="switchView('maint_ozone')" style="cursor:pointer;">
-        <div class="maint-module-icon">🌀</div>
-        <div class="maint-module-title">Ozone Machines</div>
-        <div class="maint-module-meta">${ozGood}/${MAINT_OZONE_MACHINES.length} good${ozBad?' · '+ozBad+' bad':''}${ozWarn?' · '+ozWarn+' warn':''}</div>
-        <div class="maint-module-stat" style="color:${ozBad>0?'var(--danger)':ozWarn>0?'var(--warn)':'var(--ok)'};">${ozBad>0?'⚠ Needs service':ozWarn>0?'Watch':'All good'}</div>
-      </div>
-      <div class="maint-module-card" onclick="switchView('maint_ro')" style="cursor:pointer;">
-        <div class="maint-module-icon">💧</div>
-        <div class="maint-module-title">Reverse Osmosis</div>
-        <div class="maint-module-meta">${roLastDate?'Last: '+roLastDate:'No reading yet'}</div>
-        <div class="maint-module-stat" style="color:${roLastDate===today?'var(--ok)':roLastDate?'var(--warn)':'var(--danger)'};">${roLastDate===today?'✓ Recorded today':roLastDate?_dDaysAgo(roLastDate)+'d behind':'⚠ Missing'}</div>
-      </div>
-      <div class="maint-module-card" onclick="switchView('maint_radio')" style="cursor:pointer;">
-        <div class="maint-module-icon">📻</div>
-        <div class="maint-module-title">Radio Report</div>
-        <div class="maint-module-meta">${radWorking}/${MAINT_RADIO_UNITS.length} working today</div>
-        <div class="maint-module-stat" style="color:${radIssue>0?'var(--warn)':radNotChecked===MAINT_RADIO_UNITS.length?'var(--text3)':'var(--ok)'};">${radIssue>0?'⚠ '+radIssue+' issues':radNotChecked===MAINT_RADIO_UNITS.length?'Not checked yet':'✓ All clear'}</div>
-      </div>
-      <div class="maint-module-card" onclick="switchView('maint_tools')" style="cursor:pointer;">
-        <div class="maint-module-icon">🔧</div>
-        <div class="maint-module-title">Tools &amp; Equipment</div>
-        <div class="maint-module-meta">Inventory · Daily checkout · Guard log</div>
-        <div class="maint-module-stat" style="color:var(--text3);">Manage inventory</div>
+      <div class="maint-module-card" onclick="switchView('maint_equipment')" style="cursor:pointer;grid-column:span 2;">
+        <div class="maint-module-icon">⚙️</div>
+        <div class="maint-module-title">Equipment & Machines</div>
+        <div class="maint-module-meta">📻 Radio ${radWorking}/${MAINT_RADIO_UNITS.length} · 🌀 Ozone ${ozGood}/${MAINT_OZONE_MACHINES.length} · 💧 RO ${roLastDate===today?'✓ today':roLastDate?_dDaysAgo(roLastDate)+'d ago':'pending'} · 🔧 Tools · ❄️ Cold · ⚙️ Pumps · 🌬️ Climate · 💉 Dosing · 💡 Lighting · ☁️ CO₂ · 📡 Sensors · ⚡ Gen · 🚛 Vehicles · 🧪 Sprayers</div>
+        <div class="maint-module-stat" style="color:${(ozBad>0||radIssue>0)?'var(--warn)':'var(--accent2)'};">${(ozBad>0||radIssue>0)?'⚠ Equipment needs attention':'14 categories — click to manage'}</div>
       </div>
     </div>
 
@@ -19350,6 +19341,325 @@ function _renderMaintDash_inner(){
 function _dDaysAgo(dateStr){
   if(!dateStr)return 0;
   return Math.floor((Date.now()-new Date(dateStr).getTime())/86400000);
+}
+
+// ===================== EQUIPMENT & MACHINES HUB (v2.46.9) =====================
+// Unified hub for ALL equipment / machines on site. Existing modules (Ozone, RO,
+// Radio, Tools) are surfaced as sub-tabs and route to their existing renderers.
+// New categories use a generic equipment list with status + service tracking.
+const MAINT_EQUIP_CATEGORIES=[
+  // Existing modules — render via their own functions
+  {id:'radio',     icon:'📻', name:'Radio',         existing:'maint_radio'},
+  {id:'ozone',     icon:'🌀', name:'Ozone',         existing:'maint_ozone'},
+  {id:'ro',        icon:'💧', name:'Reverse Osmosis',existing:'maint_ro'},
+  {id:'tools',     icon:'🔧', name:'Tools',         existing:'maint_tools'},
+  // Generic equipment categories (new in v2.46.9)
+  {id:'cold',      icon:'❄️', name:'Cold Storage',  fields:['temp_setpoint','last_defrost'],
+   defaults:[
+     {id:'CS_PACK',name:'Packaging Cold Room',location:'Packaging Room',temp_setpoint:'2°C',status:'good'},
+     {id:'CS_HARV',name:'Harvest Cold Room',location:'Harvest Area',temp_setpoint:'4°C',status:'good'},
+     {id:'CS_SEED',name:'Seed Storage Fridge',location:'Lab',temp_setpoint:'5°C',status:'good'}
+   ]},
+  {id:'pumps',     icon:'⚙️', name:'Pumps',         fields:['type','flow_rate'],
+   defaults:[
+     {id:'PMP_GH1_IRR',name:'Irrigation Pump GH1',location:'GH1',type:'Centrifugal',status:'good'},
+     {id:'PMP_GH2_IRR',name:'Irrigation Pump GH2',location:'GH2',type:'Centrifugal',status:'good'},
+     {id:'PMP_DOSE_A',name:'Dosing Pump A',location:'Mix Room',type:'Peristaltic',status:'good'},
+     {id:'PMP_RECIRC',name:'Recirculation Pump',location:'Pump Room',type:'Submersible',status:'good'}
+   ]},
+  {id:'climate',   icon:'🌬️', name:'Climate / HVAC',fields:['type'],
+   defaults:[
+     {id:'CL_GH1_FAN',name:'Exhaust Fan GH1',location:'GH1',type:'Exhaust Fan',status:'good'},
+     {id:'CL_GH2_FAN',name:'Exhaust Fan GH2',location:'GH2',type:'Exhaust Fan',status:'good'},
+     {id:'CL_PACK_AC',name:'Packaging AC',location:'Packaging Room',type:'Split AC',status:'good'},
+     {id:'CL_VENT_M', name:'Roof Vent Motor',location:'GH3',type:'Vent Motor',status:'good'}
+   ]},
+  {id:'dosing',    icon:'💉', name:'Dosing System', fields:['parameter'],
+   defaults:[
+     {id:'DS_EC_GH1',name:'EC Controller GH1',location:'GH1',parameter:'EC',status:'good'},
+     {id:'DS_PH_GH1',name:'pH Controller GH1',location:'GH1',parameter:'pH',status:'good'},
+     {id:'DS_MIX_A', name:'Mixing Tank A',location:'Mix Room',parameter:'Nutrient A',status:'good'},
+     {id:'DS_MIX_B', name:'Mixing Tank B',location:'Mix Room',parameter:'Nutrient B',status:'good'}
+   ]},
+  {id:'lighting',  icon:'💡', name:'Lighting',      fields:['watts','hours'],
+   defaults:[
+     {id:'LT_GH1_LED',name:'LED Bank GH1',location:'GH1',watts:'600W',status:'good'},
+     {id:'LT_GH2_LED',name:'LED Bank GH2',location:'GH2',watts:'600W',status:'good'},
+     {id:'LT_PROP',   name:'Propagation Lights',location:'Propagation',watts:'400W',status:'good'}
+   ]},
+  {id:'co2',       icon:'☁️', name:'CO₂ System',     fields:['type'],
+   defaults:[
+     {id:'CO2_GEN',  name:'CO₂ Generator',location:'Mech Room',type:'Propane Burner',status:'good'},
+     {id:'CO2_TANK', name:'CO₂ Tank',location:'Mech Room',type:'Liquid Tank',status:'good'},
+     {id:'CO2_REG',  name:'Regulator + Lines',location:'Multiple',type:'Distribution',status:'good'}
+   ]},
+  {id:'sensors',   icon:'📡', name:'Sensors',       fields:['parameter'],
+   defaults:[
+     {id:'SN_TEMP_GH1',name:'Climate Sensor GH1',location:'GH1',parameter:'Temp/RH',status:'good'},
+     {id:'SN_TEMP_GH2',name:'Climate Sensor GH2',location:'GH2',parameter:'Temp/RH',status:'good'},
+     {id:'SN_PH_PROBE',name:'pH Probe',location:'Lab',parameter:'pH',status:'good'},
+     {id:'SN_EC_PROBE',name:'EC Probe',location:'Lab',parameter:'EC',status:'good'}
+   ]},
+  {id:'generators',icon:'⚡', name:'Generators',    fields:['fuel','runtime'],
+   defaults:[
+     {id:'GEN_MAIN',name:'Main Backup Generator',location:'Mech Yard',fuel:'Diesel',status:'good'},
+     {id:'GEN_UPS', name:'Server UPS',location:'IT Room',fuel:'Battery',status:'good'}
+   ]},
+  {id:'vehicles',  icon:'🚛', name:'Vehicles',      fields:['type','mileage'],
+   defaults:[
+     {id:'VH_PICKUP',name:'Site Pickup Truck',location:'Yard',type:'Pickup',status:'good'},
+     {id:'VH_FORK',  name:'Forklift',location:'Warehouse',type:'Forklift',status:'good'},
+     {id:'VH_CART',  name:'Electric Cart',location:'Yard',type:'Cart',status:'good'}
+   ]},
+  {id:'sprayers',  icon:'🧪', name:'Sprayers',      fields:['capacity','type'],
+   defaults:[
+     {id:'SP_BACK_A',name:'Backpack Sprayer A',location:'Chem Room',capacity:'15L',type:'Manual',status:'good'},
+     {id:'SP_BACK_B',name:'Backpack Sprayer B',location:'Chem Room',capacity:'15L',type:'Manual',status:'good'},
+     {id:'SP_FOG',   name:'Cold Fogger',location:'Chem Room',capacity:'5L',type:'Electric',status:'good'}
+   ]}
+];
+
+const MAINT_EQUIP_KEY='hydroPro_maint_equipment_v1';
+function loadMaintEquipment(){
+  try{
+    const raw=localStorage.getItem(MAINT_EQUIP_KEY);
+    if(raw)return JSON.parse(raw);
+  }catch(e){console.warn('loadMaintEquipment parse error:',e);}
+  // Seed with defaults from category definitions
+  const seed={};
+  MAINT_EQUIP_CATEGORIES.forEach(c=>{
+    if(c.defaults){
+      seed[c.id]=c.defaults.map(d=>({...d,lastService:'',nextService:'',notes:''}));
+    }
+  });
+  localStorage.setItem(MAINT_EQUIP_KEY,JSON.stringify(seed));
+  return seed;
+}
+function saveMaintEquipment(d){localStorage.setItem(MAINT_EQUIP_KEY,JSON.stringify(d));}
+function getEquipItems(catId){const all=loadMaintEquipment();return all[catId]||[];}
+function setEquipItems(catId,items){const all=loadMaintEquipment();all[catId]=items;saveMaintEquipment(all);}
+
+// Active sub-tab state for the hub (kept on window so view re-renders preserve it)
+window._maintEquipActiveTab=window._maintEquipActiveTab||'radio';
+function maintEquipSetTab(tabId){
+  window._maintEquipActiveTab=tabId;
+  renderMaintEquipment();
+}
+
+function renderMaintEquipment(){
+  const host=document.getElementById('stubMaintEquipmentBody');
+  if(!host)return;
+  const active=window._maintEquipActiveTab||'radio';
+  const cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===active)||MAINT_EQUIP_CATEGORIES[0];
+
+  // Build sub-tab bar
+  let tabBar='<div style="display:flex;flex-wrap:wrap;gap:6px;padding:14px 16px 0;background:var(--surface);border-bottom:1px solid var(--border);">';
+  MAINT_EQUIP_CATEGORIES.forEach(c=>{
+    const isActive=c.id===active;
+    let badge='';
+    if(c.existing){
+      // Existing modules — try to surface a quick stat
+      if(c.id==='radio'){const u=(typeof MAINT_RADIO_UNITS!=='undefined')?MAINT_RADIO_UNITS.length:0;badge=u?` <span style="opacity:.7;">(${u})</span>`:'';}
+      else if(c.id==='ozone'){const u=(typeof MAINT_OZONE_MACHINES!=='undefined')?MAINT_OZONE_MACHINES.length:0;badge=u?` <span style="opacity:.7;">(${u})</span>`:'';}
+    }else{
+      const items=getEquipItems(c.id);
+      const bad=items.filter(i=>i.status==='bad').length;
+      const warn=items.filter(i=>i.status==='warn').length;
+      const dot=bad>0?'🔴':warn>0?'🟡':'🟢';
+      badge=` <span style="opacity:.7;">${dot} ${items.length}</span>`;
+    }
+    tabBar+=`<button class="btn ${isActive?'primary':''}" style="padding:8px 12px;font-size:11px;border-radius:8px 8px 0 0;border-bottom:${isActive?'2px solid var(--accent)':'2px solid transparent'};margin-bottom:-1px;" onclick="maintEquipSetTab('${c.id}')">${c.icon} ${c.name}${badge}</button>`;
+  });
+  tabBar+='</div>';
+
+  // Build content
+  let content='';
+  if(cat.existing){
+    // Render the existing module inline by calling its renderer into a sandbox area
+    content=`<div id="equipExistingHost" style="padding:0;">`;
+    content+=`<div style="padding:12px 16px;background:var(--surface2);font-size:11px;color:var(--text3);border-bottom:1px solid var(--border);">📍 You're inside the Equipment hub. To return: <a href="#" onclick="switchView('maint_dash');return false;" style="color:var(--accent);">Maintenance Dashboard</a></div>`;
+    content+=`<div id="equipExistingBody" style="padding:0;"></div>`;
+    content+=`</div>`;
+  }else{
+    content=renderEquipCategoryHTML(cat);
+  }
+
+  host.innerHTML=`
+    <div class="section-title" style="padding:14px 16px 0;display:flex;justify-content:space-between;align-items:center;">
+      <span>⚙️ Equipment & Machines</span>
+      <button class="btn small" onclick="switchView('maint_dash')">← Maintenance</button>
+    </div>
+    ${tabBar}
+    <div style="padding:0;">${content}</div>
+  `;
+
+  // If existing module — call its renderer, then move output into our embedded host
+  if(cat.existing){
+    try{
+      const fn=({maint_radio:'renderMaintRadio',maint_ozone:'renderMaintOzone',maint_ro:'renderMaintRO',maint_tools:'renderMaintTools'})[cat.existing];
+      if(fn&&typeof window[fn]==='function'){
+        window[fn]();
+        // Move the source body into our embedded slot
+        const srcId=({maint_radio:'stubMaintRadioBody',maint_ozone:'stubMaintOzoneBody',maint_ro:'stubMaintROBody',maint_tools:'stubMaintToolsBody'})[cat.existing];
+        const src=document.getElementById(srcId);
+        const dst=document.getElementById('equipExistingBody');
+        if(src&&dst){dst.innerHTML=src.innerHTML;}
+      }
+    }catch(e){console.warn('equip existing renderer failed:',e);}
+  }
+}
+
+function renderEquipCategoryHTML(cat){
+  const items=getEquipItems(cat.id);
+  const today=new Date().toISOString().split('T')[0];
+  const bad=items.filter(i=>i.status==='bad').length;
+  const warn=items.filter(i=>i.status==='warn').length;
+  const good=items.filter(i=>i.status==='good'||!i.status).length;
+  const overdue=items.filter(i=>i.nextService&&i.nextService<today).length;
+
+  let html=`<div style="padding:14px 16px;">`;
+  // Stat row
+  html+=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:14px;">
+    <div class="pay-stat"><div class="pay-stat-label">Total</div><div class="pay-stat-val">${items.length}</div></div>
+    <div class="pay-stat"><div class="pay-stat-label">🟢 Good</div><div class="pay-stat-val ok">${good}</div></div>
+    <div class="pay-stat"><div class="pay-stat-label">🟡 Warning</div><div class="pay-stat-val ${warn>0?'warn':''}">${warn}</div></div>
+    <div class="pay-stat"><div class="pay-stat-label">🔴 Bad</div><div class="pay-stat-val ${bad>0?'danger':''}">${bad}</div></div>
+    <div class="pay-stat"><div class="pay-stat-label">⏰ Service Overdue</div><div class="pay-stat-val ${overdue>0?'warn':''}">${overdue}</div></div>
+  </div>`;
+
+  // Toolbar
+  html+=`<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+    <button class="btn primary" onclick="openEquipEdit('${cat.id}',null)">➕ Add ${cat.name}</button>
+    <button class="btn" onclick="if(confirm('Reset ${cat.name} to default seed list? Custom items will be lost.')){const all=loadMaintEquipment();delete all['${cat.id}'];saveMaintEquipment(all);renderMaintEquipment();}">↻ Reset to Default</button>
+  </div>`;
+
+  if(items.length===0){
+    html+=`<div style="padding:30px;text-align:center;color:var(--text3);background:var(--surface);border-radius:10px;">
+      <div style="font-size:36px;margin-bottom:8px;">${cat.icon}</div>
+      <div>No ${cat.name.toLowerCase()} items yet. Click "Add ${cat.name}" to start tracking.</div>
+    </div>`;
+  }else{
+    html+=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;">`;
+    items.forEach(item=>{
+      const statusColor=item.status==='bad'?'var(--danger)':item.status==='warn'?'var(--warn)':'var(--ok)';
+      const statusIcon=item.status==='bad'?'🔴':item.status==='warn'?'🟡':'🟢';
+      const statusLabel=item.status==='bad'?'Bad':item.status==='warn'?'Warning':'Good';
+      const isOverdue=item.nextService&&item.nextService<today;
+      const customField=cat.fields&&cat.fields[0]&&item[cat.fields[0]]?`<div style="font-size:11px;color:var(--text3);margin-top:4px;">${cat.fields[0].replace('_',' ')}: <strong>${item[cat.fields[0]]}</strong></div>`:'';
+      html+=`<div style="background:var(--surface);border:1.5px solid var(--border);border-left:5px solid ${statusColor};border-radius:10px;padding:12px;cursor:pointer;" onclick="openEquipEdit('${cat.id}','${item.id}')">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:8px;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:700;font-size:13px;">${item.name||item.id}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px;">📍 ${item.location||'No location'}</div>
+            ${customField}
+          </div>
+          <div style="font-size:11px;font-weight:700;color:${statusColor};white-space:nowrap;">${statusIcon} ${statusLabel}</div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:10px;color:var(--text3);flex-wrap:wrap;">
+          <span>Last service: <strong style="color:var(--text);">${item.lastService||'—'}</strong></span>
+          <span>Next: <strong style="color:${isOverdue?'var(--danger)':'var(--text)'};">${item.nextService||'—'}${isOverdue?' ⚠':''}</strong></span>
+        </div>
+        ${item.notes?`<div style="font-size:11px;color:var(--text2);margin-top:6px;font-style:italic;">📝 ${item.notes}</div>`:''}
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+
+  html+=`</div>`;
+  return html;
+}
+
+function openEquipEdit(catId,itemId){
+  const cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===catId);
+  if(!cat)return;
+  const items=getEquipItems(catId);
+  const item=itemId?items.find(i=>i.id===itemId):{id:'',name:'',location:'',status:'good',lastService:'',nextService:'',notes:''};
+  const isNew=!itemId;
+
+  const modal=document.getElementById('maintEquipModal');
+  document.getElementById('maintEquipTitle').textContent=`${cat.icon} ${isNew?'Add':'Edit'} ${cat.name}`;
+
+  let extraFields='';
+  if(cat.fields){
+    cat.fields.forEach(f=>{
+      const label=f.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+      extraFields+=`<div style="margin-bottom:10px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">${label}</label>
+        <input id="eq_f_${f}" type="text" value="${item[f]||''}" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>`;
+    });
+  }
+
+  document.getElementById('maintEquipBody').innerHTML=`
+    <div style="margin-bottom:10px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">ID ${isNew?'(unique)':''}</label>
+      <input id="eq_id" type="text" value="${item.id||''}" ${isNew?'':'readonly'} style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);${isNew?'':'opacity:.6;'}" /></div>
+    <div style="margin-bottom:10px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Name</label>
+      <input id="eq_name" type="text" value="${item.name||''}" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+    <div style="margin-bottom:10px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Location</label>
+      <input id="eq_location" type="text" value="${item.location||''}" placeholder="e.g. GH1, Mix Room, Warehouse" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+    ${extraFields}
+    <div style="margin-bottom:10px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Status</label>
+      <select id="eq_status" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);">
+        <option value="good" ${item.status==='good'||!item.status?'selected':''}>🟢 Good</option>
+        <option value="warn" ${item.status==='warn'?'selected':''}>🟡 Warning</option>
+        <option value="bad" ${item.status==='bad'?'selected':''}>🔴 Bad / Out of service</option>
+      </select></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Last Service</label>
+        <input id="eq_lastService" type="date" value="${item.lastService||''}" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Next Service</label>
+        <input id="eq_nextService" type="date" value="${item.nextService||''}" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+    </div>
+    <div style="margin-bottom:14px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Notes</label>
+      <textarea id="eq_notes" rows="3" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);resize:vertical;">${item.notes||''}</textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      ${!isNew?`<button class="btn" style="background:var(--danger);color:#fff;" onclick="if(confirm('Delete ${item.name||item.id}?')){deleteEquipItem('${catId}','${itemId}');}">🗑 Delete</button>`:''}
+      <button class="btn" onclick="document.getElementById('maintEquipModal').classList.remove('open')">Cancel</button>
+      <button class="btn primary" onclick="saveEquipEdit('${catId}','${itemId||''}')">Save</button>
+    </div>
+  `;
+  modal.classList.add('open');
+}
+
+function saveEquipEdit(catId,itemId){
+  const cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===catId);
+  if(!cat)return;
+  const isNew=!itemId;
+  const newId=document.getElementById('eq_id').value.trim().toUpperCase().replace(/\s+/g,'_');
+  if(!newId){alert('ID is required.');return;}
+  const items=getEquipItems(catId);
+  if(isNew&&items.some(i=>i.id===newId)){alert('That ID already exists.');return;}
+
+  const data={
+    id:isNew?newId:itemId,
+    name:document.getElementById('eq_name').value.trim(),
+    location:document.getElementById('eq_location').value.trim(),
+    status:document.getElementById('eq_status').value,
+    lastService:document.getElementById('eq_lastService').value,
+    nextService:document.getElementById('eq_nextService').value,
+    notes:document.getElementById('eq_notes').value.trim()
+  };
+  if(cat.fields){
+    cat.fields.forEach(f=>{const el=document.getElementById('eq_f_'+f);if(el)data[f]=el.value.trim();});
+  }
+  let next;
+  if(isNew){
+    next=[...items,data];
+  }else{
+    next=items.map(i=>i.id===itemId?data:i);
+  }
+  setEquipItems(catId,next);
+  if(typeof audit==='function')audit('equip_save',(isNew?'Added ':'Edited ')+cat.name+': '+(data.name||data.id));
+  if(typeof showToast==='function')showToast('✓ Saved','ok');
+  document.getElementById('maintEquipModal').classList.remove('open');
+  renderMaintEquipment();
+}
+
+function deleteEquipItem(catId,itemId){
+  const items=getEquipItems(catId).filter(i=>i.id!==itemId);
+  setEquipItems(catId,items);
+  if(typeof audit==='function')audit('equip_delete','Removed equipment: '+itemId);
+  if(typeof showToast==='function')showToast('✓ Deleted','ok');
+  document.getElementById('maintEquipModal').classList.remove('open');
+  renderMaintEquipment();
 }
 
 function renderMaintTasks(){
@@ -41765,9 +42075,9 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.8-row-colors';  // 🎨 ROW-LEVEL COLOR CODING ON GANTT + LIST. User asked: "should be colors if critical or warning or any other option". Added two layers of color signals to make priority/status visible at a glance without reading text. (1) PRIORITY = colored left-edge stripe on each Gantt task cell + List row. 🚨 Urgent = red 5px stripe, ⚠ Priority = orange, 🔨 Need = blue, 📋 Low/Nice = gray. (2) STATUS = soft background tint on the row\'s meta cells. ⛔ Blocked = red tint (rgba 239,83,80,0.10), 🔍 Need Check Work = warm orange tint (rgba 255,179,0,0.10), ⚙ Ongoing/Started = info-blue tint (rgba 66,165,245,0.06), ✓ Done = faint green + opacity 0.7 (visually faded, like crossed-off). (3) OVERDUE highlight: any task with scheduledDate < today AND not done gets an inset red box-shadow on the task cell so it pulses red regardless of priority. (4) List view: full row gets the priority-colored left border + status-tint + 🚨 OVERDUE inline badge next to the status pill if past due. (5) Gantt legend now has two new rows: "Row colors:" showing priority swatches, "Row tints (status):" showing status-tint examples + overdue swatch. Tints are designed to be subtle on individual rows but cumulative when many similar tasks stack — so a Gantt full of urgent overdue items reads as a wall of red, while a normal day reads as muted gray.
-const APP_BUILD=1777550010;
-const APP_BUILD_DATE='2026-04-30';
+const APP_VERSION='2.46.9-equipment-hub';  // ⚙️ NEW: EQUIPMENT & MACHINES HUB. Consolidates all 14 equipment categories into one Maintenance sub-area: 📻 Radio, 🌀 Ozone, 💧 Reverse Osmosis, 🔧 Tools (existing modules, surfaced as sub-tabs), and 10 new generic categories — ❄️ Cold Storage, ⚙️ Pumps, 🌬️ Climate/HVAC, 💉 Dosing System, 💡 Lighting, ☁️ CO₂, 📡 Sensors, ⚡ Generators, 🚛 Vehicles, 🧪 Sprayers. Each new category uses a unified data model (id, name, location, status, lastService, nextService, notes + category-specific fields like temp_setpoint, flow_rate, watts, fuel, mileage, capacity). Stored in localStorage under hydroPro_maint_equipment_v1. Auto-seeds with sensible defaults (e.g., Cold Storage: Packaging Cold Room, Harvest Cold Room, Seed Storage Fridge). Each category sub-tab shows: stat row (Total / 🟢 Good / 🟡 Warning / 🔴 Bad / ⏰ Service Overdue), Add button, Reset-to-default button, and a card grid for items. Click any card to edit or delete. Dashboard System Health grid now shows ONE Equipment hub card (instead of 4 separate cards for Ozone/RO/Radio/Tools) — keeps the dashboard cleaner. Top nav for Maintenance module now shows: Dashboard / ✅ Task Board / 📅 PM Calendar / 📦 Material Requests / ⚙️ Equipment & Machines (5 items instead of 8). All previous deep-link routes (maint_ozone, maint_ro, maint_radio, maint_tools) still work — they just live inside the hub now. Quick-stat tiles at the top of the dashboard preserve their direct click-throughs as shortcuts.
+const APP_BUILD=1777608000;
+const APP_BUILD_DATE='2026-05-01';
 
 // Store version in localStorage on first run
 (function initVersionTracking(){
