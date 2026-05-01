@@ -3018,10 +3018,10 @@ a{color:var(--accent2);text-decoration:none;}
 <div class="view" id="view-maint_tasks"><div id="stubMaintTasksBody"></div></div>
 <div class="view" id="view-maint_calendar"><div id="stubMaintCalendarBody"></div></div>
 <div class="view" id="view-maint_materials"><div id="stubMaintMaterialsBody"></div></div>
-<div class="view" id="view-maint_ozone"><div id="stubMaintOzoneBody"></div></div>
-<div class="view" id="view-maint_ro"><div id="stubMaintROBody"></div></div>
-<div class="view" id="view-maint_radio"><div id="stubMaintRadioBody"></div></div>
-<div class="view" id="view-maint_tools"><div id="stubMaintToolsBody"></div></div>
+<div class="view" id="view-maint_ozone"><div style="padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;display:flex;align-items:center;gap:10px;"><a href="#" onclick="switchView('maint_equipment');return false;" style="color:var(--accent);text-decoration:none;">← Back to Equipment Hub</a> <span style="color:var(--text3);">·</span> <span style="color:var(--text3);">🌀 Ozone</span></div><div id="stubMaintOzoneBody"></div></div>
+<div class="view" id="view-maint_ro"><div style="padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;display:flex;align-items:center;gap:10px;"><a href="#" onclick="switchView('maint_equipment');return false;" style="color:var(--accent);text-decoration:none;">← Back to Equipment Hub</a> <span style="color:var(--text3);">·</span> <span style="color:var(--text3);">💧 Reverse Osmosis</span></div><div id="stubMaintROBody"></div></div>
+<div class="view" id="view-maint_radio"><div style="padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;display:flex;align-items:center;gap:10px;"><a href="#" onclick="switchView('maint_equipment');return false;" style="color:var(--accent);text-decoration:none;">← Back to Equipment Hub</a> <span style="color:var(--text3);">·</span> <span style="color:var(--text3);">📻 Radio</span></div><div id="stubMaintRadioBody"></div></div>
+<div class="view" id="view-maint_tools"><div style="padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;display:flex;align-items:center;gap:10px;"><a href="#" onclick="switchView('maint_equipment');return false;" style="color:var(--accent);text-decoration:none;">← Back to Equipment Hub</a> <span style="color:var(--text3);">·</span> <span style="color:var(--text3);">🔧 Tools</span></div><div id="stubMaintToolsBody"></div></div>
 <div class="view" id="view-maint_equipment"><div id="stubMaintEquipmentBody"></div></div>
 
 <!-- Maintenance modals -->
@@ -14380,7 +14380,18 @@ function collectSecurityData(date){
       kpiSub=`${scansDone}/${total} scans`;
     } else {
       facts.push({label:'Patrol',value:'No data',tone:'mute'});
-      status='inactive';
+      // 8am-deadline alert: if today's report missing AND it's past 08:00 → critical; before 08:00 → warning
+      const _now=new Date();
+      const _hr=_now.getHours();
+      if(date===_now.toISOString().slice(0,10)){
+        if(_hr>=8){
+          alerts.push({priority:'critical',text:`🛂 RFID patrol report OVERDUE — should have been uploaded by 08:00`,cta:`switchView('sec_patrol');`});
+          status='danger';
+        }else{
+          alerts.push({priority:'warn',text:`🛂 RFID patrol report not yet uploaded (deadline 08:00)`,cta:`switchView('sec_patrol');`});
+          if(status==='ok')status='warn';
+        }
+      }
       kpiValue='—';kpiSub='No patrol data';
     }
 
@@ -14733,6 +14744,110 @@ const DEFAULT_CAMERAS=[
   {id:'CAM-23', name:'Fertigation Room B',    nvrId:'NVR-3', channel:7, location:'Fertigation room B',            model:'Hikvision DS-2CD2', ip:'',  type:'dome',   status:'active'},
   {id:'CAM-24', name:'Solar Panel Roof',      nvrId:'NVR-3', channel:8, location:'Roof — solar/water tank area',  model:'Hikvision DS-2CD2', ip:'',  type:'bullet', status:'active'}
 ];
+
+// Real camera inventory imported from "CCTV CAMERA LIST 2.xlsx" (uploaded 2026-04-25)
+// 81 unique cameras across 4 NVRs (TV1 Greenhouses, TV2 Perimeter, TV3, TV4)
+// IPs and locations are from the actual deployed system
+const REAL_CAMERAS=[
+  {"id":"CAM-001","cameraNo":"D1","name":"Gh2 Right Table","nvrId":"NVR-1","channel":1,"location":"GH2 RIGHT TABLE","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.101","type":"bullet","status":"active"},
+  {"id":"CAM-002","cameraNo":"D2","name":"Gh5 Left View","nvrId":"NVR-1","channel":2,"location":"GH5 LEFT VIEW","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.81","type":"bullet","status":"active"},
+  {"id":"CAM-003","cameraNo":"D3","name":"Gh1 Left View","nvrId":"NVR-1","channel":3,"location":"GH1 LEFT VIEW","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.102","type":"bullet","status":"active"},
+  {"id":"CAM-004","cameraNo":"D4","name":"Gh5 Right View","nvrId":"NVR-1","channel":4,"location":"GH5 RIGHT VIEW","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.88","type":"bullet","status":"active"},
+  {"id":"CAM-005","cameraNo":"D5","name":"Gh6 Left View","nvrId":"NVR-1","channel":5,"location":"GH6 LEFT VIEW","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.80","type":"bullet","status":"active"},
+  {"id":"CAM-006","cameraNo":"D6","name":"Gh9 Left View","nvrId":"NVR-1","channel":6,"location":"GH9 LEFT VIEW","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.104","type":"bullet","status":"active"},
+  {"id":"CAM-007","cameraNo":"D7","name":"Gh1 Right Table","nvrId":"NVR-1","channel":7,"location":"GH1 RIGHT TABLE","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.96","type":"bullet","status":"active"},
+  {"id":"CAM-008","cameraNo":"D8","name":"Gh7 Hydroponics","nvrId":"NVR-1","channel":8,"location":"GH7 HYDROPONICS","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.86","type":"bullet","status":"active"},
+  {"id":"CAM-009","cameraNo":"D9","name":"Gh2 Left Table","nvrId":"NVR-1","channel":9,"location":"GH2 LEFT TABLE","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.98","type":"bullet","status":"active"},
+  {"id":"CAM-010","cameraNo":"D10","name":"Gh4 View","nvrId":"NVR-1","channel":10,"location":"GH4 VIEW","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.87","type":"bullet","status":"active"},
+  {"id":"CAM-011","cameraNo":"D11","name":"Gh9 Right View","nvrId":"NVR-1","channel":11,"location":"GH9 RIGHT VIEW","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.45","type":"bullet","status":"active"},
+  {"id":"CAM-012","cameraNo":"D12","name":"Gh9 Center View","nvrId":"NVR-1","channel":12,"location":"GH9 CENTER VIEW","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.33","type":"bullet","status":"active"},
+  {"id":"CAM-013","cameraNo":"D13","name":"Gh10 View","nvrId":"NVR-1","channel":13,"location":"GH10 VIEW","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.48","type":"bullet","status":"active"},
+  {"id":"CAM-014","cameraNo":"D14","name":"Gh3 Left View","nvrId":"NVR-1","channel":14,"location":"GH3 LEFT VIEW","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.126","type":"bullet","status":"active"},
+  {"id":"CAM-015","cameraNo":"D15","name":"Gh3 Right View","nvrId":"NVR-1","channel":15,"location":"GH3 RIGHT VIEW","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.125","type":"bullet","status":"active"},
+  {"id":"CAM-016","cameraNo":"D16","name":"Gh6 Right View","nvrId":"NVR-1","channel":16,"location":"GH6 RIGHT VIEW","group":"TV1 GREENHOUSES","model":"HIKVISION","ip":"192.168.1.36","type":"bullet","status":"active"},
+  {"id":"CAM-017","cameraNo":"D1","name":"Gh1 Back View","nvrId":"NVR-2","channel":1,"location":"GH1 BACK VIEW","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.214","type":"bullet","status":"active"},
+  {"id":"CAM-018","cameraNo":"D2","name":"New Farm View","nvrId":"NVR-2","channel":2,"location":"NEW FARM VIEW","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.163","type":"bullet","status":"active"},
+  {"id":"CAM-019","cameraNo":"D3","name":"Container 2F View","nvrId":"NVR-2","channel":3,"location":"CONTAINER 2F VIEW","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.91","type":"bullet","status":"active"},
+  {"id":"CAM-020","cameraNo":"D4","name":"Warehouse 1","nvrId":"NVR-2","channel":4,"location":"WAREHOUSE 1","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.42","type":"bullet","status":"active"},
+  {"id":"CAM-021","cameraNo":"D5","name":"Gh9 Fertigation Room","nvrId":"NVR-2","channel":5,"location":"GH9 FERTIGATION ROOM","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.47","type":"bullet","status":"active"},
+  {"id":"CAM-022","cameraNo":"D6","name":"Gh2 Back View","nvrId":"NVR-2","channel":6,"location":"GH2 BACK VIEW","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.5","type":"bullet","status":"active"},
+  {"id":"CAM-023","cameraNo":"D7","name":"Gh10 Back View","nvrId":"NVR-2","channel":7,"location":"GH10 BACK VIEW","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.38","type":"bullet","status":"active"},
+  {"id":"CAM-024","cameraNo":"D8","name":"Gh10 Rv Perimeter","nvrId":"NVR-2","channel":8,"location":"GH10 RV PERIMETER","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.43","type":"bullet","status":"active"},
+  {"id":"CAM-025","cameraNo":"D9","name":"Fertigation Room 1&2","nvrId":"NVR-2","channel":9,"location":"FERTIGATION ROOM 1&2","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.211","type":"bullet","status":"active"},
+  {"id":"CAM-026","cameraNo":"D10","name":"Gh9 Outside","nvrId":"NVR-2","channel":10,"location":"GH9 OUTSIDE","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.39","type":"bullet","status":"active"},
+  {"id":"CAM-027","cameraNo":"D11","name":"Gate 2 Perimeter","nvrId":"NVR-2","channel":11,"location":"GATE 2 PERIMETER","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.172","type":"bullet","status":"active"},
+  {"id":"CAM-028","cameraNo":"D12","name":"Main Tank","nvrId":"NVR-2","channel":12,"location":"MAIN TANK","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.44","type":"bullet","status":"active"},
+  {"id":"CAM-029","cameraNo":"D13","name":"Fertigation Room 3&4","nvrId":"NVR-2","channel":13,"location":"FERTIGATION ROOM 3&4","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.99","type":"bullet","status":"active"},
+  {"id":"CAM-030","cameraNo":"D14","name":"Fertigation Room 10","nvrId":"NVR-2","channel":14,"location":"FERTIGATION ROOM 10","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.31","type":"bullet","status":"active"},
+  {"id":"CAM-031","cameraNo":"D15","name":"Gh9 Perimeter","nvrId":"NVR-2","channel":15,"location":"GH9 PERIMETER","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.41","type":"bullet","status":"active"},
+  {"id":"CAM-032","cameraNo":"D17","name":"Back Of Gh6","nvrId":"NVR-2","channel":17,"location":"BACK OF GH6","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.92","type":"bullet","status":"active"},
+  {"id":"CAM-033","cameraNo":"D18","name":"Gh7 Back View","nvrId":"NVR-2","channel":18,"location":"GH7 BACK VIEW","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.93","type":"bullet","status":"active"},
+  {"id":"CAM-034","cameraNo":"D19","name":"Eba Office Back View","nvrId":"NVR-2","channel":19,"location":"EBA OFFICE BACK VIEW","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.12","type":"bullet","status":"active"},
+  {"id":"CAM-035","cameraNo":"D20","name":"Gh6,5,4 Perimeter","nvrId":"NVR-2","channel":20,"location":"GH6,5,4 PERIMETER","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.138","type":"bullet","status":"active"},
+  {"id":"CAM-036","cameraNo":"D21","name":"Container Hallway","nvrId":"NVR-2","channel":21,"location":"CONTAINER HALLWAY","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.90","type":"bullet","status":"active"},
+  {"id":"CAM-037","cameraNo":"D22","name":"Gh6 Perimeter","nvrId":"NVR-2","channel":22,"location":"GH6 PERIMETER","group":"TV2 GH PERIMETER","model":"ONVIF","ip":"192.168.1.6","type":"bullet","status":"active"},
+  {"id":"CAM-038","cameraNo":"D23","name":"Main Gate Outside","nvrId":"NVR-2","channel":23,"location":"MAIN GATE OUTSIDE","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.19","type":"bullet","status":"active"},
+  {"id":"CAM-039","cameraNo":"D24","name":"Office Back","nvrId":"NVR-2","channel":24,"location":"OFFICE BACK","group":"TV2 GH PERIMETER","model":"ONVIF","ip":"192.168.1.24","type":"bullet","status":"active"},
+  {"id":"CAM-040","cameraNo":"D25","name":"Fertigation Room 5&6","nvrId":"NVR-2","channel":25,"location":"FERTIGATION ROOM 5&6","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.89","type":"bullet","status":"active"},
+  {"id":"CAM-041","cameraNo":"D26","name":"Parking Lot Front","nvrId":"NVR-2","channel":26,"location":"PARKING LOT FRONT","group":"TV2 GH PERIMETER","model":"ONVIF","ip":"192.168.1.21","type":"bullet","status":"active"},
+  {"id":"CAM-042","cameraNo":"D27","name":"Gh9 Front Left View","nvrId":"NVR-2","channel":27,"location":"GH9 FRONT LEFT VIEW","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.85","type":"bullet","status":"active"},
+  {"id":"CAM-043","cameraNo":"D28","name":"Office Back View","nvrId":"NVR-2","channel":28,"location":"OFFICE BACK VIEW","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.23","type":"bullet","status":"active"},
+  {"id":"CAM-044","cameraNo":"D29","name":"Gh2-3 Perimeter","nvrId":"NVR-2","channel":29,"location":"GH2-3 PERIMETER","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.97","type":"bullet","status":"active"},
+  {"id":"CAM-045","cameraNo":"D30","name":"Farm Entrance","nvrId":"NVR-2","channel":30,"location":"FARM ENTRANCE","group":"TV2 GH PERIMETER","model":"ONVIF","ip":"192.168.1.34","type":"bullet","status":"active"},
+  {"id":"CAM-046","cameraNo":"D31","name":"Gh8 Hydroponics","nvrId":"NVR-2","channel":31,"location":"GH8 HYDROPONICS","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.84","type":"bullet","status":"active"},
+  {"id":"CAM-047","cameraNo":"D32","name":"Back Office Perimeter","nvrId":"NVR-2","channel":32,"location":"BACK OFFICE PERIMETER","group":"TV2 GH PERIMETER","model":"HIKVISION","ip":"192.168.1.22","type":"bullet","status":"active"},
+  {"id":"CAM-048","cameraNo":"D1","name":"Outside Perimeter","nvrId":"NVR-3","channel":1,"location":"OUTSIDE PERIMETER","group":"TV3","model":"ONVIF","ip":"192.168.1.218","type":"bullet","status":"active"},
+  {"id":"CAM-049","cameraNo":"D3","name":"Security Area","nvrId":"NVR-3","channel":3,"location":"SECURITY AREA","group":"TV3","model":"ONVIF","ip":"192.168.1.20","type":"bullet","status":"active"},
+  {"id":"CAM-050","cameraNo":"D4","name":"Doorbell Cam","nvrId":"NVR-3","channel":4,"location":"DOORBELL CAM","group":"TV3","model":"ONVIF","ip":"192.168.1.10","type":"bullet","status":"active"},
+  {"id":"CAM-051","cameraNo":"D5","name":"One Stop Shop 2 (New Meeting Room LV)","nvrId":"NVR-3","channel":5,"location":"ONE STOP SHOP 2 (NEW MEETING ROOM LV)","group":"TV3","model":"ONVIF","ip":"192.168.1.13","type":"bullet","status":"active"},
+  {"id":"CAM-052","cameraNo":"D6","name":"Ai Cam (Chemical Room)","nvrId":"NVR-3","channel":6,"location":"AI CAM (CHEMICAL ROOM)","group":"TV3","model":"ONVIF","ip":"192.168.1.7","type":"bullet","status":"active"},
+  {"id":"CAM-053","cameraNo":"D7","name":"It Room","nvrId":"NVR-3","channel":7,"location":"IT ROOM","group":"TV3","model":"ONVIF","ip":"192.168.1.201","type":"bullet","status":"active"},
+  {"id":"CAM-054","cameraNo":"D8","name":"Packaging Receiving Area","nvrId":"NVR-3","channel":8,"location":"PACKAGING RECEIVING AREA","group":"TV3","model":"ONVIF","ip":"192.168.1.14","type":"bullet","status":"active"},
+  {"id":"CAM-055","cameraNo":"D9","name":"Cold Storage","nvrId":"NVR-3","channel":9,"location":"COLD STORAGE","group":"TV3","model":"ONVIF","ip":"192.168.1.15","type":"bullet","status":"active"},
+  {"id":"CAM-056","cameraNo":"D10","name":"Office Inside","nvrId":"NVR-3","channel":10,"location":"OFFICE INSIDE","group":"TV3","model":"ONVIF","ip":"192.168.1.2","type":"bullet","status":"active"},
+  {"id":"CAM-057","cameraNo":"D11","name":"Office Pantry","nvrId":"NVR-3","channel":11,"location":"OFFICE PANTRY","group":"TV3","model":"ONVIF","ip":"192.168.1.136","type":"bullet","status":"active"},
+  {"id":"CAM-058","cameraNo":"D13","name":"Meeting Room (Accounting Area)","nvrId":"NVR-3","channel":13,"location":"MEETING ROOM (ACCOUNTING AREA)","group":"TV3","model":"ONVIF","ip":"192.168.1.3","type":"bullet","status":"active"},
+  {"id":"CAM-059","cameraNo":"D14","name":"Project 11 Right Side","nvrId":"NVR-3","channel":14,"location":"PROJECT 11 RIGHT SIDE","group":"TV3","model":"ONVIF","ip":"192.168.1.158","type":"bullet","status":"active"},
+  {"id":"CAM-060","cameraNo":"D15","name":"Hipc (Project 11 Left Side)","nvrId":"NVR-3","channel":15,"location":"HIPC (PROJECT 11 LEFT SIDE)","group":"TV3","model":"ONVIF","ip":"192.168.1.150","type":"bullet","status":"active"},
+  {"id":"CAM-061","cameraNo":"D16","name":"Project 11 Center","nvrId":"NVR-3","channel":16,"location":"PROJECT 11 CENTER","group":"TV3","model":"ONVIF","ip":"192.168.1.159","type":"bullet","status":"active"},
+  {"id":"CAM-062","cameraNo":"D18","name":"Project 11 Irrigation Room","nvrId":"NVR-3","channel":18,"location":"PROJECT 11 IRRIGATION ROOM","group":"TV3","model":"ONVIF","ip":"192.168.1.147","type":"bullet","status":"active"},
+  {"id":"CAM-063","cameraNo":"D20","name":"CR","nvrId":"NVR-3","channel":20,"location":"CR","group":"TV3","model":"ONVIF","ip":"192.168.1.4","type":"bullet","status":"active"},
+  {"id":"CAM-064","cameraNo":"D21","name":"Logistic Area","nvrId":"NVR-3","channel":21,"location":"LOGISTIC AREA","group":"TV3","model":"ONVIF","ip":"192.168.1.209","type":"bullet","status":"active"},
+  {"id":"CAM-065","cameraNo":"D22","name":"Farm Entrance (TV3)","nvrId":"NVR-3","channel":22,"location":"FARM ENTRANCE","group":"TV3","model":"ONVIF","ip":"192.168.1.66","type":"bullet","status":"active"},
+  {"id":"CAM-066","cameraNo":"D23","name":"Boss Room","nvrId":"NVR-3","channel":23,"location":"BOSS ROOM","group":"TV3","model":"ONVIF","ip":"192.168.1.196","type":"bullet","status":"active"},
+  {"id":"CAM-067","cameraNo":"D25","name":"Sir Badii (Office)","nvrId":"NVR-3","channel":25,"location":"SIR BADII (OFFICE)","group":"TV3","model":"ONVIF","ip":"192.168.1.18","type":"bullet","status":"active"},
+  {"id":"CAM-068","cameraNo":"D26","name":"Packaging Area","nvrId":"NVR-3","channel":26,"location":"PACKAGING AREA","group":"TV3","model":"ONVIF","ip":"192.168.1.17","type":"bullet","status":"active"},
+  {"id":"CAM-069","cameraNo":"D27","name":"Maingate Inside","nvrId":"NVR-3","channel":27,"location":"MAINGATE INSIDE","group":"TV3","model":"ONVIF","ip":"192.168.1.141","type":"bullet","status":"active"},
+  {"id":"CAM-070","cameraNo":"D28","name":"Okay (New Meeting Room RV)","nvrId":"NVR-3","channel":28,"location":"OKAY (NEW MEETING ROOM RV)","group":"TV3","model":"HIKVISION","ip":"192.168.1.205","type":"bullet","status":"active"},
+  {"id":"CAM-071","cameraNo":"D1","name":"Fr1&2 Outside View","nvrId":"NVR-4","channel":1,"location":"FR1&2 OUTSIDE VIEW","group":"TV4","model":"HIKVISION","ip":"192.168.1.213","type":"bullet","status":"active"},
+  {"id":"CAM-072","cameraNo":"D4","name":"Fr5&6 Outside View","nvrId":"NVR-4","channel":4,"location":"FR5&6 OUTSIDE VIEW","group":"TV4","model":"HIKVISION","ip":"192.168.1.140","type":"bullet","status":"active"},
+  {"id":"CAM-073","cameraNo":"D10A","name":"Gh4 View (alt)","nvrId":"NVR-2","channel":10,"location":"GH4 VIEW","group":"NVR2-extra","model":"HIKVISION","ip":"192.168.1.50","type":"bullet","status":"active"},
+  {"id":"CAM-074","cameraNo":"D16A","name":"Gh6 Right View (alt)","nvrId":"NVR-2","channel":16,"location":"GH6 RIGHT VIEW","group":"NVR2-extra","model":"HIKVISION","ip":"192.168.1.25","type":"bullet","status":"active"},
+  {"id":"CAM-075","cameraNo":"D6A","name":"Gh9 Left View (alt)","nvrId":"NVR-2","channel":6,"location":"GH9 LEFT VIEW","group":"NVR2-extra","model":"HIKVISION","ip":"192.168.1.49","type":"bullet","status":"active"},
+  {"id":"CAM-076","cameraNo":"D11A","name":"Gh9 Right View (alt)","nvrId":"NVR-2","channel":11,"location":"GH9 RIGHT VIEW","group":"NVR2-extra","model":"HIKVISION","ip":"192.168.1.100","type":"bullet","status":"active"},
+  {"id":"CAM-077","cameraNo":"D12A","name":"Main Tank View (alt)","nvrId":"NVR-2","channel":12,"location":"MAIN TANK VIEW","group":"NVR2-extra","model":"HIKVISION","ip":"192.168.1.37","type":"bullet","status":"active"},
+  {"id":"CAM-078","cameraNo":"D11B","name":"Gate 2 Perimeter (alt)","nvrId":"NVR-2","channel":11,"location":"GATE 2 PERIMETER","group":"NVR2-extra","model":"HIKVISION","ip":"192.168.1.170","type":"bullet","status":"active"},
+  {"id":"CAM-079","cameraNo":"D30A","name":"Receiving Outside","nvrId":"NVR-2","channel":30,"location":"RECEIVING OUTSIDE","group":"NVR2-extra","model":"ONVIF","ip":"192.168.1.8","type":"bullet","status":"active"},
+  {"id":"CAM-080","cameraNo":"D31A","name":"Packaging Left Side","nvrId":"NVR-2","channel":31,"location":"PACKAGING LEFT SIDE","group":"NVR2-extra","model":"ONVIF","ip":"192.168.1.59","type":"bullet","status":"active"},
+  {"id":"CAM-081","cameraNo":"D1B","name":"Cold Storage 2","nvrId":"NVR-2","channel":1,"location":"COLD STORAGE 2","group":"NVR2-extra","model":"HIKVISION","ip":"192.168.1.16","type":"bullet","status":"active"}
+];
+
+function cctvImportRealCameras(){
+  if(!confirm('Import 81 real cameras from the uploaded CCTV list? This will REPLACE your current camera inventory. (Daily check history will be preserved.) Continue?'))return;
+  saveCameras(JSON.parse(JSON.stringify(REAL_CAMERAS)));
+  // Make sure NVR-1..NVR-4 exist
+  const nvrs=loadNvrs();
+  ['NVR-1','NVR-2','NVR-3','NVR-4'].forEach(id=>{
+    if(!nvrs.find(n=>n.id===id)){
+      const channels=id==='NVR-2'?32:id==='NVR-3'?32:16;
+      nvrs.push({id,location:id+' (auto-created)',channels,model:'',brand:'Hikvision/ONVIF',status:'active'});
+    }
+  });
+  saveNvrs(nvrs);
+  if(typeof audit==='function')audit('cctv_import_real','Imported 81 real cameras from CCTV LIST 2.xlsx');
+  if(typeof showToast==='function')showToast('✓ Imported 81 cameras across 4 NVRs','ok',5000);
+  renderItCctv();
+}
 
 function loadNvrs(){
   try{const s=localStorage.getItem(IT_CCTV_NVR_KEY);if(s){const p=JSON.parse(s);if(Array.isArray(p))return p;}}catch(e){}
@@ -15088,9 +15203,10 @@ function renderItCctvInventory(){
       </table>
     </div>
 
-    <div style="display:flex;gap:10px;margin-top:14px;">
+    <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
       <button class="btn btn-primary" onclick="cctvAddCamera()">+ Add Camera</button>
       <button class="btn btn-outline" onclick="cctvExportInventory()">📊 Export CSV</button>
+      <button class="btn btn-outline" style="color:var(--accent);border-color:var(--accent);" onclick="cctvImportRealCameras()" title="Import the 81-camera real inventory from the uploaded CCTV CAMERA LIST 2.xlsx">📥 Import Real Cameras (81)</button>
       <div style="flex:1;"></div>
       ${isAdmin()?`<button class="btn btn-outline" style="color:var(--warn);" onclick="cctvResetCameras()">↺ Reset to defaults</button>`:''}
     </div>
@@ -19355,12 +19471,16 @@ const MAINT_EQUIP_CATEGORIES=[
   {id:'tools',     icon:'🔧', name:'Tools',         existing:'maint_tools'},
   // Generic equipment categories (new in v2.46.9)
   {id:'cold',      icon:'❄️', name:'Cold Storage',  fields:['temp_setpoint','last_defrost'],
+   subject:'Refrigeration / Cold Storage',
+   checklist:['Temperature at setpoint','Door seal intact','Defrost cycle ran','No excess ice buildup','Alarm system working','Inside clean & organized'],
    defaults:[
      {id:'CS_PACK',name:'Packaging Cold Room',location:'Packaging Room',temp_setpoint:'2°C',status:'good'},
      {id:'CS_HARV',name:'Harvest Cold Room',location:'Harvest Area',temp_setpoint:'4°C',status:'good'},
      {id:'CS_SEED',name:'Seed Storage Fridge',location:'Lab',temp_setpoint:'5°C',status:'good'}
    ]},
   {id:'pumps',     icon:'⚙️', name:'Pumps',         fields:['type','flow_rate'],
+   subject:'Pump Service',
+   checklist:['Pressure within range','No visible leaks','No abnormal noise/vibration','Seals OK','Strainer clean','Motor not overheating'],
    defaults:[
      {id:'PMP_GH1_IRR',name:'Irrigation Pump GH1',location:'GH1',type:'Centrifugal',status:'good'},
      {id:'PMP_GH2_IRR',name:'Irrigation Pump GH2',location:'GH2',type:'Centrifugal',status:'good'},
@@ -19368,6 +19488,8 @@ const MAINT_EQUIP_CATEGORIES=[
      {id:'PMP_RECIRC',name:'Recirculation Pump',location:'Pump Room',type:'Submersible',status:'good'}
    ]},
   {id:'climate',   icon:'🌬️', name:'Climate / HVAC',fields:['type'],
+   subject:'Climate / HVAC',
+   checklist:['Airflow normal','Belts tight & not cracked','Filter clean','Thermostat reading correct','No unusual noise','Drain pan clear'],
    defaults:[
      {id:'CL_GH1_FAN',name:'Exhaust Fan GH1',location:'GH1',type:'Exhaust Fan',status:'good'},
      {id:'CL_GH2_FAN',name:'Exhaust Fan GH2',location:'GH2',type:'Exhaust Fan',status:'good'},
@@ -19375,6 +19497,8 @@ const MAINT_EQUIP_CATEGORIES=[
      {id:'CL_VENT_M', name:'Roof Vent Motor',location:'GH3',type:'Vent Motor',status:'good'}
    ]},
   {id:'dosing',    icon:'💉', name:'Dosing System', fields:['parameter'],
+   subject:'Dosing / Fertigation',
+   checklist:['Calibration current','Chemical level OK','Tubes clear & not cracked','No drift in EC/pH','Solenoids responding','Mixing tank clean'],
    defaults:[
      {id:'DS_EC_GH1',name:'EC Controller GH1',location:'GH1',parameter:'EC',status:'good'},
      {id:'DS_PH_GH1',name:'pH Controller GH1',location:'GH1',parameter:'pH',status:'good'},
@@ -19382,18 +19506,24 @@ const MAINT_EQUIP_CATEGORIES=[
      {id:'DS_MIX_B', name:'Mixing Tank B',location:'Mix Room',parameter:'Nutrient B',status:'good'}
    ]},
   {id:'lighting',  icon:'💡', name:'Lighting',      fields:['watts','hours'],
+   subject:'Lighting',
+   checklist:['All bulbs/LEDs working','Timer accurate','Coverage uniform','Drivers cool','No flicker','Fixtures clean'],
    defaults:[
      {id:'LT_GH1_LED',name:'LED Bank GH1',location:'GH1',watts:'600W',status:'good'},
      {id:'LT_GH2_LED',name:'LED Bank GH2',location:'GH2',watts:'600W',status:'good'},
      {id:'LT_PROP',   name:'Propagation Lights',location:'Propagation',watts:'400W',status:'good'}
    ]},
   {id:'co2',       icon:'☁️', name:'CO₂ System',     fields:['type'],
+   subject:'CO₂ System',
+   checklist:['No leaks (soap test)','Tank level adequate','Sensor reading matches','Regulator pressure normal','Lines unobstructed','Distribution even'],
    defaults:[
      {id:'CO2_GEN',  name:'CO₂ Generator',location:'Mech Room',type:'Propane Burner',status:'good'},
      {id:'CO2_TANK', name:'CO₂ Tank',location:'Mech Room',type:'Liquid Tank',status:'good'},
      {id:'CO2_REG',  name:'Regulator + Lines',location:'Multiple',type:'Distribution',status:'good'}
    ]},
   {id:'sensors',   icon:'📡', name:'Sensors',       fields:['parameter'],
+   subject:'Sensors / Instrumentation',
+   checklist:['Calibration current','Reading matches reference','Battery OK','Probe clean','No drift vs duplicate','Logging correctly'],
    defaults:[
      {id:'SN_TEMP_GH1',name:'Climate Sensor GH1',location:'GH1',parameter:'Temp/RH',status:'good'},
      {id:'SN_TEMP_GH2',name:'Climate Sensor GH2',location:'GH2',parameter:'Temp/RH',status:'good'},
@@ -19401,17 +19531,23 @@ const MAINT_EQUIP_CATEGORIES=[
      {id:'SN_EC_PROBE',name:'EC Probe',location:'Lab',parameter:'EC',status:'good'}
    ]},
   {id:'generators',icon:'⚡', name:'Generators',    fields:['fuel','runtime'],
+   subject:'Generators / Backup Power',
+   checklist:['Fuel level OK','Oil level OK','Battery charged','Coolant level OK','Last load test recent','No leaks visible','Auto-start ready'],
    defaults:[
      {id:'GEN_MAIN',name:'Main Backup Generator',location:'Mech Yard',fuel:'Diesel',status:'good'},
      {id:'GEN_UPS', name:'Server UPS',location:'IT Room',fuel:'Battery',status:'good'}
    ]},
   {id:'vehicles',  icon:'🚛', name:'Vehicles',      fields:['type','mileage'],
+   subject:'Vehicles / Forklifts',
+   checklist:['Fuel/charge OK','Tires inflated','Fluids topped up','Lights & horn working','Brakes responsive','Safety equipment present'],
    defaults:[
      {id:'VH_PICKUP',name:'Site Pickup Truck',location:'Yard',type:'Pickup',status:'good'},
      {id:'VH_FORK',  name:'Forklift',location:'Warehouse',type:'Forklift',status:'good'},
      {id:'VH_CART',  name:'Electric Cart',location:'Yard',type:'Cart',status:'good'}
    ]},
   {id:'sprayers',  icon:'🧪', name:'Sprayers',      fields:['capacity','type'],
+   subject:'Sprayers / Chemical Application',
+   checklist:['Nozzles clean & even spray','Pressure correct','Tank clean (no residue)','Hoses intact','PPE available','Calibration recent'],
    defaults:[
      {id:'SP_BACK_A',name:'Backpack Sprayer A',location:'Chem Room',capacity:'15L',type:'Manual',status:'good'},
      {id:'SP_BACK_B',name:'Backpack Sprayer B',location:'Chem Room',capacity:'15L',type:'Manual',status:'good'},
@@ -19420,6 +19556,20 @@ const MAINT_EQUIP_CATEGORIES=[
 ];
 
 const MAINT_EQUIP_KEY='hydroPro_maint_equipment_v1';
+const MAINT_EQUIP_CHECKS_KEY='hydroPro_maint_equipment_checks_v1';
+// Check log shape: { [catId]: { [itemId]: [ {date, by, ts, items:[{check,result,note}], summary} ] } }
+function loadEquipChecks(){try{return JSON.parse(localStorage.getItem(MAINT_EQUIP_CHECKS_KEY)||'{}');}catch(e){return {};}}
+function saveEquipChecks(d){localStorage.setItem(MAINT_EQUIP_CHECKS_KEY,JSON.stringify(d));}
+function getEquipCheckHistory(catId,itemId){const all=loadEquipChecks();return (all[catId]&&all[catId][itemId])||[];}
+function appendEquipCheck(catId,itemId,entry){
+  const all=loadEquipChecks();
+  if(!all[catId])all[catId]={};
+  if(!all[catId][itemId])all[catId][itemId]=[];
+  all[catId][itemId].unshift(entry);
+  // Keep last 30 entries per item
+  if(all[catId][itemId].length>30)all[catId][itemId]=all[catId][itemId].slice(0,30);
+  saveEquipChecks(all);
+}
 function loadMaintEquipment(){
   try{
     const raw=localStorage.getItem(MAINT_EQUIP_KEY);
@@ -19439,9 +19589,18 @@ function saveMaintEquipment(d){localStorage.setItem(MAINT_EQUIP_KEY,JSON.stringi
 function getEquipItems(catId){const all=loadMaintEquipment();return all[catId]||[];}
 function setEquipItems(catId,items){const all=loadMaintEquipment();all[catId]=items;saveMaintEquipment(all);}
 
-// Active sub-tab state for the hub (kept on window so view re-renders preserve it)
-window._maintEquipActiveTab=window._maintEquipActiveTab||'radio';
+// Active sub-tab state for the hub. Default to first NEW generic category (cold).
+// Existing modules (radio/ozone/ro/tools) are navigation buttons, not active tabs.
+window._maintEquipActiveTab=window._maintEquipActiveTab||'cold';
 function maintEquipSetTab(tabId){
+  const cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===tabId);
+  if(!cat)return;
+  // Existing modules: navigate to their dedicated view (preserves all features)
+  if(cat.existing){
+    if(typeof switchView==='function')switchView(cat.existing);
+    return;
+  }
+  // Generic categories: stay in the hub, switch the embedded sub-tab
   window._maintEquipActiveTab=tabId;
   renderMaintEquipment();
 }
@@ -19449,18 +19608,21 @@ function maintEquipSetTab(tabId){
 function renderMaintEquipment(){
   const host=document.getElementById('stubMaintEquipmentBody');
   if(!host)return;
-  const active=window._maintEquipActiveTab||'radio';
-  const cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===active)||MAINT_EQUIP_CATEGORIES[0];
+  // Force active tab to be a generic category (existing modules don't render inline)
+  let active=window._maintEquipActiveTab||'cold';
+  let cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===active&&!c.existing);
+  if(!cat){cat=MAINT_EQUIP_CATEGORIES.find(c=>!c.existing);active=cat.id;window._maintEquipActiveTab=active;}
 
-  // Build sub-tab bar
+  // Build sub-tab bar: existing modules as launchers, generic categories as inline tabs
   let tabBar='<div style="display:flex;flex-wrap:wrap;gap:6px;padding:14px 16px 0;background:var(--surface);border-bottom:1px solid var(--border);">';
   MAINT_EQUIP_CATEGORIES.forEach(c=>{
-    const isActive=c.id===active;
+    const isActive=!c.existing&&c.id===active;
     let badge='';
     if(c.existing){
-      // Existing modules — try to surface a quick stat
+      // Existing module launcher buttons get an external-link arrow to signal navigation
       if(c.id==='radio'){const u=(typeof MAINT_RADIO_UNITS!=='undefined')?MAINT_RADIO_UNITS.length:0;badge=u?` <span style="opacity:.7;">(${u})</span>`:'';}
       else if(c.id==='ozone'){const u=(typeof MAINT_OZONE_MACHINES!=='undefined')?MAINT_OZONE_MACHINES.length:0;badge=u?` <span style="opacity:.7;">(${u})</span>`:'';}
+      badge+=' <span style="opacity:.5;font-size:9px;">↗</span>';
     }else{
       const items=getEquipItems(c.id);
       const bad=items.filter(i=>i.status==='bad').length;
@@ -19468,21 +19630,18 @@ function renderMaintEquipment(){
       const dot=bad>0?'🔴':warn>0?'🟡':'🟢';
       badge=` <span style="opacity:.7;">${dot} ${items.length}</span>`;
     }
-    tabBar+=`<button class="btn ${isActive?'primary':''}" style="padding:8px 12px;font-size:11px;border-radius:8px 8px 0 0;border-bottom:${isActive?'2px solid var(--accent)':'2px solid transparent'};margin-bottom:-1px;" onclick="maintEquipSetTab('${c.id}')">${c.icon} ${c.name}${badge}</button>`;
+    const styleExtra=c.existing?'background:var(--surface2);border:1px dashed var(--border);':'';
+    tabBar+=`<button class="btn ${isActive?'primary':''}" style="${styleExtra}padding:8px 12px;font-size:11px;border-radius:8px 8px 0 0;border-bottom:${isActive?'2px solid var(--accent)':'2px solid transparent'};margin-bottom:-1px;" onclick="maintEquipSetTab('${c.id}')" title="${c.existing?'Opens dedicated '+c.name+' view':'Equipment list — '+c.name}">${c.icon} ${c.name}${badge}</button>`;
   });
   tabBar+='</div>';
 
-  // Build content
-  let content='';
-  if(cat.existing){
-    // Render the existing module inline by calling its renderer into a sandbox area
-    content=`<div id="equipExistingHost" style="padding:0;">`;
-    content+=`<div style="padding:12px 16px;background:var(--surface2);font-size:11px;color:var(--text3);border-bottom:1px solid var(--border);">📍 You're inside the Equipment hub. To return: <a href="#" onclick="switchView('maint_dash');return false;" style="color:var(--accent);">Maintenance Dashboard</a></div>`;
-    content+=`<div id="equipExistingBody" style="padding:0;"></div>`;
-    content+=`</div>`;
-  }else{
-    content=renderEquipCategoryHTML(cat);
-  }
+  // Hub legend
+  const legend=`<div style="padding:8px 16px;background:var(--surface2);font-size:10px;color:var(--text3);border-bottom:1px solid var(--border);">
+    Tabs with <span style="opacity:.5;">↗</span> open a dedicated module (full features). Other tabs are tracked here in the hub.
+  </div>`;
+
+  // Render the active generic category inline
+  const content=renderEquipCategoryHTML(cat);
 
   host.innerHTML=`
     <div class="section-title" style="padding:14px 16px 0;display:flex;justify-content:space-between;align-items:center;">
@@ -19490,23 +19649,9 @@ function renderMaintEquipment(){
       <button class="btn small" onclick="switchView('maint_dash')">← Maintenance</button>
     </div>
     ${tabBar}
+    ${legend}
     <div style="padding:0;">${content}</div>
   `;
-
-  // If existing module — call its renderer, then move output into our embedded host
-  if(cat.existing){
-    try{
-      const fn=({maint_radio:'renderMaintRadio',maint_ozone:'renderMaintOzone',maint_ro:'renderMaintRO',maint_tools:'renderMaintTools'})[cat.existing];
-      if(fn&&typeof window[fn]==='function'){
-        window[fn]();
-        // Move the source body into our embedded slot
-        const srcId=({maint_radio:'stubMaintRadioBody',maint_ozone:'stubMaintOzoneBody',maint_ro:'stubMaintROBody',maint_tools:'stubMaintToolsBody'})[cat.existing];
-        const src=document.getElementById(srcId);
-        const dst=document.getElementById('equipExistingBody');
-        if(src&&dst){dst.innerHTML=src.innerHTML;}
-      }
-    }catch(e){console.warn('equip existing renderer failed:',e);}
-  }
 }
 
 function renderEquipCategoryHTML(cat){
@@ -19546,8 +19691,12 @@ function renderEquipCategoryHTML(cat){
       const statusLabel=item.status==='bad'?'Bad':item.status==='warn'?'Warning':'Good';
       const isOverdue=item.nextService&&item.nextService<today;
       const customField=cat.fields&&cat.fields[0]&&item[cat.fields[0]]?`<div style="font-size:11px;color:var(--text3);margin-top:4px;">${cat.fields[0].replace('_',' ')}: <strong>${item[cat.fields[0]]}</strong></div>`:'';
-      html+=`<div style="background:var(--surface);border:1.5px solid var(--border);border-left:5px solid ${statusColor};border-radius:10px;padding:12px;cursor:pointer;" onclick="openEquipEdit('${cat.id}','${item.id}')">
-        <div style="display:flex;justify-content:space-between;align-items:start;gap:8px;">
+      // Last check info
+      const checkHist=getEquipCheckHistory(cat.id,item.id);
+      const lastCheck=checkHist[0];
+      const lastCheckLine=lastCheck?`<div style="font-size:10px;color:var(--text3);margin-top:4px;">✔ Last check: <strong style="color:var(--text);">${lastCheck.date}</strong> by ${lastCheck.by||'?'} — <span style="color:${lastCheck.summary==='critical'?'var(--danger)':lastCheck.summary==='warning'?'var(--warn)':'var(--ok)'};">${lastCheck.summary||'ok'}</span></div>`:'<div style="font-size:10px;color:var(--text3);margin-top:4px;font-style:italic;">No checks recorded yet</div>';
+      html+=`<div style="background:var(--surface);border:1.5px solid var(--border);border-left:5px solid ${statusColor};border-radius:10px;padding:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:8px;cursor:pointer;" onclick="openEquipEdit('${cat.id}','${item.id}')">
           <div style="flex:1;min-width:0;">
             <div style="font-weight:700;font-size:13px;">${item.name||item.id}</div>
             <div style="font-size:11px;color:var(--text3);margin-top:2px;">📍 ${item.location||'No location'}</div>
@@ -19559,7 +19708,12 @@ function renderEquipCategoryHTML(cat){
           <span>Last service: <strong style="color:var(--text);">${item.lastService||'—'}</strong></span>
           <span>Next: <strong style="color:${isOverdue?'var(--danger)':'var(--text)'};">${item.nextService||'—'}${isOverdue?' ⚠':''}</strong></span>
         </div>
+        ${lastCheckLine}
         ${item.notes?`<div style="font-size:11px;color:var(--text2);margin-top:6px;font-style:italic;">📝 ${item.notes}</div>`:''}
+        <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
+          <button class="btn primary small" style="flex:1;font-size:11px;padding:6px 10px;" onclick="event.stopPropagation();openEquipCheck('${cat.id}','${item.id}')">✅ Run Check</button>
+          ${checkHist.length?`<button class="btn small" style="font-size:11px;padding:6px 10px;" onclick="event.stopPropagation();openEquipCheckHistory('${cat.id}','${item.id}')">📜 History (${checkHist.length})</button>`:''}
+        </div>
       </div>`;
     });
     html+=`</div>`;
@@ -19660,6 +19814,176 @@ function deleteEquipItem(catId,itemId){
   if(typeof showToast==='function')showToast('✓ Deleted','ok');
   document.getElementById('maintEquipModal').classList.remove('open');
   renderMaintEquipment();
+}
+
+// =============== EQUIPMENT CHECKLIST + AUTO-CALL =================
+function openEquipCheck(catId,itemId){
+  const cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===catId);
+  const item=getEquipItems(catId).find(i=>i.id===itemId);
+  if(!cat||!item)return;
+  const checks=cat.checklist||['General condition'];
+  const modal=document.getElementById('maintEquipModal');
+  document.getElementById('maintEquipTitle').textContent=`✅ Check: ${item.name||item.id}`;
+
+  let rows='';
+  checks.forEach((chk,i)=>{
+    rows+=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;">
+      <div style="font-size:12px;font-weight:700;margin-bottom:6px;">${i+1}. ${chk}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;background:var(--surface);padding:6px 10px;border-radius:6px;border:1px solid var(--border);"><input type="radio" name="chk_${i}" value="ok" checked /> 🟢 OK</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;background:var(--surface);padding:6px 10px;border-radius:6px;border:1px solid var(--border);"><input type="radio" name="chk_${i}" value="warning" /> 🟡 Warning</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;background:var(--surface);padding:6px 10px;border-radius:6px;border:1px solid var(--border);"><input type="radio" name="chk_${i}" value="critical" /> 🔴 Critical</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;background:var(--surface);padding:6px 10px;border-radius:6px;border:1px solid var(--border);"><input type="radio" name="chk_${i}" value="na" /> N/A</label>
+      </div>
+      <input id="chk_note_${i}" type="text" placeholder="Optional note (only required if Warning/Critical)" style="width:100%;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;" />
+    </div>`;
+  });
+
+  document.getElementById('maintEquipBody').innerHTML=`
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;background:var(--surface2);padding:10px;border-radius:8px;border-left:3px solid var(--info);">
+      <strong>📋 Daily check for ${cat.icon} ${cat.name}.</strong> Mark each item OK / Warning / Critical / N/A. Any Warning or Critical will <strong>automatically open a maintenance call + task</strong> tagged "${cat.subject||cat.name}".
+    </div>
+    <div style="margin-bottom:10px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Checked by</label>
+      <input id="chk_by" type="text" value="${(typeof currentUser!=='undefined'&&currentUser&&currentUser.name)?currentUser.name:''}" placeholder="Your name" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+    <div style="margin-bottom:10px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Date</label>
+      <input id="chk_date" type="date" value="${new Date().toISOString().split('T')[0]}" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+    ${rows}
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+      <button class="btn" onclick="document.getElementById('maintEquipModal').classList.remove('open')">Cancel</button>
+      <button class="btn primary" onclick="saveEquipCheck('${catId}','${itemId}',${checks.length})">💾 Save Check</button>
+    </div>
+  `;
+  modal.classList.add('open');
+}
+
+function saveEquipCheck(catId,itemId,checkCount){
+  const cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===catId);
+  const item=getEquipItems(catId).find(i=>i.id===itemId);
+  if(!cat||!item)return;
+
+  const by=(document.getElementById('chk_by').value||'').trim()||'Unknown';
+  const date=document.getElementById('chk_date').value||new Date().toISOString().split('T')[0];
+
+  const results=[];
+  for(let i=0;i<checkCount;i++){
+    const sel=document.querySelector(`input[name="chk_${i}"]:checked`);
+    const note=(document.getElementById('chk_note_'+i).value||'').trim();
+    results.push({check:cat.checklist[i]||('Item '+(i+1)),result:sel?sel.value:'ok',note});
+  }
+
+  // Compute summary
+  const hasCritical=results.some(r=>r.result==='critical');
+  const hasWarning=results.some(r=>r.result==='warning');
+  const summary=hasCritical?'critical':hasWarning?'warning':'ok';
+
+  // Save check entry
+  appendEquipCheck(catId,itemId,{date,by,ts:Date.now(),items:results,summary});
+
+  // Update item status to reflect latest check
+  const items=getEquipItems(catId).map(i=>{
+    if(i.id===itemId){
+      return {...i,status:hasCritical?'bad':hasWarning?'warn':'good'};
+    }
+    return i;
+  });
+  setEquipItems(catId,items);
+
+  // Auto-create maintenance task + paired call for each Warning/Critical
+  let createdCount=0;
+  if(hasWarning||hasCritical){
+    try{
+      const tasks=loadMaintTasks();
+      const calls=(typeof loadCalls==='function')?loadCalls():null;
+      const today=date;
+
+      results.forEach(r=>{
+        if(r.result==='warning'||r.result==='critical'){
+          const priority=r.result==='critical'?'urgent':'priority';
+          const subj=`${cat.icon} ${item.name||item.id} — ${r.check}`;
+          const desc=`Auto-created from equipment check on ${date} by ${by}.\n\nEquipment: ${item.name||item.id} (${cat.name})\nLocation: ${item.location||'—'}\nCheck failed: ${r.check}\nResult: ${r.result.toUpperCase()}\n${r.note?'\nTechnician note: '+r.note:''}`;
+          const taskId=(typeof uid==='function')?uid():('task_'+Date.now()+'_'+Math.random().toString(36).slice(2,8));
+          tasks.push({
+            id:taskId,title:subj,description:desc,priority:priority,
+            status:'not_started',createdAt:Date.now(),createdBy:by||'system',
+            scheduledDate:today,durationDays:1,gantt:[],materials:[],
+            category:'auto_equipment_check',sourceModule:'maint_equipment',
+            equipmentCatId:catId,equipmentItemId:itemId,
+            autoKey:`equip_check_${catId}_${itemId}_${date}_${r.check}`
+          });
+          // Paired call (only if calls system available)
+          if(calls&&typeof _addPairedCall==='function'){
+            _addPairedCall(calls,{
+              subject:subj,description:desc,priority:priority,
+              group:'operations',department:'maintenance',
+              area:item.location||'',
+              equipment:item.name||item.id,
+              subsystem:cat.subject||cat.name,
+              sourceModule:'maint_equipment',
+              sourceLabel:`Equipment · ${cat.name} · ${item.name||item.id}`,
+              raisedBy:by||'system',
+              maintTaskId:taskId,
+              autoNote:`🤖 Auto-created from equipment check — ${r.check} flagged ${r.result.toUpperCase()}.`
+            });
+          }
+          createdCount++;
+        }
+      });
+      saveMaintTasks(tasks);
+      if(calls&&typeof saveCalls==='function')saveCalls(calls);
+    }catch(e){console.warn('auto-task creation failed:',e);}
+  }
+
+  if(typeof audit==='function')audit('equip_check',`${cat.name}/${item.name||item.id}: ${summary}${createdCount?', '+createdCount+' tasks created':''}`);
+  document.getElementById('maintEquipModal').classList.remove('open');
+
+  if(typeof showToast==='function'){
+    if(createdCount>0)showToast(`✓ Check saved · ${createdCount} maintenance task${createdCount>1?'s':''} auto-created`,hasCritical?'danger':'warn',5000);
+    else showToast('✓ Check saved — all OK','ok');
+  }
+  renderMaintEquipment();
+}
+
+function openEquipCheckHistory(catId,itemId){
+  const cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===catId);
+  const item=getEquipItems(catId).find(i=>i.id===itemId);
+  const hist=getEquipCheckHistory(catId,itemId);
+  if(!cat||!item)return;
+
+  document.getElementById('maintEquipTitle').textContent=`📜 Check History: ${item.name||item.id}`;
+
+  let body='';
+  if(hist.length===0){
+    body=`<div style="text-align:center;padding:30px;color:var(--text3);">No checks recorded yet for this item.</div>`;
+  }else{
+    hist.forEach(h=>{
+      const summaryColor=h.summary==='critical'?'var(--danger)':h.summary==='warning'?'var(--warn)':'var(--ok)';
+      const summaryIcon=h.summary==='critical'?'🔴':h.summary==='warning'?'🟡':'🟢';
+      body+=`<div style="background:var(--surface2);border:1px solid var(--border);border-left:4px solid ${summaryColor};border-radius:8px;padding:10px;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;margin-bottom:6px;">
+          <span>${h.date} · by ${h.by||'?'}</span>
+          <span style="color:${summaryColor};">${summaryIcon} ${(h.summary||'ok').toUpperCase()}</span>
+        </div>`;
+      (h.items||[]).forEach(it=>{
+        const c=it.result==='critical'?'var(--danger)':it.result==='warning'?'var(--warn)':it.result==='na'?'var(--text3)':'var(--ok)';
+        const icon=it.result==='critical'?'🔴':it.result==='warning'?'🟡':it.result==='na'?'➖':'🟢';
+        body+=`<div style="font-size:11px;padding:3px 0;display:flex;gap:8px;">
+          <span style="color:${c};white-space:nowrap;">${icon} ${it.result.toUpperCase()}</span>
+          <span style="color:var(--text);">${it.check}</span>
+          ${it.note?`<span style="color:var(--text3);font-style:italic;">— ${it.note}</span>`:''}
+        </div>`;
+      });
+      body+=`</div>`;
+    });
+  }
+
+  document.getElementById('maintEquipBody').innerHTML=`
+    ${body}
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+      <button class="btn primary" onclick="openEquipCheck('${catId}','${itemId}')">✅ Run New Check</button>
+      <button class="btn" onclick="document.getElementById('maintEquipModal').classList.remove('open')">Close</button>
+    </div>
+  `;
+  document.getElementById('maintEquipModal').classList.add('open');
 }
 
 function renderMaintTasks(){
@@ -24981,9 +25305,32 @@ function renderSecDash(){
     </div>`;
   }).join(''):'<div style="padding:40px;text-align:center;color:var(--text3);">No patrol reports uploaded yet.<br><br><strong>Upload your first RFID report</strong> in the Patrol tab to get started.</div>';
 
+  // 8am-deadline reminder: if today's report not uploaded and current time is past 08:00 → show critical banner
+  const _now=new Date();
+  const _hr=_now.getHours();
+  const _todayKey=_now.toISOString().slice(0,10);
+  const _hasToday=!!patrols[_todayKey];
+  const _pastDeadline=_hr>=8;
+  const uploadReminderHTML=(!_hasToday)?`
+    <div style="background:${_pastDeadline?'rgba(239,83,80,0.15)':'rgba(255,179,0,0.12)'};border:2px solid ${_pastDeadline?'var(--danger)':'var(--warn)'};border-left:6px solid ${_pastDeadline?'var(--danger)':'var(--warn)'};border-radius:10px;padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+      <div style="font-size:32px;">${_pastDeadline?'🚨':'⏰'}</div>
+      <div style="flex:1;min-width:200px;">
+        <div style="font-size:14px;font-weight:800;color:${_pastDeadline?'var(--danger)':'var(--warn)'};">
+          ${_pastDeadline?`RFID Patrol Report OVERDUE for ${_todayKey}`:`Daily RFID Patrol Report not uploaded yet (${_todayKey})`}
+        </div>
+        <div style="font-size:12px;color:var(--text2);margin-top:4px;">
+          ${_pastDeadline
+            ?`It's past <strong>08:00</strong> and today's RFID patrol report has not been uploaded. The report covers last night's 12 two-hour rounds (18:00 → 18:00). Upload it now so missed checkpoints can be flagged.`
+            :`The daily report should be uploaded before <strong>08:00</strong> to review last night's 12 patrol rounds. Currently ${_hr.toString().padStart(2,'0')}:${_now.getMinutes().toString().padStart(2,'0')}.`}
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="switchView('sec_patrol')" style="background:${_pastDeadline?'var(--danger)':'var(--warn)'};border-color:${_pastDeadline?'var(--danger)':'var(--warn)'};">📤 Upload Report Now</button>
+    </div>
+  `:'';
+
   document.getElementById('secDashBody').innerHTML=`
     <div class="section-title">🛡️ Security Dashboard</div>
-
+    ${uploadReminderHTML}
     <div class="sec-hero">
       <div class="sec-hero-icon">🛡️</div>
       <div class="sec-hero-info">
@@ -25378,21 +25725,42 @@ function secParsePatrolReport(text,reportDate){
   // Regex patterns
   // Time window: "23 Apr 2026 18:00:00 to 23 Apr 2026 20:00:00"
   const windowRegex=/(\d{1,2}\s+\w+\s+\d{4}\s+\d{2}:\d{2}(?::\d{2})?)\s+to\s+(\d{1,2}\s+\w+\s+\d{4}\s+\d{2}:\d{2}(?::\d{2})?)/i;
+  // PDF page-break artifact: the header "Patrol report from X to Y" repeats on each page.
+  // We must NOT treat that as a round boundary. The report header has the literal word "Patrol report"
+  // before the time range OR has a span > 4h (full report day), while round boundaries are 2h.
+  const reportHeaderRegex=/(Patrol\s*report|All\s*Data)/i;
   // Checkpoint line: "GUARD 1 Checkpoint1 GATE 1 090734 23 Apr 2026 19:25:57"
   // Or missing:    "GUARD 1 Checkpoint5 POST LED 12 Missing"
   const cpRegex=/(GUARD\s*\d+|Guard\s*\d+|Guard\w*)\s+Checkpoint\s*(\d+)\s+(.+?)\s+(?:(\d{4,})\s+(\d{1,2}\s+\w+\s+\d{4}\s+\d{2}:\d{2}(?::\d{2})?)|Missing)\s*$/i;
 
   lines.forEach(line=>{
+    // Skip page-break artifacts ("3 - 1" page numbers, separator lines)
+    if(/^[\d\s\-]+$/.test(line)&&line.length<10)return;
+
     // Try window match
     const wMatch=line.match(windowRegex);
     if(wMatch){
-      if(currentRound&&currentRound.scans.length)rounds.push(currentRound);
+      // Reject if this is the report-header line (e.g. "Patrol report from 23 Apr 2026 18:00:00 to 24 Apr 2026 18:00:00")
+      if(reportHeaderRegex.test(line))return;
+      // Reject if start == end (page-break artifact)
+      if(wMatch[1]===wMatch[2])return;
+      // Reject if span > 4 hours (suggests it's the report-day header, not a 2-hr round)
+      try{
+        const startMs=new Date(wMatch[1].replace(/(\d+\s+\w+\s+\d{4})/,'$1,')).getTime();
+        const endMs=new Date(wMatch[2].replace(/(\d+\s+\w+\s+\d{4})/,'$1,')).getTime();
+        if(!isNaN(startMs)&&!isNaN(endMs)&&(endMs-startMs)>4*60*60*1000)return;
+      }catch(e){}
+      // Don't double-create the same round if we already started one with the same time window
       const startPart=wMatch[1].match(/(\d{2}:\d{2})/);
       const endPart=wMatch[2].match(/(\d{2}:\d{2})/);
+      const tw=startPart&&endPart?`${startPart[1]} — ${endPart[1]}`:`${wMatch[1]} to ${wMatch[2]}`;
+      if(currentRound&&currentRound.timeWindow===tw)return;
+
+      if(currentRound&&currentRound.scans.length)rounds.push(currentRound);
       currentRound={
         startTime:wMatch[1],
         endTime:wMatch[2],
-        timeWindow:startPart&&endPart?`${startPart[1]} — ${endPart[1]}`:`${wMatch[1]} to ${wMatch[2]}`,
+        timeWindow:tw,
         guard:'',
         scans:[]
       };
@@ -42075,8 +42443,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.9-equipment-hub';  // ⚙️ NEW: EQUIPMENT & MACHINES HUB. Consolidates all 14 equipment categories into one Maintenance sub-area: 📻 Radio, 🌀 Ozone, 💧 Reverse Osmosis, 🔧 Tools (existing modules, surfaced as sub-tabs), and 10 new generic categories — ❄️ Cold Storage, ⚙️ Pumps, 🌬️ Climate/HVAC, 💉 Dosing System, 💡 Lighting, ☁️ CO₂, 📡 Sensors, ⚡ Generators, 🚛 Vehicles, 🧪 Sprayers. Each new category uses a unified data model (id, name, location, status, lastService, nextService, notes + category-specific fields like temp_setpoint, flow_rate, watts, fuel, mileage, capacity). Stored in localStorage under hydroPro_maint_equipment_v1. Auto-seeds with sensible defaults (e.g., Cold Storage: Packaging Cold Room, Harvest Cold Room, Seed Storage Fridge). Each category sub-tab shows: stat row (Total / 🟢 Good / 🟡 Warning / 🔴 Bad / ⏰ Service Overdue), Add button, Reset-to-default button, and a card grid for items. Click any card to edit or delete. Dashboard System Health grid now shows ONE Equipment hub card (instead of 4 separate cards for Ozone/RO/Radio/Tools) — keeps the dashboard cleaner. Top nav for Maintenance module now shows: Dashboard / ✅ Task Board / 📅 PM Calendar / 📦 Material Requests / ⚙️ Equipment & Machines (5 items instead of 8). All previous deep-link routes (maint_ozone, maint_ro, maint_radio, maint_tools) still work — they just live inside the hub now. Quick-stat tiles at the top of the dashboard preserve their direct click-throughs as shortcuts.
-const APP_BUILD=1777608000;
+const APP_VERSION='2.46.11-rfid-8am-reminder';  // ✅ NEW: EQUIPMENT CHECKLIST + AUTO-CALL + REAL CCTV IMPORT. Each generic equipment category now has a default daily-check checklist (e.g., Pumps: pressure/leaks/noise/seals; Cold Storage: temp/door seal/defrost/ice/alarm; Generators: fuel/oil/battery/coolant/load test). NEW "✅ Run Check" button on every equipment card opens a modal: each check item gets 🟢 OK / 🟡 Warning / 🔴 Critical / ➖ N/A radios + an optional note field. ANY Warning or Critical result automatically creates a maintenance task in the Task Board (priority warn=📌 Priority, critical=🚨 Urgent) AND opens a paired call in maintenance — tagged with subject "[Category Subject]" e.g. "Refrigeration / Cold Storage", "Pump Service", "Generators / Backup Power", so they show up in the matrix correctly. Item status auto-updates to reflect latest check (good/warn/bad). NEW "📜 History" button shows the last 30 checks per item with full per-item results. Equipment HUB FIX: existing modules (Radio/Ozone/RO/Tools) sub-tabs now navigate to the dedicated views (preserves all features) instead of buggy innerHTML embedding — added "← Back to Equipment Hub" links at top of those views. CCTV INVENTORY: imported 81 real cameras from CCTV CAMERA LIST 2.xlsx as REAL_CAMERAS constant, organized across 4 NVRs (TV1 Greenhouses 16ch, TV2 Perimeter 32ch, TV3 32ch, TV4 4ch), with real IPs/locations/types — new "📥 Import Real Cameras (81)" button in IT > CCTV inventory tab. Backup files removed (production-monitor.html and production-monitor100.html) — app.html is now the only source. localStorage adds: hydroPro_maint_equipment_v1, hydroPro_maint_equipment_checks_v1.
+const APP_BUILD=1777612800;
 const APP_BUILD_DATE='2026-05-01';
 
 // Store version in localStorage on first run
