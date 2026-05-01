@@ -18970,6 +18970,15 @@ function renderMaintDash(){
   }
 }
 function _renderMaintDash_inner(){
+  // Auto PM scheduler — runs at most once per day. Creates tasks for due PMs.
+  try{
+    if(typeof pmRunScanner==='function'){
+      const r=pmRunScanner();
+      if(r&&r.created>0&&typeof showToast==='function'){
+        setTimeout(()=>showToast(`🛠️ Auto-created ${r.created} PM task${r.created===1?'':'s'} from upcoming services`,'warn',5000),300);
+      }
+    }
+  }catch(e){console.warn('PM scan err on dash:',e);}
   // Defensive: ensure data sources return valid types
   let tasks=loadMaintTasks();
   if(!Array.isArray(tasks)){tasks=[];}
@@ -19804,6 +19813,12 @@ if(typeof window!=='undefined'&&!window._maintEquipDropdownHandlerInstalled){
 function renderMaintEquipment(){
   const host=document.getElementById('stubMaintEquipmentBody');
   if(!host)return;
+  // Auto PM scheduler — runs at most once per day, creates tasks for upcoming/overdue PMs
+  let pmResult={created:0,due:[]};
+  try{pmResult=pmRunScanner();}catch(e){console.warn('PM scan err:',e);}
+  if(pmResult.created>0&&typeof showToast==='function'){
+    setTimeout(()=>showToast(`🛠️ Auto-created ${pmResult.created} PM task${pmResult.created===1?'':'s'}`,'warn',5000),300);
+  }
   let active=window._maintEquipActiveTab||'nft';
   let cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===active&&!c.existing);
   if(!cat){cat=MAINT_EQUIP_CATEGORIES.find(c=>!c.existing);active=cat.id;window._maintEquipActiveTab=active;}
@@ -19892,11 +19907,16 @@ function renderMaintEquipment(){
     content=renderEquipCategoryHTML(cat);
   }
 
+  // PM Due widget (only shows if any equipment has upcoming/overdue PM)
+  let pmDueHTML='';
+  try{pmDueHTML=_renderPmDueWidget();}catch(e){}
+
   host.innerHTML=`
     <div class="section-title" style="padding:14px 16px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
       <span>⚙️ Equipment & Machines</span>
       <button class="btn small" onclick="switchView('maint_dash')">← Maintenance</button>
     </div>
+    ${pmDueHTML}
     ${dropdownHTML}
     <div style="padding:0;">${content}</div>
   `;
@@ -20397,6 +20417,121 @@ function deleteServiceEntry(catId,itemId,idx){
   if(typeof audit==='function')audit('equip_service_delete',`Deleted service entry from ${itemId}`);
   if(typeof showToast==='function')showToast('✓ Entry deleted','ok');
   openServiceLog(catId,itemId);
+}
+
+// =============== AUTO PM SCHEDULER (v2.46.21) =================
+// Scans every equipment item's nextService date. When a PM is upcoming
+// (within PM_SOON_DAYS) or overdue, auto-creates a maintenance task with
+// an idempotent autoKey so duplicate tasks never appear.
+const PM_SOON_DAYS=7;       // create task when within 7 days of due
+const PM_SCAN_KEY='hydroPro_pm_last_scan'; // throttle to once per day
+
+function _pmAutoKey(catId,itemId,nextDate){return `pm_${catId}_${itemId}_${nextDate}`;}
+
+function _pmCollectDue(){
+  const today=new Date().toISOString().slice(0,10);
+  const horizon=new Date();horizon.setDate(horizon.getDate()+PM_SOON_DAYS);
+  const horizonStr=horizon.toISOString().slice(0,10);
+  const due=[];
+  MAINT_EQUIP_CATEGORIES.forEach(cat=>{
+    if(cat.existing||cat.custom)return; // skip dedicated modules and inventory
+    const items=getEquipItems(cat.id);
+    items.forEach(item=>{
+      if(!item.nextService)return;
+      if(item.nextService<=horizonStr){
+        due.push({
+          cat,item,
+          nextDate:item.nextService,
+          overdue:item.nextService<today,
+          daysUntil:Math.ceil((new Date(item.nextService)-new Date(today))/86400000)
+        });
+      }
+    });
+  });
+  due.sort((a,b)=>a.nextDate.localeCompare(b.nextDate));
+  return due;
+}
+
+function pmRunScanner(force){
+  // Throttle: only run once per day unless force=true
+  const today=new Date().toISOString().slice(0,10);
+  if(!force){
+    const last=localStorage.getItem(PM_SCAN_KEY);
+    if(last===today)return {created:0,due:_pmCollectDue()};
+  }
+  localStorage.setItem(PM_SCAN_KEY,today);
+
+  const due=_pmCollectDue();
+  if(due.length===0)return {created:0,due};
+
+  let created=0;
+  try{
+    const tasks=loadMaintTasks();
+    const existingKeys=new Set(tasks.filter(t=>t.autoKey).map(t=>t.autoKey));
+    const calls=(typeof loadCalls==='function')?loadCalls():null;
+
+    due.forEach(d=>{
+      const key=_pmAutoKey(d.cat.id,d.item.id,d.nextDate);
+      if(existingKeys.has(key))return; // already have a task
+      const priority=d.overdue?'urgent':'priority';
+      const subj=`🛠️ ${d.cat.icon} ${d.item.name||d.item.id} — PM ${d.overdue?'OVERDUE':'due'} ${d.nextDate}`;
+      const desc=`Auto-created by PM scheduler on ${today}.\n\nEquipment: ${d.item.name||d.item.id} (${d.cat.name})\nLocation: ${d.item.location||'—'}\nNext service due: ${d.nextDate}\n${d.overdue?'⚠ Service is OVERDUE by '+Math.abs(d.daysUntil)+' days':'Service due in '+d.daysUntil+' days'}\nLast service: ${d.item.lastService||'never recorded'}\n\nWhen complete, log via the Service Log on the equipment card — that will auto-update the next-service date.`;
+      const taskId=(typeof uid==='function')?uid():'task_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);
+      tasks.push({
+        id:taskId,title:subj,description:desc,priority:priority,
+        status:'not_started',createdAt:Date.now(),createdBy:'system',
+        scheduledDate:d.nextDate,durationDays:1,gantt:[],materials:[],
+        category:'auto_pm_scheduler',sourceModule:'maint_equipment',
+        equipmentCatId:d.cat.id,equipmentItemId:d.item.id,
+        autoKey:key
+      });
+      if(calls&&typeof _addPairedCall==='function'){
+        _addPairedCall(calls,{
+          subject:subj,description:desc,priority:priority,
+          group:'operations',department:'maintenance',
+          area:d.item.location||'',
+          equipment:d.item.name||d.item.id,
+          subsystem:d.cat.subject||d.cat.name,
+          sourceModule:'maint_equipment',
+          sourceLabel:`PM Scheduler · ${d.cat.name} · ${d.item.name||d.item.id}`,
+          raisedBy:'system',
+          maintTaskId:taskId,
+          autoNote:`🤖 Auto-created by PM scheduler — service due ${d.nextDate}.`
+        });
+      }
+      created++;
+    });
+    if(created>0){
+      saveMaintTasks(tasks);
+      if(calls&&typeof saveCalls==='function')saveCalls(calls);
+      if(typeof audit==='function')audit('pm_scheduler',`Auto-created ${created} PM task${created===1?'':'s'}`);
+    }
+  }catch(e){console.warn('PM scheduler failed:',e);}
+  return {created,due};
+}
+
+// Render a "PM Due Soon" widget — used at top of Equipment hub and on Maint dashboard
+function _renderPmDueWidget(){
+  const due=_pmCollectDue();
+  if(due.length===0)return '';
+  const overdueCount=due.filter(d=>d.overdue).length;
+  const upcomingCount=due.length-overdueCount;
+  const color=overdueCount>0?'var(--danger)':'var(--warn)';
+  const bg=overdueCount>0?'rgba(239,83,80,0.10)':'rgba(255,179,0,0.10)';
+  const items=due.slice(0,5).map(d=>{
+    const tone=d.overdue?'var(--danger)':'var(--warn)';
+    const label=d.overdue?`${Math.abs(d.daysUntil)}d overdue`:`in ${d.daysUntil}d`;
+    return `<span style="display:inline-block;background:var(--surface2);padding:3px 10px;margin:2px;border-radius:6px;border:1px solid var(--border);font-size:11px;cursor:pointer;" onclick="(function(){window._maintEquipActiveTab='${d.cat.id}';switchView('maint_equipment');})()">${d.cat.icon} ${d.item.name||d.item.id} <span style="color:${tone};">${label}</span></span>`;
+  }).join('');
+  return `<div style="background:${bg};border:1.5px solid ${color};border-left:5px solid ${color};border-radius:10px;padding:10px 14px;margin:14px 16px;">
+    <div style="font-weight:800;font-size:13px;color:${color};margin-bottom:6px;">
+      🛠️ PM Due Soon — ${due.length} equipment item${due.length===1?'':'s'} need attention${overdueCount>0?` (${overdueCount} OVERDUE)`:''}
+    </div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">
+      Tasks have been auto-created on the Task Board. Log the PM via the Service Log to clear the alert.
+    </div>
+    <div style="max-height:90px;overflow-y:auto;">${items}${due.length>5?`<span style="font-size:10px;color:var(--text3);font-style:italic;margin-left:6px;">…and ${due.length-5} more</span>`:''}</div>
+  </div>`;
 }
 
 // =============== NFT PIPES WEEKLY COUNT (v2.46.12) =================
@@ -43273,7 +43408,7 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.20-equipment-service-log';  // ✅ NEW: EQUIPMENT CHECKLIST + AUTO-CALL + REAL CCTV IMPORT. Each generic equipment category now has a default daily-check checklist (e.g., Pumps: pressure/leaks/noise/seals; Cold Storage: temp/door seal/defrost/ice/alarm; Generators: fuel/oil/battery/coolant/load test). NEW "✅ Run Check" button on every equipment card opens a modal: each check item gets 🟢 OK / 🟡 Warning / 🔴 Critical / ➖ N/A radios + an optional note field. ANY Warning or Critical result automatically creates a maintenance task in the Task Board (priority warn=📌 Priority, critical=🚨 Urgent) AND opens a paired call in maintenance — tagged with subject "[Category Subject]" e.g. "Refrigeration / Cold Storage", "Pump Service", "Generators / Backup Power", so they show up in the matrix correctly. Item status auto-updates to reflect latest check (good/warn/bad). NEW "📜 History" button shows the last 30 checks per item with full per-item results. Equipment HUB FIX: existing modules (Radio/Ozone/RO/Tools) sub-tabs now navigate to the dedicated views (preserves all features) instead of buggy innerHTML embedding — added "← Back to Equipment Hub" links at top of those views. CCTV INVENTORY: imported 81 real cameras from CCTV CAMERA LIST 2.xlsx as REAL_CAMERAS constant, organized across 4 NVRs (TV1 Greenhouses 16ch, TV2 Perimeter 32ch, TV3 32ch, TV4 4ch), with real IPs/locations/types — new "📥 Import Real Cameras (81)" button in IT > CCTV inventory tab. Backup files removed (production-monitor.html and production-monitor100.html) — app.html is now the only source. localStorage adds: hydroPro_maint_equipment_v1, hydroPro_maint_equipment_checks_v1.
+const APP_VERSION='2.46.21-pm-scheduler';  // ✅ NEW: EQUIPMENT CHECKLIST + AUTO-CALL + REAL CCTV IMPORT. Each generic equipment category now has a default daily-check checklist (e.g., Pumps: pressure/leaks/noise/seals; Cold Storage: temp/door seal/defrost/ice/alarm; Generators: fuel/oil/battery/coolant/load test). NEW "✅ Run Check" button on every equipment card opens a modal: each check item gets 🟢 OK / 🟡 Warning / 🔴 Critical / ➖ N/A radios + an optional note field. ANY Warning or Critical result automatically creates a maintenance task in the Task Board (priority warn=📌 Priority, critical=🚨 Urgent) AND opens a paired call in maintenance — tagged with subject "[Category Subject]" e.g. "Refrigeration / Cold Storage", "Pump Service", "Generators / Backup Power", so they show up in the matrix correctly. Item status auto-updates to reflect latest check (good/warn/bad). NEW "📜 History" button shows the last 30 checks per item with full per-item results. Equipment HUB FIX: existing modules (Radio/Ozone/RO/Tools) sub-tabs now navigate to the dedicated views (preserves all features) instead of buggy innerHTML embedding — added "← Back to Equipment Hub" links at top of those views. CCTV INVENTORY: imported 81 real cameras from CCTV CAMERA LIST 2.xlsx as REAL_CAMERAS constant, organized across 4 NVRs (TV1 Greenhouses 16ch, TV2 Perimeter 32ch, TV3 32ch, TV4 4ch), with real IPs/locations/types — new "📥 Import Real Cameras (81)" button in IT > CCTV inventory tab. Backup files removed (production-monitor.html and production-monitor100.html) — app.html is now the only source. localStorage adds: hydroPro_maint_equipment_v1, hydroPro_maint_equipment_checks_v1.
 const APP_BUILD=1777612800;
 const APP_BUILD_DATE='2026-05-01';
 
