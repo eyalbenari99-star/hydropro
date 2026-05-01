@@ -3024,6 +3024,18 @@ a{color:var(--accent2);text-decoration:none;}
 <div class="view" id="view-maint_tools"><div style="padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;display:flex;align-items:center;gap:10px;"><a href="#" onclick="switchView('maint_equipment');return false;" style="color:var(--accent);text-decoration:none;">← Back to Equipment Hub</a> <span style="color:var(--text3);">·</span> <span style="color:var(--text3);">🔧 Tools</span></div><div id="stubMaintToolsBody"></div></div>
 <div class="view" id="view-maint_equipment"><div id="stubMaintEquipmentBody"></div></div>
 <div class="view" id="view-maint_nft"><div id="stubMaintNftBody"></div></div>
+<div class="view" id="view-maint_parts"><div id="stubMaintPartsBody"></div></div>
+<div class="view" id="view-maint_matrix"><div id="stubMaintMatrixBody"></div></div>
+
+<div class="modal-overlay" id="maintPartsModal">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-header">
+      <div class="modal-title" id="maintPartsModalTitle">🔩 SPARE PART</div>
+      <button class="modal-close" onclick="document.getElementById('maintPartsModal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body" id="maintPartsModalBody"></div>
+  </div>
+</div>
 
 <div class="modal-overlay" id="maintNftModal">
   <div class="modal" style="max-width:900px;">
@@ -3067,9 +3079,9 @@ a{color:var(--accent2);text-decoration:none;}
 </div>
 <!-- IT -->
 <div class="view" id="view-it_cctv"><div style="padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;display:flex;align-items:center;gap:10px;"><a href="#" onclick="switchView('maint_equipment');return false;" style="color:var(--accent);text-decoration:none;">← Back to Equipment Hub</a> <span style="color:var(--text3);">·</span> <span style="color:var(--text3);">📷 CCTV (in IT module)</span></div><div id="stubItCctvBody"></div></div>
-<div class="view" id="view-it_radios"><div id="stubItRadiosBody"></div></div>
-<div class="view" id="view-it_devices"><div id="stubItDevicesBody"></div></div>
-<div class="view" id="view-it_prj11"><div id="prj11DevicesBody"></div></div>
+<div class="view" id="view-it_radios"><div style="padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;display:flex;align-items:center;gap:10px;"><a href="#" onclick="switchView('maint_equipment');return false;" style="color:var(--accent);text-decoration:none;">← Back to Equipment Hub</a> <span style="color:var(--text3);">·</span> <span style="color:var(--text3);">📡 IT Radios</span></div><div id="stubItRadiosBody"></div></div>
+<div class="view" id="view-it_devices"><div style="padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;display:flex;align-items:center;gap:10px;"><a href="#" onclick="switchView('maint_equipment');return false;" style="color:var(--accent);text-decoration:none;">← Back to Equipment Hub</a> <span style="color:var(--text3);">·</span> <span style="color:var(--text3);">🖥️ IT Devices</span></div><div id="stubItDevicesBody"></div></div>
+<div class="view" id="view-it_prj11"><div style="padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;display:flex;align-items:center;gap:10px;"><a href="#" onclick="switchView('maint_equipment');return false;" style="color:var(--accent);text-decoration:none;">← Back to Equipment Hub</a> <span style="color:var(--text3);">·</span> <span style="color:var(--text3);">🏭 PRJ11 IT Devices</span></div><div id="prj11DevicesBody"></div></div>
 <!-- Irrigation -->
 <div class="view" id="view-irr_dash"><div id="stubIrrDashBody"></div></div>
 <div class="view" id="view-irr_schedule"><div id="stubIrrScheduleBody"></div></div>
@@ -5639,34 +5651,39 @@ const MODULES={
   // =========== OPERATIONS (Core Daily) ===========
   maintenance:{
     icon:'🔧',
-    name:'MAINTENANCE',
-    description:'Task management, PM schedules, ozone/RO machines, radio report, material requests',
+    name:'MAIN & IT',
+    description:'Maintenance + IT unified: tasks, PM schedules, equipment & machines hub (radios/ozone/RO/tools/CCTV/IT-devices/cold/pumps/etc.), spare parts, calls matrix',
     views:[
       {id:'maint_dash',label:'Dashboard',perm:'viewMaintenance'},
       {id:'maint_tasks',label:'✅ Task Board',perm:'viewMaintenance',title:'Daily maintenance tasks with status & photos'},
       {id:'maint_calendar',label:'📅 PM Calendar',perm:'viewMaintenance',title:'Preventive maintenance schedule'},
       {id:'maint_materials',label:'📦 Material Requests',perm:'viewMaintenance',title:'Items needed from inventory for next-day tasks'},
-      {id:'maint_equipment',label:'⚙️ Equipment & Machines',perm:'viewMaintenance',title:'Hub for all equipment, machines, and inventory: radios, ozone, RO, tools, cold storage, pumps, climate, dosing, lighting, CO₂, sensors, generators, vehicles, sprayers, NFT pipes'},
+      {id:'maint_equipment',label:'⚙️ Equipment & Machines',perm:'viewMaintenance',title:'Hub for all equipment, machines, and inventory: radios, ozone, RO, tools, CCTV, IT computers/printers/TVs, cold storage, pumps, climate, dosing, lighting, CO₂, sensors, generators, vehicles, sprayers, packaging, PRJ11, NFT pipes'},
+      {id:'maint_parts',label:'🔩 Spare Parts',perm:'viewMaintenance',title:'Spare parts inventory — stock levels, reorder points, linked to specific equipment. Auto-decremented when used in a service log entry.'},
+      {id:'maint_matrix',label:'📊 Calls Matrix',perm:'viewMaintenance',title:'Maintenance open calls organized by Subject × Department. Includes all auto-calls from equipment checks, NFT variance, PM scheduler, and parts reorders.'},
       // Hidden views — accessed via the Equipment hub, NOT shown in top tab bar.
       // Must remain registered so findModuleForView() resolves them to "maintenance"
-      // (otherwise switchView falls back to "production" and breaks the top nav).
       {id:'maint_ozone',label:'🌀 Ozone',perm:'viewMaintenance',hidden:true},
       {id:'maint_ro',label:'💧 RO',perm:'viewMaintenance',hidden:true},
       {id:'maint_radio',label:'📻 Radio',perm:'viewMaintenance',hidden:true},
       {id:'maint_tools',label:'🔧 Tools',perm:'viewMaintenance',hidden:true},
-      {id:'maint_nft',label:'📏 NFT Pipes',perm:'viewMaintenance',hidden:true}
+      {id:'maint_nft',label:'📏 NFT Pipes',perm:'viewMaintenance',hidden:true},
+      // IT views — merged into Maintenance & IT, kept hidden so the top tab bar stays clean.
+      // Reachable from the Equipment hub dropdown's "Dedicated Modules" section.
+      {id:'it_cctv',label:'📹 CCTV',perm:'viewMaintenance',hidden:true},
+      {id:'it_radios',label:'📻 Radios (IT)',perm:'viewMaintenance',hidden:true},
+      {id:'it_devices',label:'🖥️ IT Devices',perm:'viewMaintenance',hidden:true},
+      {id:'it_prj11',label:'🏭 PRJ11 Devices',perm:'viewMaintenance',hidden:true}
     ]
   },
+  // Old standalone IT module — DISABLED after merge into Maintenance & IT (v2.46.24).
+  // Kept here as a stub with disabled:true so any legacy reference doesn't crash.
   it:{
     icon:'💻',
-    name:'IT',
-    description:'CCTV, radios, and IT-owned devices (computers, printers, network)',
-    views:[
-      {id:'it_cctv',label:'📹 CCTV',perm:'viewIT',title:'CCTV cameras inventory + daily online/offline check'},
-      {id:'it_radios',label:'📻 Radios',perm:'viewIT',title:'All radios by department with daily check + SIM renewal tracking'},
-      {id:'it_devices',label:'🖥️ Devices',perm:'viewIT',title:'IT-owned devices: laptops, desktops, printers, network gear, phones, storage'},
-      {id:'it_prj11',label:'🏭 PRJ11 Devices',perm:'viewIT',title:'PRJ11 indoor: 24 fans, generators (O2/CO2/humidity), LED lights/dimmers, electrical, ozone, electric valves, WiFi/IP comm, sensors'}
-    ]
+    name:'IT (merged → Maintenance & IT)',
+    description:'Merged into Maintenance & IT. Access via Equipment & Machines hub.',
+    disabled:true,
+    views:[]
   },
   irrigation:{
     icon:'💧',
@@ -5944,8 +5961,8 @@ function switchView(v,skipModuleCheck){
     hr:'manageHR',attendance:'manageHR',memos:'manageHR',reconcile:'manageHR',
     payroll_ops:'managePayroll',payroll_office:'managePayroll',payroll_history:'managePayroll',payroll_rates:'managePayroll',
     // New modules
-    maint_dash:'viewMaintenance',maint_tasks:'viewMaintenance',maint_calendar:'viewMaintenance',maint_materials:'viewMaintenance',maint_ozone:'viewMaintenance',maint_ro:'viewMaintenance',maint_radio:'viewMaintenance',maint_tools:'viewMaintenance',maint_equipment:'viewMaintenance',maint_nft:'viewMaintenance',
-    it_cctv:'viewIT',it_radios:'viewIT',it_devices:'viewIT',
+    maint_dash:'viewMaintenance',maint_tasks:'viewMaintenance',maint_calendar:'viewMaintenance',maint_materials:'viewMaintenance',maint_ozone:'viewMaintenance',maint_ro:'viewMaintenance',maint_radio:'viewMaintenance',maint_tools:'viewMaintenance',maint_equipment:'viewMaintenance',maint_nft:'viewMaintenance',maint_parts:'viewMaintenance',maint_matrix:'viewMaintenance',
+    it_cctv:'viewMaintenance',it_radios:'viewMaintenance',it_devices:'viewMaintenance',it_prj11:'viewMaintenance',
     irr_dash:'viewIrrigation',irr_schedule:'viewIrrigation',irr_drums:'viewIrrigation',irr_nutrients:'viewIrrigation',irr_systems:'viewIrrigation',
     inv_dash:'viewInventory',inv_stock:'viewInventory',inv_movements:'viewInventory',inv_categories:'viewInventory',
     pack_dash:'viewPackaging',pack_materials:'viewPackaging',pack_operations:'viewPackaging',
@@ -6032,6 +6049,8 @@ function switchView(v,skipModuleCheck){
   if(v==='maint_tools')renderMaintTools();
   if(v==='maint_equipment')renderMaintEquipment();
   if(v==='maint_nft')renderMaintNft();
+  if(v==='maint_parts')renderMaintParts();
+  if(v==='maint_matrix')renderMaintMatrix();
   if(v==='it_cctv')renderItCctv();
   if(v==='it_radios')renderItRadios();
   if(v==='it_devices')renderItDevices();
@@ -19547,6 +19566,8 @@ const MAINT_EQUIP_CATEGORIES=[
   {id:'ro',        icon:'💧', name:'Reverse Osmosis',existing:'maint_ro'},
   {id:'tools',     icon:'🔧', name:'Tools',         existing:'maint_tools'},
   {id:'cctv',      icon:'📷', name:'CCTV',          existing:'it_cctv'},
+  {id:'it_radios', icon:'📡', name:'IT Radios',     existing:'it_radios'},
+  {id:'it_devices',icon:'🖥️', name:'IT Devices',    existing:'it_devices'},
   // Generic equipment categories (new in v2.46.9)
   {id:'cold',      icon:'❄️', name:'Cold Storage',  fields:['temp_setpoint','last_defrost'],
    subject:'Refrigeration / Cold Storage',
@@ -19659,7 +19680,7 @@ const MAINT_EQUIP_CATEGORIES=[
      {id:'SP_FOG',   name:'Cold Fogger',location:'Chem Room',capacity:'5L',type:'Electric',status:'good'}
    ]},
   {id:'packaging', icon:'📦', name:'Packaging',     fields:['type','capacity'],
-   subject:'Packaging / Wash & Trim',
+   subject:'Packaging',
    checklist:['Belts/rollers smooth & clean','No grease/oil leaks','Sensors aligned','Emergency stop tested','Blades sharp & undamaged','Heating element working (sealers)','Calibration current (scales)','Wash water clean','Drainage clear','Safety guards in place'],
    defaults:[
      {id:'PK_WASH',     name:'Wash Machine',           location:'Packaging Room',type:'Wash & Spin',  capacity:'Industrial',status:'good'},
@@ -19691,6 +19712,114 @@ const MAINT_EQUIP_CATEGORIES=[
      {id:'P11_TEMP_SENS', name:'PRJ11 Climate Sensor',      location:'PRJ11 Greenhouse',     type:'Temp/RH',         status:'good'},
      {id:'P11_RECIRC',    name:'PRJ11 Recirculation Pump',  location:'PRJ11 Greenhouse',     type:'Submersible',     status:'good'}
    ]},
+  // ===== IT EQUIPMENT SUB-CATEGORIES (one per subject) =====
+  {id:'it_computers', icon:'🖥️', name:'Computers', fields:['type','specs'],
+   subject:'Computers',
+   checklist:['Powers on normally','OS/firmware up to date','Antivirus active','No unusual fan noise','Storage healthy (disk)','Cables intact','Network connection OK','User account active','Cleaning done (dust, screens)'],
+   defaults:[
+     {id:'IT_PC_OFFICE_1', name:'Office Desktop 1',      location:'Office',           type:'Desktop',specs:'Win10 i5 8GB',     status:'good'},
+     {id:'IT_PC_OFFICE_2', name:'Office Desktop 2',      location:'Office',           type:'Desktop',specs:'Win10 i5 8GB',     status:'good'},
+     {id:'IT_PC_BOSS',     name:'Boss Room Desktop',     location:'Boss Room',        type:'Desktop',specs:'Win11 i7 16GB',    status:'good'},
+     {id:'IT_PC_ACCT',     name:'Accounting Computer',   location:'Accounting Area',  type:'Desktop',specs:'Win10 i5 8GB',     status:'good'},
+     {id:'IT_PC_HR',       name:'HR Computer',           location:'HR Office',        type:'Desktop',specs:'Win10 i5 8GB',     status:'good'},
+     {id:'IT_PC_LOG',      name:'Logistics Computer',    location:'Logistic Area',    type:'Desktop',specs:'Win10 i5 8GB',     status:'good'},
+     {id:'IT_PC_PACK',     name:'Packaging Office PC',   location:'Packaging Office', type:'Desktop',specs:'Win10 i5 8GB',     status:'good'},
+     {id:'IT_PC_GH_CTRL',  name:'GH Climate Control PC', location:'IT Room',          type:'Desktop',specs:'Climate Controller',status:'good'},
+     {id:'IT_LT_MGR_1',    name:'Manager Laptop 1',      location:'Office',           type:'Laptop', specs:'Win11 i7 16GB',    status:'good'},
+     {id:'IT_LT_MGR_2',    name:'Manager Laptop 2',      location:'Office',           type:'Laptop', specs:'Win11 i7 16GB',    status:'good'},
+     {id:'IT_LT_FIELD',    name:'Field Laptop',          location:'Office',           type:'Laptop', specs:'rugged i5 8GB',    status:'good'}
+   ]},
+  {id:'it_printers', icon:'🖨️', name:'Printers', fields:['type','specs'],
+   subject:'Printers',
+   checklist:['Powers on normally','Toner/ink level OK','Paper tray loaded','Test print clean','Network connected','Drivers installed','No paper jam','Cleaning done'],
+   defaults:[
+     {id:'IT_PR_OFFICE',   name:'Office MFP Printer',     location:'Office',          type:'MFP',     specs:'Mono laser MFP', status:'good'},
+     {id:'IT_PR_PACK',     name:'Packaging Label Printer',location:'Packaging Room',  type:'Thermal', specs:'Label printer',  status:'good'},
+     {id:'IT_PR_BOSS',     name:'Boss Room Printer',      location:'Boss Room',       type:'Inkjet',  specs:'Color inkjet',   status:'good'},
+     {id:'IT_PR_ACCT',     name:'Accounting Printer',     location:'Accounting Area', type:'Laser',   specs:'Mono laser',     status:'good'},
+     {id:'IT_PR_HR',       name:'HR Printer',             location:'HR Office',       type:'Laser',   specs:'Mono laser',     status:'good'}
+   ]},
+  {id:'it_monitors', icon:'🖼️', name:'Monitors', fields:['size','specs'],
+   subject:'Monitors',
+   checklist:['Powers on','No dead pixels','Cables intact (HDMI/DP/VGA)','Brightness/contrast OK','Stand stable','No flicker','Cleaning done'],
+   defaults:[
+     {id:'IT_MON_OFFICE_1',name:'Office Monitor 1',      location:'Office',           size:'24"',specs:'24" 1080p IPS',status:'good'},
+     {id:'IT_MON_OFFICE_2',name:'Office Monitor 2',      location:'Office',           size:'24"',specs:'24" 1080p IPS',status:'good'},
+     {id:'IT_MON_BOSS',    name:'Boss Room Monitor',     location:'Boss Room',        size:'27"',specs:'27" 1440p',    status:'good'},
+     {id:'IT_MON_ACCT',    name:'Accounting Monitor',    location:'Accounting Area',  size:'24"',specs:'24" 1080p',    status:'good'},
+     {id:'IT_MON_HR',      name:'HR Monitor',            location:'HR Office',        size:'24"',specs:'24" 1080p',    status:'good'},
+     {id:'IT_MON_LOG',     name:'Logistics Monitor',     location:'Logistic Area',    size:'24"',specs:'24" 1080p',    status:'good'},
+     {id:'IT_MON_PACK',    name:'Packaging Monitor',     location:'Packaging Office', size:'24"',specs:'24" 1080p',    status:'good'}
+   ]},
+  {id:'it_tvs', icon:'📺', name:'TVs', fields:['size','specs'],
+   subject:'TVs',
+   checklist:['Powers on','Display clear (no dead pixels)','Mount secure','Source/HDMI input working','Remote responsive','Cables intact','Cleaning done'],
+   defaults:[
+     {id:'IT_TV_1',    name:'TV 1 — CCTV (TV1 Greenhouses)',location:'Security Area',  size:'55"',specs:'NVR-1 display 16ch',status:'good'},
+     {id:'IT_TV_2',    name:'TV 2 — CCTV (TV2 Perimeter)',  location:'Security Area',  size:'55"',specs:'NVR-2 display 32ch',status:'good'},
+     {id:'IT_TV_3',    name:'TV 3 — CCTV (TV3)',            location:'Security Area',  size:'55"',specs:'NVR-3 display 32ch',status:'good'},
+     {id:'IT_TV_4',    name:'TV 4 — CCTV (TV4)',            location:'Security Area',  size:'43"',specs:'NVR-4 display 4ch', status:'good'},
+     {id:'IT_TV_BOSS', name:'Boss Room TV',                 location:'Boss Room',      size:'65"',specs:'Conference 4K',     status:'good'},
+     {id:'IT_TV_MEET', name:'Meeting Room TV',              location:'Meeting Room',   size:'55"',specs:'Conference 4K',     status:'good'},
+     {id:'IT_TV_OSS',  name:'One Stop Shop TV',             location:'New Meeting Room',size:'50"',specs:'Display 1080p',    status:'good'},
+     {id:'IT_TV_RECEPT',name:'Reception Lobby TV',          location:'Office Reception',size:'43"',specs:'Info display',     status:'good'}
+   ]},
+  {id:'it_phones', icon:'☎️', name:'Phones', fields:['type','extension'],
+   subject:'Phones',
+   checklist:['Dial tone present','Receive calls OK','Place calls OK','Display readable','Handset cord intact','Voicemail working','Network connected (VoIP)'],
+   defaults:[
+     {id:'IT_PH_RECEPT', name:'Desk Phone — Reception',  location:'Office Reception',type:'IP Phone',extension:'100',status:'good'},
+     {id:'IT_PH_BOSS',   name:'Desk Phone — Boss Room',  location:'Boss Room',       type:'IP Phone',extension:'101',status:'good'},
+     {id:'IT_PH_ACCT',   name:'Desk Phone — Accounting', location:'Accounting Area', type:'IP Phone',extension:'102',status:'good'},
+     {id:'IT_PH_HR',     name:'Desk Phone — HR',         location:'HR Office',       type:'IP Phone',extension:'103',status:'good'},
+     {id:'IT_PH_LOG',    name:'Desk Phone — Logistics',  location:'Logistic Area',   type:'IP Phone',extension:'104',status:'good'},
+     {id:'IT_PH_SECURITY',name:'Desk Phone — Security',  location:'Security Area',   type:'IP Phone',extension:'105',status:'good'},
+     {id:'IT_PH_GATE',   name:'Intercom — Main Gate',    location:'Main Gate',       type:'Intercom',extension:'200',status:'good'}
+   ]},
+  {id:'it_servers', icon:'🗄️', name:'Servers', fields:['role','specs'],
+   subject:'Servers',
+   checklist:['Powers on','OS healthy / no errors','Disk space available','Backups running','RAID healthy (if any)','Temperature normal','UPS connected','Logs reviewed'],
+   defaults:[
+     {id:'IT_SRV_FILE',  name:'File Server',          location:'IT Room',role:'File / shares',  specs:'Win Server / NAS',status:'good'},
+     {id:'IT_SRV_DOMAIN',name:'Domain Controller',    location:'IT Room',role:'AD / DNS / DHCP',specs:'Win Server',     status:'good'},
+     {id:'IT_SRV_BACKUP',name:'Backup Server / NAS',  location:'IT Room',role:'Backups',         specs:'NAS w/ RAID',    status:'good'},
+     {id:'IT_SRV_HYDRO', name:'HydroPro App Server',  location:'IT Room',role:'App / hosting',   specs:'Linux',          status:'good'}
+   ]},
+  {id:'it_dvrs', icon:'📼', name:'DVRs / NVRs', fields:['channels','specs'],
+   subject:'DVRs / NVRs',
+   checklist:['Powers on','All channels active (no offline cameras)','HDD healthy','Recording space available','Network connected','Time/date correct','Backup playback works','Fans/heat OK'],
+   defaults:[
+     {id:'IT_NVR_1',   name:'NVR-1 (TV1 Greenhouses)',location:'IT Room',channels:'16',specs:'16-channel HDD',     status:'good'},
+     {id:'IT_NVR_2',   name:'NVR-2 (TV2 Perimeter)',  location:'IT Room',channels:'32',specs:'32-channel HDD',     status:'good'},
+     {id:'IT_NVR_3',   name:'NVR-3 (TV3)',            location:'IT Room',channels:'32',specs:'32-channel HDD',     status:'good'},
+     {id:'IT_NVR_4',   name:'NVR-4 (TV4)',            location:'IT Room',channels:'4', specs:'4-channel HDD',      status:'good'}
+   ]},
+  {id:'it_routers', icon:'🌐', name:'Routers & Network', fields:['type','specs'],
+   subject:'Routers & Network',
+   checklist:['Powers on','All link/status LEDs green','Internet uplink OK','WiFi SSID broadcasting (APs)','Speed test reasonable','No overheating','Firmware up to date','Cable management neat'],
+   defaults:[
+     {id:'IT_RTR_MAIN',name:'Main Router / Gateway',  location:'IT Room',         type:'Router',  specs:'WAN/LAN gateway',status:'good'},
+     {id:'IT_SW_MAIN', name:'Main Network Switch',    location:'IT Room',         type:'Switch',  specs:'24-port managed',status:'good'},
+     {id:'IT_SW_PACK', name:'Packaging Switch',       location:'Packaging Room',  type:'Switch',  specs:'8-port',         status:'good'},
+     {id:'IT_AP_OFFICE',name:'Office WiFi AP',        location:'Office',          type:'AP',      specs:'Wi-Fi 6',        status:'good'},
+     {id:'IT_AP_PACK', name:'Packaging WiFi AP',      location:'Packaging Room',  type:'AP',      specs:'Wi-Fi 6',        status:'good'},
+     {id:'IT_AP_GH',   name:'Greenhouse WiFi AP',     location:'GH9 Center',      type:'AP',      specs:'Outdoor AP',     status:'good'},
+     {id:'IT_AP_BARRACKS',name:'Barracks WiFi AP',    location:'Barracks',        type:'AP',      specs:'Wi-Fi 5',        status:'good'},
+     {id:'IT_MODEM',   name:'ISP Modem',              location:'IT Room',         type:'Modem',   specs:'Fiber ONT',      status:'good'},
+     {id:'IT_FIREWALL',name:'Firewall',               location:'IT Room',         type:'Firewall',specs:'UTM device',     status:'good'}
+   ]},
+  {id:'it_others', icon:'📌', name:'IT Others', fields:['type','specs'],
+   subject:'IT Others',
+   checklist:['Powers on','Functions normally','Cables/connectors intact','Cleaning done','Software up to date (if applicable)'],
+   defaults:[
+     {id:'IT_PROJECTOR',  name:'Meeting Room Projector', location:'Meeting Room',  type:'Projector',specs:'1080p',          status:'good'},
+     {id:'IT_UPS_IT',     name:'UPS — IT Room',          location:'IT Room',       type:'UPS',      specs:'2 kVA online',   status:'good'},
+     {id:'IT_UPS_OFFICE', name:'UPS — Office',           location:'Office',        type:'UPS',      specs:'1 kVA',          status:'good'},
+     {id:'IT_SCANNER',    name:'Document Scanner',       location:'Office',        type:'Scanner',  specs:'A4 flatbed',     status:'good'},
+     {id:'IT_SHREDDER',   name:'Document Shredder',      location:'Accounting Area',type:'Shredder',specs:'Cross-cut',     status:'good'},
+     {id:'IT_TABLET',     name:'Field Tablet',           location:'Office',        type:'Tablet',   specs:'Android rugged', status:'good'},
+     {id:'IT_PA_SYSTEM',  name:'PA / Speaker System',    location:'Office',        type:'PA',       specs:'Site-wide',      status:'good'}
+   ]},
   // Inventory-type categories — render via custom function instead of generic equipment list
   {id:'nft', icon:'📏', name:'NFT Pipes Count', type:'inventory', subject:'NFT Pipes Inventory', custom:'nft',
    description:'Weekly count by greenhouse and variety'}
@@ -19700,7 +19829,7 @@ const MAINT_EQUIP_KEY='hydroPro_maint_equipment_v1';
 const MAINT_EQUIP_CHECKS_KEY='hydroPro_maint_equipment_checks_v1';
 // Seed version stamp — bump whenever defaults grow or change.
 // Used by _maintEquipMigrate() to merge new defaults into existing user data.
-const MAINT_EQUIP_SEED_VERSION='2.46.18';
+const MAINT_EQUIP_SEED_VERSION='2.46.25';
 const MAINT_EQUIP_SEED_KEY='hydroPro_maint_equipment_seed_version';
 // Check log shape: { [catId]: { [itemId]: [ {date, by, ts, items:[{check,result,note}], summary} ] } }
 function loadEquipChecks(){try{return JSON.parse(localStorage.getItem(MAINT_EQUIP_CHECKS_KEY)||'{}');}catch(e){return {};}}
@@ -20397,10 +20526,22 @@ function saveServiceEntry(catId,itemId,editIdx){
 
   _addOrUpdateService(catId,itemId,entry,typeof editIdx==='number'?editIdx:undefined);
 
-  if(typeof audit==='function')audit('equip_service',`${typeof editIdx==='number'?'Edited':'Added'} service entry for ${cat.name}/${item.name||item.id}: ${_svcType(entry.type).label}`);
+  // Auto-decrement spare parts inventory if parts text matches catalog
+  let consumed=[];
+  if(entry.parts&&typeof _partsConsumeFromServiceText==='function'&&typeof editIdx!=='number'){
+    try{consumed=_partsConsumeFromServiceText(entry.parts,entry.by,item.name||item.id);}catch(e){console.warn('parts decrement err:',e);}
+  }
+
+  if(typeof audit==='function')audit('equip_service',`${typeof editIdx==='number'?'Edited':'Added'} service entry for ${cat.name}/${item.name||item.id}: ${_svcType(entry.type).label}${consumed.length?' · '+consumed.length+' parts auto-decremented':''}`);
   if(typeof showToast==='function'){
-    if(entry.type==='pm')showToast(`✓ PM logged · Next service auto-scheduled`,'ok');
-    else showToast('✓ Service entry saved','ok');
+    if(consumed.length>0){
+      const summary=consumed.map(c=>`${c.qty}× ${c.partName}`).join(', ');
+      showToast(`✓ Service logged · 🔩 Decremented: ${summary}`,'ok',6000);
+    }else if(entry.type==='pm'){
+      showToast(`✓ PM logged · Next service auto-scheduled`,'ok');
+    }else{
+      showToast('✓ Service entry saved','ok');
+    }
   }
   // Re-open the log so user sees the updated history
   openServiceLog(catId,itemId);
@@ -20532,6 +20673,794 @@ function _renderPmDueWidget(){
     </div>
     <div style="max-height:90px;overflow-y:auto;">${items}${due.length>5?`<span style="font-size:10px;color:var(--text3);font-style:italic;margin-left:6px;">…and ${due.length-5} more</span>`:''}</div>
   </div>`;
+}
+
+// =============== SPARE PARTS INVENTORY (v2.46.22) =================
+// Tracks maintenance-specific spare parts. Each part can be linked to one
+// or more equipment items. When a service entry's "parts used" matches a
+// part name/SKU, stock is auto-decremented and reorder issues are raised.
+const PARTS_KEY='hydroPro_maint_parts_v1';
+const PARTS_USAGE_KEY='hydroPro_maint_parts_usage_v1';
+const PARTS_SEED_KEY='hydroPro_maint_parts_seed_version';
+const PARTS_SEED_VERSION='2.46.22';
+
+const PARTS_CATEGORIES=[
+  {id:'filter',    label:'Filters',         icon:'🟢'},
+  {id:'seal',      label:'Seals & Gaskets', icon:'⚪'},
+  {id:'belt',      label:'Belts',           icon:'➰'},
+  {id:'bearing',   label:'Bearings',        icon:'⚙️'},
+  {id:'electrical',label:'Electrical',      icon:'⚡'},
+  {id:'plumbing',  label:'Plumbing',        icon:'🚿'},
+  {id:'lighting',  label:'Lighting',        icon:'💡'},
+  {id:'sensor',    label:'Sensor parts',    icon:'📡'},
+  {id:'lubricant', label:'Lubricants',      icon:'🛢️'},
+  {id:'fastener',  label:'Fasteners',       icon:'🔩'},
+  {id:'consumable',label:'Consumables',     icon:'📦'},
+  {id:'other',     label:'Other',           icon:'📌'}
+];
+
+const PARTS_BASELINE=[
+  // Filters
+  {id:'P_FLT_RO_PRE', name:'RO Pre-Filter Cartridge',  sku:'RO-PF-10',  category:'filter',    unit:'pc', onHand:8,  minStock:4, reorderPoint:6, unitCost:12.50, supplier:'Local',     location:'Mech Room', linkedEquipment:[]},
+  {id:'P_FLT_RO_POST',name:'RO Post-Filter Cartridge', sku:'RO-PF-20',  category:'filter',    unit:'pc', onHand:6,  minStock:3, reorderPoint:5, unitCost:14.00, supplier:'Local',     location:'Mech Room', linkedEquipment:[]},
+  {id:'P_FLT_HVAC',   name:'HVAC Filter (Climate)',    sku:'HVAC-F-1',  category:'filter',    unit:'pc', onHand:12, minStock:6, reorderPoint:9, unitCost:8.00,  supplier:'Local',     location:'Mech Room', linkedEquipment:[]},
+  // Seals
+  {id:'P_SEAL_PUMP',  name:'Pump Mechanical Seal',     sku:'PMP-MS-1',  category:'seal',      unit:'pc', onHand:5,  minStock:3, reorderPoint:4, unitCost:35.00, supplier:'Importer',  location:'Maint. Storage',linkedEquipment:[]},
+  {id:'P_SEAL_ORING', name:'O-Ring Assortment',        sku:'OR-KIT-A',  category:'seal',      unit:'kit',onHand:2,  minStock:1, reorderPoint:1, unitCost:18.00, supplier:'Local',     location:'Maint. Storage',linkedEquipment:[]},
+  // Belts
+  {id:'P_BELT_FAN',   name:'Fan V-Belt',               sku:'BELT-A36',  category:'belt',      unit:'pc', onHand:6,  minStock:3, reorderPoint:4, unitCost:9.00,  supplier:'Local',     location:'Maint. Storage',linkedEquipment:[]},
+  // Lighting
+  {id:'P_LED_DRIVER', name:'LED Driver 600W',          sku:'LED-DR-600',category:'lighting',  unit:'pc', onHand:3,  minStock:2, reorderPoint:3, unitCost:75.00, supplier:'Importer',  location:'Maint. Storage',linkedEquipment:[]},
+  {id:'P_LED_BULB',   name:'LED Bulb (replacement)',   sku:'LED-B-100', category:'lighting',  unit:'pc', onHand:24, minStock:10,reorderPoint:15,unitCost:15.00, supplier:'Local',     location:'Maint. Storage',linkedEquipment:[]},
+  {id:'P_FLOOD_LED',  name:'Flood LED 150W (post)',    sku:'FLD-150',   category:'lighting',  unit:'pc', onHand:4,  minStock:2, reorderPoint:3, unitCost:45.00, supplier:'Local',     location:'Maint. Storage',linkedEquipment:[]},
+  // Electrical
+  {id:'P_FUSE_5A',    name:'Fuse 5A',                  sku:'FUSE-5A',   category:'electrical',unit:'pc', onHand:30, minStock:15,reorderPoint:20,unitCost:1.50,  supplier:'Local',     location:'IT Room',   linkedEquipment:[]},
+  {id:'P_FUSE_15A',   name:'Fuse 15A',                 sku:'FUSE-15A',  category:'electrical',unit:'pc', onHand:20, minStock:10,reorderPoint:15,unitCost:2.00,  supplier:'Local',     location:'IT Room',   linkedEquipment:[]},
+  {id:'P_CONTACTOR',  name:'Contactor Relay',          sku:'CNT-25A',   category:'electrical',unit:'pc', onHand:3,  minStock:2, reorderPoint:3, unitCost:28.00, supplier:'Importer',  location:'Maint. Storage',linkedEquipment:[]},
+  // Plumbing
+  {id:'P_PIPE_PVC25', name:'PVC Pipe 25mm (3m)',       sku:'PVC-25-3',  category:'plumbing',  unit:'pc', onHand:18, minStock:8, reorderPoint:12,unitCost:6.00,  supplier:'Local',     location:'Warehouse', linkedEquipment:[]},
+  {id:'P_VALVE_BALL', name:'Ball Valve 25mm',          sku:'VLV-B-25',  category:'plumbing',  unit:'pc', onHand:10, minStock:5, reorderPoint:7, unitCost:8.00,  supplier:'Local',     location:'Maint. Storage',linkedEquipment:[]},
+  {id:'P_DRIPPER',    name:'Drip Emitter',             sku:'DRP-2L',    category:'plumbing',  unit:'pc', onHand:200,minStock:80,reorderPoint:120,unitCost:0.30, supplier:'Local',     location:'Warehouse', linkedEquipment:[]},
+  // Sensor parts
+  {id:'P_PH_PROBE',   name:'pH Probe Replacement',     sku:'PH-P-1',    category:'sensor',    unit:'pc', onHand:2,  minStock:1, reorderPoint:2, unitCost:120.00,supplier:'Importer',  location:'Lab',       linkedEquipment:[]},
+  {id:'P_EC_PROBE',   name:'EC Probe Replacement',     sku:'EC-P-1',    category:'sensor',    unit:'pc', onHand:2,  minStock:1, reorderPoint:2, unitCost:95.00, supplier:'Importer',  location:'Lab',       linkedEquipment:[]},
+  // Lubricants
+  {id:'P_GREASE',     name:'Bearing Grease (tube)',    sku:'GR-T-400',  category:'lubricant', unit:'tube',onHand:6, minStock:3, reorderPoint:4, unitCost:7.50,  supplier:'Local',     location:'Maint. Storage',linkedEquipment:[]},
+  {id:'P_OIL_GEN',    name:'Generator Oil 5L',         sku:'OIL-G-5',   category:'lubricant', unit:'L',  onHand:20, minStock:10,reorderPoint:15,unitCost:6.00,  supplier:'Local',     location:'Mech Yard', linkedEquipment:[]},
+  // Fasteners (assortments)
+  {id:'P_BOLT_KIT',   name:'Bolt Assortment Kit',      sku:'BOLT-KIT-1',category:'fastener',  unit:'kit',onHand:1,  minStock:1, reorderPoint:1, unitCost:35.00, supplier:'Local',     location:'Maint. Storage',linkedEquipment:[]},
+  // Consumables
+  {id:'P_RAGS',       name:'Cleaning Rags (pack)',     sku:'RAGS-50',   category:'consumable',unit:'pack',onHand:8, minStock:4, reorderPoint:5, unitCost:5.00,  supplier:'Local',     location:'Maint. Storage',linkedEquipment:[]},
+  {id:'P_CABLE_TIES', name:'Cable Ties 200mm (pack)',  sku:'CT-200-100',category:'consumable',unit:'pack',onHand:5, minStock:2, reorderPoint:3, unitCost:4.00,  supplier:'Local',     location:'Maint. Storage',linkedEquipment:[]},
+  {id:'P_TAPE_PTFE',  name:'PTFE Tape (roll)',         sku:'PTFE-12',   category:'consumable',unit:'roll',onHand:15,minStock:8, reorderPoint:10,unitCost:1.50,  supplier:'Local',     location:'Maint. Storage',linkedEquipment:[]}
+];
+
+function loadParts(){
+  try{
+    const raw=localStorage.getItem(PARTS_KEY);
+    if(raw){
+      const data=JSON.parse(raw);
+      // Migrate: add missing seed items if seed version changed
+      try{
+        if(localStorage.getItem(PARTS_SEED_KEY)!==PARTS_SEED_VERSION&&Array.isArray(data)){
+          const existingIds=new Set(data.map(p=>p.id));
+          let added=0;
+          PARTS_BASELINE.forEach(seed=>{if(!existingIds.has(seed.id)){data.push({...seed,linkedEquipment:[...seed.linkedEquipment]});added++;}});
+          if(added>0){
+            localStorage.setItem(PARTS_KEY,JSON.stringify(data));
+            if(typeof showToast==='function')setTimeout(()=>showToast(`✓ Added ${added} new spare parts to your inventory`,'ok',5000),900);
+          }
+          localStorage.setItem(PARTS_SEED_KEY,PARTS_SEED_VERSION);
+        }
+      }catch(e){console.warn('parts seed migrate err:',e);}
+      if(Array.isArray(data))return data;
+    }
+  }catch(e){}
+  // First-load seed
+  const seed=PARTS_BASELINE.map(p=>({...p,linkedEquipment:[...p.linkedEquipment]}));
+  localStorage.setItem(PARTS_KEY,JSON.stringify(seed));
+  localStorage.setItem(PARTS_SEED_KEY,PARTS_SEED_VERSION);
+  return seed;
+}
+function saveParts(arr){localStorage.setItem(PARTS_KEY,JSON.stringify(arr));}
+function loadPartsUsage(){try{return JSON.parse(localStorage.getItem(PARTS_USAGE_KEY)||'[]');}catch(e){return [];}}
+function savePartsUsage(arr){localStorage.setItem(PARTS_USAGE_KEY,JSON.stringify(arr));}
+
+let _partsFilter={category:'all',search:'',low:false};
+
+function renderMaintParts(){
+  const host=document.getElementById('stubMaintPartsBody');
+  if(!host)return;
+  const parts=loadParts();
+  const total=parts.length;
+  const lowStock=parts.filter(p=>p.onHand<=p.reorderPoint&&p.onHand>0);
+  const outStock=parts.filter(p=>p.onHand<=0);
+  const totalValue=parts.reduce((s,p)=>s+(p.onHand*(p.unitCost||0)),0);
+
+  let filtered=parts;
+  if(_partsFilter.category!=='all')filtered=filtered.filter(p=>p.category===_partsFilter.category);
+  if(_partsFilter.low)filtered=filtered.filter(p=>p.onHand<=p.reorderPoint);
+  if(_partsFilter.search){
+    const q=_partsFilter.search.toLowerCase();
+    filtered=filtered.filter(p=>(p.name||'').toLowerCase().includes(q)||(p.sku||'').toLowerCase().includes(q)||(p.supplier||'').toLowerCase().includes(q));
+  }
+
+  // Stat row
+  let statRow=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px;">
+    <div class="pay-stat"><div class="pay-stat-label">Total Parts</div><div class="pay-stat-val">${total}</div></div>
+    <div class="pay-stat"><div class="pay-stat-label">📉 Low Stock</div><div class="pay-stat-val ${lowStock.length>0?'warn':''}">${lowStock.length}</div></div>
+    <div class="pay-stat"><div class="pay-stat-label">⛔ Out of Stock</div><div class="pay-stat-val ${outStock.length>0?'danger':''}">${outStock.length}</div></div>
+    <div class="pay-stat"><div class="pay-stat-label">💰 Total Value</div><div class="pay-stat-val">$${totalValue.toFixed(0)}</div></div>
+  </div>`;
+
+  // Toolbar
+  let toolbar=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+    <button class="btn primary" onclick="openPartEdit(null)">+ Add Part</button>
+    <input type="search" placeholder="🔍 Search by name, SKU, supplier…" value="${(_partsFilter.search||'').replace(/"/g,'&quot;')}" onchange="_partsFilter.search=this.value;renderMaintParts();" style="flex:1;min-width:200px;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;">
+    <select onchange="_partsFilter.category=this.value;renderMaintParts();" style="padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;">
+      <option value="all">All categories</option>
+      ${PARTS_CATEGORIES.map(c=>`<option value="${c.id}" ${_partsFilter.category===c.id?'selected':''}>${c.icon} ${c.label}</option>`).join('')}
+    </select>
+    <button class="btn ${_partsFilter.low?'primary':''}" onclick="_partsFilter.low=!_partsFilter.low;renderMaintParts();">📉 Low only</button>
+    <button class="btn" onclick="exportPartsCSV()">📊 Export CSV</button>
+  </div>`;
+
+  // Card grid
+  let cards='';
+  if(filtered.length===0){
+    cards=`<div style="padding:30px;text-align:center;color:var(--text3);background:var(--surface2);border-radius:10px;">No parts match the filter.</div>`;
+  }else{
+    cards=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;">`;
+    filtered.forEach(p=>{
+      const isOut=p.onHand<=0;
+      const isLow=!isOut&&p.onHand<=p.reorderPoint;
+      const stockColor=isOut?'var(--danger)':isLow?'var(--warn)':'var(--ok)';
+      const stockIcon=isOut?'⛔':isLow?'📉':'✓';
+      const cat=PARTS_CATEGORIES.find(c=>c.id===p.category);
+      const linkedCount=Array.isArray(p.linkedEquipment)?p.linkedEquipment.length:0;
+      cards+=`<div style="background:var(--surface);border:1.5px solid var(--border);border-left:5px solid ${stockColor};border-radius:10px;padding:12px;cursor:pointer;" onclick="openPartEdit('${p.id}')">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:start;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:700;font-size:13px;">${cat?cat.icon+' ':''}${p.name}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px;font-family:var(--mono);">SKU: ${p.sku||'—'}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px;">📍 ${p.location||'—'}${p.supplier?` · 🏢 ${p.supplier}`:''}</div>
+          </div>
+          <div style="text-align:right;font-family:var(--mono);">
+            <div style="font-size:18px;font-weight:800;color:${stockColor};">${p.onHand}</div>
+            <div style="font-size:9px;color:var(--text3);text-transform:uppercase;">${p.unit||'pc'} on hand</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:10px;color:var(--text3);flex-wrap:wrap;align-items:center;">
+          <span>${stockIcon} <span style="color:${stockColor};font-weight:700;">${isOut?'OUT':isLow?'LOW':'OK'}</span></span>
+          <span>Min: <strong style="color:var(--text);">${p.minStock}</strong></span>
+          <span>Reorder: <strong style="color:var(--text);">${p.reorderPoint}</strong></span>
+          ${p.unitCost?`<span style="margin-left:auto;">$${p.unitCost.toFixed(2)}/${p.unit}</span>`:''}
+        </div>
+        ${linkedCount?`<div style="font-size:10px;color:var(--text3);margin-top:6px;">🔗 Linked to ${linkedCount} equipment item${linkedCount===1?'':'s'}</div>`:''}
+        <div style="display:flex;gap:6px;margin-top:8px;">
+          <button class="btn primary small" style="flex:1;font-size:11px;padding:5px 10px;" onclick="event.stopPropagation();openPartUseModal('${p.id}')">➖ Use</button>
+          <button class="btn small" style="font-size:11px;padding:5px 10px;" onclick="event.stopPropagation();openPartReceiveModal('${p.id}')">➕ Receive</button>
+        </div>
+      </div>`;
+    });
+    cards+='</div>';
+  }
+
+  // Reorder banner
+  let reorderBanner='';
+  if(outStock.length>0||lowStock.length>0){
+    const tone=outStock.length>0?'var(--danger)':'var(--warn)';
+    const bg=outStock.length>0?'rgba(239,83,80,0.10)':'rgba(255,179,0,0.10)';
+    reorderBanner=`<div style="background:${bg};border:1.5px solid ${tone};border-left:5px solid ${tone};border-radius:10px;padding:10px 14px;margin-bottom:14px;">
+      <div style="font-weight:800;color:${tone};font-size:13px;margin-bottom:4px;">📋 Reorder needed</div>
+      <div style="font-size:11px;color:var(--text2);">${outStock.length} part${outStock.length===1?'':'s'} OUT of stock · ${lowStock.length} below reorder point. Click 📉 Low only filter to focus.</div>
+    </div>`;
+  }
+
+  host.innerHTML=`
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <span>🔩 Spare Parts Inventory</span>
+      <button class="btn small" onclick="switchView('maint_dash')">← Maintenance</button>
+    </div>
+    ${reorderBanner}
+    ${statRow}
+    ${toolbar}
+    ${cards}
+  `;
+}
+
+function openPartEdit(partId){
+  const parts=loadParts();
+  const isNew=!partId;
+  const part=isNew?{id:'',name:'',sku:'',category:'other',unit:'pc',onHand:0,minStock:0,reorderPoint:0,unitCost:0,supplier:'',location:'',notes:'',linkedEquipment:[]}:parts.find(p=>p.id===partId);
+  if(!part)return;
+
+  document.getElementById('maintPartsModalTitle').textContent=`${isNew?'+ Add':'✎ Edit'} Spare Part`;
+
+  // Build linked equipment chooser (multi-select)
+  let equipOptions='';
+  MAINT_EQUIP_CATEGORIES.forEach(cat=>{
+    if(cat.existing||cat.custom)return;
+    const items=getEquipItems(cat.id);
+    if(items.length===0)return;
+    equipOptions+=`<optgroup label="${cat.icon} ${cat.name}">`;
+    items.forEach(it=>{
+      const ref=`${cat.id}/${it.id}`;
+      const sel=Array.isArray(part.linkedEquipment)&&part.linkedEquipment.includes(ref)?'selected':'';
+      equipOptions+=`<option value="${ref}" ${sel}>${it.name||it.id} @ ${it.location||''}</option>`;
+    });
+    equipOptions+='</optgroup>';
+  });
+  const catOptions=PARTS_CATEGORIES.map(c=>`<option value="${c.id}" ${part.category===c.id?'selected':''}>${c.icon} ${c.label}</option>`).join('');
+
+  document.getElementById('maintPartsModalBody').innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">ID ${isNew?'(unique)':''}</label>
+        <input id="prt_id" type="text" value="${part.id||''}" ${isNew?'':'readonly'} placeholder="P_FLT_RO_PRE" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);${isNew?'':'opacity:.6;'}" /></div>
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">SKU / Code</label>
+        <input id="prt_sku" type="text" value="${(part.sku||'').replace(/"/g,'&quot;')}" placeholder="RO-PF-10" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);" /></div>
+    </div>
+    <div style="margin-bottom:10px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Name</label>
+      <input id="prt_name" type="text" value="${(part.name||'').replace(/"/g,'&quot;')}" placeholder="RO Pre-Filter Cartridge" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Category</label>
+        <select id="prt_category" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);">${catOptions}</select></div>
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Unit</label>
+        <input id="prt_unit" type="text" value="${(part.unit||'pc').replace(/"/g,'&quot;')}" placeholder="pc / kg / L / pack" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">On Hand</label>
+        <input id="prt_onHand" type="number" min="0" step="0.01" value="${part.onHand||0}" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);" /></div>
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Min Stock</label>
+        <input id="prt_minStock" type="number" min="0" step="0.01" value="${part.minStock||0}" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);" /></div>
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Reorder Point</label>
+        <input id="prt_reorderPoint" type="number" min="0" step="0.01" value="${part.reorderPoint||0}" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);" /></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Unit Cost (USD)</label>
+        <input id="prt_unitCost" type="number" min="0" step="0.01" value="${part.unitCost||0}" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);" /></div>
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Location</label>
+        <input id="prt_location" type="text" value="${(part.location||'').replace(/"/g,'&quot;')}" placeholder="Maint. Storage / Mech Room" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+    </div>
+    <div style="margin-bottom:10px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Supplier</label>
+      <input id="prt_supplier" type="text" value="${(part.supplier||'').replace(/"/g,'&quot;')}" placeholder="Local hardware / Importer" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+    <div style="margin-bottom:10px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">🔗 Linked Equipment (Ctrl/Cmd+click for multiple)</label>
+      <select id="prt_linkedEquipment" multiple size="6" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;">${equipOptions||'<option disabled>No generic equipment items yet</option>'}</select></div>
+    <div style="margin-bottom:14px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Notes</label>
+      <textarea id="prt_notes" rows="2" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);resize:vertical;">${part.notes||''}</textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      ${!isNew?`<button class="btn" style="background:var(--danger);color:#fff;" onclick="if(confirm('Delete ${(part.name||part.id).replace(/'/g,'')}?')){deletePart('${partId}');}">🗑 Delete</button>`:''}
+      <button class="btn" onclick="document.getElementById('maintPartsModal').classList.remove('open')">Cancel</button>
+      <button class="btn primary" onclick="savePartEdit('${partId||''}')">💾 Save</button>
+    </div>
+  `;
+  document.getElementById('maintPartsModal').classList.add('open');
+}
+
+function savePartEdit(partId){
+  const isNew=!partId;
+  const newId=document.getElementById('prt_id').value.trim().toUpperCase().replace(/\s+/g,'_');
+  if(!newId){alert('ID is required.');return;}
+  const parts=loadParts();
+  if(isNew&&parts.some(p=>p.id===newId)){alert('That ID already exists.');return;}
+  const linkedEl=document.getElementById('prt_linkedEquipment');
+  const linked=linkedEl?Array.from(linkedEl.selectedOptions).map(o=>o.value):[];
+  const data={
+    id:isNew?newId:partId,
+    name:document.getElementById('prt_name').value.trim(),
+    sku:document.getElementById('prt_sku').value.trim(),
+    category:document.getElementById('prt_category').value,
+    unit:document.getElementById('prt_unit').value.trim()||'pc',
+    onHand:parseFloat(document.getElementById('prt_onHand').value)||0,
+    minStock:parseFloat(document.getElementById('prt_minStock').value)||0,
+    reorderPoint:parseFloat(document.getElementById('prt_reorderPoint').value)||0,
+    unitCost:parseFloat(document.getElementById('prt_unitCost').value)||0,
+    location:document.getElementById('prt_location').value.trim(),
+    supplier:document.getElementById('prt_supplier').value.trim(),
+    notes:document.getElementById('prt_notes').value.trim(),
+    linkedEquipment:linked
+  };
+  let next;
+  if(isNew){next=[...parts,data];}
+  else{next=parts.map(p=>p.id===partId?data:p);}
+  saveParts(next);
+  if(typeof audit==='function')audit('part_save',(isNew?'Added ':'Edited ')+'spare part: '+(data.name||data.id));
+  if(typeof showToast==='function')showToast('✓ Saved','ok');
+  document.getElementById('maintPartsModal').classList.remove('open');
+  renderMaintParts();
+}
+
+function deletePart(partId){
+  const parts=loadParts().filter(p=>p.id!==partId);
+  saveParts(parts);
+  if(typeof audit==='function')audit('part_delete','Removed part: '+partId);
+  if(typeof showToast==='function')showToast('✓ Deleted','ok');
+  document.getElementById('maintPartsModal').classList.remove('open');
+  renderMaintParts();
+}
+
+function _partsAdjust(partId,delta,reason,by){
+  const parts=loadParts();
+  const idx=parts.findIndex(p=>p.id===partId);
+  if(idx<0)return null;
+  const before=parts[idx].onHand;
+  parts[idx].onHand=Math.max(0,parseFloat((before+delta).toFixed(4)));
+  saveParts(parts);
+  // Log usage
+  const usage=loadPartsUsage();
+  usage.unshift({ts:Date.now(),date:new Date().toISOString().slice(0,10),partId,partName:parts[idx].name,delta,before,after:parts[idx].onHand,reason:reason||'',by:by||''});
+  if(usage.length>500)usage.length=500;
+  savePartsUsage(usage);
+  // Auto-raise issue if went below reorder point on a decrement
+  if(delta<0&&parts[idx].onHand<=parts[idx].reorderPoint&&before>parts[idx].reorderPoint){
+    try{
+      const tasks=loadMaintTasks();
+      const today=new Date().toISOString().slice(0,10);
+      const taskId=(typeof uid==='function')?uid():'task_'+Date.now();
+      const subj=`📦 Reorder: ${parts[idx].name} (${parts[idx].onHand} ${parts[idx].unit} left)`;
+      const desc=`Auto-created reorder request.\n\nPart: ${parts[idx].name}\nSKU: ${parts[idx].sku||'—'}\nSupplier: ${parts[idx].supplier||'—'}\nOn hand: ${parts[idx].onHand} ${parts[idx].unit}\nReorder point: ${parts[idx].reorderPoint}\nMin stock: ${parts[idx].minStock}\nUnit cost: $${(parts[idx].unitCost||0).toFixed(2)}\n\nOrder enough to reach min-stock + safety buffer.`;
+      tasks.push({
+        id:taskId,title:subj,description:desc,priority:parts[idx].onHand<=0?'urgent':'priority',
+        status:'not_started',createdAt:Date.now(),createdBy:by||'system',
+        scheduledDate:today,durationDays:1,gantt:[],materials:[],
+        category:'auto_parts_reorder',sourceModule:'maint_parts',
+        partId,
+        autoKey:`reorder_${partId}_${today}`
+      });
+      saveMaintTasks(tasks);
+    }catch(e){console.warn('reorder task fail:',e);}
+  }
+  return parts[idx];
+}
+
+function openPartUseModal(partId){
+  const part=loadParts().find(p=>p.id===partId);
+  if(!part)return;
+  document.getElementById('maintPartsModalTitle').textContent=`➖ Use Part: ${part.name}`;
+  document.getElementById('maintPartsModalBody').innerHTML=`
+    <div style="background:var(--surface2);padding:10px;border-radius:8px;margin-bottom:10px;font-size:11px;color:var(--text2);">
+      Currently <strong>${part.onHand} ${part.unit}</strong> on hand. Use this when you've consumed parts outside of a service log entry.
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Quantity used</label>
+        <input id="use_qty" type="number" min="0" step="0.01" value="1" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);" /></div>
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Used by</label>
+        <input id="use_by" type="text" value="${(typeof currentUser!=='undefined'&&currentUser&&currentUser.name)?currentUser.name:''}" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+    </div>
+    <div style="margin-bottom:14px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Reason (optional)</label>
+      <input id="use_reason" type="text" placeholder="e.g. Pump GH1 seal replacement" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" onclick="document.getElementById('maintPartsModal').classList.remove('open')">Cancel</button>
+      <button class="btn primary" onclick="(function(){const q=parseFloat(document.getElementById('use_qty').value)||0;if(q<=0){alert('Qty > 0 required');return;}const r=_partsAdjust('${partId}',-q,document.getElementById('use_reason').value,document.getElementById('use_by').value);if(typeof showToast==='function')showToast('✓ Used '+q+' '+r.unit+' · '+r.onHand+' left','ok');document.getElementById('maintPartsModal').classList.remove('open');renderMaintParts();})()">➖ Use</button>
+    </div>
+  `;
+  document.getElementById('maintPartsModal').classList.add('open');
+}
+
+function openPartReceiveModal(partId){
+  const part=loadParts().find(p=>p.id===partId);
+  if(!part)return;
+  document.getElementById('maintPartsModalTitle').textContent=`➕ Receive Part: ${part.name}`;
+  document.getElementById('maintPartsModalBody').innerHTML=`
+    <div style="background:var(--surface2);padding:10px;border-radius:8px;margin-bottom:10px;font-size:11px;color:var(--text2);">
+      Currently <strong>${part.onHand} ${part.unit}</strong> on hand. Use this when stock has been delivered.
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Quantity received</label>
+        <input id="rcv_qty" type="number" min="0" step="0.01" value="1" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);" /></div>
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Received by</label>
+        <input id="rcv_by" type="text" value="${(typeof currentUser!=='undefined'&&currentUser&&currentUser.name)?currentUser.name:''}" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+    </div>
+    <div style="margin-bottom:14px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Reason / PO# (optional)</label>
+      <input id="rcv_reason" type="text" placeholder="e.g. PO-1234 from Local Hardware" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" onclick="document.getElementById('maintPartsModal').classList.remove('open')">Cancel</button>
+      <button class="btn primary" onclick="(function(){const q=parseFloat(document.getElementById('rcv_qty').value)||0;if(q<=0){alert('Qty > 0 required');return;}const r=_partsAdjust('${partId}',q,document.getElementById('rcv_reason').value,document.getElementById('rcv_by').value);if(typeof showToast==='function')showToast('✓ Received '+q+' '+r.unit+' · now '+r.onHand,'ok');document.getElementById('maintPartsModal').classList.remove('open');renderMaintParts();})()">➕ Receive</button>
+    </div>
+  `;
+  document.getElementById('maintPartsModal').classList.add('open');
+}
+
+// Hook for service-log integration: parse "parts" string and decrement matching items
+function _partsConsumeFromServiceText(partsText,by,equipName){
+  if(!partsText||typeof partsText!=='string')return [];
+  const parts=loadParts();
+  const consumed=[];
+  // Match patterns like "2× Filter cartridge", "1 x Belt 4mm", "3 Bolts"
+  partsText.split(/[,;\n]/).forEach(piece=>{
+    const m=piece.trim().match(/^(\d+(?:\.\d+)?)\s*(?:x|×|\*)?\s*(.+)$/i);
+    if(!m)return;
+    const qty=parseFloat(m[1]);
+    const name=m[2].trim();
+    if(!name||qty<=0)return;
+    // Find best match by name or SKU (case-insensitive substring)
+    const lc=name.toLowerCase();
+    const match=parts.find(p=>p.name.toLowerCase().includes(lc)||(p.sku&&p.sku.toLowerCase().includes(lc))||lc.includes(p.name.toLowerCase()));
+    if(match){
+      _partsAdjust(match.id,-qty,`Service log${equipName?': '+equipName:''}`,by);
+      consumed.push({partId:match.id,partName:match.name,qty});
+    }
+  });
+  return consumed;
+}
+
+function exportPartsCSV(){
+  const parts=loadParts();
+  if(!parts.length){if(typeof showToast==='function')showToast('No parts to export','warn');return;}
+  let csv='ID,Name,SKU,Category,Unit,On Hand,Min Stock,Reorder Point,Unit Cost,Total Value,Location,Supplier,Linked Equipment\n';
+  parts.forEach(p=>{
+    const tv=(p.onHand*(p.unitCost||0)).toFixed(2);
+    const linked=(p.linkedEquipment||[]).join(';');
+    csv+=`${p.id},"${p.name}",${p.sku||''},${p.category||''},${p.unit||''},${p.onHand},${p.minStock},${p.reorderPoint},${p.unitCost||0},${tv},"${(p.location||'').replace(/"/g,'""')}","${(p.supplier||'').replace(/"/g,'""')}","${linked}"\n`;
+  });
+  const blob=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`spare_parts_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  if(typeof showToast==='function')showToast('✓ CSV exported','ok');
+}
+
+// =============== MAINTENANCE CALLS MATRIX (v2.46.24) =================
+// Rows = Subjects (one per equipment category subject + extras).
+// Cols = DEPARTMENTS (Maintenance, Production, IT, Security, Logistics,
+//        Packaging, HR, Quality, Fleet, Projects, Unassigned).
+// Cells = open (and optionally closed) maintenance-related calls.
+// Includes ALL auto-calls: equipment checks, NFT variance, PM scheduler,
+// parts reorders, plus manually raised maintenance calls.
+let _maintMatrixDate=new Date().toISOString().slice(0,10);
+let _maintMatrixEndDate=_maintMatrixDate;
+let _maintMatrixUseRange=false;
+let _maintMatrixSeverity='all';
+let _maintMatrixIncludeClosed=false;
+let _maintMatrixFacilityFilter='all';
+
+// Departments used as matrix columns — all 14 + Unassigned
+const MAINT_MATRIX_DEPTS=[
+  {id:'maintenance',label:'🔧 Maintenance'},
+  {id:'production', label:'🌱 Production'},
+  {id:'it',         label:'💻 IT'},
+  {id:'irrigation', label:'💧 Irrigation'},
+  {id:'security',   label:'🛡 Security'},
+  {id:'logistics',  label:'🚚 Logistics'},
+  {id:'packaging',  label:'📦 Packaging'},
+  {id:'inventory',  label:'📊 Inventory'},
+  {id:'accounting', label:'💰 Accounting'},
+  {id:'hr',         label:'👥 HR'},
+  {id:'quality',    label:'✅ Quality'},
+  {id:'fleet',      label:'🚛 Fleet'},
+  {id:'crm',        label:'🤝 CRM / Sales'},
+  {id:'projects',   label:'🏗 Projects'},
+  {id:'unassigned', label:'❓ Unassigned'}
+];
+
+// Build subject rows from equipment categories (using their `subject` field) + a few generic ones
+function _maintMatrixSubjects(){
+  const fromCats=MAINT_EQUIP_CATEGORIES
+    .filter(c=>c.subject)
+    .map(c=>({id:'sub_'+c.id,name:c.subject,icon:c.icon,catId:c.id}));
+  // Existing dedicated modules' subjects
+  const dedicated=[
+    {id:'sub_radio',  name:'📻 Radio System',          icon:'📻'},
+    {id:'sub_ozone',  name:'🌀 Ozone System',          icon:'🌀'},
+    {id:'sub_ro',     name:'💧 RO / Water Treatment',  icon:'💧'},
+    {id:'sub_tools',  name:'🔧 Tools & Hand Equipment',icon:'🔧'},
+    {id:'sub_cctv',   name:'📷 CCTV',                  icon:'📷'}
+  ];
+  const generic=[
+    {id:'sub_parts_reorder',name:'🔩 Parts Reorder',         icon:'🔩'},
+    {id:'sub_safety',       name:'🦺 Safety / Hazards',      icon:'🦺'},
+    {id:'sub_general',      name:'🧰 General Maintenance',   icon:'🧰'}
+  ];
+  // Avoid dupes by id
+  const seen=new Set();const all=[];
+  [...fromCats,...dedicated,...generic].forEach(s=>{if(!seen.has(s.id)){seen.add(s.id);all.push(s);}});
+  return all;
+}
+
+function _classifyMaintCall(call){
+  const subjects=_maintMatrixSubjects();
+  // Source-module match takes priority (cleanest mapping)
+  const src=(call.sourceModule||'').toLowerCase();
+  const subsystem=(call.subsystem||'').toLowerCase();
+  const subject=(call.subject||'').toLowerCase();
+  const equipment=(call.equipment||'').toLowerCase();
+  const blob=`${subject} ${equipment} ${subsystem} ${call.description||''}`.toLowerCase();
+
+  // Direct mapping by sourceModule
+  if(src==='maint_equipment'){
+    // Try category-based mapping via equipmentCatId stored on the paired task (we don't have it on call)
+    // Fall back to keyword matching against the equipment hub categories' subjects
+    const sub=subjects.find(s=>{
+      if(!s.catId)return false;
+      const cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===s.catId);
+      if(!cat||!cat.subject)return false;
+      return subsystem.includes(cat.subject.toLowerCase())||subject.includes(cat.subject.toLowerCase().split('/')[0].trim());
+    });
+    if(sub)return sub;
+  }
+  if(src==='maint_nft')return subjects.find(s=>s.id==='sub_nft')||subjects.find(s=>s.name.toLowerCase().includes('nft'));
+  if(src==='maint_parts')return subjects.find(s=>s.id==='sub_parts_reorder');
+  if(src==='it_cctv'||subject.includes('cctv')||subject.includes('camera'))return subjects.find(s=>s.id==='sub_cctv');
+
+  // Keyword fallback against every subject
+  for(const s of subjects){
+    const key=s.name.toLowerCase().replace(/[^\w\s]/g,' ').split(/\s+/).filter(Boolean);
+    for(const k of key){if(k.length>3&&blob.includes(k))return s;}
+  }
+  // Default
+  return subjects.find(s=>s.id==='sub_general')||subjects[0];
+}
+
+function _isMaintCall(c){
+  if(c.department==='maintenance')return true;
+  const src=(c.sourceModule||'').toLowerCase();
+  if(src.startsWith('maint_'))return true;
+  // Subject keywords that suggest maintenance
+  const blob=`${c.subject||''} ${c.subsystem||''}`.toLowerCase();
+  if(/\b(pm|preventive|repair|maintenance|reorder|service|equipment|machine)\b/.test(blob))return true;
+  return false;
+}
+
+function _collectMaintMatrixData(date,endDate){
+  if(!endDate)endDate=date;
+  const subjects=_maintMatrixSubjects();
+  const depts=MAINT_MATRIX_DEPTS;
+  const cells={};
+  subjects.forEach(s=>{cells[s.id]={};depts.forEach(d=>{cells[s.id][d.id]=[];});});
+
+  let calls=[];
+  try{
+    calls=loadCalls().filter(c=>{
+      if(!_maintMatrixIncludeClosed&&typeof isCallClosed==='function'&&isCallClosed(c))return false;
+      const ts=c.raisedAt||c.createdAt;
+      if(ts){
+        const dStr=new Date(ts).toISOString().slice(0,10);
+        if(dStr<date||dStr>endDate)return false;
+      }
+      return true;
+    });
+  }catch(e){}
+
+  // Filter to maintenance-related calls
+  calls=calls.filter(_isMaintCall);
+  // Optional facility filter (kept simple: filter by GH name appearing in area/text)
+  if(_maintMatrixFacilityFilter!=='all'){
+    const f=_maintMatrixFacilityFilter;
+    calls=calls.filter(c=>{
+      const blob=`${c.area||''} ${c.areaText||''} ${c.subject||''} ${c.equipment||''} ${c.description||''}`;
+      return blob.includes(f);
+    });
+  }
+
+  let totalDanger=0,totalWarn=0;
+  calls.forEach(c=>{
+    const sev=(c.priority==='urgent'||c.priority==='critical')?'danger':'warn';
+    if(_maintMatrixSeverity!=='all'&&_maintMatrixSeverity!==sev)return;
+    const sub=_classifyMaintCall(c);
+    if(!sub)return;
+    let dept=(c.department||'').toLowerCase().trim();
+    // Normalize dept variants
+    if(dept==='admin'||dept==='office')dept='hr';
+    if(dept==='maint')dept='maintenance';
+    if(dept==='prod')dept='production';
+    if(dept==='irr')dept='irrigation';
+    if(dept==='inv'||dept==='stock')dept='inventory';
+    if(dept==='acct'||dept==='accounts'||dept==='finance')dept='accounting';
+    if(dept==='sales'||dept==='customer')dept='crm';
+    if(dept==='qa'||dept==='qc')dept='quality';
+    if(dept==='proj')dept='projects';
+    if(!depts.find(d=>d.id===dept))dept='unassigned';
+    if(!cells[sub.id])cells[sub.id]={};
+    if(!cells[sub.id][dept])cells[sub.id][dept]=[];
+    const ts=c.raisedAt||c.createdAt;
+    // Compute facility from call text for display in drilldown
+    let fac=c.area||'';
+    if(!fac){
+      const blob=`${c.areaText||''} ${c.subject||''} ${c.equipment||''} ${c.description||''}`;
+      const m=blob.match(/\b(GH\d+|PRJ\d+)\b/i);
+      if(m)fac=m[1];
+    }
+    cells[sub.id][dept].push({
+      kind:'call',date:ts?new Date(ts).toISOString().slice(0,10):'',status:sev,
+      item:c.subject||'(call)',note:c.description||'',
+      callId:c.id,priority:c.priority,closed:typeof isCallClosed==='function'?isCallClosed(c):false,
+      department:c.department||'',
+      facility:fac||'',
+      automatic:!!c.automatic,
+      sourceModule:c.sourceModule||''
+    });
+    if(sev==='danger')totalDanger++;else totalWarn++;
+  });
+
+  return {cells,subjects,depts,totalDanger,totalWarn,callCount:calls.length};
+}
+
+function _maintCellKind(items){
+  if(!items||!items.length)return 'clean';
+  if(items.some(i=>i.status==='danger'))return 'danger';
+  return 'warn';
+}
+
+function renderMaintMatrix(){
+  const view=document.getElementById('stubMaintMatrixBody');
+  if(!view)return;
+  const startD=_maintMatrixDate;
+  const endD=_maintMatrixUseRange?_maintMatrixEndDate:_maintMatrixDate;
+  const data=_collectMaintMatrixData(startD,endD);
+  const {cells,subjects,depts,totalDanger,totalWarn}=data;
+
+  // Per-department totals
+  const colTotals={};depts.forEach(d=>{colTotals[d.id]={danger:0,warn:0,total:0};});
+  subjects.forEach(s=>{depts.forEach(d=>{
+    const items=cells[s.id][d.id]||[];
+    const k=_maintCellKind(items);
+    if(k==='danger')colTotals[d.id].danger++;
+    else if(k==='warn')colTotals[d.id].warn++;
+    colTotals[d.id].total+=items.length;
+  });});
+
+  const cellStyle=(k)=>{
+    if(k==='danger')return 'background:rgba(239,83,80,0.20);color:var(--danger);';
+    if(k==='warn')return 'background:rgba(255,179,0,0.16);color:var(--warn);';
+    return 'background:transparent;color:var(--text3);';
+  };
+
+  // Header row (departments)
+  const headerRow=`<tr>
+    <th style="position:sticky;left:0;z-index:2;background:var(--surface2);min-width:220px;text-align:left;padding:8px 12px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Subject</th>
+    ${depts.map(d=>`<th style="text-align:center;font-size:10px;cursor:pointer;color:${colTotals[d.id].danger?'var(--danger)':colTotals[d.id].warn?'var(--warn)':'var(--text2)'};padding:6px 4px;white-space:nowrap;" onclick="_maintMatrixDrillDept('${d.id}')" title="All ${d.label} calls">${d.label}</th>`).join('')}
+    <th style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--text3);">Total</th>
+  </tr>`;
+
+  // Body rows
+  const bodyRows=subjects.map(sub=>{
+    let rowDanger=0,rowWarn=0;
+    const cellsHtml=depts.map(d=>{
+      const items=cells[sub.id][d.id]||[];
+      const kind=_maintCellKind(items);
+      if(kind==='danger')rowDanger++;
+      if(kind==='warn')rowWarn++;
+      const ct=items.length;
+      const icon=kind==='danger'?'✕':kind==='warn'?'⚠':items.length?'·':'';
+      return `<td style="text-align:center;padding:6px 0;${cellStyle(kind)};cursor:${ct?'pointer':'default'};" ${ct?`onclick="_maintMatrixDrill('${sub.id}','${d.id}')"`:''} title="${sub.name} × ${d.label}: ${ct} call${ct===1?'':'s'}">
+        <div style="font-family:var(--mono);font-weight:700;font-size:14px;">${icon}</div>
+        ${ct?`<div style="font-family:var(--mono);font-size:9px;opacity:0.8;">${ct}</div>`:''}
+      </td>`;
+    }).join('');
+    const totalCount=rowDanger+rowWarn;
+    const totalCell=rowDanger>0?`<td style="text-align:center;color:var(--danger);font-weight:700;font-family:var(--mono);cursor:pointer;" onclick="_maintMatrixDrillSubject('${sub.id}')">${totalCount}</td>`:rowWarn>0?`<td style="text-align:center;color:var(--warn);font-weight:700;font-family:var(--mono);cursor:pointer;" onclick="_maintMatrixDrillSubject('${sub.id}')">${totalCount}</td>`:`<td style="text-align:center;color:var(--text3);font-family:var(--mono);">·</td>`;
+    return `<tr>
+      <th style="position:sticky;left:0;z-index:1;background:var(--surface2);text-align:left;padding:8px 12px;font-size:12px;cursor:pointer;font-weight:600;" onclick="_maintMatrixDrillSubject('${sub.id}')" title="Drill into ${sub.name} across all departments">${sub.name}</th>
+      ${cellsHtml}${totalCell}
+    </tr>`;
+  }).join('');
+
+  const dateRangeLabel=_maintMatrixUseRange&&startD!==endD?`${startD} → ${endD}`:startD;
+  view.innerHTML=`
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <span>📊 Maintenance Calls Matrix — Subject × Department</span>
+      <button class="btn small" onclick="switchView('maint_dash')">← Maintenance</button>
+    </div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>📊 Maintenance open calls · ${dateRangeLabel}:</strong> Rows = subjects, columns = departments. Click any <strong>cell</strong> to drill into that subject × department · Click a <strong>row label</strong> to see all departments for that subject · Click a <strong>column header</strong> to see all subjects for that department. Includes auto-calls from equipment checks, NFT variance, PM scheduler, and parts reorders.
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px;">
+      <div class="pay-stat"><div class="pay-stat-label">Total Cells</div><div class="pay-stat-val">${subjects.length*depts.length}</div></div>
+      <div class="pay-stat"><div class="pay-stat-label">📞 Calls</div><div class="pay-stat-val">${data.callCount}</div></div>
+      <div class="pay-stat"><div class="pay-stat-label">⚠ Warning</div><div class="pay-stat-val ${totalWarn>0?'warn':''}">${totalWarn}</div></div>
+      <div class="pay-stat"><div class="pay-stat-label">✕ Critical</div><div class="pay-stat-val ${totalDanger>0?'danger':''}">${totalDanger}</div></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);">
+        <input type="checkbox" ${_maintMatrixUseRange?'checked':''} onchange="_maintMatrixUseRange=this.checked;renderMaintMatrix();"> Date range
+      </label>
+      <span style="font-family:var(--mono);font-size:10px;color:var(--text3);">${_maintMatrixUseRange?'From:':'Date:'}</span>
+      <input type="date" value="${_maintMatrixDate}" style="padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:11px;" onchange="_maintMatrixDate=this.value;renderMaintMatrix();">
+      ${_maintMatrixUseRange?`<span style="font-family:var(--mono);font-size:10px;color:var(--text3);">To:</span>
+      <input type="date" value="${_maintMatrixEndDate}" style="padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:11px;" onchange="_maintMatrixEndDate=this.value;renderMaintMatrix();">`:''}
+      <button class="btn small" onclick="_maintMatrixDate=new Date().toISOString().slice(0,10);_maintMatrixEndDate=_maintMatrixDate;renderMaintMatrix();">Today</button>
+      <span style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-left:14px;">Severity:</span>
+      <select onchange="_maintMatrixSeverity=this.value;renderMaintMatrix();" style="padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;">
+        <option value="all" ${_maintMatrixSeverity==='all'?'selected':''}>All severities</option>
+        <option value="warn" ${_maintMatrixSeverity==='warn'?'selected':''}>⚠ Warning only</option>
+        <option value="danger" ${_maintMatrixSeverity==='danger'?'selected':''}>✕ Critical only</option>
+      </select>
+      <span style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-left:8px;">Facility filter:</span>
+      <select onchange="_maintMatrixFacilityFilter=this.value;renderMaintMatrix();" style="padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;">
+        <option value="all" ${_maintMatrixFacilityFilter==='all'?'selected':''}>All facilities</option>
+        ${['GH1','GH2','GH3','GH4','GH5','GH6','GH7','GH8','GH9','GH10','PRJ11','PRJ12','GH15','GH16'].map(g=>`<option value="${g}" ${_maintMatrixFacilityFilter===g?'selected':''}>${g}</option>`).join('')}
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);margin-left:8px;">
+        <input type="checkbox" ${_maintMatrixIncludeClosed?'checked':''} onchange="_maintMatrixIncludeClosed=this.checked;renderMaintMatrix();"> Include closed
+      </label>
+      <button class="btn" style="margin-left:auto;" onclick="_exportMaintMatrixCSV()">⬇ Export CSV</button>
+    </div>
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px;">
+      <table style="border-collapse:separate;border-spacing:2px;width:100%;font-size:12px;">
+        <thead>${headerRow}</thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+window._maintMatrixDrill=function(subjectId,deptId){
+  const startD=_maintMatrixDate,endD=_maintMatrixUseRange?_maintMatrixEndDate:_maintMatrixDate;
+  const data=_collectMaintMatrixData(startD,endD);
+  const sub=data.subjects.find(s=>s.id===subjectId);
+  const dept=data.depts.find(d=>d.id===deptId);
+  const items=(data.cells[subjectId]&&data.cells[subjectId][deptId])||[];
+  if(!items.length){if(typeof showToast==='function')showToast(`No calls for ${sub.name} × ${dept.label}`,'info');return;}
+  _maintMatrixDrillModal({title:`${sub.name} × ${dept.label}`,subtitle:`${items.length} call${items.length===1?'':'s'} · ${startD}${startD!==endD?' → '+endD:''}`,items,showFacility:true});
+};
+window._maintMatrixDrillSubject=function(subjectId){
+  const startD=_maintMatrixDate,endD=_maintMatrixUseRange?_maintMatrixEndDate:_maintMatrixDate;
+  const data=_collectMaintMatrixData(startD,endD);
+  const sub=data.subjects.find(s=>s.id===subjectId);
+  if(!sub)return;
+  let allItems=[];data.depts.forEach(d=>{(data.cells[subjectId][d.id]||[]).forEach(it=>allItems.push({...it,_deptLabel:d.label}));});
+  if(!allItems.length){if(typeof showToast==='function')showToast(`No calls for ${sub.name}`,'info');return;}
+  _maintMatrixDrillModal({title:`${sub.name} — All Departments`,subtitle:`${allItems.length} call${allItems.length===1?'':'s'}`,items:allItems,showFacility:true,showDept:true});
+};
+window._maintMatrixDrillDept=function(deptId){
+  const startD=_maintMatrixDate,endD=_maintMatrixUseRange?_maintMatrixEndDate:_maintMatrixDate;
+  const data=_collectMaintMatrixData(startD,endD);
+  const dept=data.depts.find(d=>d.id===deptId);
+  let allItems=[];data.subjects.forEach(sub=>{(data.cells[sub.id][deptId]||[]).forEach(it=>allItems.push({...it,_subjName:sub.name}));});
+  if(!allItems.length){if(typeof showToast==='function')showToast(`No calls for ${dept.label}`,'info');return;}
+  _maintMatrixDrillModal({title:`${dept.label} — All Subjects`,subtitle:`${allItems.length} call${allItems.length===1?'':'s'}`,items:allItems,showSubject:true,showFacility:true});
+};
+
+function _maintMatrixDrillModal(opts){
+  // Reuse maintEquipModal as a generic display modal
+  const modal=document.getElementById('maintEquipModal');
+  if(!modal){alert(opts.items.length+' calls — see console');console.log(opts);return;}
+  document.getElementById('maintEquipTitle').textContent=`📊 ${opts.title}`;
+  let body=`<div style="font-size:11px;color:var(--text3);margin-bottom:10px;">${opts.subtitle||''}</div>`;
+  body+='<div style="max-height:60vh;overflow-y:auto;">';
+  opts.items.forEach(it=>{
+    const sevColor=it.status==='danger'?'var(--danger)':'var(--warn)';
+    const sevIcon=it.status==='danger'?'✕':'⚠';
+    body+=`<div style="background:var(--surface2);border:1px solid var(--border);border-left:4px solid ${sevColor};border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:start;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:700;font-size:12px;color:${sevColor};">${sevIcon} ${it.item||it.subject||'(call)'}</div>
+          ${opts.showFacility&&it.facility?`<div style="font-size:10px;color:var(--text3);margin-top:2px;">📍 ${it.facility}</div>`:''}
+          ${opts.showSubject&&it._subjName?`<div style="font-size:10px;color:var(--text3);margin-top:2px;">${it._subjName}</div>`:''}
+          ${opts.showDept&&it._deptLabel?`<div style="font-size:10px;color:var(--text3);margin-top:2px;">${it._deptLabel}</div>`:''}
+          ${it.note?`<div style="font-size:11px;color:var(--text2);margin-top:4px;white-space:pre-line;">${it.note.length>180?it.note.slice(0,180)+'…':it.note}</div>`:''}
+          <div style="font-size:10px;color:var(--text3);margin-top:4px;">
+            ${it.date?'📅 '+it.date:''} ${it.priority?' · '+it.priority.toUpperCase():''} ${it.department?' · '+it.department:''} ${it.automatic?' · 🤖 auto':''} ${it.closed?' · ✓ closed':''}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  });
+  body+='</div>';
+  body+=`<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+    <button class="btn" onclick="document.getElementById('maintEquipModal').classList.remove('open')">Close</button>
+  </div>`;
+  document.getElementById('maintEquipBody').innerHTML=body;
+  modal.classList.add('open');
+}
+
+function _exportMaintMatrixCSV(){
+  const startD=_maintMatrixDate,endD=_maintMatrixUseRange?_maintMatrixEndDate:_maintMatrixDate;
+  const data=_collectMaintMatrixData(startD,endD);
+  let csv='Subject,Department,Facility,Date,Severity,Priority,Source,Subject Text,Description,Auto-created,Closed\n';
+  data.subjects.forEach(sub=>{
+    data.depts.forEach(d=>{
+      (data.cells[sub.id][d.id]||[]).forEach(it=>{
+        csv+=`"${sub.name}",${d.label},${it.facility||''},${it.date||''},${it.status},${it.priority||''},${it.sourceModule||''},"${(it.item||'').replace(/"/g,'""')}","${(it.note||'').replace(/"/g,'""').replace(/\n/g,' ')}",${it.automatic?'yes':'no'},${it.closed?'yes':'no'}\n`;
+      });
+    });
+  });
+  const blob=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=`maint_matrix_${startD}${startD!==endD?'_to_'+endD:''}.csv`;
+  a.click();
+  if(typeof showToast==='function')showToast('✓ Matrix CSV exported','ok');
 }
 
 // =============== NFT PIPES WEEKLY COUNT (v2.46.12) =================
@@ -43408,7 +44337,7 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.21-pm-scheduler';  // ✅ NEW: EQUIPMENT CHECKLIST + AUTO-CALL + REAL CCTV IMPORT. Each generic equipment category now has a default daily-check checklist (e.g., Pumps: pressure/leaks/noise/seals; Cold Storage: temp/door seal/defrost/ice/alarm; Generators: fuel/oil/battery/coolant/load test). NEW "✅ Run Check" button on every equipment card opens a modal: each check item gets 🟢 OK / 🟡 Warning / 🔴 Critical / ➖ N/A radios + an optional note field. ANY Warning or Critical result automatically creates a maintenance task in the Task Board (priority warn=📌 Priority, critical=🚨 Urgent) AND opens a paired call in maintenance — tagged with subject "[Category Subject]" e.g. "Refrigeration / Cold Storage", "Pump Service", "Generators / Backup Power", so they show up in the matrix correctly. Item status auto-updates to reflect latest check (good/warn/bad). NEW "📜 History" button shows the last 30 checks per item with full per-item results. Equipment HUB FIX: existing modules (Radio/Ozone/RO/Tools) sub-tabs now navigate to the dedicated views (preserves all features) instead of buggy innerHTML embedding — added "← Back to Equipment Hub" links at top of those views. CCTV INVENTORY: imported 81 real cameras from CCTV CAMERA LIST 2.xlsx as REAL_CAMERAS constant, organized across 4 NVRs (TV1 Greenhouses 16ch, TV2 Perimeter 32ch, TV3 32ch, TV4 4ch), with real IPs/locations/types — new "📥 Import Real Cameras (81)" button in IT > CCTV inventory tab. Backup files removed (production-monitor.html and production-monitor100.html) — app.html is now the only source. localStorage adds: hydroPro_maint_equipment_v1, hydroPro_maint_equipment_checks_v1.
+const APP_VERSION='2.46.25-main-it-rename-it-split-14depts';  // ✅ NEW: EQUIPMENT CHECKLIST + AUTO-CALL + REAL CCTV IMPORT. Each generic equipment category now has a default daily-check checklist (e.g., Pumps: pressure/leaks/noise/seals; Cold Storage: temp/door seal/defrost/ice/alarm; Generators: fuel/oil/battery/coolant/load test). NEW "✅ Run Check" button on every equipment card opens a modal: each check item gets 🟢 OK / 🟡 Warning / 🔴 Critical / ➖ N/A radios + an optional note field. ANY Warning or Critical result automatically creates a maintenance task in the Task Board (priority warn=📌 Priority, critical=🚨 Urgent) AND opens a paired call in maintenance — tagged with subject "[Category Subject]" e.g. "Refrigeration / Cold Storage", "Pump Service", "Generators / Backup Power", so they show up in the matrix correctly. Item status auto-updates to reflect latest check (good/warn/bad). NEW "📜 History" button shows the last 30 checks per item with full per-item results. Equipment HUB FIX: existing modules (Radio/Ozone/RO/Tools) sub-tabs now navigate to the dedicated views (preserves all features) instead of buggy innerHTML embedding — added "← Back to Equipment Hub" links at top of those views. CCTV INVENTORY: imported 81 real cameras from CCTV CAMERA LIST 2.xlsx as REAL_CAMERAS constant, organized across 4 NVRs (TV1 Greenhouses 16ch, TV2 Perimeter 32ch, TV3 32ch, TV4 4ch), with real IPs/locations/types — new "📥 Import Real Cameras (81)" button in IT > CCTV inventory tab. Backup files removed (production-monitor.html and production-monitor100.html) — app.html is now the only source. localStorage adds: hydroPro_maint_equipment_v1, hydroPro_maint_equipment_checks_v1.
 const APP_BUILD=1777612800;
 const APP_BUILD_DATE='2026-05-01';
 
