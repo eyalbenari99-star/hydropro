@@ -5646,8 +5646,15 @@ const MODULES={
       {id:'maint_tasks',label:'✅ Task Board',perm:'viewMaintenance',title:'Daily maintenance tasks with status & photos'},
       {id:'maint_calendar',label:'📅 PM Calendar',perm:'viewMaintenance',title:'Preventive maintenance schedule'},
       {id:'maint_materials',label:'📦 Material Requests',perm:'viewMaintenance',title:'Items needed from inventory for next-day tasks'},
-      {id:'maint_equipment',label:'⚙️ Equipment & Machines',perm:'viewMaintenance',title:'All equipment in one place: radios, ozone, RO, tools, cold storage, pumps, climate, dosing, lighting, CO₂, sensors, generators, vehicles, sprayers'},
-      {id:'maint_nft',label:'📏 NFT Pipes Count',perm:'viewMaintenance',title:'Weekly NFT pipes inventory by greenhouse and variety — auto-flags variance from prior count'}
+      {id:'maint_equipment',label:'⚙️ Equipment & Machines',perm:'viewMaintenance',title:'Hub for all equipment, machines, and inventory: radios, ozone, RO, tools, cold storage, pumps, climate, dosing, lighting, CO₂, sensors, generators, vehicles, sprayers, NFT pipes'},
+      // Hidden views — accessed via the Equipment hub, NOT shown in top tab bar.
+      // Must remain registered so findModuleForView() resolves them to "maintenance"
+      // (otherwise switchView falls back to "production" and breaks the top nav).
+      {id:'maint_ozone',label:'🌀 Ozone',perm:'viewMaintenance',hidden:true},
+      {id:'maint_ro',label:'💧 RO',perm:'viewMaintenance',hidden:true},
+      {id:'maint_radio',label:'📻 Radio',perm:'viewMaintenance',hidden:true},
+      {id:'maint_tools',label:'🔧 Tools',perm:'viewMaintenance',hidden:true},
+      {id:'maint_nft',label:'📏 NFT Pipes',perm:'viewMaintenance',hidden:true}
     ]
   },
   it:{
@@ -5823,6 +5830,8 @@ let currentModule='production';
 function getVisibleViews(modId){
   const mod=MODULES[modId];if(!mod)return [];
   return mod.views.filter(v=>{
+    // Hidden views: registered with the module for routing, but not shown in the tab bar
+    if(v.hidden)return false;
     // Dividers always pass through
     if(v.divider)return true;
     // Existing role-based perm check
@@ -19638,7 +19647,10 @@ const MAINT_EQUIP_CATEGORIES=[
      {id:'SP_BACK_A',name:'Backpack Sprayer A',location:'Chem Room',capacity:'15L',type:'Manual',status:'good'},
      {id:'SP_BACK_B',name:'Backpack Sprayer B',location:'Chem Room',capacity:'15L',type:'Manual',status:'good'},
      {id:'SP_FOG',   name:'Cold Fogger',location:'Chem Room',capacity:'5L',type:'Electric',status:'good'}
-   ]}
+   ]},
+  // Inventory-type categories — render via custom function instead of generic equipment list
+  {id:'nft', icon:'📏', name:'NFT Pipes Count', type:'inventory', subject:'NFT Pipes Inventory', custom:'nft',
+   description:'Weekly count by greenhouse and variety'}
 ];
 
 const MAINT_EQUIP_KEY='hydroPro_maint_equipment_v1';
@@ -19707,69 +19719,143 @@ function saveMaintEquipment(d){localStorage.setItem(MAINT_EQUIP_KEY,JSON.stringi
 function getEquipItems(catId){const all=loadMaintEquipment();return all[catId]||[];}
 function setEquipItems(catId,items){const all=loadMaintEquipment();all[catId]=items;saveMaintEquipment(all);}
 
-// Active sub-tab state for the hub. Default to first NEW generic category (cold).
-// Existing modules (radio/ozone/ro/tools) are navigation buttons, not active tabs.
-window._maintEquipActiveTab=window._maintEquipActiveTab||'cold';
+// Active sub-tab state for the hub. Default to NFT (the most-used weekly inventory check).
+window._maintEquipActiveTab=window._maintEquipActiveTab||'nft';
+window._maintEquipDropdownOpen=false;
+
 function maintEquipSetTab(tabId){
   const cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===tabId);
   if(!cat)return;
-  // Existing modules: navigate to their dedicated view (preserves all features)
+  window._maintEquipDropdownOpen=false;
   if(cat.existing){
     if(typeof switchView==='function')switchView(cat.existing);
     return;
   }
-  // Generic categories: stay in the hub, switch the embedded sub-tab
   window._maintEquipActiveTab=tabId;
   renderMaintEquipment();
+}
+
+function maintEquipToggleDropdown(){
+  window._maintEquipDropdownOpen=!window._maintEquipDropdownOpen;
+  renderMaintEquipment();
+}
+
+// Auto-close dropdown when user clicks outside it (set up once)
+if(typeof window!=='undefined'&&!window._maintEquipDropdownHandlerInstalled){
+  window._maintEquipDropdownHandlerInstalled=true;
+  document.addEventListener('click',function(e){
+    if(!window._maintEquipDropdownOpen)return;
+    const dd=document.getElementById('equipDropdownPanel');
+    const btn=document.getElementById('equipDropdownBtn');
+    if(dd&&!dd.contains(e.target)&&btn&&!btn.contains(e.target)){
+      window._maintEquipDropdownOpen=false;
+      renderMaintEquipment();
+    }
+  });
 }
 
 function renderMaintEquipment(){
   const host=document.getElementById('stubMaintEquipmentBody');
   if(!host)return;
-  // Force active tab to be a generic category (existing modules don't render inline)
-  let active=window._maintEquipActiveTab||'cold';
+  let active=window._maintEquipActiveTab||'nft';
   let cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===active&&!c.existing);
   if(!cat){cat=MAINT_EQUIP_CATEGORIES.find(c=>!c.existing);active=cat.id;window._maintEquipActiveTab=active;}
 
-  // Build sub-tab bar: existing modules as launchers, generic categories as inline tabs
-  let tabBar='<div style="display:flex;flex-wrap:wrap;gap:6px;padding:14px 16px 0;background:var(--surface);border-bottom:1px solid var(--border);">';
-  MAINT_EQUIP_CATEGORIES.forEach(c=>{
-    const isActive=!c.existing&&c.id===active;
+  // ====== Active selection summary (shown on the dropdown trigger button) ======
+  let activeBadge='';
+  if(cat.custom==='nft'){
+    try{
+      const sum=_nftSummary();
+      const lost=sum.lostPipes||0;
+      if(lost>0)activeBadge=`⚠ ${lost} pipes missing vs prior count`;
+      else if(sum.latest)activeBadge=`📦 ${sum.totalLatest} pipes total · last count ${sum.latest.date}`;
+      else activeBadge='No count yet — tap to start';
+    }catch(e){activeBadge='Weekly inventory';}
+  }else{
+    const items=getEquipItems(cat.id);
+    const bad=items.filter(i=>i.status==='bad').length;
+    const warn=items.filter(i=>i.status==='warn').length;
+    activeBadge=bad>0?`🔴 ${bad} bad · ${items.length} total`:warn>0?`🟡 ${warn} warning · ${items.length} total`:`🟢 ${items.length} items · all good`;
+  }
+
+  // ====== Grouped dropdown menu ======
+  const invCats=MAINT_EQUIP_CATEGORIES.filter(c=>c.type==='inventory');
+  const equipCats=MAINT_EQUIP_CATEGORIES.filter(c=>!c.existing&&c.type!=='inventory');
+  const existingCats=MAINT_EQUIP_CATEGORIES.filter(c=>c.existing);
+
+  function _renderItem(c){
     let badge='';
     if(c.existing){
-      // Existing module launcher buttons get an external-link arrow to signal navigation
-      if(c.id==='radio'){const u=(typeof MAINT_RADIO_UNITS!=='undefined')?MAINT_RADIO_UNITS.length:0;badge=u?` <span style="opacity:.7;">(${u})</span>`:'';}
-      else if(c.id==='ozone'){const u=(typeof MAINT_OZONE_MACHINES!=='undefined')?MAINT_OZONE_MACHINES.length:0;badge=u?` <span style="opacity:.7;">(${u})</span>`:'';}
-      badge+=' <span style="opacity:.5;font-size:9px;">↗</span>';
+      badge='<span style="opacity:.5;font-size:10px;margin-left:auto;color:var(--text3);">↗ open</span>';
+    }else if(c.custom==='nft'){
+      try{
+        const sum=_nftSummary();
+        const lost=sum.lostPipes||0;
+        if(lost>0)badge=`<span style="font-size:10px;margin-left:auto;color:var(--danger);font-weight:700;">⚠ ${lost} missing</span>`;
+        else if(sum.latest)badge=`<span style="font-size:10px;margin-left:auto;color:var(--text3);">${sum.totalLatest} pipes</span>`;
+        else badge=`<span style="font-size:10px;margin-left:auto;color:var(--text3);">no count</span>`;
+      }catch(e){}
     }else{
-      const items=getEquipItems(c.id);
-      const bad=items.filter(i=>i.status==='bad').length;
-      const warn=items.filter(i=>i.status==='warn').length;
-      const dot=bad>0?'🔴':warn>0?'🟡':'🟢';
-      badge=` <span style="opacity:.7;">${dot} ${items.length}</span>`;
+      const its=getEquipItems(c.id);
+      const b=its.filter(i=>i.status==='bad').length;
+      const w=its.filter(i=>i.status==='warn').length;
+      const dot=b>0?'🔴':w>0?'🟡':'🟢';
+      badge=`<span style="font-size:10px;margin-left:auto;color:var(--text3);">${dot} ${its.length}</span>`;
     }
-    const styleExtra=c.existing?'background:var(--surface2);border:1px dashed var(--border);':'';
-    tabBar+=`<button class="btn ${isActive?'primary':''}" style="${styleExtra}padding:8px 12px;font-size:11px;border-radius:8px 8px 0 0;border-bottom:${isActive?'2px solid var(--accent)':'2px solid transparent'};margin-bottom:-1px;" onclick="maintEquipSetTab('${c.id}')" title="${c.existing?'Opens dedicated '+c.name+' view':'Equipment list — '+c.name}">${c.icon} ${c.name}${badge}</button>`;
-  });
-  tabBar+='</div>';
+    const isActiveItem=!c.existing&&c.id===active;
+    return `<button onclick="event.stopPropagation();maintEquipSetTab('${c.id}')" style="display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;background:${isActiveItem?'var(--accent-dim)':'transparent'};border:none;border-bottom:1px solid var(--border);color:var(--text);cursor:pointer;font-size:13px;text-align:left;${isActiveItem?'font-weight:700;color:var(--accent2);':''}">
+      <span style="font-size:18px;width:24px;text-align:center;">${c.icon}</span>
+      <span style="flex:1;">${c.name}</span>
+      ${badge}
+    </button>`;
+  }
 
-  // Hub legend
-  const legend=`<div style="padding:8px 16px;background:var(--surface2);font-size:10px;color:var(--text3);border-bottom:1px solid var(--border);">
-    Tabs with <span style="opacity:.5;">↗</span> open a dedicated module (full features). Other tabs are tracked here in the hub.
+  let groupedMenu='';
+  if(invCats.length){
+    groupedMenu+=`<div style="padding:8px 14px;background:var(--surface2);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;font-weight:700;border-bottom:1px solid var(--border);">📦 Inventory</div>`;
+    groupedMenu+=invCats.map(_renderItem).join('');
+  }
+  groupedMenu+=`<div style="padding:8px 14px;background:var(--surface2);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;font-weight:700;border-bottom:1px solid var(--border);">⚙️ Equipment Categories</div>`;
+  groupedMenu+=equipCats.map(_renderItem).join('');
+  groupedMenu+=`<div style="padding:8px 14px;background:var(--surface2);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;font-weight:700;border-bottom:1px solid var(--border);">↗ Dedicated Modules</div>`;
+  groupedMenu+=existingCats.map(_renderItem).join('');
+
+  const dropdownHTML=`<div style="position:relative;padding:14px 16px 4px;background:var(--surface);border-bottom:1px solid var(--border);">
+    <button id="equipDropdownBtn" onclick="event.stopPropagation();maintEquipToggleDropdown()"
+      style="display:flex;align-items:center;gap:14px;width:100%;max-width:560px;padding:14px 16px;background:var(--surface2);border:1.5px solid var(--accent);border-radius:10px;color:var(--text);cursor:pointer;text-align:left;">
+      <span style="font-size:24px;">${cat.icon}</span>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:14px;font-weight:800;">${cat.name}</div>
+        <div style="font-size:11px;color:var(--text3);font-weight:400;margin-top:2px;">${activeBadge}</div>
+      </div>
+      <span style="font-size:14px;color:var(--text3);transition:transform .2s;display:inline-block;${window._maintEquipDropdownOpen?'transform:rotate(180deg);':''}">▼</span>
+    </button>
+    ${window._maintEquipDropdownOpen?`<div id="equipDropdownPanel" style="position:absolute;top:calc(100% - 4px);left:16px;right:16px;max-width:560px;max-height:65vh;overflow-y:auto;background:var(--surface);border:1.5px solid var(--accent);border-top:none;border-radius:0 0 10px 10px;box-shadow:0 12px 32px rgba(0,0,0,0.5);z-index:100;">
+      ${groupedMenu}
+    </div>`:''}
+    <div style="height:8px;"></div>
   </div>`;
 
-  // Render the active generic category inline
-  const content=renderEquipCategoryHTML(cat);
+  // Render the active category inline
+  let content;
+  if(cat.custom==='nft'){
+    content=`<div id="equipNftEmbed" style="padding:0;"></div>`;
+  }else{
+    content=renderEquipCategoryHTML(cat);
+  }
 
   host.innerHTML=`
-    <div class="section-title" style="padding:14px 16px 0;display:flex;justify-content:space-between;align-items:center;">
+    <div class="section-title" style="padding:14px 16px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
       <span>⚙️ Equipment & Machines</span>
       <button class="btn small" onclick="switchView('maint_dash')">← Maintenance</button>
     </div>
-    ${tabBar}
-    ${legend}
+    ${dropdownHTML}
     <div style="padding:0;">${content}</div>
   `;
+
+  if(cat.custom==='nft'){
+    try{renderMaintNft('equipNftEmbed');}catch(e){console.warn('NFT embed failed:',e);}
+  }
 }
 
 function renderEquipCategoryHTML(cat){
@@ -20135,8 +20221,8 @@ function _nftSummary(){
   return {latest,prior,totalLatest,totalPrior,variances,lostPipes,gainedPipes};
 }
 
-function renderMaintNft(){
-  const host=document.getElementById('stubMaintNftBody');
+function renderMaintNft(targetId){
+  const host=document.getElementById(targetId||'stubMaintNftBody');
   if(!host)return;
   const all=loadNftCounts();
   const latest=all[all.length-1];
@@ -42935,7 +43021,7 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.13-auto-seed-leds-cctv';  // ✅ NEW: EQUIPMENT CHECKLIST + AUTO-CALL + REAL CCTV IMPORT. Each generic equipment category now has a default daily-check checklist (e.g., Pumps: pressure/leaks/noise/seals; Cold Storage: temp/door seal/defrost/ice/alarm; Generators: fuel/oil/battery/coolant/load test). NEW "✅ Run Check" button on every equipment card opens a modal: each check item gets 🟢 OK / 🟡 Warning / 🔴 Critical / ➖ N/A radios + an optional note field. ANY Warning or Critical result automatically creates a maintenance task in the Task Board (priority warn=📌 Priority, critical=🚨 Urgent) AND opens a paired call in maintenance — tagged with subject "[Category Subject]" e.g. "Refrigeration / Cold Storage", "Pump Service", "Generators / Backup Power", so they show up in the matrix correctly. Item status auto-updates to reflect latest check (good/warn/bad). NEW "📜 History" button shows the last 30 checks per item with full per-item results. Equipment HUB FIX: existing modules (Radio/Ozone/RO/Tools) sub-tabs now navigate to the dedicated views (preserves all features) instead of buggy innerHTML embedding — added "← Back to Equipment Hub" links at top of those views. CCTV INVENTORY: imported 81 real cameras from CCTV CAMERA LIST 2.xlsx as REAL_CAMERAS constant, organized across 4 NVRs (TV1 Greenhouses 16ch, TV2 Perimeter 32ch, TV3 32ch, TV4 4ch), with real IPs/locations/types — new "📥 Import Real Cameras (81)" button in IT > CCTV inventory tab. Backup files removed (production-monitor.html and production-monitor100.html) — app.html is now the only source. localStorage adds: hydroPro_maint_equipment_v1, hydroPro_maint_equipment_checks_v1.
+const APP_VERSION='2.46.17-fix-hub-nav-fallback';  // ✅ NEW: EQUIPMENT CHECKLIST + AUTO-CALL + REAL CCTV IMPORT. Each generic equipment category now has a default daily-check checklist (e.g., Pumps: pressure/leaks/noise/seals; Cold Storage: temp/door seal/defrost/ice/alarm; Generators: fuel/oil/battery/coolant/load test). NEW "✅ Run Check" button on every equipment card opens a modal: each check item gets 🟢 OK / 🟡 Warning / 🔴 Critical / ➖ N/A radios + an optional note field. ANY Warning or Critical result automatically creates a maintenance task in the Task Board (priority warn=📌 Priority, critical=🚨 Urgent) AND opens a paired call in maintenance — tagged with subject "[Category Subject]" e.g. "Refrigeration / Cold Storage", "Pump Service", "Generators / Backup Power", so they show up in the matrix correctly. Item status auto-updates to reflect latest check (good/warn/bad). NEW "📜 History" button shows the last 30 checks per item with full per-item results. Equipment HUB FIX: existing modules (Radio/Ozone/RO/Tools) sub-tabs now navigate to the dedicated views (preserves all features) instead of buggy innerHTML embedding — added "← Back to Equipment Hub" links at top of those views. CCTV INVENTORY: imported 81 real cameras from CCTV CAMERA LIST 2.xlsx as REAL_CAMERAS constant, organized across 4 NVRs (TV1 Greenhouses 16ch, TV2 Perimeter 32ch, TV3 32ch, TV4 4ch), with real IPs/locations/types — new "📥 Import Real Cameras (81)" button in IT > CCTV inventory tab. Backup files removed (production-monitor.html and production-monitor100.html) — app.html is now the only source. localStorage adds: hydroPro_maint_equipment_v1, hydroPro_maint_equipment_checks_v1.
 const APP_BUILD=1777612800;
 const APP_BUILD_DATE='2026-05-01';
 
