@@ -19962,9 +19962,11 @@ function renderEquipCategoryHTML(cat){
         </div>
         ${lastCheckLine}
         ${item.notes?`<div style="font-size:11px;color:var(--text2);margin-top:6px;font-style:italic;">📝 ${item.notes}</div>`:''}
+        ${(()=>{const svcCount=Array.isArray(item.services)?item.services.length:0;return svcCount>0?`<div style="font-size:10px;color:var(--text3);margin-top:4px;">🛠️ ${svcCount} service ${svcCount===1?'entry':'entries'} logged</div>`:'';})()}
         <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
-          <button class="btn primary small" style="flex:1;font-size:11px;padding:6px 10px;" onclick="event.stopPropagation();openEquipCheck('${cat.id}','${item.id}')">✅ Run Check</button>
-          ${checkHist.length?`<button class="btn small" style="font-size:11px;padding:6px 10px;" onclick="event.stopPropagation();openEquipCheckHistory('${cat.id}','${item.id}')">📜 History (${checkHist.length})</button>`:''}
+          <button class="btn primary small" style="flex:1;min-width:100px;font-size:11px;padding:6px 10px;" onclick="event.stopPropagation();openEquipCheck('${cat.id}','${item.id}')">✅ Run Check</button>
+          <button class="btn small" style="font-size:11px;padding:6px 10px;" onclick="event.stopPropagation();openServiceLog('${cat.id}','${item.id}')">🛠️ Service Log${(item.services&&item.services.length)?` (${item.services.length})`:''}</button>
+          ${checkHist.length?`<button class="btn small" style="font-size:11px;padding:6px 10px;" onclick="event.stopPropagation();openEquipCheckHistory('${cat.id}','${item.id}')">📜 Checks (${checkHist.length})</button>`:''}
         </div>
       </div>`;
     });
@@ -20193,6 +20195,208 @@ function saveEquipCheck(catId,itemId,checkCount){
     else showToast('✓ Check saved — all OK','ok');
   }
   renderMaintEquipment();
+}
+
+// =============== SERVICE HISTORY LOG (v2.46.20) =================
+// Each equipment item carries a services[] array. Every PM, repair,
+// inspection, replacement, cleaning, or calibration creates a dated entry.
+// PM entries auto-update lastService/nextService for the item.
+const SERVICE_TYPES=[
+  {id:'pm',          label:'Preventive Maintenance', icon:'🛠️', color:'var(--info)',  intervalDays:90},
+  {id:'repair',      label:'Repair',                 icon:'🔧', color:'var(--warn)',  intervalDays:0},
+  {id:'inspection',  label:'Inspection',             icon:'🔍', color:'var(--accent)',intervalDays:30},
+  {id:'replacement', label:'Part Replacement',       icon:'🔄', color:'var(--accent2)',intervalDays:0},
+  {id:'cleaning',    label:'Cleaning',               icon:'🧹', color:'var(--ok)',     intervalDays:7},
+  {id:'calibration', label:'Calibration',            icon:'🎯', color:'var(--accent2)',intervalDays:60}
+];
+function _svcType(id){return SERVICE_TYPES.find(t=>t.id===id)||SERVICE_TYPES[0];}
+
+function getServiceHistory(catId,itemId){
+  const item=getEquipItems(catId).find(i=>i.id===itemId);
+  return (item&&Array.isArray(item.services))?item.services:[];
+}
+
+function _addOrUpdateService(catId,itemId,entry,replaceIdx){
+  const items=getEquipItems(catId).map(i=>{
+    if(i.id!==itemId)return i;
+    const services=Array.isArray(i.services)?[...i.services]:[];
+    if(typeof replaceIdx==='number'&&replaceIdx>=0&&replaceIdx<services.length){
+      services[replaceIdx]=entry;
+    }else{
+      services.unshift(entry);
+    }
+    // Auto-update lastService & nextService for PM-type entries
+    const next={...i,services};
+    if(entry.type==='pm'){
+      next.lastService=entry.date;
+      const t=_svcType('pm');
+      if(t.intervalDays>0){
+        const d=new Date(entry.date);d.setDate(d.getDate()+t.intervalDays);
+        next.nextService=d.toISOString().slice(0,10);
+      }
+    }
+    return next;
+  });
+  setEquipItems(catId,items);
+}
+
+function openServiceLog(catId,itemId){
+  const cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===catId);
+  const item=getEquipItems(catId).find(i=>i.id===itemId);
+  if(!cat||!item)return;
+  const services=getServiceHistory(catId,itemId);
+
+  document.getElementById('maintEquipTitle').textContent=`📜 Service Log: ${item.name||item.id}`;
+
+  // Group services by type for stat row
+  const byType={};
+  services.forEach(s=>{byType[s.type]=(byType[s.type]||0)+1;});
+  const totalCost=services.reduce((sum,s)=>sum+(parseFloat(s.cost)||0),0);
+  const totalDowntime=services.reduce((sum,s)=>sum+(parseFloat(s.downtime)||0),0);
+
+  let body='';
+  // Stat row
+  body+=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:14px;">
+    <div class="pay-stat"><div class="pay-stat-label">Total Entries</div><div class="pay-stat-val">${services.length}</div></div>
+    <div class="pay-stat"><div class="pay-stat-label">🛠️ PM</div><div class="pay-stat-val ok">${byType.pm||0}</div></div>
+    <div class="pay-stat"><div class="pay-stat-label">🔧 Repairs</div><div class="pay-stat-val ${(byType.repair||0)>0?'warn':''}">${byType.repair||0}</div></div>
+    <div class="pay-stat"><div class="pay-stat-label">💰 Total Cost</div><div class="pay-stat-val">${totalCost?'$'+totalCost.toFixed(2):'—'}</div></div>
+    <div class="pay-stat"><div class="pay-stat-label">⏱ Downtime</div><div class="pay-stat-val ${totalDowntime>0?'warn':''}">${totalDowntime?totalDowntime+'h':'—'}</div></div>
+  </div>`;
+
+  // Toolbar
+  body+=`<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+    <button class="btn primary" onclick="openServiceEntryForm('${catId}','${itemId}')">+ Add Service Entry</button>
+  </div>`;
+
+  // Service list
+  if(services.length===0){
+    body+=`<div style="padding:30px;text-align:center;color:var(--text3);background:var(--surface2);border-radius:8px;">
+      <div style="font-size:32px;margin-bottom:8px;">📜</div>
+      <div>No service entries yet. Click "+ Add Service Entry" to log the first repair, PM, or inspection.</div>
+    </div>`;
+  }else{
+    body+=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;">`;
+    services.forEach((svc,idx)=>{
+      const t=_svcType(svc.type);
+      body+=`<div style="display:flex;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border);align-items:flex-start;">
+        <div style="font-size:20px;width:28px;text-align:center;">${t.icon}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:3px;">
+            <div style="font-weight:700;font-size:13px;color:${t.color};">${t.label}</div>
+            <div style="font-size:11px;color:var(--text3);font-family:var(--mono);white-space:nowrap;">${svc.date}</div>
+          </div>
+          <div style="font-size:12px;color:var(--text);margin-bottom:4px;">${svc.description||'—'}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:10px;color:var(--text3);">
+            ${svc.by?`<span>👤 ${svc.by}</span>`:''}
+            ${svc.cost?`<span>💰 $${parseFloat(svc.cost).toFixed(2)}</span>`:''}
+            ${svc.downtime?`<span>⏱ ${svc.downtime}h</span>`:''}
+            ${svc.parts?`<span>🔩 ${svc.parts}</span>`:''}
+          </div>
+        </div>
+        <div style="display:flex;gap:4px;flex-direction:column;">
+          <button class="btn small" style="font-size:10px;padding:3px 8px;" onclick="openServiceEntryForm('${catId}','${itemId}',${idx})">✎</button>
+          <button class="btn small" style="font-size:10px;padding:3px 8px;color:var(--danger);" onclick="if(confirm('Delete this service entry?')){deleteServiceEntry('${catId}','${itemId}',${idx});}">🗑</button>
+        </div>
+      </div>`;
+    });
+    body+=`</div>`;
+  }
+
+  body+=`<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+    <button class="btn" onclick="document.getElementById('maintEquipModal').classList.remove('open')">Close</button>
+  </div>`;
+
+  document.getElementById('maintEquipBody').innerHTML=body;
+  document.getElementById('maintEquipModal').classList.add('open');
+}
+
+function openServiceEntryForm(catId,itemId,editIdx){
+  const cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===catId);
+  const item=getEquipItems(catId).find(i=>i.id===itemId);
+  if(!cat||!item)return;
+  const isEdit=typeof editIdx==='number';
+  const services=getServiceHistory(catId,itemId);
+  const entry=isEdit?services[editIdx]:{date:new Date().toISOString().slice(0,10),type:'pm',by:'',description:'',cost:'',parts:'',downtime:''};
+
+  document.getElementById('maintEquipTitle').textContent=`${isEdit?'✎ Edit':'+ Add'} Service Entry: ${item.name||item.id}`;
+
+  const typeOptions=SERVICE_TYPES.map(t=>`<option value="${t.id}" ${entry.type===t.id?'selected':''}>${t.icon} ${t.label}</option>`).join('');
+
+  document.getElementById('maintEquipBody').innerHTML=`
+    <div style="background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:11px;color:var(--text2);">
+      <strong>📋 Logging service for:</strong> ${cat.icon} ${item.name||item.id} at ${item.location||'—'}
+      <br>PM entries automatically update Last/Next Service on the equipment card.
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Date</label>
+        <input id="svc_date" type="date" value="${entry.date||''}" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Type</label>
+        <select id="svc_type" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);">${typeOptions}</select></div>
+    </div>
+
+    <div style="margin-bottom:10px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Technician / By</label>
+      <input id="svc_by" type="text" value="${entry.by||''}" placeholder="Who performed the work" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+
+    <div style="margin-bottom:10px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Description / Work Done</label>
+      <textarea id="svc_description" rows="3" placeholder="What was done, what was found, etc." style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);resize:vertical;">${entry.description||''}</textarea></div>
+
+    <div style="margin-bottom:10px;"><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Parts Used</label>
+      <input id="svc_parts" type="text" value="${(entry.parts||'').replace(/"/g,'&quot;')}" placeholder="e.g. 2× Filter cartridge, 1× Belt 4mm" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Cost (USD)</label>
+        <input id="svc_cost" type="number" step="0.01" min="0" value="${entry.cost||''}" placeholder="0.00" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);" /></div>
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Downtime (hrs)</label>
+        <input id="svc_downtime" type="number" step="0.5" min="0" value="${entry.downtime||''}" placeholder="0" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);" /></div>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" onclick="openServiceLog('${catId}','${itemId}')">← Back to Log</button>
+      <button class="btn primary" onclick="saveServiceEntry('${catId}','${itemId}'${isEdit?','+editIdx:''})">💾 Save Entry</button>
+    </div>
+  `;
+}
+
+function saveServiceEntry(catId,itemId,editIdx){
+  const cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===catId);
+  const item=getEquipItems(catId).find(i=>i.id===itemId);
+  if(!cat||!item)return;
+
+  const entry={
+    date:document.getElementById('svc_date').value||new Date().toISOString().slice(0,10),
+    type:document.getElementById('svc_type').value||'pm',
+    by:(document.getElementById('svc_by').value||'').trim(),
+    description:(document.getElementById('svc_description').value||'').trim(),
+    parts:(document.getElementById('svc_parts').value||'').trim(),
+    cost:document.getElementById('svc_cost').value||'',
+    downtime:document.getElementById('svc_downtime').value||'',
+    ts:Date.now()
+  };
+
+  _addOrUpdateService(catId,itemId,entry,typeof editIdx==='number'?editIdx:undefined);
+
+  if(typeof audit==='function')audit('equip_service',`${typeof editIdx==='number'?'Edited':'Added'} service entry for ${cat.name}/${item.name||item.id}: ${_svcType(entry.type).label}`);
+  if(typeof showToast==='function'){
+    if(entry.type==='pm')showToast(`✓ PM logged · Next service auto-scheduled`,'ok');
+    else showToast('✓ Service entry saved','ok');
+  }
+  // Re-open the log so user sees the updated history
+  openServiceLog(catId,itemId);
+}
+
+function deleteServiceEntry(catId,itemId,idx){
+  const items=getEquipItems(catId).map(i=>{
+    if(i.id!==itemId)return i;
+    const services=Array.isArray(i.services)?[...i.services]:[];
+    services.splice(idx,1);
+    return {...i,services};
+  });
+  setEquipItems(catId,items);
+  if(typeof audit==='function')audit('equip_service_delete',`Deleted service entry from ${itemId}`);
+  if(typeof showToast==='function')showToast('✓ Entry deleted','ok');
+  openServiceLog(catId,itemId);
 }
 
 // =============== NFT PIPES WEEKLY COUNT (v2.46.12) =================
@@ -43069,7 +43273,7 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.19-fix-dropdown-toggle';  // ✅ NEW: EQUIPMENT CHECKLIST + AUTO-CALL + REAL CCTV IMPORT. Each generic equipment category now has a default daily-check checklist (e.g., Pumps: pressure/leaks/noise/seals; Cold Storage: temp/door seal/defrost/ice/alarm; Generators: fuel/oil/battery/coolant/load test). NEW "✅ Run Check" button on every equipment card opens a modal: each check item gets 🟢 OK / 🟡 Warning / 🔴 Critical / ➖ N/A radios + an optional note field. ANY Warning or Critical result automatically creates a maintenance task in the Task Board (priority warn=📌 Priority, critical=🚨 Urgent) AND opens a paired call in maintenance — tagged with subject "[Category Subject]" e.g. "Refrigeration / Cold Storage", "Pump Service", "Generators / Backup Power", so they show up in the matrix correctly. Item status auto-updates to reflect latest check (good/warn/bad). NEW "📜 History" button shows the last 30 checks per item with full per-item results. Equipment HUB FIX: existing modules (Radio/Ozone/RO/Tools) sub-tabs now navigate to the dedicated views (preserves all features) instead of buggy innerHTML embedding — added "← Back to Equipment Hub" links at top of those views. CCTV INVENTORY: imported 81 real cameras from CCTV CAMERA LIST 2.xlsx as REAL_CAMERAS constant, organized across 4 NVRs (TV1 Greenhouses 16ch, TV2 Perimeter 32ch, TV3 32ch, TV4 4ch), with real IPs/locations/types — new "📥 Import Real Cameras (81)" button in IT > CCTV inventory tab. Backup files removed (production-monitor.html and production-monitor100.html) — app.html is now the only source. localStorage adds: hydroPro_maint_equipment_v1, hydroPro_maint_equipment_checks_v1.
+const APP_VERSION='2.46.20-equipment-service-log';  // ✅ NEW: EQUIPMENT CHECKLIST + AUTO-CALL + REAL CCTV IMPORT. Each generic equipment category now has a default daily-check checklist (e.g., Pumps: pressure/leaks/noise/seals; Cold Storage: temp/door seal/defrost/ice/alarm; Generators: fuel/oil/battery/coolant/load test). NEW "✅ Run Check" button on every equipment card opens a modal: each check item gets 🟢 OK / 🟡 Warning / 🔴 Critical / ➖ N/A radios + an optional note field. ANY Warning or Critical result automatically creates a maintenance task in the Task Board (priority warn=📌 Priority, critical=🚨 Urgent) AND opens a paired call in maintenance — tagged with subject "[Category Subject]" e.g. "Refrigeration / Cold Storage", "Pump Service", "Generators / Backup Power", so they show up in the matrix correctly. Item status auto-updates to reflect latest check (good/warn/bad). NEW "📜 History" button shows the last 30 checks per item with full per-item results. Equipment HUB FIX: existing modules (Radio/Ozone/RO/Tools) sub-tabs now navigate to the dedicated views (preserves all features) instead of buggy innerHTML embedding — added "← Back to Equipment Hub" links at top of those views. CCTV INVENTORY: imported 81 real cameras from CCTV CAMERA LIST 2.xlsx as REAL_CAMERAS constant, organized across 4 NVRs (TV1 Greenhouses 16ch, TV2 Perimeter 32ch, TV3 32ch, TV4 4ch), with real IPs/locations/types — new "📥 Import Real Cameras (81)" button in IT > CCTV inventory tab. Backup files removed (production-monitor.html and production-monitor100.html) — app.html is now the only source. localStorage adds: hydroPro_maint_equipment_v1, hydroPro_maint_equipment_checks_v1.
 const APP_BUILD=1777612800;
 const APP_BUILD_DATE='2026-05-01';
 
