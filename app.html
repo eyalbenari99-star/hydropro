@@ -3023,6 +3023,17 @@ a{color:var(--accent2);text-decoration:none;}
 <div class="view" id="view-maint_radio"><div style="padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;display:flex;align-items:center;gap:10px;"><a href="#" onclick="switchView('maint_equipment');return false;" style="color:var(--accent);text-decoration:none;">← Back to Equipment Hub</a> <span style="color:var(--text3);">·</span> <span style="color:var(--text3);">📻 Radio</span></div><div id="stubMaintRadioBody"></div></div>
 <div class="view" id="view-maint_tools"><div style="padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;display:flex;align-items:center;gap:10px;"><a href="#" onclick="switchView('maint_equipment');return false;" style="color:var(--accent);text-decoration:none;">← Back to Equipment Hub</a> <span style="color:var(--text3);">·</span> <span style="color:var(--text3);">🔧 Tools</span></div><div id="stubMaintToolsBody"></div></div>
 <div class="view" id="view-maint_equipment"><div id="stubMaintEquipmentBody"></div></div>
+<div class="view" id="view-maint_nft"><div id="stubMaintNftBody"></div></div>
+
+<div class="modal-overlay" id="maintNftModal">
+  <div class="modal" style="max-width:900px;">
+    <div class="modal-header">
+      <div class="modal-title" id="maintNftModalTitle">📏 NFT PIPES</div>
+      <button class="modal-close" onclick="document.getElementById('maintNftModal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body" id="maintNftModalBody"></div>
+  </div>
+</div>
 
 <!-- Maintenance modals -->
 <div class="modal-overlay" id="maintEquipModal">
@@ -5635,7 +5646,8 @@ const MODULES={
       {id:'maint_tasks',label:'✅ Task Board',perm:'viewMaintenance',title:'Daily maintenance tasks with status & photos'},
       {id:'maint_calendar',label:'📅 PM Calendar',perm:'viewMaintenance',title:'Preventive maintenance schedule'},
       {id:'maint_materials',label:'📦 Material Requests',perm:'viewMaintenance',title:'Items needed from inventory for next-day tasks'},
-      {id:'maint_equipment',label:'⚙️ Equipment & Machines',perm:'viewMaintenance',title:'All equipment in one place: radios, ozone, RO, tools, cold storage, pumps, climate, dosing, lighting, CO₂, sensors, generators, vehicles, sprayers'}
+      {id:'maint_equipment',label:'⚙️ Equipment & Machines',perm:'viewMaintenance',title:'All equipment in one place: radios, ozone, RO, tools, cold storage, pumps, climate, dosing, lighting, CO₂, sensors, generators, vehicles, sprayers'},
+      {id:'maint_nft',label:'📏 NFT Pipes Count',perm:'viewMaintenance',title:'Weekly NFT pipes inventory by greenhouse and variety — auto-flags variance from prior count'}
     ]
   },
   it:{
@@ -5923,7 +5935,7 @@ function switchView(v,skipModuleCheck){
     hr:'manageHR',attendance:'manageHR',memos:'manageHR',reconcile:'manageHR',
     payroll_ops:'managePayroll',payroll_office:'managePayroll',payroll_history:'managePayroll',payroll_rates:'managePayroll',
     // New modules
-    maint_dash:'viewMaintenance',maint_tasks:'viewMaintenance',maint_calendar:'viewMaintenance',maint_materials:'viewMaintenance',maint_ozone:'viewMaintenance',maint_ro:'viewMaintenance',maint_radio:'viewMaintenance',maint_tools:'viewMaintenance',maint_equipment:'viewMaintenance',
+    maint_dash:'viewMaintenance',maint_tasks:'viewMaintenance',maint_calendar:'viewMaintenance',maint_materials:'viewMaintenance',maint_ozone:'viewMaintenance',maint_ro:'viewMaintenance',maint_radio:'viewMaintenance',maint_tools:'viewMaintenance',maint_equipment:'viewMaintenance',maint_nft:'viewMaintenance',
     it_cctv:'viewIT',it_radios:'viewIT',it_devices:'viewIT',
     irr_dash:'viewIrrigation',irr_schedule:'viewIrrigation',irr_drums:'viewIrrigation',irr_nutrients:'viewIrrigation',irr_systems:'viewIrrigation',
     inv_dash:'viewInventory',inv_stock:'viewInventory',inv_movements:'viewInventory',inv_categories:'viewInventory',
@@ -6010,6 +6022,7 @@ function switchView(v,skipModuleCheck){
   if(v==='maint_radio')renderMaintRadio();
   if(v==='maint_tools')renderMaintTools();
   if(v==='maint_equipment')renderMaintEquipment();
+  if(v==='maint_nft')renderMaintNft();
   if(v==='it_cctv')renderItCctv();
   if(v==='it_radios')renderItRadios();
   if(v==='it_devices')renderItDevices();
@@ -14856,7 +14869,41 @@ function loadNvrs(){
 function saveNvrs(arr){localStorage.setItem(IT_CCTV_NVR_KEY,JSON.stringify(arr));}
 
 function loadCameras(){
-  try{const s=localStorage.getItem(IT_CCTV_KEY);if(s){const p=JSON.parse(s);if(Array.isArray(p))return p;}}catch(e){}
+  try{
+    const s=localStorage.getItem(IT_CCTV_KEY);
+    if(s){
+      const p=JSON.parse(s);
+      if(Array.isArray(p)&&p.length){
+        // Auto-upgrade: if user has only the OLD 24-camera placeholder set (detected by empty IPs and CAM-XX naming), swap in REAL_CAMERAS
+        const looksLikePlaceholder=p.length<=26 && p.every(c=>!c.ip||c.ip==='');
+        if(looksLikePlaceholder&&typeof REAL_CAMERAS!=='undefined'&&REAL_CAMERAS.length){
+          const upgraded=JSON.parse(JSON.stringify(REAL_CAMERAS));
+          localStorage.setItem(IT_CCTV_KEY,JSON.stringify(upgraded));
+          // Make sure NVR-1..NVR-4 exist
+          try{
+            const nvrs=loadNvrs();
+            ['NVR-1','NVR-2','NVR-3','NVR-4'].forEach(id=>{
+              if(!nvrs.find(n=>n.id===id)){
+                const channels=id==='NVR-2'?32:id==='NVR-3'?32:id==='NVR-1'?16:4;
+                nvrs.push({id,location:id+' (auto-created)',channels,model:'',brand:'Hikvision/ONVIF',status:'active'});
+              }
+            });
+            saveNvrs(nvrs);
+          }catch(e){}
+          if(typeof audit==='function')audit('cctv_auto_upgrade','Auto-upgraded placeholder cameras to 81 real cameras');
+          if(typeof showToast==='function')setTimeout(()=>showToast('✓ Auto-loaded 81 real CCTV cameras','ok',4000),500);
+          return upgraded;
+        }
+        return p;
+      }
+    }
+  }catch(e){}
+  // First-load: seed with REAL_CAMERAS instead of the old placeholders
+  if(typeof REAL_CAMERAS!=='undefined'&&REAL_CAMERAS.length){
+    const seed=JSON.parse(JSON.stringify(REAL_CAMERAS));
+    localStorage.setItem(IT_CCTV_KEY,JSON.stringify(seed));
+    return seed;
+  }
   return JSON.parse(JSON.stringify(DEFAULT_CAMERAS));
 }
 function saveCameras(arr){localStorage.setItem(IT_CCTV_KEY,JSON.stringify(arr));}
@@ -19434,6 +19481,18 @@ function _renderMaintDash_inner(){
         <div class="maint-module-meta">📻 Radio ${radWorking}/${MAINT_RADIO_UNITS.length} · 🌀 Ozone ${ozGood}/${MAINT_OZONE_MACHINES.length} · 💧 RO ${roLastDate===today?'✓ today':roLastDate?_dDaysAgo(roLastDate)+'d ago':'pending'} · 🔧 Tools · ❄️ Cold · ⚙️ Pumps · 🌬️ Climate · 💉 Dosing · 💡 Lighting · ☁️ CO₂ · 📡 Sensors · ⚡ Gen · 🚛 Vehicles · 🧪 Sprayers</div>
         <div class="maint-module-stat" style="color:${(ozBad>0||radIssue>0)?'var(--warn)':'var(--accent2)'};">${(ozBad>0||radIssue>0)?'⚠ Equipment needs attention':'14 categories — click to manage'}</div>
       </div>
+      ${(()=>{try{
+        const sum=_nftSummary();
+        const days=sum.latest?Math.floor((new Date(today)-new Date(sum.latest.date))/86400000):999;
+        const overdue=days>=7;
+        const lost=sum.lostPipes||0;
+        return `<div class="maint-module-card" onclick="switchView('maint_nft')" style="cursor:pointer;">
+          <div class="maint-module-icon">📏</div>
+          <div class="maint-module-title">NFT Pipes Count</div>
+          <div class="maint-module-meta">${sum.latest?`Last: ${sum.latest.date} (${days}d ago) · ${sum.totalLatest} pipes`:'No counts yet'}${lost>0?` · <span style="color:var(--danger);">⚠ ${lost} missing</span>`:''}</div>
+          <div class="maint-module-stat" style="color:${overdue?'var(--warn)':lost>0?'var(--danger)':'var(--accent2)'};">${overdue?'⏰ Weekly count overdue':lost>0?'⚠ '+lost+' pipes lost':'Weekly · click to count'}</div>
+        </div>`;
+      }catch(e){return '';}})()}
     </div>
 
     <!-- DAILY WORKFLOW REMINDER -->
@@ -19509,9 +19568,36 @@ const MAINT_EQUIP_CATEGORIES=[
    subject:'Lighting',
    checklist:['All bulbs/LEDs working','Timer accurate','Coverage uniform','Drivers cool','No flicker','Fixtures clean'],
    defaults:[
-     {id:'LT_GH1_LED',name:'LED Bank GH1',location:'GH1',watts:'600W',status:'good'},
-     {id:'LT_GH2_LED',name:'LED Bank GH2',location:'GH2',watts:'600W',status:'good'},
-     {id:'LT_PROP',   name:'Propagation Lights',location:'Propagation',watts:'400W',status:'good'}
+     // Greenhouse grow lights (one entry per facility)
+     {id:'LT_GH1_GROW', name:'GH1 Grow Lights',     location:'GH1',         watts:'600W',status:'good'},
+     {id:'LT_GH2_GROW', name:'GH2 Grow Lights',     location:'GH2',         watts:'600W',status:'good'},
+     {id:'LT_GH3_GROW', name:'GH3 Grow Lights',     location:'GH3',         watts:'600W',status:'good'},
+     {id:'LT_GH4_GROW', name:'GH4 Grow Lights',     location:'GH4',         watts:'600W',status:'good'},
+     {id:'LT_GH5_GROW', name:'GH5 Grow Lights',     location:'GH5',         watts:'600W',status:'good'},
+     {id:'LT_GH6_GROW', name:'GH6 Grow Lights',     location:'GH6',         watts:'600W',status:'good'},
+     {id:'LT_GH7_GROW', name:'GH7 Grow Lights',     location:'GH7',         watts:'600W',status:'good'},
+     {id:'LT_GH8_GROW', name:'GH8 Grow Lights',     location:'GH8',         watts:'600W',status:'good'},
+     {id:'LT_GH9_GROW', name:'GH9 Grow Lights',     location:'GH9',         watts:'600W',status:'good'},
+     {id:'LT_GH10_GROW',name:'GH10 Grow Lights',    location:'GH10',        watts:'600W',status:'good'},
+     {id:'LT_PRJ11_GROW',name:'PRJ11 Grow Lights',  location:'PRJ11',       watts:'600W',status:'good'},
+     {id:'LT_PRJ12_GROW',name:'PRJ12 Grow Lights',  location:'PRJ12',       watts:'600W',status:'good'},
+     {id:'LT_GH15_GROW',name:'GH15 Grow Lights',    location:'GH15',        watts:'600W',status:'good'},
+     {id:'LT_GH16_GROW',name:'GH16 Grow Lights',    location:'GH16',        watts:'600W',status:'good'},
+     // Perimeter post LEDs (referenced by RFID patrol checkpoints)
+     {id:'LT_POST_7',   name:'Post LED #7',         location:'Perimeter',   watts:'150W',status:'good'},
+     {id:'LT_POST_9',   name:'Post LED #9',         location:'Perimeter',   watts:'150W',status:'good'},
+     {id:'LT_POST_12',  name:'Post LED #12',        location:'Perimeter',   watts:'150W',status:'good'},
+     {id:'LT_POST_17',  name:'Post LED #17',        location:'Perimeter',   watts:'150W',status:'good'},
+     // Other site lighting
+     {id:'LT_PROP',     name:'Propagation Lights',  location:'Propagation', watts:'400W',status:'good'},
+     {id:'LT_PACKAGING',name:'Packaging Floor Lights',location:'Packaging Room',watts:'300W',status:'good'},
+     {id:'LT_COLD',     name:'Cold Storage Lights', location:'Cold Storage',watts:'150W',status:'good'},
+     {id:'LT_GATE_MAIN',name:'Main Gate Floodlight',location:'Main Gate',   watts:'200W',status:'good'},
+     {id:'LT_GATE_2',   name:'Gate 2 Floodlight',   location:'Gate 2',      watts:'200W',status:'good'},
+     {id:'LT_BARRACKS', name:'Barracks Lights',     location:'Barracks',    watts:'100W',status:'good'},
+     {id:'LT_OFFICE',   name:'Office Lights',       location:'Office',      watts:'200W',status:'good'},
+     {id:'LT_WAREHOUSE',name:'Warehouse Lights',    location:'Warehouse',   watts:'300W',status:'good'},
+     {id:'LT_FERTIGATION',name:'Fertigation Room Lights',location:'Fertigation',watts:'150W',status:'good'}
    ]},
   {id:'co2',       icon:'☁️', name:'CO₂ System',     fields:['type'],
    subject:'CO₂ System',
@@ -19557,6 +19643,10 @@ const MAINT_EQUIP_CATEGORIES=[
 
 const MAINT_EQUIP_KEY='hydroPro_maint_equipment_v1';
 const MAINT_EQUIP_CHECKS_KEY='hydroPro_maint_equipment_checks_v1';
+// Seed version stamp — bump whenever defaults grow or change.
+// Used by _maintEquipMigrate() to merge new defaults into existing user data.
+const MAINT_EQUIP_SEED_VERSION='2.46.13';
+const MAINT_EQUIP_SEED_KEY='hydroPro_maint_equipment_seed_version';
 // Check log shape: { [catId]: { [itemId]: [ {date, by, ts, items:[{check,result,note}], summary} ] } }
 function loadEquipChecks(){try{return JSON.parse(localStorage.getItem(MAINT_EQUIP_CHECKS_KEY)||'{}');}catch(e){return {};}}
 function saveEquipChecks(d){localStorage.setItem(MAINT_EQUIP_CHECKS_KEY,JSON.stringify(d));}
@@ -19573,9 +19663,36 @@ function appendEquipCheck(catId,itemId,entry){
 function loadMaintEquipment(){
   try{
     const raw=localStorage.getItem(MAINT_EQUIP_KEY);
-    if(raw)return JSON.parse(raw);
+    if(raw){
+      const data=JSON.parse(raw);
+      // Migrate: if seed version changed, merge in any NEW defaults the user is missing
+      try{
+        const storedSeed=localStorage.getItem(MAINT_EQUIP_SEED_KEY);
+        if(storedSeed!==MAINT_EQUIP_SEED_VERSION){
+          let added=0;
+          MAINT_EQUIP_CATEGORIES.forEach(c=>{
+            if(!c.defaults)return;
+            if(!data[c.id])data[c.id]=[];
+            const existingIds=new Set(data[c.id].map(i=>i.id));
+            c.defaults.forEach(d=>{
+              if(!existingIds.has(d.id)){
+                data[c.id].push({...d,lastService:'',nextService:'',notes:''});
+                added++;
+              }
+            });
+          });
+          if(added>0){
+            localStorage.setItem(MAINT_EQUIP_KEY,JSON.stringify(data));
+            if(typeof audit==='function')audit('equip_seed_migrate',`Added ${added} new equipment items from updated defaults`);
+            if(typeof showToast==='function')setTimeout(()=>showToast(`✓ Added ${added} equipment items from updated catalog`,'ok',5000),800);
+          }
+          localStorage.setItem(MAINT_EQUIP_SEED_KEY,MAINT_EQUIP_SEED_VERSION);
+        }
+      }catch(e){console.warn('equip seed migrate failed:',e);}
+      return data;
+    }
   }catch(e){console.warn('loadMaintEquipment parse error:',e);}
-  // Seed with defaults from category definitions
+  // First-load: seed with defaults from category definitions
   const seed={};
   MAINT_EQUIP_CATEGORIES.forEach(c=>{
     if(c.defaults){
@@ -19583,6 +19700,7 @@ function loadMaintEquipment(){
     }
   });
   localStorage.setItem(MAINT_EQUIP_KEY,JSON.stringify(seed));
+  localStorage.setItem(MAINT_EQUIP_SEED_KEY,MAINT_EQUIP_SEED_VERSION);
   return seed;
 }
 function saveMaintEquipment(d){localStorage.setItem(MAINT_EQUIP_KEY,JSON.stringify(d));}
@@ -19941,6 +20059,380 @@ function saveEquipCheck(catId,itemId,checkCount){
     else showToast('✓ Check saved — all OK','ok');
   }
   renderMaintEquipment();
+}
+
+// =============== NFT PIPES WEEKLY COUNT (v2.46.12) =================
+// Tracks weekly inventory of NFT pipes per greenhouse per variety.
+// Pre-seeded with baseline from "GREENHOUSE NFT PIPES COUNTING.xlsx".
+// Each weekly count creates a snapshot; variance vs the prior snapshot raises alerts.
+const NFT_VARIETIES=[
+  {id:'19_new',  label:'19 Holes (NEW)',     short:'19 New'},
+  {id:'19_old',  label:'19 Holes (OLD)',     short:'19 Old'},
+  {id:'14_holes',label:'14 Holes',           short:'14 Holes'},
+  {id:'big_zz',  label:'Big Zigzag (4cm)',   short:'Big ZZ'},
+  {id:'small_zz',label:'Small Zigzag (3cm)', short:'Small ZZ'},
+  {id:'open',    label:'Open Pipes',         short:'Open'}
+];
+const NFT_GREENHOUSES=['GH1','GH2','GH3','GH4','GH5','GH6','GH7','GH8','GH9','GH10','PRJ11','PRJ12','GH15','GH16'];
+
+// Baseline from uploaded Excel sheet "GREENHOUSE NFT PIPES COUNTING.xlsx"
+// null = not present at this greenhouse, 0 = explicitly zero, number = count
+const NFT_BASELINE={
+  GH1:  {'19_new':503,'19_old':135,'14_holes':null,'big_zz':103,'small_zz':null,'open':100,'note':''},
+  GH2:  {'19_new':466,'19_old':150,'14_holes':null,'big_zz':175,'small_zz':2,   'open':174,'note':''},
+  GH3:  {'19_new':458,'19_old':null,'14_holes':null,'big_zz':277,'small_zz':null,'open':134,'note':''},
+  GH4:  {'19_new':291,'19_old':null,'14_holes':null,'big_zz':71, 'small_zz':null,'open':64, 'note':''},
+  GH5:  {'19_new':null,'19_old':null,'14_holes':652,'big_zz':122,'small_zz':null,'open':142,'note':''},
+  GH6:  {'19_new':null,'19_old':null,'14_holes':416,'big_zz':120,'small_zz':null,'open':121,'note':''},
+  GH7:  {'19_new':null,'19_old':null,'14_holes':148,'big_zz':46, 'small_zz':284, 'open':79, 'note':'200 small zigzag cover only'},
+  GH8:  {'19_new':225,'19_old':null,'14_holes':null,'big_zz':62, 'small_zz':19,  'open':73, 'note':''},
+  GH9:  {'19_new':471,'19_old':242,'14_holes':34,  'big_zz':290,'small_zz':11,  'open':320,'note':'74 small zigzag cover only'},
+  GH10: {'19_new':322,'19_old':145,'14_holes':null,'big_zz':205,'small_zz':82,  'open':205,'note':''},
+  PRJ11:{'19_new':207,'19_old':null,'14_holes':null,'big_zz':-207,'small_zz':null,'open':null,'note':'36 pcs of 8.05m NFT pipes body'},
+  PRJ12:{'19_new':null,'19_old':null,'14_holes':null,'big_zz':null,'small_zz':null,'open':null,'note':''},
+  GH15: {'19_new':null,'19_old':null,'14_holes':null,'big_zz':null,'small_zz':null,'open':null,'note':''},
+  GH16: {'19_new':null,'19_old':null,'14_holes':null,'big_zz':null,'small_zz':null,'open':null,'note':''}
+};
+
+const NFT_COUNTS_KEY='hydroPro_maint_nft_counts_v1';
+function loadNftCounts(){
+  try{const s=localStorage.getItem(NFT_COUNTS_KEY);if(s)return JSON.parse(s);}catch(e){}
+  // Auto-seed with baseline as the first snapshot
+  const seed=[{
+    date:'2026-04-29',
+    by:'system (baseline import)',
+    ts:new Date('2026-04-29').getTime(),
+    counts:JSON.parse(JSON.stringify(NFT_BASELINE)),
+    notes:'Baseline imported from GREENHOUSE NFT PIPES COUNTING.xlsx'
+  }];
+  localStorage.setItem(NFT_COUNTS_KEY,JSON.stringify(seed));
+  return seed;
+}
+function saveNftCounts(arr){localStorage.setItem(NFT_COUNTS_KEY,JSON.stringify(arr));}
+function getLatestNftCount(){const a=loadNftCounts();return a[a.length-1];}
+function getPriorNftCount(){const a=loadNftCounts();return a.length>=2?a[a.length-2]:null;}
+
+// Compute totals + variance summary
+function _nftSummary(){
+  const latest=getLatestNftCount();
+  const prior=getPriorNftCount();
+  let totalLatest=0,totalPrior=0,variances=[],lostPipes=0,gainedPipes=0;
+  if(latest){
+    NFT_GREENHOUSES.forEach(gh=>{
+      NFT_VARIETIES.forEach(v=>{
+        const cur=(latest.counts[gh]||{})[v.id];
+        const prv=prior?(prior.counts[gh]||{})[v.id]:null;
+        if(typeof cur==='number'&&cur>=0)totalLatest+=cur;
+        if(typeof prv==='number'&&prv>=0)totalPrior+=prv;
+        if(typeof cur==='number'&&typeof prv==='number'&&cur!==prv){
+          const delta=cur-prv;
+          variances.push({gh,variety:v.id,varietyLabel:v.label,prior:prv,current:cur,delta});
+          if(delta<0)lostPipes+=Math.abs(delta);else gainedPipes+=delta;
+        }
+      });
+    });
+  }
+  return {latest,prior,totalLatest,totalPrior,variances,lostPipes,gainedPipes};
+}
+
+function renderMaintNft(){
+  const host=document.getElementById('stubMaintNftBody');
+  if(!host)return;
+  const all=loadNftCounts();
+  const latest=all[all.length-1];
+  const prior=all.length>=2?all[all.length-2]:null;
+  const today=new Date().toISOString().slice(0,10);
+
+  // Days since last count (weekly check should be ≤ 7)
+  let daysSince='—';
+  let isOverdue=false;
+  if(latest){
+    const d=Math.floor((new Date(today)-new Date(latest.date))/86400000);
+    daysSince=d+' day'+(d===1?'':'s');
+    isOverdue=d>=7;
+  }
+
+  // Build matrix table
+  const headerCells=NFT_VARIETIES.map(v=>`<th style="text-align:center;font-size:10px;padding:8px 6px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">${v.short}</th>`).join('');
+  const bodyRows=NFT_GREENHOUSES.map(gh=>{
+    const curRow=latest?(latest.counts[gh]||{}):{};
+    const prvRow=prior?(prior.counts[gh]||{}):{};
+    let rowTotal=0;
+    const cells=NFT_VARIETIES.map(v=>{
+      const cur=curRow[v.id];
+      const prv=prvRow[v.id];
+      let bg='',color='var(--text)',badge='';
+      if(typeof cur!=='number'||cur<0){
+        return `<td style="text-align:center;padding:8px;color:var(--text3);">—</td>`;
+      }
+      rowTotal+=cur;
+      if(prior&&typeof prv==='number'&&cur!==prv){
+        const delta=cur-prv;
+        if(delta<0){bg='rgba(239,83,80,0.12)';color='var(--danger)';badge=` <span style="font-size:9px;">${delta}</span>`;}
+        else{bg='rgba(76,175,80,0.10)';color='var(--ok)';badge=` <span style="font-size:9px;">+${delta}</span>`;}
+      }
+      return `<td style="text-align:center;padding:8px;background:${bg};font-weight:700;color:${color};font-family:var(--mono);">${cur}${badge}</td>`;
+    }).join('');
+    const note=(latest&&latest.counts[gh]&&latest.counts[gh].note)||'';
+    return `<tr>
+      <td style="padding:8px 12px;font-weight:800;background:var(--surface2);">${gh}</td>
+      ${cells}
+      <td style="padding:8px;text-align:right;font-family:var(--mono);font-weight:700;color:var(--text2);">${rowTotal||'—'}</td>
+      <td style="padding:6px 8px;font-size:11px;color:var(--text3);font-style:italic;max-width:180px;">${note}</td>
+    </tr>`;
+  }).join('');
+
+  // Variance summary
+  const sum=_nftSummary();
+  let varianceHTML='';
+  if(prior&&sum.variances.length){
+    varianceHTML=`<div style="background:${sum.lostPipes>0?'rgba(239,83,80,0.10)':'rgba(76,175,80,0.10)'};border:1.5px solid ${sum.lostPipes>0?'var(--danger)':'var(--ok)'};border-left:5px solid ${sum.lostPipes>0?'var(--danger)':'var(--ok)'};border-radius:10px;padding:12px 16px;margin-bottom:14px;">
+      <div style="font-weight:800;font-size:13px;color:${sum.lostPipes>0?'var(--danger)':'var(--ok)'};margin-bottom:6px;">
+        ${sum.lostPipes>0?'⚠ Variance vs prior count':'✓ Variance vs prior count'}
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:6px;">
+        ${sum.variances.length} cell${sum.variances.length>1?'s':''} changed since ${prior.date}
+        ${sum.lostPipes>0?` — <strong style="color:var(--danger);">${sum.lostPipes} pipes missing</strong>`:''}
+        ${sum.gainedPipes>0?` — <strong style="color:var(--ok);">${sum.gainedPipes} pipes added</strong>`:''}
+      </div>
+      <div style="font-size:11px;color:var(--text3);max-height:100px;overflow-y:auto;">
+        ${sum.variances.slice(0,15).map(v=>`<span style="display:inline-block;background:var(--surface);padding:2px 8px;margin:2px;border-radius:6px;border:1px solid var(--border);">${v.gh} · ${v.varietyLabel}: <strong style="color:${v.delta<0?'var(--danger)':'var(--ok)'};">${v.prior}→${v.current}</strong></span>`).join('')}
+        ${sum.variances.length>15?`<span style="font-style:italic;">...and ${sum.variances.length-15} more</span>`:''}
+      </div>
+    </div>`;
+  }else if(prior){
+    varianceHTML=`<div style="background:rgba(76,175,80,0.06);border:1px solid var(--border);border-left:3px solid var(--ok);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--text2);">
+      <strong style="color:var(--ok);">✓ No change</strong> — counts match prior snapshot from ${prior.date}.
+    </div>`;
+  }
+
+  // Overdue banner (weekly check)
+  const overdueHTML=isOverdue?`<div style="background:rgba(255,179,0,0.12);border:1.5px solid var(--warn);border-left:5px solid var(--warn);border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+    <div style="font-size:28px;">⏰</div>
+    <div style="flex:1;min-width:200px;">
+      <div style="font-weight:800;color:var(--warn);">Weekly NFT count overdue</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px;">Last count was ${daysSince} ago. Run a fresh weekly count to detect any missing pipes.</div>
+    </div>
+    <button class="btn btn-primary" style="background:var(--warn);border-color:var(--warn);" onclick="openNftCountModal()">📏 Run Weekly Count</button>
+  </div>`:'';
+
+  host.innerHTML=`
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <span>📏 NFT Pipes Weekly Count</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn primary" onclick="openNftCountModal()">📏 Run Weekly Count</button>
+        <button class="btn" onclick="openNftHistory()">📜 History (${all.length})</button>
+        <button class="btn" onclick="exportNftCSV()">📊 Export CSV</button>
+      </div>
+    </div>
+
+    ${overdueHTML}
+    ${varianceHTML}
+
+    <div style="background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--text2);">
+      <strong>📋 How it works:</strong>
+      Click <strong>📏 Run Weekly Count</strong> to enter today's pipe counts per greenhouse per variety. The system compares with last week's count and flags any variance with a <span style="color:var(--danger);">red warning</span> (lost) or <span style="color:var(--ok);">green badge</span> (added). Negative variance auto-creates a maintenance task tagged "NFT Pipes Inventory" so missing pipes don't slip through.
+      ${latest?` Last count: <strong>${latest.date}</strong> by ${latest.by}.`:''}
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:760px;">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:10px 12px;background:var(--surface2);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Greenhouse</th>
+            ${headerCells}
+            <th style="text-align:right;padding:8px;background:var(--surface2);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Total</th>
+            <th style="text-align:left;padding:8px;background:var(--surface2);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Notes</th>
+          </tr>
+        </thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openNftCountModal(){
+  const all=loadNftCounts();
+  const latest=all[all.length-1];
+  const today=new Date().toISOString().slice(0,10);
+
+  document.getElementById('maintNftModalTitle').textContent=`📏 Weekly NFT Pipes Count — ${today}`;
+
+  // Build entry grid (pre-fill with latest counts)
+  let rows='';
+  NFT_GREENHOUSES.forEach(gh=>{
+    const lastRow=latest?(latest.counts[gh]||{}):{};
+    const cells=NFT_VARIETIES.map(v=>{
+      const last=lastRow[v.id];
+      const valStr=(typeof last==='number'&&last>=0)?last:'';
+      const placeholder=(typeof last==='number'&&last<0)?'n/a':(last===null?'—':'');
+      return `<td style="padding:4px;"><input type="number" min="0" id="nft_${gh}_${v.id}" value="${valStr}" placeholder="${placeholder}" data-prior="${typeof last==='number'?last:''}" style="width:70px;padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);text-align:center;font-family:var(--mono);font-size:12px;" /></td>`;
+    }).join('');
+    rows+=`<tr><td style="padding:6px 12px;font-weight:800;background:var(--surface2);position:sticky;left:0;">${gh}</td>${cells}<td style="padding:4px;"><input type="text" id="nft_${gh}_note" value="${(lastRow.note||'').replace(/"/g,'&quot;')}" placeholder="Notes…" style="width:140px;padding:6px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;" /></td></tr>`;
+  });
+
+  const headerCells=NFT_VARIETIES.map(v=>`<th style="padding:8px 6px;font-size:10px;color:var(--text3);text-align:center;">${v.short}</th>`).join('');
+
+  document.getElementById('maintNftModalBody').innerHTML=`
+    <div style="background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:11px;color:var(--text2);">
+      <strong>📏 Enter the count of NFT pipes per greenhouse per variety.</strong> Pre-filled with last count (${latest?latest.date:'baseline'}). Leave a cell empty if that variety isn't present in that greenhouse. Any change vs prior count will be flagged automatically.
+    </div>
+    <div style="margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Counted by</label>
+        <input id="nft_by" type="text" value="${(typeof currentUser!=='undefined'&&currentUser&&currentUser.name)?currentUser.name:''}" placeholder="Your name" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+      <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">Date</label>
+        <input id="nft_date" type="date" value="${today}" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);" /></div>
+    </div>
+
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead>
+          <tr>
+            <th style="padding:10px;background:var(--surface2);font-size:10px;color:var(--text3);text-align:left;">GH</th>
+            ${headerCells}
+            <th style="padding:10px;background:var(--surface2);font-size:10px;color:var(--text3);text-align:left;">Notes</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+      <button class="btn" onclick="document.getElementById('maintNftModal').classList.remove('open')">Cancel</button>
+      <button class="btn primary" onclick="saveNftCount()">💾 Save Weekly Count</button>
+    </div>
+  `;
+  document.getElementById('maintNftModal').classList.add('open');
+}
+
+function saveNftCount(){
+  const date=document.getElementById('nft_date').value||new Date().toISOString().slice(0,10);
+  const by=(document.getElementById('nft_by').value||'').trim()||'Unknown';
+  const counts={};
+  const variances=[];
+
+  NFT_GREENHOUSES.forEach(gh=>{
+    counts[gh]={};
+    NFT_VARIETIES.forEach(v=>{
+      const el=document.getElementById('nft_'+gh+'_'+v.id);
+      const valStr=(el.value||'').trim();
+      const priorStr=el.getAttribute('data-prior');
+      const prior=priorStr===''?null:parseFloat(priorStr);
+      let val=null;
+      if(valStr===''){val=null;}
+      else{val=parseFloat(valStr);if(!isFinite(val))val=null;}
+      counts[gh][v.id]=val;
+      // Variance detection
+      if(typeof val==='number'&&typeof prior==='number'&&prior>=0&&val!==prior){
+        variances.push({gh,variety:v.id,varietyLabel:v.label,prior,current:val,delta:val-prior});
+      }
+    });
+    const noteEl=document.getElementById('nft_'+gh+'_note');
+    counts[gh].note=(noteEl&&noteEl.value||'').trim();
+  });
+
+  // Save snapshot
+  const all=loadNftCounts();
+  all.push({date,by,ts:Date.now(),counts,notes:''});
+  saveNftCounts(all);
+
+  // Auto-create maintenance tasks for negative variances (lost pipes)
+  let createdTasks=0;
+  const lostVariances=variances.filter(v=>v.delta<0);
+  if(lostVariances.length){
+    try{
+      const tasks=loadMaintTasks();
+      const calls=(typeof loadCalls==='function')?loadCalls():null;
+
+      lostVariances.forEach(v=>{
+        const totalLost=Math.abs(v.delta);
+        const priority=totalLost>=10?'urgent':'priority';
+        const subj=`📏 ${v.gh} · ${v.varietyLabel} count dropped ${v.prior}→${v.current} (${v.delta})`;
+        const desc=`Auto-created from weekly NFT pipe count on ${date} by ${by}.\n\nGreenhouse: ${v.gh}\nVariety: ${v.varietyLabel}\nPrevious count: ${v.prior}\nCurrent count: ${v.current}\nVariance: ${v.delta} (${totalLost} pipes missing)\n\nInvestigate: theft, breakage, or relocation to another GH.`;
+        const taskId=(typeof uid==='function')?uid():'task_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);
+        tasks.push({
+          id:taskId,title:subj,description:desc,priority:priority,
+          status:'not_started',createdAt:Date.now(),createdBy:by,
+          scheduledDate:date,durationDays:1,gantt:[],materials:[],
+          category:'auto_nft_variance',sourceModule:'maint_nft',
+          autoKey:`nft_variance_${v.gh}_${v.variety}_${date}`
+        });
+        if(calls&&typeof _addPairedCall==='function'){
+          _addPairedCall(calls,{
+            subject:subj,description:desc,priority:priority,
+            group:'operations',department:'maintenance',
+            area:v.gh,equipment:'NFT Pipes',
+            subsystem:'NFT Pipes Inventory',
+            sourceModule:'maint_nft',
+            sourceLabel:`Maintenance · NFT Weekly Count · ${v.gh}`,
+            raisedBy:by,maintTaskId:taskId,
+            autoNote:`🤖 Auto-created from weekly NFT count — ${v.varietyLabel} dropped from ${v.prior} to ${v.current}.`
+          });
+        }
+        createdTasks++;
+      });
+      saveMaintTasks(tasks);
+      if(calls&&typeof saveCalls==='function')saveCalls(calls);
+    }catch(e){console.warn('NFT auto-task creation failed:',e);}
+  }
+
+  if(typeof audit==='function')audit('nft_weekly_count',`Saved NFT count for ${date}: ${variances.length} variances${createdTasks?', '+createdTasks+' tasks raised':''}`);
+  document.getElementById('maintNftModal').classList.remove('open');
+  if(typeof showToast==='function'){
+    if(createdTasks>0)showToast(`✓ Count saved · ⚠ ${lostVariances.length} cells lost pipes · ${createdTasks} task${createdTasks>1?'s':''} raised`,'warn',6000);
+    else if(variances.length>0)showToast(`✓ Count saved · ${variances.length} cell${variances.length>1?'s':''} changed (gains only)`,'ok');
+    else showToast('✓ Count saved — no changes vs prior','ok');
+  }
+  renderMaintNft();
+}
+
+function openNftHistory(){
+  const all=loadNftCounts();
+  document.getElementById('maintNftModalTitle').textContent=`📜 NFT Count History (${all.length})`;
+  let body='';
+  if(all.length===0){body='<div style="padding:30px;text-align:center;color:var(--text3);">No counts recorded yet.</div>';}
+  else{
+    body=all.slice().reverse().map((snap,idx)=>{
+      let total=0;
+      NFT_GREENHOUSES.forEach(gh=>NFT_VARIETIES.forEach(v=>{const c=(snap.counts[gh]||{})[v.id];if(typeof c==='number'&&c>=0)total+=c;}));
+      return `<div style="background:var(--surface2);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:8px;padding:10px 14px;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;">
+          <span>${snap.date} · by ${snap.by||'?'}</span>
+          <span style="color:var(--text3);font-family:var(--mono);">Total: ${total} pipes</span>
+        </div>
+        ${snap.notes?`<div style="font-size:11px;color:var(--text3);margin-top:4px;font-style:italic;">${snap.notes}</div>`:''}
+      </div>`;
+    }).join('');
+  }
+  document.getElementById('maintNftModalBody').innerHTML=`${body}
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+      <button class="btn" onclick="document.getElementById('maintNftModal').classList.remove('open')">Close</button>
+    </div>`;
+  document.getElementById('maintNftModal').classList.add('open');
+}
+
+function exportNftCSV(){
+  const all=loadNftCounts();
+  if(!all.length){if(typeof showToast==='function')showToast('No counts to export','warn');return;}
+  let csv='Date,Counted By,Greenhouse,'+NFT_VARIETIES.map(v=>v.label).join(',')+',Total,Notes\n';
+  all.forEach(snap=>{
+    NFT_GREENHOUSES.forEach(gh=>{
+      const row=snap.counts[gh]||{};
+      let total=0;
+      const cells=NFT_VARIETIES.map(v=>{
+        const c=row[v.id];
+        if(typeof c==='number'&&c>=0){total+=c;return c;}
+        return '';
+      });
+      csv+=`${snap.date},${snap.by||''},${gh},${cells.join(',')},${total},"${(row.note||'').replace(/"/g,'""')}"\n`;
+    });
+  });
+  const blob=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`nft_pipes_count_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  if(typeof showToast==='function')showToast('✓ CSV exported','ok');
 }
 
 function openEquipCheckHistory(catId,itemId){
@@ -42443,7 +42935,7 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.11-rfid-8am-reminder';  // ✅ NEW: EQUIPMENT CHECKLIST + AUTO-CALL + REAL CCTV IMPORT. Each generic equipment category now has a default daily-check checklist (e.g., Pumps: pressure/leaks/noise/seals; Cold Storage: temp/door seal/defrost/ice/alarm; Generators: fuel/oil/battery/coolant/load test). NEW "✅ Run Check" button on every equipment card opens a modal: each check item gets 🟢 OK / 🟡 Warning / 🔴 Critical / ➖ N/A radios + an optional note field. ANY Warning or Critical result automatically creates a maintenance task in the Task Board (priority warn=📌 Priority, critical=🚨 Urgent) AND opens a paired call in maintenance — tagged with subject "[Category Subject]" e.g. "Refrigeration / Cold Storage", "Pump Service", "Generators / Backup Power", so they show up in the matrix correctly. Item status auto-updates to reflect latest check (good/warn/bad). NEW "📜 History" button shows the last 30 checks per item with full per-item results. Equipment HUB FIX: existing modules (Radio/Ozone/RO/Tools) sub-tabs now navigate to the dedicated views (preserves all features) instead of buggy innerHTML embedding — added "← Back to Equipment Hub" links at top of those views. CCTV INVENTORY: imported 81 real cameras from CCTV CAMERA LIST 2.xlsx as REAL_CAMERAS constant, organized across 4 NVRs (TV1 Greenhouses 16ch, TV2 Perimeter 32ch, TV3 32ch, TV4 4ch), with real IPs/locations/types — new "📥 Import Real Cameras (81)" button in IT > CCTV inventory tab. Backup files removed (production-monitor.html and production-monitor100.html) — app.html is now the only source. localStorage adds: hydroPro_maint_equipment_v1, hydroPro_maint_equipment_checks_v1.
+const APP_VERSION='2.46.13-auto-seed-leds-cctv';  // ✅ NEW: EQUIPMENT CHECKLIST + AUTO-CALL + REAL CCTV IMPORT. Each generic equipment category now has a default daily-check checklist (e.g., Pumps: pressure/leaks/noise/seals; Cold Storage: temp/door seal/defrost/ice/alarm; Generators: fuel/oil/battery/coolant/load test). NEW "✅ Run Check" button on every equipment card opens a modal: each check item gets 🟢 OK / 🟡 Warning / 🔴 Critical / ➖ N/A radios + an optional note field. ANY Warning or Critical result automatically creates a maintenance task in the Task Board (priority warn=📌 Priority, critical=🚨 Urgent) AND opens a paired call in maintenance — tagged with subject "[Category Subject]" e.g. "Refrigeration / Cold Storage", "Pump Service", "Generators / Backup Power", so they show up in the matrix correctly. Item status auto-updates to reflect latest check (good/warn/bad). NEW "📜 History" button shows the last 30 checks per item with full per-item results. Equipment HUB FIX: existing modules (Radio/Ozone/RO/Tools) sub-tabs now navigate to the dedicated views (preserves all features) instead of buggy innerHTML embedding — added "← Back to Equipment Hub" links at top of those views. CCTV INVENTORY: imported 81 real cameras from CCTV CAMERA LIST 2.xlsx as REAL_CAMERAS constant, organized across 4 NVRs (TV1 Greenhouses 16ch, TV2 Perimeter 32ch, TV3 32ch, TV4 4ch), with real IPs/locations/types — new "📥 Import Real Cameras (81)" button in IT > CCTV inventory tab. Backup files removed (production-monitor.html and production-monitor100.html) — app.html is now the only source. localStorage adds: hydroPro_maint_equipment_v1, hydroPro_maint_equipment_checks_v1.
 const APP_BUILD=1777612800;
 const APP_BUILD_DATE='2026-05-01';
 
