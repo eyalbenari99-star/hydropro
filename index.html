@@ -94068,7 +94068,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 
 </script>
 
-<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.15 (enhanced motion + 3-state status: green/orange/red-blink for critical calls) -->
+<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.16 (FULL SCREEN monitor mode for each GH Command Center) -->
 <script>
 /* ============================================================================
  * HYDRONEXIS-AI · EXTENSIONS PACK v1.0
@@ -94181,7 +94181,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.15 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.16 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -94190,7 +94190,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.15';
+        vEl.textContent = orig + ' · HNX v2.16';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -94205,7 +94205,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.15 Diagnostics:\n\n' +
+        'HNX-EXT v2.16 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
@@ -94251,7 +94251,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const style = document.createElement('style');
     style.id = 'hnx-ext-styles';
     style.textContent = HNX_CSS + `
-/* === HNX-EXT v2.15 · MOTION & ANIMATION PACK === */
+/* === HNX-EXT v2.16 · MOTION & ANIMATION PACK === */
 @keyframes hnxPulseGlow {
   0%, 100% { box-shadow: 0 0 30px rgba(102,187,106,.18), inset 0 0 40px rgba(102,187,106,.05); }
   50%      { box-shadow: 0 0 60px rgba(102,187,106,.45), inset 0 0 70px rgba(102,187,106,.12); }
@@ -95833,6 +95833,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
             </div>
             <div class="hnx-tcenter" id="hnxGhcKpis"></div>
             <div class="hnx-tright">
+              <button class="hnx-btn hnx-btn-c hnx-fs-btn" onclick="window._hnxGhcToggleFullscreen && window._hnxGhcToggleFullscreen()" title="Full Screen monitor view"><span class="hnx-fs-ico">⛶</span> <span class="hnx-fs-lbl">Full Screen</span></button>
               <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxGhcRefresh && window._hnxGhcRefresh()">↻ Refresh</button>
             </div>
           </header>
@@ -95845,6 +95846,9 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
           </div>
           <div id="hnxGhcMachines"></div>
           <div class="hnx-ghc-bottom" id="hnxGhcBottom"></div>
+          <div class="hnx-fs-overlay" id="hnxFsOverlay">
+            <button class="hnx-btn hnx-btn-c hnx-fs-exit" onclick="window._hnxGhcToggleFullscreen && window._hnxGhcToggleFullscreen()">✕ Exit Full Screen (or press ESC)</button>
+          </div>
         </div>
       `;
     }
@@ -96525,6 +96529,39 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     }, 1000);
   
     window._hnxGhcRefresh = drawAll;
+
+    // v2.16 · Fullscreen toggle for monitor display
+    window._hnxGhcToggleFullscreen = function(){
+      const el = body.querySelector('.hnx-app');
+      if(!el) return;
+      const isFs = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement;
+      if(isFs){
+        if(document.exitFullscreen) document.exitFullscreen();
+        else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+        else if(document.mozCancelFullScreen) document.mozCancelFullScreen();
+      } else {
+        if(el.requestFullscreen) el.requestFullscreen();
+        else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        else if(el.mozRequestFullScreen) el.mozRequestFullScreen();
+      }
+    };
+    // Update button label on fullscreen change
+    function _hnxFsHandler(){
+      const isFs = document.fullscreenElement || document.webkitFullscreenElement;
+      const btn = body.querySelector('.hnx-fs-btn');
+      const app = body.querySelector('.hnx-app');
+      if(btn){
+        btn.querySelector('.hnx-fs-lbl').textContent = isFs ? 'Exit Full Screen' : 'Full Screen';
+        btn.querySelector('.hnx-fs-ico').textContent = isFs ? '✕' : '⛶';
+      }
+      if(app) app.classList.toggle('hnx-fs-active', !!isFs);
+    }
+    if(!body.dataset.fsHandlerAttached){
+      body.dataset.fsHandlerAttached = '1';
+      document.addEventListener('fullscreenchange', _hnxFsHandler);
+      document.addEventListener('webkitfullscreenchange', _hnxFsHandler);
+      document.addEventListener('mozfullscreenchange', _hnxFsHandler);
+    }
   
     window._hnxCctvCfg = function(camId){
       const cams = window._hnxGhcCurrentCams || [];
@@ -99846,8 +99883,8 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
           <!-- Status marquee strip -->
           <div class="hnx-marquee-wrap" style="margin:8px 14px 14px;border-radius:6px;padding:6px 0;position:relative;z-index:2;background:rgba(0,131,143,.10)">
             <div class="hnx-marquee" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#a5d6e6;letter-spacing:.10em;padding:0 30px">
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.15</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.15</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.16</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.16</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
             </div>
           </div>
           <!-- Pair selector -->
@@ -101345,7 +101382,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 .hnx-param-unit{font-size:11px;color:#6a8ea3;font-weight:500;margin-left:3px}
 .hnx-param-target{font-family:'JetBrains Mono',monospace;font-size:9px;color:#6a8ea3;letter-spacing:.10em;margin-top:3px}
 .hnx-param-dev{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;margin-top:1px}
-/* === HNX-EXT v2.15 · MACHINES GRID === */
+/* === HNX-EXT v2.16 · MACHINES GRID === */
 .hnx-machines-cube { position: relative; }
 .hnx-machines-grid {
   display: grid;
@@ -101461,6 +101498,82 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
   color: #ff3030;
 }
 
+/* === HNX-EXT v2.16 · FULLSCREEN MONITOR MODE === */
+.hnx-fs-btn { 
+  background: linear-gradient(135deg, rgba(102,187,106,.22), rgba(77,208,225,.22)) !important;
+  border: 1px solid rgba(102,187,106,.55) !important;
+  color: #80e885 !important;
+  font-weight: 700 !important;
+  letter-spacing: .05em;
+  margin-right: 6px;
+}
+.hnx-fs-btn:hover {
+  background: linear-gradient(135deg, rgba(102,187,106,.35), rgba(77,208,225,.35)) !important;
+  box-shadow: 0 0 16px rgba(102,187,106,.35);
+}
+.hnx-fs-overlay {
+  display: none;
+  position: fixed; top: 18px; right: 22px;
+  z-index: 9999;
+}
+.hnx-fs-exit {
+  background: linear-gradient(135deg, rgba(255,202,82,.25), rgba(255,140,40,.30)) !important;
+  border: 1px solid rgba(255,202,82,.65) !important;
+  color: #ffca52 !important;
+  font-weight: 700 !important;
+  padding: 8px 14px !important;
+  font-size: 11px !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,.45);
+}
+.hnx-fs-exit:hover {
+  background: linear-gradient(135deg, rgba(255,202,82,.40), rgba(255,140,40,.45)) !important;
+  box-shadow: 0 0 18px rgba(255,202,82,.5);
+}
+.hnx-app:fullscreen,
+.hnx-app:-webkit-full-screen {
+  background: radial-gradient(ellipse at center, #02101a 0%, #02080f 70%, #000 100%);
+  padding: 16px 22px;
+  overflow-y: auto;
+  width: 100vw;
+  height: 100vh;
+}
+.hnx-app.hnx-fs-active .hnx-fs-overlay { display: block; }
+.hnx-app.hnx-fs-active .hnx-tbar {
+  background: linear-gradient(180deg, rgba(2,30,40,.95), rgba(2,8,18,.85));
+  border-bottom: 2px solid rgba(102,187,106,.45);
+  padding: 14px 24px;
+  margin: -16px -22px 18px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.4);
+}
+.hnx-app.hnx-fs-active .hnx-tbtitle { font-size: 22px !important; }
+.hnx-app.hnx-fs-active .hnx-tbsub { font-size: 12px !important; }
+.hnx-app.hnx-fs-active .hnx-ghc-bar { 
+  padding: 14px 6px; 
+  background: rgba(2,18,28,.5);
+  border-radius: 10px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(77,208,225,.2);
+}
+.hnx-app.hnx-fs-active .hnx-chip {
+  padding: 8px 14px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+}
+.hnx-app.hnx-fs-active .hnx-ghc-stage { gap: 16px !important; }
+.hnx-app.hnx-fs-active .hnx-cctv-cell {
+  min-height: 220px !important;
+}
+.hnx-app.hnx-fs-active .hnx-w-h {
+  font-size: 13px !important;
+}
+.hnx-app.hnx-fs-active .hnx-machine-card { padding: 12px 14px; }
+.hnx-app.hnx-fs-active .hnx-machine-icon { width: 56px !important; height: 56px !important; }
+.hnx-app.hnx-fs-active .hnx-machine-name { font-size: 12.5px !important; }
+.hnx-app.hnx-fs-active .hnx-machine-status { font-size: 10.5px !important; }
+.hnx-app.hnx-fs-active .hnx-drum-vis { width: 70px !important; height: 170px !important; }
+.hnx-app.hnx-fs-active .hnx-drum-label { font-size: 26px !important; }
+.hnx-app.hnx-fs-active .hnx-drum-value { font-size: 16px !important; }
+
 /* v2.15 · Additional motion keyframes used in machine SVGs */
 @keyframes hnxDropRise {
   0% { transform: translateY(0); opacity: 1; }
@@ -101473,7 +101586,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
   100% { transform: translateX(50px); opacity: 0; }
 }
 
-/* === HNX-EXT v2.15 · VERTICAL FILLING DRUMS === */
+/* === HNX-EXT v2.16 · VERTICAL FILLING DRUMS === */
 .hnx-drum-cube { padding-bottom: 10px; }
 .hnx-drum-grid {
   display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;
@@ -101580,7 +101693,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 .hnx-drum-value.warn { color: #ffca52; }
 .hnx-drum-value.crit { color: #ff7a78; }
 
-/* === HNX-EXT v2.15 · BOLD VISIBLE THEMATIC IMAGERY === */
+/* === HNX-EXT v2.16 · BOLD VISIBLE THEMATIC IMAGERY === */
 .hnx-cube-imagery { position: relative; overflow: hidden; min-height: 180px; }
 .hnx-cube-imagery > .hnx-cube-bg {
   position: absolute; inset: 0;
@@ -101604,7 +101717,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 .hnx-cube-imagery > .hnx-ghbars,
 .hnx-cube-imagery > div:not(.hnx-cube-bg) { position: relative; z-index: 2; }
 .hnx-cube-imagery .hnx-w-h { position: relative; z-index: 2; }
-/* === HNX-EXT v2.15 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
+/* === HNX-EXT v2.16 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
 /* Production: Lettuce leaves sway */
 @keyframes hnxLettuceSway {
   0%, 100% { transform: rotate(-3deg); }
@@ -101662,7 +101775,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 .hnx-svg-act-dot:nth-child(3) { animation-delay: .8s; }
 .hnx-svg-act-dot:nth-child(4) { animation-delay: 1.2s; }
 
-/* === HNX-EXT v2.15 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
+/* === HNX-EXT v2.16 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
 /* CCTV cell motion enhancements — corner brackets, double scan, breathing border */
 .hnx-cctv-motion { animation: hnxCellPulse 4s ease-in-out infinite; }
 @keyframes hnxCellPulse {
