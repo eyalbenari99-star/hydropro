@@ -94068,7 +94068,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 
 </script>
 
-<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.12 (vertical filling drums - fills match percentages) -->
+<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.15 (enhanced motion + 3-state status: green/orange/red-blink for critical calls) -->
 <script>
 /* ============================================================================
  * HYDRONEXIS-AI · EXTENSIONS PACK v1.0
@@ -94181,7 +94181,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.12 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.15 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -94190,7 +94190,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.12';
+        vEl.textContent = orig + ' · HNX v2.15';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -94205,7 +94205,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.12 Diagnostics:\n\n' +
+        'HNX-EXT v2.15 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
@@ -94251,7 +94251,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const style = document.createElement('style');
     style.id = 'hnx-ext-styles';
     style.textContent = HNX_CSS + `
-/* === HNX-EXT v2.12 · MOTION & ANIMATION PACK === */
+/* === HNX-EXT v2.15 · MOTION & ANIMATION PACK === */
 @keyframes hnxPulseGlow {
   0%, 100% { box-shadow: 0 0 30px rgba(102,187,106,.18), inset 0 0 40px rgba(102,187,106,.05); }
   50%      { box-shadow: 0 0 60px rgba(102,187,106,.45), inset 0 0 70px rgba(102,187,106,.12); }
@@ -95843,6 +95843,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
             <div class="hnx-cctv-wall" id="hnxGhcCctv"></div>
             <div class="hnx-ghc-col-r" id="hnxGhcRight"></div>
           </div>
+          <div id="hnxGhcMachines"></div>
           <div class="hnx-ghc-bottom" id="hnxGhcBottom"></div>
         </div>
       `;
@@ -95855,6 +95856,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       drawCctv();
       drawLeft();
       drawRight();
+      drawMachines();
       drawBottom();
       document.getElementById('hnxGhcSel').textContent = state.selected;
       // Expose current GH for the upgrade hooks + run them
@@ -95862,6 +95864,350 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       try{ if(typeof ghcInjectUpgrades === 'function') ghcInjectUpgrades(); }catch(e){ console.warn('[HNX-Ext] ghc upgrade error', e); }
       // v2.9: apply thematic SVG imagery to each cube
       try{ if(typeof hnxApplyCubeImagery === 'function') hnxApplyCubeImagery(); }catch(e){}
+    }
+
+    function drawMachines(){
+      const wrap = document.getElementById('hnxGhcMachines');
+      if(!wrap) return;
+      const p = HNX_GHC_PROFILES[state.selected];
+      const frId = p ? p.irrRoom : '—';
+
+      // v2.15 · Match real calls to machines so critical issues auto-trigger RED BLINK status
+      const allCalls = (typeof loadCalls === 'function') ? (loadCalls() || []) : [];
+      const ghCalls = allCalls.filter(c => c.area === state.selected || c.gh === state.selected);
+      const frCalls = allCalls.filter(c => c.area === frId || c.fr === frId || c.room === frId);
+      const MACHINE_PATTERNS = {
+        'Big Fans': /\b(big.?fans?|large.?fans?)\b/i,
+        'Roof Fans': /\b(roof.?fans?)\b/i,
+        'Cooling Pad': /\b(cool(?:ing)?.?pad|coolpad)\b/i,
+        'Spray System': /\b(spray)\b/i,
+        'Seedlings Machine': /\b(seed(?:ling)?s?.?(?:machine|sower))\b/i,
+        'Windows System': /\b(window)/i,
+        'Internal Screen': /\b(internal.?screen|shade)\b/i,
+        'Chillers': /\b(chiller)/i,
+        'Ozone': /\b(ozone|o3|o₃)\b/i,
+        'Reverse Osmosis': /\b(reverse.?osmosis|\bro\b|\br\.o\.)\b/i,
+        'Ventilation': /\b(ventilation|vent\b)/i
+      };
+      function machineHasCriticalCall(machineName, callsPool){
+        const pat = MACHINE_PATTERNS[machineName];
+        if(!pat) return false;
+        return callsPool.some(c => {
+          const text = (c.title||'') + ' ' + (c.subject||'') + ' ' + (c.subsystem||'') + ' ' + (c.category||'') + ' ' + (c.description||'') + ' ' + (c.equipment||'');
+          if(!pat.test(text)) return false;
+          const prio = (c.priority || c.severity || '').toLowerCase();
+          const status = (c.status || '').toLowerCase();
+          // Only flag if call is open + urgent/critical
+          if(['closed','closed_fixed','closed_finalize','closed_cant_fix','cancelled','done'].includes(status)) return false;
+          return /urgent|critical|high|emergency/.test(prio);
+        });
+      }
+      function resolveStatus(m, callsPool){
+        // Priority: critical (red blink) > off (orange) > active (green)
+        if(machineHasCriticalCall(m.name, callsPool)) return 'critical';
+        return m.active ? 'active' : 'off';
+      }
+
+      // ===== GH MACHINES (inside greenhouse) =====
+      const ghMachines = [
+        { name:'Big Fans', active:true, type:'active', svg:`<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+          <defs><radialGradient id="fanGrad_${state.selected}_bf" cx="50%" cy="50%"><stop offset="0%" stop-color="#84fff9"/><stop offset="100%" stop-color="#00838f"/></radialGradient></defs>
+          <circle cx="30" cy="30" r="26" fill="rgba(2,30,40,.5)" stroke="#80deea" stroke-width="1.5"/>
+          <circle cx="30" cy="30" r="22" fill="none" stroke="#80deea" stroke-width="0.8" stroke-dasharray="2 2" opacity="0.6"/>
+          <g class="hnx-svg-gear-1" style="transform-origin:30px 30px;animation-duration:1.5s">
+            <ellipse cx="30" cy="14" rx="5" ry="12" fill="url(#fanGrad_${state.selected}_bf)" opacity="0.9"/>
+            <ellipse cx="46" cy="30" rx="12" ry="5" fill="url(#fanGrad_${state.selected}_bf)" opacity="0.9"/>
+            <ellipse cx="30" cy="46" rx="5" ry="12" fill="url(#fanGrad_${state.selected}_bf)" opacity="0.9"/>
+            <ellipse cx="14" cy="30" rx="12" ry="5" fill="url(#fanGrad_${state.selected}_bf)" opacity="0.9"/>
+          </g>
+          <circle cx="30" cy="30" r="6" fill="#80deea"/>
+          <circle cx="30" cy="30" r="3" fill="#02080f"/>
+          <!-- Wind lines -->
+          <g class="hnx-svg-drop-1" style="animation-duration:0.8s"><path d="M52 22 Q58 22 60 25" stroke="#84fff9" stroke-width="1.2" fill="none" opacity="0.7"/></g>
+          <g class="hnx-svg-drop-2" style="animation-duration:1s"><path d="M52 38 Q58 38 60 35" stroke="#84fff9" stroke-width="1.2" fill="none" opacity="0.7"/></g>
+        </svg>` },
+        { name:'Roof Fans', active:true, type:'active', svg:`<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+          <!-- Roof slope -->
+          <path d="M2 36 L30 14 L58 36 Z" fill="rgba(2,30,40,.4)" stroke="#80deea" stroke-width="1"/>
+          <rect x="2" y="36" width="56" height="3" fill="#80deea" opacity="0.7"/>
+          <!-- Two fans on roof -->
+          <g class="hnx-svg-gear-1" style="transform-origin:18px 28px;animation-duration:1.8s">
+            <circle cx="18" cy="28" r="10" fill="rgba(2,30,40,.5)" stroke="#80deea" stroke-width="1"/>
+            <ellipse cx="18" cy="20" rx="2.5" ry="6" fill="#84fff9"/>
+            <ellipse cx="26" cy="28" rx="6" ry="2.5" fill="#84fff9"/>
+            <ellipse cx="18" cy="36" rx="2.5" ry="6" fill="#84fff9"/>
+            <ellipse cx="10" cy="28" rx="6" ry="2.5" fill="#84fff9"/>
+            <circle cx="18" cy="28" r="2.5" fill="#80deea"/>
+          </g>
+          <g class="hnx-svg-gear-2" style="transform-origin:42px 28px;animation-duration:1.8s">
+            <circle cx="42" cy="28" r="10" fill="rgba(2,30,40,.5)" stroke="#80deea" stroke-width="1"/>
+            <ellipse cx="42" cy="20" rx="2.5" ry="6" fill="#84fff9"/>
+            <ellipse cx="50" cy="28" rx="6" ry="2.5" fill="#84fff9"/>
+            <ellipse cx="42" cy="36" rx="2.5" ry="6" fill="#84fff9"/>
+            <ellipse cx="34" cy="28" rx="6" ry="2.5" fill="#84fff9"/>
+            <circle cx="42" cy="28" r="2.5" fill="#80deea"/>
+          </g>
+          <!-- Air rising -->
+          <g class="hnx-svg-drop-1" style="animation-name:hnxDropRise;animation-duration:1.5s"><circle cx="18" cy="46" r="1.5" fill="#84fff9" opacity="0.6"/></g>
+          <g class="hnx-svg-drop-2" style="animation-name:hnxDropRise;animation-duration:2s"><circle cx="42" cy="46" r="1.5" fill="#84fff9" opacity="0.6"/></g>
+        </svg>` },
+        { name:'Cooling Pad', active:true, type:'active', svg:`<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+          <rect x="6" y="6" width="48" height="38" fill="rgba(2,30,40,.5)" stroke="#80deea" stroke-width="1.5" rx="2"/>
+          <!-- Honeycomb grid -->
+          ${Array.from({length:5},(_,r)=>Array.from({length:7},(_,c)=>`<rect x="${8+c*6.5}" y="${9+r*6.5}" width="5.5" height="5.5" fill="rgba(132,255,249,.15)" stroke="#80deea" stroke-width="0.5"/>`).join('')).join('')}
+          <!-- Water at top -->
+          <rect x="6" y="6" width="48" height="3" fill="#0288d1" opacity="0.7"/>
+          <!-- Falling water drops -->
+          <g class="hnx-svg-drop-1" style="animation-duration:1.5s"><path d="M14 44 Q12 50 14 55 Q16 50 14 44" fill="#84fff9"/></g>
+          <g class="hnx-svg-drop-2" style="animation-duration:1.8s"><path d="M22 44 Q20 50 22 55 Q24 50 22 44" fill="#80deea"/></g>
+          <g class="hnx-svg-drop-3" style="animation-duration:1.6s"><path d="M30 44 Q28 50 30 55 Q32 50 30 44" fill="#84fff9"/></g>
+          <g class="hnx-svg-drop-4" style="animation-duration:2s"><path d="M38 44 Q36 50 38 55 Q40 50 38 44" fill="#80deea"/></g>
+          <g class="hnx-svg-drop-1" style="animation-delay:.7s"><path d="M46 44 Q44 50 46 55 Q48 50 46 44" fill="#84fff9"/></g>
+          <!-- Puddle -->
+          <ellipse cx="30" cy="56" rx="20" ry="2" fill="#0288d1" opacity="0.5"/>
+        </svg>` },
+        { name:'Spray System', active:true, type:'active', svg:`<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+          <!-- Pipe + sprinkler head -->
+          <rect x="26" y="4" width="8" height="14" fill="#90a4ae" rx="1"/>
+          <rect x="22" y="14" width="16" height="6" fill="#78909c" rx="2"/>
+          <!-- Spray cone with mist gradient -->
+          <defs><linearGradient id="sprayGrad_${state.selected}" x1="50%" y1="0%" x2="50%" y2="100%"><stop offset="0%" stop-color="rgba(132,255,249,.4)"/><stop offset="100%" stop-color="rgba(132,255,249,0)"/></linearGradient></defs>
+          <path d="M30 20 L12 50 L48 50 Z" fill="url(#sprayGrad_${state.selected})" stroke="#84fff9" stroke-width="0.8"/>
+          <!-- Many spray droplets -->
+          <g class="hnx-svg-drop-1"><circle cx="22" cy="32" r="1.5" fill="#84fff9"/></g>
+          <g class="hnx-svg-drop-2"><circle cx="30" cy="36" r="1.5" fill="#80deea"/></g>
+          <g class="hnx-svg-drop-3"><circle cx="38" cy="32" r="1.5" fill="#84fff9"/></g>
+          <g class="hnx-svg-drop-4"><circle cx="18" cy="42" r="1.3" fill="#80deea"/></g>
+          <g class="hnx-svg-drop-1" style="animation-delay:.7s"><circle cx="42" cy="42" r="1.3" fill="#80deea"/></g>
+          <g class="hnx-svg-drop-2" style="animation-delay:.4s"><circle cx="26" cy="46" r="1.2" fill="#84fff9"/></g>
+          <g class="hnx-svg-drop-3" style="animation-delay:.9s"><circle cx="34" cy="46" r="1.2" fill="#84fff9"/></g>
+          <!-- Mist halo -->
+          <ellipse cx="30" cy="50" rx="22" ry="3" fill="#84fff9" opacity="0.3"/>
+        </svg>` },
+        { name:'Seedlings Machine', active:false, type:'active', svg:`<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+          <!-- Frame -->
+          <rect x="2" y="30" width="56" height="14" rx="2" fill="rgba(2,30,18,.5)" stroke="#80e885" stroke-width="1.5"/>
+          <!-- Conveyor rollers (rotating when active) -->
+          <g class="hnx-svg-gear-1" style="transform-origin:10px 37px;animation-duration:3s"><circle cx="10" cy="37" r="4" fill="rgba(2,30,18,.7)" stroke="#80e885" stroke-width="1.2"/><line x1="10" y1="33" x2="10" y2="41" stroke="#80e885" stroke-width="1"/><line x1="6" y1="37" x2="14" y2="37" stroke="#80e885" stroke-width="1"/></g>
+          <g class="hnx-svg-gear-2" style="transform-origin:50px 37px;animation-duration:3s"><circle cx="50" cy="37" r="4" fill="rgba(2,30,18,.7)" stroke="#80e885" stroke-width="1.2"/><line x1="50" y1="33" x2="50" y2="41" stroke="#80e885" stroke-width="1"/><line x1="46" y1="37" x2="54" y2="37" stroke="#80e885" stroke-width="1"/></g>
+          <!-- Belt -->
+          <line x1="10" y1="33" x2="50" y2="33" stroke="#80e885" stroke-width="1" stroke-dasharray="2 2" opacity="0.7"/>
+          <line x1="10" y1="41" x2="50" y2="41" stroke="#80e885" stroke-width="1" stroke-dasharray="2 2" opacity="0.7"/>
+          <!-- Seedlings in trays -->
+          <g class="hnx-svg-leaf-1" style="transform-origin:18px 30px"><path d="M16 30 Q15 24 18 22 Q21 24 20 30 Z" fill="#80e885"/><path d="M18 30 L18 24" stroke="#1b5e20" stroke-width="0.5"/></g>
+          <g class="hnx-svg-leaf-2" style="transform-origin:30px 30px"><path d="M28 30 Q27 22 30 18 Q33 22 32 30 Z" fill="#a5d6a7"/><path d="M30 30 L30 20" stroke="#1b5e20" stroke-width="0.5"/></g>
+          <g class="hnx-svg-leaf-3" style="transform-origin:42px 30px"><path d="M40 30 Q39 24 42 22 Q45 24 44 30 Z" fill="#80e885"/><path d="M42 30 L42 24" stroke="#1b5e20" stroke-width="0.5"/></g>
+          <!-- Trays -->
+          <rect x="14" y="30" width="8" height="3" fill="#558b2f" opacity="0.8"/>
+          <rect x="26" y="30" width="8" height="3" fill="#558b2f" opacity="0.8"/>
+          <rect x="38" y="30" width="8" height="3" fill="#558b2f" opacity="0.8"/>
+        </svg>` },
+        { name:'Windows System', active:true, type:'openclose', stateText:'OPEN', svg:`<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+          <!-- Frame -->
+          <rect x="6" y="8" width="48" height="44" fill="rgba(2,30,40,.5)" stroke="#80deea" stroke-width="2" rx="2"/>
+          <line x1="6" y1="30" x2="54" y2="30" stroke="#80deea" stroke-width="1.5"/>
+          <line x1="30" y1="8" x2="30" y2="52" stroke="#80deea" stroke-width="1.5"/>
+          <!-- Top panes (sliding open) -->
+          <g class="hnx-svg-leaf-1" style="transform-origin:6px 19px">
+            <rect x="8" y="10" width="20" height="18" fill="rgba(132,255,249,.30)" stroke="#84fff9" stroke-width="0.5"/>
+            <line x1="18" y1="10" x2="18" y2="28" stroke="#84fff9" stroke-width="0.4" opacity="0.6"/>
+            <line x1="8" y1="19" x2="28" y2="19" stroke="#84fff9" stroke-width="0.4" opacity="0.6"/>
+          </g>
+          <g class="hnx-svg-leaf-2" style="transform-origin:54px 19px">
+            <rect x="32" y="10" width="20" height="18" fill="rgba(132,255,249,.30)" stroke="#84fff9" stroke-width="0.5"/>
+            <line x1="42" y1="10" x2="42" y2="28" stroke="#84fff9" stroke-width="0.4" opacity="0.6"/>
+            <line x1="32" y1="19" x2="52" y2="19" stroke="#84fff9" stroke-width="0.4" opacity="0.6"/>
+          </g>
+          <!-- Bottom panes (closed/static) -->
+          <rect x="8" y="32" width="20" height="18" fill="rgba(132,255,249,.30)" stroke="#84fff9" stroke-width="0.5"/>
+          <rect x="32" y="32" width="20" height="18" fill="rgba(132,255,249,.30)" stroke="#84fff9" stroke-width="0.5"/>
+          <!-- Breeze indicators -->
+          <g class="hnx-svg-drop-1"><path d="M2 18 Q6 18 10 16" stroke="#80e885" stroke-width="1.2" fill="none"/></g>
+          <g class="hnx-svg-drop-3" style="animation-delay:.5s"><path d="M58 21 Q54 21 50 19" stroke="#80e885" stroke-width="1.2" fill="none"/></g>
+        </svg>` },
+        { name:'Internal Screen', active:false, type:'openclose', stateText:'CLOSED', svg:`<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+          <!-- Track -->
+          <line x1="4" y1="6" x2="56" y2="6" stroke="#80deea" stroke-width="2.5"/>
+          <circle cx="6" cy="6" r="2" fill="#80deea"/>
+          <circle cx="54" cy="6" r="2" fill="#80deea"/>
+          <!-- Curtain panel (closed/full coverage) -->
+          <defs><linearGradient id="curtainGrad_${state.selected}" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="rgba(132,255,249,.45)"/><stop offset="50%" stop-color="rgba(80,140,160,.55)"/><stop offset="100%" stop-color="rgba(132,255,249,.45)"/></linearGradient></defs>
+          <rect x="6" y="8" width="48" height="48" fill="url(#curtainGrad_${state.selected})" stroke="#80deea" stroke-width="1"/>
+          <!-- Vertical pleats -->
+          <line x1="14" y1="8" x2="14" y2="56" stroke="#80deea" stroke-width="0.8" opacity="0.7"/>
+          <line x1="22" y1="8" x2="22" y2="56" stroke="#80deea" stroke-width="0.8" opacity="0.7"/>
+          <line x1="30" y1="8" x2="30" y2="56" stroke="#80deea" stroke-width="0.8" opacity="0.7"/>
+          <line x1="38" y1="8" x2="38" y2="56" stroke="#80deea" stroke-width="0.8" opacity="0.7"/>
+          <line x1="46" y1="8" x2="46" y2="56" stroke="#80deea" stroke-width="0.8" opacity="0.7"/>
+          <!-- Fabric texture (waving subtly) -->
+          <g class="hnx-svg-wave">
+            <path d="M6 30 Q14 31 22 30 T38 30 T54 30" stroke="#84fff9" stroke-width="0.4" fill="none" opacity="0.5"/>
+            <path d="M6 40 Q14 41 22 40 T38 40 T54 40" stroke="#84fff9" stroke-width="0.4" fill="none" opacity="0.5"/>
+          </g>
+        </svg>` }
+      ];
+
+      // ===== FR ROOM MACHINES (in fertigation room) =====
+      const frMachines = [
+        { name:'Chillers', active:true, type:'active', svg:`<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+          <rect x="6" y="16" width="48" height="32" rx="3" fill="rgba(2,30,40,.5)" stroke="#80deea" stroke-width="1.5"/>
+          <!-- Vents at top -->
+          <rect x="10" y="18" width="40" height="3" fill="#02080f"/>
+          <line x1="12" y1="18" x2="12" y2="21" stroke="#84fff9" stroke-width="0.5"/>
+          <line x1="18" y1="18" x2="18" y2="21" stroke="#84fff9" stroke-width="0.5"/>
+          <line x1="24" y1="18" x2="24" y2="21" stroke="#84fff9" stroke-width="0.5"/>
+          <line x1="30" y1="18" x2="30" y2="21" stroke="#84fff9" stroke-width="0.5"/>
+          <line x1="36" y1="18" x2="36" y2="21" stroke="#84fff9" stroke-width="0.5"/>
+          <line x1="42" y1="18" x2="42" y2="21" stroke="#84fff9" stroke-width="0.5"/>
+          <line x1="48" y1="18" x2="48" y2="21" stroke="#84fff9" stroke-width="0.5"/>
+          <!-- Two cooling fans -->
+          <circle cx="20" cy="34" r="8" fill="rgba(2,30,40,.7)" stroke="#84fff9" stroke-width="1.5"/>
+          <g class="hnx-svg-gear-1" style="transform-origin:20px 34px;animation-duration:2s">
+            <path d="M20 28 L22.5 34 L20 40 L17.5 34 Z" fill="#84fff9"/>
+            <path d="M14 34 L20 31.5 L26 34 L20 36.5 Z" fill="#84fff9"/>
+          </g>
+          <circle cx="40" cy="34" r="8" fill="rgba(2,30,40,.7)" stroke="#84fff9" stroke-width="1.5"/>
+          <g class="hnx-svg-gear-2" style="transform-origin:40px 34px;animation-duration:2s">
+            <path d="M40 28 L42.5 34 L40 40 L37.5 34 Z" fill="#84fff9"/>
+            <path d="M34 34 L40 31.5 L46 34 L40 36.5 Z" fill="#84fff9"/>
+          </g>
+          <!-- Snowflakes floating -->
+          <g class="hnx-svg-act-dot" style="transform-origin:8px 10px"><text x="8" y="12" font-family="monospace" font-size="11" fill="#84fff9">❄</text></g>
+          <g class="hnx-svg-act-dot" style="animation-delay:.3s"><text x="26" y="9" font-family="monospace" font-size="13" fill="#84fff9">❄</text></g>
+          <g class="hnx-svg-act-dot" style="animation-delay:.6s"><text x="44" y="12" font-family="monospace" font-size="11" fill="#84fff9">❄</text></g>
+          <!-- Cold mist at bottom -->
+          <ellipse cx="30" cy="52" rx="22" ry="3" fill="#84fff9" opacity="0.25"/>
+        </svg>` },
+        { name:'Ozone', active:true, type:'active', svg:`<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+          <!-- Reactor chamber -->
+          <ellipse cx="30" cy="42" rx="22" ry="9" fill="rgba(132,255,249,.10)" stroke="#84fff9" stroke-width="1.2"/>
+          <ellipse cx="30" cy="42" rx="22" ry="9" fill="none" stroke="#80deea" stroke-width="0.5" stroke-dasharray="2 2"/>
+          <!-- Sparking electrodes -->
+          <line x1="15" y1="42" x2="15" y2="20" stroke="#80deea" stroke-width="1.5"/>
+          <line x1="45" y1="42" x2="45" y2="20" stroke="#80deea" stroke-width="1.5"/>
+          <rect x="13" y="14" width="4" height="8" fill="#80deea"/>
+          <rect x="43" y="14" width="4" height="8" fill="#80deea"/>
+          <!-- O3 molecules (pulsing) -->
+          <g class="hnx-svg-neuron"><circle cx="20" cy="30" r="4" fill="#84fff9"/></g>
+          <g class="hnx-svg-neuron"><circle cx="30" cy="22" r="5" fill="#80deea"/></g>
+          <g class="hnx-svg-neuron"><circle cx="40" cy="30" r="4" fill="#84fff9"/></g>
+          <!-- Bonds between -->
+          <path class="hnx-svg-synapse" d="M20 30 L30 22 L40 30 L20 30" stroke="#84fff9" stroke-width="1.2" fill="none" stroke-dasharray="3 2"/>
+          <!-- Center label -->
+          <text x="30" y="36" text-anchor="middle" font-family="Orbitron, sans-serif" font-size="11" font-weight="800" fill="#84fff9">O₃</text>
+          <!-- Bubbles in chamber -->
+          <g class="hnx-svg-drop-1" style="animation-name:hnxDropRise;animation-duration:2s"><circle cx="22" cy="44" r="1.5" fill="#84fff9" opacity="0.7"/></g>
+          <g class="hnx-svg-drop-2" style="animation-name:hnxDropRise;animation-duration:2.4s"><circle cx="38" cy="44" r="1.5" fill="#84fff9" opacity="0.7"/></g>
+        </svg>` },
+        { name:'Reverse Osmosis', active:true, type:'active', svg:`<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+          <!-- Filter housing -->
+          <rect x="4" y="22" width="52" height="16" rx="4" fill="rgba(2,30,40,.5)" stroke="#80deea" stroke-width="1.5"/>
+          <!-- Filter membranes (stacked) -->
+          <line x1="14" y1="22" x2="14" y2="38" stroke="#80deea" stroke-width="0.8" stroke-dasharray="1 1.5"/>
+          <line x1="22" y1="22" x2="22" y2="38" stroke="#80deea" stroke-width="0.8" stroke-dasharray="1 1.5"/>
+          <line x1="30" y1="22" x2="30" y2="38" stroke="#84fff9" stroke-width="0.8" stroke-dasharray="1 1.5"/>
+          <line x1="38" y1="22" x2="38" y2="38" stroke="#80deea" stroke-width="0.8" stroke-dasharray="1 1.5"/>
+          <line x1="46" y1="22" x2="46" y2="38" stroke="#80deea" stroke-width="0.8" stroke-dasharray="1 1.5"/>
+          <!-- Input water (left) -->
+          <rect x="2" y="26" width="3" height="8" fill="#80deea"/>
+          <rect x="55" y="26" width="3" height="8" fill="#84fff9"/>
+          <!-- Water particles flowing -->
+          <g class="hnx-svg-drop-1" style="animation-name:hnxFlow;animation-duration:1.8s"><circle cx="8" cy="30" r="2" fill="#0288d1"/></g>
+          <g class="hnx-svg-drop-2" style="animation-name:hnxFlow;animation-duration:2s"><circle cx="8" cy="30" r="2" fill="#4fc3f7"/></g>
+          <g class="hnx-svg-drop-3" style="animation-name:hnxFlow;animation-duration:1.6s"><circle cx="8" cy="30" r="2" fill="#0288d1"/></g>
+          <!-- Pump -->
+          <rect x="4" y="42" width="14" height="10" rx="2" fill="rgba(2,30,40,.7)" stroke="#80deea" stroke-width="1"/>
+          <g class="hnx-svg-gear-1" style="transform-origin:11px 47px;animation-duration:1s"><circle cx="11" cy="47" r="3" fill="none" stroke="#84fff9" stroke-width="0.8"/><line x1="11" y1="44" x2="11" y2="50" stroke="#84fff9" stroke-width="0.8"/></g>
+          <!-- Output tank icon -->
+          <rect x="44" y="42" width="14" height="10" rx="2" fill="rgba(2,30,40,.5)" stroke="#84fff9" stroke-width="1"/>
+          <rect x="46" y="46" width="10" height="5" fill="#4fc3f7" opacity="0.7"/>
+        </svg>` },
+        { name:'Ventilation', active:true, type:'active', svg:`<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+          <!-- Duct -->
+          <rect x="4" y="18" width="52" height="24" rx="3" fill="rgba(2,30,18,.5)" stroke="#80e885" stroke-width="1.5"/>
+          <!-- Louvers -->
+          <line x1="6" y1="22" x2="54" y2="22" stroke="#80e885" stroke-width="1.5"/>
+          <line x1="6" y1="27" x2="54" y2="27" stroke="#80e885" stroke-width="1.5"/>
+          <line x1="6" y1="32" x2="54" y2="32" stroke="#80e885" stroke-width="1.5"/>
+          <line x1="6" y1="37" x2="54" y2="37" stroke="#80e885" stroke-width="1.5"/>
+          <!-- Spinning fan in the middle -->
+          <circle cx="30" cy="30" r="8" fill="rgba(2,30,18,.85)" stroke="#80e885" stroke-width="1.2"/>
+          <g class="hnx-svg-gear-1" style="transform-origin:30px 30px;animation-duration:1.5s">
+            <ellipse cx="30" cy="24" rx="2" ry="5" fill="#80e885"/>
+            <ellipse cx="35" cy="30" rx="5" ry="2" fill="#80e885"/>
+            <ellipse cx="30" cy="36" rx="2" ry="5" fill="#80e885"/>
+            <ellipse cx="25" cy="30" rx="5" ry="2" fill="#80e885"/>
+          </g>
+          <circle cx="30" cy="30" r="2" fill="#80e885"/>
+          <!-- Air flow arrows in/out -->
+          <g class="hnx-svg-drop-1"><path d="M50 24 L56 24 L54 22 M56 24 L54 26" stroke="#80e885" stroke-width="1.4" fill="none"/></g>
+          <g class="hnx-svg-drop-2"><path d="M50 36 L56 36 L54 34 M56 36 L54 38" stroke="#80e885" stroke-width="1.4" fill="none"/></g>
+          <g class="hnx-svg-drop-3" style="animation-duration:1.6s"><path d="M2 24 L8 24 L6 22 M8 24 L6 26" stroke="#a5d6a7" stroke-width="1.4" fill="none"/></g>
+          <g class="hnx-svg-drop-4" style="animation-duration:1.8s"><path d="M2 36 L8 36 L6 34 M8 36 L6 38" stroke="#a5d6a7" stroke-width="1.4" fill="none"/></g>
+        </svg>` }
+      ];
+
+      function renderCard(m, callsPool){
+        const status = resolveStatus(m, callsPool);  // 'active' | 'off' | 'critical'
+        let statusText;
+        if(status === 'critical'){
+          statusText = '🔴 CALL RAISED';
+        } else if(m.type === 'openclose'){
+          statusText = m.stateText || (m.active ? 'OPEN' : 'CLOSED');
+        } else {
+          statusText = m.active ? 'ACTIVE' : 'NOT ACTIVE';
+        }
+        return `<div class="hnx-machine-card ${status}">
+          <div class="hnx-machine-icon">${m.svg}</div>
+          <div class="hnx-machine-meta">
+            <div class="hnx-machine-name">${escHtml(m.name)}</div>
+            <div class="hnx-machine-status ${status}">${statusText}</div>
+          </div>
+        </div>`;
+      }
+
+      // Count by status
+      function countStatus(arr, pool){
+        const c = { active:0, off:0, critical:0 };
+        arr.forEach(m => c[resolveStatus(m, pool)]++);
+        return c;
+      }
+      const ghCount = countStatus(ghMachines, ghCalls);
+      const frCount = countStatus(frMachines, frCalls);
+      function badge(c){
+        const parts = [];
+        if(c.critical) parts.push(`<span style="color:#ff7a78;font-weight:700;animation:hnxBlink 1s steps(2) infinite">${c.critical}🔴</span>`);
+        if(c.off) parts.push(`<span style="color:#ffca52">${c.off}🟠</span>`);
+        if(c.active) parts.push(`<span style="color:#80e885">${c.active}🟢</span>`);
+        return parts.join(' · ');
+      }
+
+      wrap.innerHTML = `
+        <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:14px;margin-top:14px">
+          <div class="hnx-w hnx-cube-motion hnx-machines-cube">
+            <div class="hnx-w-h" style="display:flex;align-items:center;gap:12px">
+              <span>🏭 GH Machines · ${state.selected}</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em">${badge(ghCount)}</span>
+              <div style="flex:1"></div>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#80deea;letter-spacing:.15em;text-transform:uppercase"><span class="hnx-live-dot"></span>greenhouse equipment</span>
+            </div>
+            <div class="hnx-machines-grid">
+              ${ghMachines.map(m => renderCard(m, ghCalls)).join('')}
+            </div>
+          </div>
+          <div class="hnx-w hnx-cube-motion hnx-machines-cube" style="border-color:rgba(132,255,249,.45)">
+            <div class="hnx-w-h" style="display:flex;align-items:center;gap:12px">
+              <span>💧 FR Room Machines · ${escHtml(frId)}</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em">${badge(frCount)}</span>
+              <div style="flex:1"></div>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#80deea;letter-spacing:.15em;text-transform:uppercase"><span class="hnx-live-dot"></span>fertigation room</span>
+            </div>
+            <div class="hnx-machines-grid hnx-machines-grid-2col">
+              ${frMachines.map(m => renderCard(m, frCalls)).join('')}
+            </div>
+          </div>
+        </div>
+      `;
     }
   
     function drawDrones(){
@@ -96020,9 +96366,15 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const irrTargetEC = 1.8, irrTargetPH = 5.9;
       const irrEC = (1.7 + Math.random()*0.3).toFixed(2);
       const irrPH = (5.7 + Math.random()*0.4).toFixed(2);
-      const drumALevel = Math.round(60 + Math.random()*30);
-      const drumBLevel = Math.round(55 + Math.random()*30);
-      const drumCLevel = Math.round(40 + Math.random()*40);
+      // Drum levels · v2.14 · stable per GH (no Math.random rebuild flicker)
+      const ghIdx = parseInt(state.selected.replace(/\D/g,''), 10) || 1;
+      const DRUM_CAPACITY_L = 600; // each drum holds 600 liters at 100%
+      const drumALevel = Math.min(95, 55 + (ghIdx * 7) % 38);
+      const drumBLevel = Math.min(95, 50 + (ghIdx * 11) % 40);
+      const drumCLevel = Math.min(95, 35 + (ghIdx * 13) % 42);
+      const drumALiters = Math.round(DRUM_CAPACITY_L * drumALevel / 100);
+      const drumBLiters = Math.round(DRUM_CAPACITY_L * drumBLevel / 100);
+      const drumCLiters = Math.round(DRUM_CAPACITY_L * drumCLevel / 100);
       right.innerHTML = `
         <div class="hnx-w hnx-cube-motion">
           <div class="hnx-w-h">Irrigation Room · ${escHtml(p.irrRoom)}</div>
@@ -96032,25 +96384,41 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
             <div class="hnx-row"><span class="hnx-row-l">⚗️ pH reading</span><span class="hnx-row-v ${Math.abs(irrPH-irrTargetPH)>0.2?'warn':'ok'}">${irrPH}</span></div>
             <div class="hnx-row"><span class="hnx-row-l">🌡 Pool temp</span><span class="hnx-row-v">22.4 °C</span></div>
             <div class="hnx-row"><span class="hnx-row-l">⚡ Ozone</span><span class="hnx-row-v ok">ACTIVE</span></div>
+            <div class="hnx-row"><span class="hnx-row-l">🌬 Ventilation</span><span class="hnx-row-v ok">ACTIVE</span></div>
           </div>
         </div>
         <div class="hnx-w hnx-cube-motion hnx-drum-cube">
-          <div class="hnx-w-h">Drum Levels · ${escHtml(p.irrRoom)}</div>
+          <div class="hnx-w-h">Drum Levels · ${escHtml(p.irrRoom)} · ${DRUM_CAPACITY_L}L tanks</div>
           <div class="hnx-drum-grid">
             <div class="hnx-drum-cell">
-              <div class="hnx-drum-vis"><div class="hnx-drum-liquid ${drumALevel<30?'crit':drumALevel<50?'warn':''}" style="height:${drumALevel}%"></div><div class="hnx-drum-bubble" style="left:30%;animation-delay:0s"></div><div class="hnx-drum-bubble" style="left:65%;animation-delay:1.2s"></div></div>
-              <div class="hnx-drum-info"><div class="hnx-drum-label">A</div><div class="hnx-drum-value ${drumALevel<30?'crit':drumALevel<50?'warn':''}">${drumALevel}%</div></div>
+              <div class="hnx-drum-vis"><div class="hnx-drum-liquid hnx-drum-A ${drumALevel<30?'crit':drumALevel<50?'warn':''}" style="height:${drumALevel}%"></div><div class="hnx-drum-bubble" style="left:30%;animation-delay:0s"></div><div class="hnx-drum-bubble" style="left:65%;animation-delay:1.2s"></div></div>
+              <div class="hnx-drum-info">
+                <div class="hnx-drum-label" style="color:#80e885;text-shadow:0 0 12px rgba(128,232,133,.6)">A</div>
+                <div class="hnx-drum-value ${drumALevel<30?'crit':drumALevel<50?'warn':''}">${drumALiters}<small style="font-size:9px;opacity:.7"> L</small></div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#a5d6e6;letter-spacing:.10em">${drumALevel}%</div>
+              </div>
             </div>
             <div class="hnx-drum-cell">
-              <div class="hnx-drum-vis"><div class="hnx-drum-liquid ${drumBLevel<30?'crit':drumBLevel<50?'warn':''}" style="height:${drumBLevel}%"></div><div class="hnx-drum-bubble" style="left:40%;animation-delay:.5s"></div><div class="hnx-drum-bubble" style="left:70%;animation-delay:1.8s"></div></div>
-              <div class="hnx-drum-info"><div class="hnx-drum-label">B</div><div class="hnx-drum-value ${drumBLevel<30?'crit':drumBLevel<50?'warn':''}">${drumBLevel}%</div></div>
+              <div class="hnx-drum-vis"><div class="hnx-drum-liquid hnx-drum-B ${drumBLevel<30?'crit':drumBLevel<50?'warn':''}" style="height:${drumBLevel}%"></div><div class="hnx-drum-bubble" style="left:40%;animation-delay:.5s"></div><div class="hnx-drum-bubble" style="left:70%;animation-delay:1.8s"></div></div>
+              <div class="hnx-drum-info">
+                <div class="hnx-drum-label" style="color:#4fc3f7;text-shadow:0 0 12px rgba(79,195,247,.7)">B</div>
+                <div class="hnx-drum-value ${drumBLevel<30?'crit':drumBLevel<50?'warn':''}" style="color:#4fc3f7">${drumBLiters}<small style="font-size:9px;opacity:.7"> L</small></div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#a5d6e6;letter-spacing:.10em">${drumBLevel}%</div>
+              </div>
             </div>
             <div class="hnx-drum-cell">
-              <div class="hnx-drum-vis"><div class="hnx-drum-liquid ${drumCLevel<30?'crit':drumCLevel<50?'warn':''}" style="height:${drumCLevel}%"></div><div class="hnx-drum-bubble" style="left:25%;animation-delay:.9s"></div><div class="hnx-drum-bubble" style="left:60%;animation-delay:2.2s"></div></div>
-              <div class="hnx-drum-info"><div class="hnx-drum-label">C</div><div class="hnx-drum-value ${drumCLevel<30?'crit':drumCLevel<50?'warn':''}">${drumCLevel}%</div></div>
+              <div class="hnx-drum-vis"><div class="hnx-drum-liquid hnx-drum-C ${drumCLevel<30?'crit':drumCLevel<50?'warn':''}" style="height:${drumCLevel}%"></div><div class="hnx-drum-bubble" style="left:25%;animation-delay:.9s"></div><div class="hnx-drum-bubble" style="left:60%;animation-delay:2.2s"></div></div>
+              <div class="hnx-drum-info">
+                <div class="hnx-drum-label" style="color:#ff9800;text-shadow:0 0 12px rgba(255,152,0,.7)">C</div>
+                <div class="hnx-drum-value ${drumCLevel<30?'crit':drumCLevel<50?'warn':''}" style="color:#ff9800">${drumCLiters}<small style="font-size:9px;opacity:.7"> L</small></div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#a5d6e6;letter-spacing:.10em">${drumCLevel}%</div>
+              </div>
             </div>
           </div>
-          <div style="margin-top:8px;display:flex;gap:6px"><button class="hnx-btn hnx-btn-c" style="flex:1;padding:7px;font-size:9.5px" onclick="window.switchView && window.switchView('irr_dash')">→ Irrigation</button></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;padding:4px 8px 8px;font-family:'JetBrains Mono',monospace;font-size:8.5px;color:#6a8ea3;letter-spacing:.10em;text-align:center;text-transform:uppercase">
+            <span>Nutrient A</span><span>Base B</span><span>Acid C</span>
+          </div>
+          <div style="margin-top:4px;display:flex;gap:6px"><button class="hnx-btn hnx-btn-c" style="flex:1;padding:7px;font-size:9.5px" onclick="window.switchView && window.switchView('irr_dash')">→ Irrigation</button></div>
         </div>
         <div class="hnx-w hnx-cube-motion">
           <div class="hnx-w-h">🧠 AI Brain · ${state.selected}</div>
@@ -99478,8 +99846,8 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
           <!-- Status marquee strip -->
           <div class="hnx-marquee-wrap" style="margin:8px 14px 14px;border-radius:6px;padding:6px 0;position:relative;z-index:2;background:rgba(0,131,143,.10)">
             <div class="hnx-marquee" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#a5d6e6;letter-spacing:.10em;padding:0 30px">
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.12</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.12</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.15</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.15</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
             </div>
           </div>
           <!-- Pair selector -->
@@ -100977,7 +101345,135 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 .hnx-param-unit{font-size:11px;color:#6a8ea3;font-weight:500;margin-left:3px}
 .hnx-param-target{font-family:'JetBrains Mono',monospace;font-size:9px;color:#6a8ea3;letter-spacing:.10em;margin-top:3px}
 .hnx-param-dev{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;margin-top:1px}
-/* === HNX-EXT v2.12 · VERTICAL FILLING DRUMS === */
+/* === HNX-EXT v2.15 · MACHINES GRID === */
+.hnx-machines-cube { position: relative; }
+.hnx-machines-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  padding: 12px 4px 4px;
+}
+.hnx-machines-grid-2col { grid-template-columns: repeat(2, 1fr) !important; }
+@media (max-width: 1300px) { .hnx-machines-grid { grid-template-columns: repeat(2, 1fr); } .hnx-machines-grid-2col { grid-template-columns: 1fr !important; } }
+.hnx-machine-card {
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, rgba(2,18,28,.65), rgba(2,8,18,.85));
+  border: 1px solid rgba(77,208,225,.20);
+  transition: all .25s ease;
+  position: relative;
+  overflow: hidden;
+}
+/* v2.15 · Three-state status colors */
+.hnx-machine-card.active {
+  border-color: rgba(102,187,106,.55);
+  box-shadow: inset 0 0 14px rgba(102,187,106,.10);
+}
+.hnx-machine-card.active::before {
+  content: ''; position: absolute; left: -100%; top: 0; height: 100%; width: 50%;
+  background: linear-gradient(90deg, transparent, rgba(102,187,106,.14), transparent);
+  animation: hnxCubeSwipe 4s linear infinite;
+}
+.hnx-machine-card.off {
+  border-color: rgba(255,202,82,.55);
+  background: linear-gradient(135deg, rgba(60,40,10,.45), rgba(2,8,18,.85));
+  opacity: .92;
+  box-shadow: inset 0 0 12px rgba(255,202,82,.10);
+}
+.hnx-machine-card.critical {
+  border-color: #ff3030;
+  background: linear-gradient(135deg, rgba(80,12,12,.6), rgba(20,2,2,.92));
+  box-shadow: 0 0 0 0 rgba(255,48,48,.6), inset 0 0 18px rgba(255,48,48,.20);
+  animation: hnxCardCritical 0.9s ease-in-out infinite;
+}
+@keyframes hnxCardCritical {
+  0%, 100% {
+    border-color: #ff3030;
+    box-shadow: 0 0 0 0 rgba(255,48,48,.7), inset 0 0 16px rgba(255,48,48,.20);
+  }
+  50% {
+    border-color: #ffaaaa;
+    box-shadow: 0 0 24px 4px rgba(255,48,48,.55), inset 0 0 22px rgba(255,48,48,.40);
+  }
+}
+.hnx-machine-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(132,255,249,.7);
+  box-shadow: 0 6px 18px rgba(77,208,225,.18);
+}
+.hnx-machine-card.critical:hover {
+  border-color: #ff5555;
+}
+.hnx-machine-icon {
+  width: 50px; height: 50px; flex-shrink: 0;
+  filter: drop-shadow(0 0 8px rgba(132,255,249,.5));
+}
+.hnx-machine-card.off .hnx-machine-icon {
+  filter: drop-shadow(0 0 6px rgba(255,202,82,.45)) saturate(.6);
+}
+.hnx-machine-card.critical .hnx-machine-icon {
+  filter: drop-shadow(0 0 10px rgba(255,48,48,.7)) hue-rotate(-40deg) saturate(1.4);
+  animation: hnxIconShake 0.4s ease-in-out infinite;
+}
+@keyframes hnxIconShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-1px) rotate(-1deg); }
+  75% { transform: translateX(1px) rotate(1deg); }
+}
+.hnx-machine-meta { min-width: 0; flex: 1; }
+.hnx-machine-name {
+  font-family: Orbitron, sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: .04em;
+  color: #e6f7fb;
+  line-height: 1.2;
+}
+.hnx-machine-card.critical .hnx-machine-name {
+  color: #ffeeee;
+  text-shadow: 0 0 8px rgba(255,48,48,.5);
+}
+.hnx-machine-status {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: .14em;
+  font-weight: 700;
+  margin-top: 4px;
+  text-transform: uppercase;
+}
+.hnx-machine-status.active { color: #80e885; }
+.hnx-machine-status.active::before {
+  content: '● ';
+  animation: hnxBlink 1.5s steps(2) infinite;
+  color: #80e885;
+}
+.hnx-machine-status.off { color: #ffca52; }
+.hnx-machine-status.off::before { content: '○ '; color: #ffca52; }
+.hnx-machine-status.critical {
+  color: #ff7a78;
+  text-shadow: 0 0 8px rgba(255,48,48,.6);
+  animation: hnxBlink 0.5s steps(2) infinite;
+}
+.hnx-machine-status.critical::before {
+  content: '⚠ ';
+  animation: hnxBlink 0.4s steps(2) infinite;
+  color: #ff3030;
+}
+
+/* v2.15 · Additional motion keyframes used in machine SVGs */
+@keyframes hnxDropRise {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-22px); opacity: 0; }
+}
+@keyframes hnxFlow {
+  0% { transform: translateX(0); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateX(50px); opacity: 0; }
+}
+
+/* === HNX-EXT v2.15 · VERTICAL FILLING DRUMS === */
 .hnx-drum-cube { padding-bottom: 10px; }
 .hnx-drum-grid {
   display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;
@@ -101045,6 +101541,16 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 }
 .hnx-drum-liquid.warn { background: linear-gradient(180deg, #ffd54f 0%, #ff9800 50%, #e65100 100%); }
 .hnx-drum-liquid.crit { background: linear-gradient(180deg, #ff8a80 0%, #f44336 50%, #b71c1c 100%); }
+/* v2.14 · Per-drum default colors when not warn/crit */
+.hnx-drum-liquid.hnx-drum-A { background: linear-gradient(180deg, #a5d6a7 0%, #43a047 50%, #1b5e20 100%); }
+.hnx-drum-liquid.hnx-drum-A.warn { background: linear-gradient(180deg, #ffd54f 0%, #ff9800 50%, #e65100 100%); }
+.hnx-drum-liquid.hnx-drum-A.crit { background: linear-gradient(180deg, #ff8a80 0%, #f44336 50%, #b71c1c 100%); }
+.hnx-drum-liquid.hnx-drum-B { background: linear-gradient(180deg, #4fc3f7 0%, #0288d1 50%, #01579b 100%); }
+.hnx-drum-liquid.hnx-drum-B.warn { background: linear-gradient(180deg, #ffd54f 0%, #ff9800 50%, #e65100 100%); }
+.hnx-drum-liquid.hnx-drum-B.crit { background: linear-gradient(180deg, #ff8a80 0%, #f44336 50%, #b71c1c 100%); }
+.hnx-drum-liquid.hnx-drum-C { background: linear-gradient(180deg, #ffb74d 0%, #ff9800 50%, #e65100 100%); }
+.hnx-drum-liquid.hnx-drum-C.warn { background: linear-gradient(180deg, #ffd54f 0%, #ff9800 50%, #e65100 100%); }
+.hnx-drum-liquid.hnx-drum-C.crit { background: linear-gradient(180deg, #ff8a80 0%, #f44336 50%, #b71c1c 100%); }
 .hnx-drum-bubble {
   position: absolute;
   width: 5px; height: 5px;
@@ -101074,7 +101580,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 .hnx-drum-value.warn { color: #ffca52; }
 .hnx-drum-value.crit { color: #ff7a78; }
 
-/* === HNX-EXT v2.12 · BOLD VISIBLE THEMATIC IMAGERY === */
+/* === HNX-EXT v2.15 · BOLD VISIBLE THEMATIC IMAGERY === */
 .hnx-cube-imagery { position: relative; overflow: hidden; min-height: 180px; }
 .hnx-cube-imagery > .hnx-cube-bg {
   position: absolute; inset: 0;
@@ -101098,7 +101604,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 .hnx-cube-imagery > .hnx-ghbars,
 .hnx-cube-imagery > div:not(.hnx-cube-bg) { position: relative; z-index: 2; }
 .hnx-cube-imagery .hnx-w-h { position: relative; z-index: 2; }
-/* === HNX-EXT v2.12 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
+/* === HNX-EXT v2.15 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
 /* Production: Lettuce leaves sway */
 @keyframes hnxLettuceSway {
   0%, 100% { transform: rotate(-3deg); }
@@ -101156,7 +101662,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 .hnx-svg-act-dot:nth-child(3) { animation-delay: .8s; }
 .hnx-svg-act-dot:nth-child(4) { animation-delay: 1.2s; }
 
-/* === HNX-EXT v2.12 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
+/* === HNX-EXT v2.15 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
 /* CCTV cell motion enhancements — corner brackets, double scan, breathing border */
 .hnx-cctv-motion { animation: hnxCellPulse 4s ease-in-out infinite; }
 @keyframes hnxCellPulse {
