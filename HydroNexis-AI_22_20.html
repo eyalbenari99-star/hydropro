@@ -94068,7 +94068,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 
 </script>
 
-<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.12 (vertical filling drums - fills match percentages) -->
+<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.7 (Cinematic Production Brain Mission Control hero) -->
 <script>
 /* ============================================================================
  * HYDRONEXIS-AI · EXTENSIONS PACK v1.0
@@ -94181,7 +94181,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.12 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.7 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -94190,7 +94190,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.12';
+        vEl.textContent = orig + ' · HNX v2.7';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -94205,7 +94205,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.12 Diagnostics:\n\n' +
+        'HNX-EXT v2.7 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
@@ -94251,7 +94251,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const style = document.createElement('style');
     style.id = 'hnx-ext-styles';
     style.textContent = HNX_CSS + `
-/* === HNX-EXT v2.12 · MOTION & ANIMATION PACK === */
+/* === HNX-EXT v2.7 · MOTION & ANIMATION PACK === */
 @keyframes hnxPulseGlow {
   0%, 100% { box-shadow: 0 0 30px rgba(102,187,106,.18), inset 0 0 40px rgba(102,187,106,.05); }
   50%      { box-shadow: 0 0 60px rgba(102,187,106,.45), inset 0 0 70px rgba(102,187,106,.12); }
@@ -95737,46 +95737,23 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 
   function hnxCamerasForGh(ghId){
     const all = hnxGetAllCameras();
-    // v2.11: First check if user has explicit slot assignments for this GH
-    if(typeof hnxGhHasExplicitSlots === 'function' && hnxGhHasExplicitSlots(ghId)){
-      const slots = hnxGetGhSlots(ghId);
-      const out = [];
-      for(let i=1; i<=9; i++){
-        const camId = slots['slot'+i];
-        if(!camId){ out.push({ id:'', empty:true, zone:'gh', label:'(slot '+i+' empty)' }); continue; }
-        const cam = all.find(c => c.id === camId);
-        if(!cam){ out.push({ id:camId, empty:false, zone:'gh', label:camId+' (not found)' }); continue; }
-        out.push({
-          id: cam.id,
-          camNo: cam.cameraNo || '',
-          label: cam.name || cam.location || cam.id,
-          location: cam.location || '',
-          nvrId: cam.nvrId || '',
-          channel: cam.channel || '',
-          ip: cam.ip || '',
-          model: cam.model || '',
-          zone: hnxIsIrrCam(cam) ? 'irr' : 'gh',
-          assignedLocation: 'slot-explicit',
-          url: hnxGetStreamUrl(cam.id)
-        });
-      }
-      return out;
-    }
-    // Auto-detect fallback (v2.4 behavior)
     const overrides = hnxLoadCamLocations();
     const frId = (typeof HNX_GH_TO_FR !== 'undefined') ? HNX_GH_TO_FR[ghId] : null;
-    const ghRe = new RegExp('\\b' + ghId + '\\b', 'i');
+    const ghRe = new RegExp('\\b' + ghId + '\\b', 'i'); // GH3 ≠ GH30
     const num = ghId.replace(/\D/g,'');
     const out = [];
     const seen = {};
     all.forEach(cam => {
+      // Q3=A: manual override always wins
       const ov = overrides[cam.id];
       let match = false;
       let zone = null;
       if(ov){
         if(ov === ghId){ match = true; zone = 'gh'; }
         else if(frId && ov === frId){ match = true; zone = 'irr'; }
+        // any other explicit override → camera is NOT in this GH+FR view
       } else {
+        // Fall back to auto-detect by name (existing behavior)
         const target = (cam.location||'') + ' ' + (cam.name||'');
         match = ghRe.test(target);
         if(!match && num){
@@ -95805,6 +95782,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
         });
       }
     });
+    // Sort: GH cameras first, then irrigation room cameras
     out.sort((a,b) => (a.zone==='irr')-(b.zone==='irr'));
     return out;
   }
@@ -95837,7 +95815,6 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
             </div>
           </header>
           <div class="hnx-toolbar hnx-ghc-bar" id="hnxGhcChips"></div>
-          <div id="hnxGhcDrones"></div>
           <div class="hnx-ghc-stage">
             <div class="hnx-ghc-col-l" id="hnxGhcLeft"></div>
             <div class="hnx-cctv-wall" id="hnxGhcCctv"></div>
@@ -95850,7 +95827,6 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
   
     function drawAll(){
       drawChips();
-      drawDrones();
       drawKpis();
       drawCctv();
       drawLeft();
@@ -95860,36 +95836,6 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Expose current GH for the upgrade hooks + run them
       window._ghcCurrent = state.selected;
       try{ if(typeof ghcInjectUpgrades === 'function') ghcInjectUpgrades(); }catch(e){ console.warn('[HNX-Ext] ghc upgrade error', e); }
-      // v2.9: apply thematic SVG imagery to each cube
-      try{ if(typeof hnxApplyCubeImagery === 'function') hnxApplyCubeImagery(); }catch(e){}
-    }
-  
-    function drawDrones(){
-      const wrap = document.getElementById('hnxGhcDrones');
-      if(!wrap) return;
-      const fleet = 12, active = 12 - Math.floor(Math.random()*2);
-      const flights = 247 + Math.floor(Math.random()*30);
-      const coverage = 98 + Math.floor(Math.random()*2);
-      const battery = 84 + Math.floor(Math.random()*12);
-      const detections = 47 + Math.floor(Math.random()*8);
-      wrap.innerHTML = `
-        <div class="hnx-drone-fleet">
-          <div class="hnx-drone-title">
-            <div class="hnx-drone-icon">🛸</div>
-            <div>
-              <div>AI Drone Fleet</div>
-              <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.16em;color:#80deea;text-transform:uppercase;font-weight:600;margin-top:2px">${state.selected} · live aerial inspection</div>
-            </div>
-          </div>
-          <div class="hnx-drone-cell"><div class="hnx-drone-cell-l">Fleet</div><div class="hnx-drone-cell-v" style="color:#80e885">${active}/${fleet}</div><div class="hnx-drone-cell-s">drones airborne</div></div>
-          <div class="hnx-drone-cell"><div class="hnx-drone-cell-l">Flights today</div><div class="hnx-drone-cell-v" style="color:#80deea">${flights}</div><div class="hnx-drone-cell-s">automated sorties</div></div>
-          <div class="hnx-drone-cell"><div class="hnx-drone-cell-l">Coverage</div><div class="hnx-drone-cell-v" style="color:#80e885">${coverage}%</div><div class="hnx-drone-cell-s">aerial vision map</div></div>
-          <div class="hnx-drone-cell"><div class="hnx-drone-cell-l">Battery avg</div><div class="hnx-drone-cell-v" style="color:${battery>80?'#80e885':battery>50?'#ffca52':'#ff7a78'}">${battery}%</div><div class="hnx-drone-cell-s">across fleet</div></div>
-          <div class="hnx-drone-cell"><div class="hnx-drone-cell-l">AI detections</div><div class="hnx-drone-cell-v" style="color:#ffca52">${detections}</div><div class="hnx-drone-cell-s">last 24h scans</div></div>
-          <div class="hnx-drone-cell"><div class="hnx-drone-cell-l">Auto patrol</div><div class="hnx-drone-cell-v" style="color:#80e885">ON</div><div class="hnx-drone-cell-s">15min interval</div></div>
-          <div class="hnx-drone-status"><span class="hnx-live-dot"></span>SCANNING</div>
-        </div>
-      `;
     }
   
     function drawChips(){
@@ -95948,12 +95894,9 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
         }
         const labelTxt = c.empty ? '—' : (c.zone==='irr' ? '🟦 IRR · ' : '🟩 GH · ') + c.label;
         const idTxt = c.empty ? 'SLOT '+(i+1) : (c.camNo ? c.camNo + ' · ' + c.id : c.id);
-        return `<div class="hnx-cctv-cell hnx-cctv-motion ${c.zone} ${c.empty?'empty':''}" data-cam="${escHtml(camId)}" data-pos="${i+1}">
+        return `<div class="hnx-cctv-cell ${c.zone} ${c.empty?'empty':''}" data-cam="${escHtml(camId)}" data-pos="${i+1}">
           ${mediaHtml}
           ${c.empty?'':'<div class="hnx-cctv-scanline"></div>'}
-          ${c.empty?'':'<div class="hnx-cctv-scanline-2"></div>'}
-          ${c.empty?'':`<div class="hnx-cctv-bracket br-tl"></div><div class="hnx-cctv-bracket br-tr"></div><div class="hnx-cctv-bracket br-bl"></div><div class="hnx-cctv-bracket br-br"></div>`}
-          ${c.empty?'':'<div class="hnx-cctv-target"><div class="hnx-cctv-target-x"></div><div class="hnx-cctv-target-y"></div></div>'}
           <div class="hnx-cctv-overlay">
             <div class="hnx-cctv-top">
               <span class="hnx-cctv-rec">${c.empty?'':'REC'}</span>
@@ -95980,7 +95923,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const warns = issues.filter(i => (i.priority||'').toLowerCase()==='warning');
       const left = document.getElementById('hnxGhcLeft');
       left.innerHTML = `
-        <div class="hnx-w hnx-w-ok hnx-cube-motion">
+        <div class="hnx-w hnx-w-ok">
           <div class="hnx-w-h">Production · ${state.selected}</div>
           <div class="hnx-rlist">
             <div class="hnx-row"><span class="hnx-row-l">🌱 Crop</span><span class="hnx-row-v">${escHtml(p.crop)}</span></div>
@@ -95990,7 +95933,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
             <div class="hnx-row"><span class="hnx-row-l">📅 Days to harvest</span><span class="hnx-row-v ${p.daysHarvest<=3?'warn':p.daysHarvest<=1?'crit':''}">${p.daysHarvest}d</span></div>
           </div>
         </div>
-        <div class="hnx-w hnx-cube-motion ${crits.length?'':'hnx-w-ok'}">
+        <div class="hnx-w ${crits.length?'':'hnx-w-ok'}">
           <div class="hnx-w-h">Tech Issues · ${state.selected}</div>
           <div class="hnx-rlist">
             <div class="hnx-row"><span class="hnx-row-l">🚨 Critical</span><span class="hnx-row-v ${crits.length?'crit':'ok'}">${crits.length}</span></div>
@@ -96000,7 +95943,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
           </div>
           ${(issues.length+calls.length) ? `<div style="margin-top:10px;display:flex;gap:6px"><button class="hnx-btn hnx-btn-c" style="flex:1;padding:7px;font-size:9.5px" onclick="window.switchView && window.switchView('prod_tech_per_gh')">▦ Tech Matrix</button><button class="hnx-btn" style="flex:1;padding:7px;font-size:9.5px" onclick="window.switchView && window.switchView('open_issues')">≡ Open Issues</button></div>`:''}
         </div>
-        <div class="hnx-w hnx-cube-motion">
+        <div class="hnx-w">
           <div class="hnx-w-h">Recent Activity · ${state.selected}</div>
           <div class="hnx-rlist" style="font-size:11px">
             ${(issues.slice(0,3).concat(calls.slice(0,2))).map(it => {
@@ -96024,7 +95967,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const drumBLevel = Math.round(55 + Math.random()*30);
       const drumCLevel = Math.round(40 + Math.random()*40);
       right.innerHTML = `
-        <div class="hnx-w hnx-cube-motion">
+        <div class="hnx-w">
           <div class="hnx-w-h">Irrigation Room · ${escHtml(p.irrRoom)}</div>
           <div class="hnx-rlist">
             <div class="hnx-row"><span class="hnx-row-l">🏊 Pool</span><span class="hnx-row-v cy">${escHtml(p.irrPool)}</span></div>
@@ -96034,25 +95977,16 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
             <div class="hnx-row"><span class="hnx-row-l">⚡ Ozone</span><span class="hnx-row-v ok">ACTIVE</span></div>
           </div>
         </div>
-        <div class="hnx-w hnx-cube-motion hnx-drum-cube">
+        <div class="hnx-w">
           <div class="hnx-w-h">Drum Levels · ${escHtml(p.irrRoom)}</div>
-          <div class="hnx-drum-grid">
-            <div class="hnx-drum-cell">
-              <div class="hnx-drum-vis"><div class="hnx-drum-liquid ${drumALevel<30?'crit':drumALevel<50?'warn':''}" style="height:${drumALevel}%"></div><div class="hnx-drum-bubble" style="left:30%;animation-delay:0s"></div><div class="hnx-drum-bubble" style="left:65%;animation-delay:1.2s"></div></div>
-              <div class="hnx-drum-info"><div class="hnx-drum-label">A</div><div class="hnx-drum-value ${drumALevel<30?'crit':drumALevel<50?'warn':''}">${drumALevel}%</div></div>
-            </div>
-            <div class="hnx-drum-cell">
-              <div class="hnx-drum-vis"><div class="hnx-drum-liquid ${drumBLevel<30?'crit':drumBLevel<50?'warn':''}" style="height:${drumBLevel}%"></div><div class="hnx-drum-bubble" style="left:40%;animation-delay:.5s"></div><div class="hnx-drum-bubble" style="left:70%;animation-delay:1.8s"></div></div>
-              <div class="hnx-drum-info"><div class="hnx-drum-label">B</div><div class="hnx-drum-value ${drumBLevel<30?'crit':drumBLevel<50?'warn':''}">${drumBLevel}%</div></div>
-            </div>
-            <div class="hnx-drum-cell">
-              <div class="hnx-drum-vis"><div class="hnx-drum-liquid ${drumCLevel<30?'crit':drumCLevel<50?'warn':''}" style="height:${drumCLevel}%"></div><div class="hnx-drum-bubble" style="left:25%;animation-delay:.9s"></div><div class="hnx-drum-bubble" style="left:60%;animation-delay:2.2s"></div></div>
-              <div class="hnx-drum-info"><div class="hnx-drum-label">C</div><div class="hnx-drum-value ${drumCLevel<30?'crit':drumCLevel<50?'warn':''}">${drumCLevel}%</div></div>
-            </div>
+          <div class="hnx-ghbars">
+            <div class="hnx-ghbar"><span class="hnx-ghbar-l">A</span><div class="hnx-ghbar-track"><div class="hnx-ghbar-fill ${drumALevel<30?'crit':drumALevel<50?'warn':''}" style="width:${drumALevel}%"></div></div><span class="hnx-ghbar-v">${drumALevel}%</span></div>
+            <div class="hnx-ghbar"><span class="hnx-ghbar-l">B</span><div class="hnx-ghbar-track"><div class="hnx-ghbar-fill ${drumBLevel<30?'crit':drumBLevel<50?'warn':''}" style="width:${drumBLevel}%"></div></div><span class="hnx-ghbar-v">${drumBLevel}%</span></div>
+            <div class="hnx-ghbar"><span class="hnx-ghbar-l">C</span><div class="hnx-ghbar-track"><div class="hnx-ghbar-fill ${drumCLevel<30?'crit':drumCLevel<50?'warn':''}" style="width:${drumCLevel}%"></div></div><span class="hnx-ghbar-v">${drumCLevel}%</span></div>
           </div>
-          <div style="margin-top:8px;display:flex;gap:6px"><button class="hnx-btn hnx-btn-c" style="flex:1;padding:7px;font-size:9.5px" onclick="window.switchView && window.switchView('irr_dash')">→ Irrigation</button></div>
+          <div style="margin-top:10px;display:flex;gap:6px"><button class="hnx-btn hnx-btn-c" style="flex:1;padding:7px;font-size:9.5px" onclick="window.switchView && window.switchView('irr_dash')">→ Irrigation</button></div>
         </div>
-        <div class="hnx-w hnx-cube-motion">
+        <div class="hnx-w">
           <div class="hnx-w-h">🧠 AI Brain · ${state.selected}</div>
           <div class="hnx-rlist">
             <div class="hnx-row"><span class="hnx-row-l">🎯 Yield forecast</span><span class="hnx-row-v ok">+${(18+Math.random()*8).toFixed(1)}%</span></div>
@@ -96404,7 +96338,6 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
             <button class="hnx-it-tab on" data-tab="dvrs">📡 DVR Registry</button>
             <button class="hnx-it-tab" data-tab="cameras">📹 Camera Mapping</button>
             <button class="hnx-it-tab" data-tab="locations">📍 Location Map</button>
-            <button class="hnx-it-tab" data-tab="grid">🎬 Command Center Grid</button>
             <button class="hnx-it-tab" data-tab="bridge">🔗 Bridge Config (go2rtc)</button>
             <button class="hnx-it-tab" data-tab="checklist">✅ IT Checklist</button>
             <button class="hnx-it-tab" data-tab="guide">📖 Setup Guide</button>
@@ -96441,7 +96374,6 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       if(state.tab === 'dvrs') panel.innerHTML = drawDvrTab();
       else if(state.tab === 'cameras') panel.innerHTML = drawCameraTab();
       else if(state.tab === 'locations') panel.innerHTML = drawLocationMapTab();
-      else if(state.tab === 'grid') panel.innerHTML = drawGridSetupTab();
       else if(state.tab === 'bridge') panel.innerHTML = drawBridgeTab();
       else if(state.tab === 'checklist') panel.innerHTML = drawChecklistTab();
       else if(state.tab === 'guide') panel.innerHTML = drawGuideTab();
@@ -96679,105 +96611,6 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
           <div style="flex:1"></div>
           <button class="hnx-btn hnx-btn-danger" data-action="clear-all-locs">↺ Clear all manual assignments</button>
         </div>
-      `;
-    }
-  
-    // ============== COMMAND CENTER GRID SETUP TAB (v2.11) ==============
-    function drawGridSetupTab(){
-      const allCams = hnxGetAllCameras();
-      const grid = hnxLoadCctvGrid();
-      const ghList = ['GH1','GH2','GH3','GH4','GH5','GH6','GH7','GH8','GH9','GH10'];
-      const editingGh = state.gridEditingGh || null;
-
-      // Build header with cards for each GH
-      const cardsHtml = ghList.map(g => {
-        const slots = grid[g] || {};
-        const filled = Object.values(slots).filter(v => v).length;
-        const frId = (typeof HNX_GH_TO_FR !== 'undefined') ? (HNX_GH_TO_FR[g]||'—') : '—';
-        const fillPct = Math.round((filled/9)*100);
-        const cls = filled === 9 ? 'ok' : filled > 0 ? 'cy' : 'warn';
-        return `<div class="hnx-w hnx-clickable hnx-cube-motion" style="padding:12px;cursor:pointer;${editingGh===g?'border-color:#80e885;box-shadow:0 0 16px rgba(128,232,133,.3);':''}" data-action="edit-gh-grid" data-gh="${g}">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-            <div style="font-family:Orbitron,sans-serif;font-size:18px;font-weight:800;color:${editingGh===g?'#80e885':'#e6f7fb'};letter-spacing:.05em">${g}</div>
-            <div style="flex:1"></div>
-            <span class="hnx-row-v ${cls}" style="font-size:11px">${filled}/9</span>
-          </div>
-          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.10em;text-transform:uppercase;margin-bottom:8px">→ ${escHtml(frId)}</div>
-          <!-- Mini 3x3 grid preview -->
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-bottom:8px">
-            ${Array.from({length:9},(_,i)=>{
-              const sl = 'slot'+(i+1);
-              const has = slots[sl];
-              return `<div style="aspect-ratio:16/9;background:${has?'rgba(102,187,106,.20)':'rgba(2,8,18,.6)'};border:1px solid ${has?'rgba(102,187,106,.55)':'rgba(77,208,225,.20)'};border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:8px;color:${has?'#80e885':'#6a8ea3'};letter-spacing:.05em">${has?escHtml(has.slice(-3)):''}</div>`;
-            }).join('')}
-          </div>
-          <button class="hnx-btn ${editingGh===g?'hnx-btn-g':'hnx-btn-c'}" style="width:100%;padding:6px;font-size:10px" data-action="edit-gh-grid" data-gh="${g}">${editingGh===g?'✓ Editing':'✎ Configure 9 slots'}</button>
-        </div>`;
-      }).join('');
-
-      // Build editor for selected GH
-      let editorHtml = '';
-      if(editingGh){
-        const slots = grid[editingGh] || {};
-        const frId = (typeof HNX_GH_TO_FR !== 'undefined') ? (HNX_GH_TO_FR[editingGh]||'—') : '—';
-        const camOptions = ['<option value="">— empty —</option>'].concat(
-          allCams.map(c => {
-            const loc = (typeof hnxGetCamLocation === 'function' ? hnxGetCamLocation(c.id) : '') || 'auto';
-            const lbl = c.name || c.location || c.id;
-            return '<option value="' + escHtml(c.id) + '">' + escHtml(c.id) + ' · ' + escHtml(lbl.slice(0,32)) + ' [' + escHtml(loc) + ']</option>';
-          })
-        ).join('');
-
-        editorHtml = `
-          <div class="hnx-w" style="border-color:rgba(102,187,106,.55);background:linear-gradient(180deg,rgba(20,40,30,.4),rgba(2,8,18,.92));margin-top:14px">
-            <div class="hnx-w-h" style="display:flex;align-items:center;gap:10px">
-              <span>🎬 Configuring ${editingGh} (paired with ${escHtml(frId)}) · 9 slot grid</span>
-              <div style="flex:1"></div>
-              <button class="hnx-btn hnx-btn-ghost" data-action="cancel-edit" style="padding:5px 10px;font-size:10px">✕ Close editor</button>
-            </div>
-            <div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#a5d6e6;letter-spacing:.05em;padding:6px 4px 14px">
-              Pick a camera for each of the 9 slots. The 3×3 grid matches what users see in <b>Production → GH Command Center → ${editingGh}</b>. Top row is slots 1-3, middle 4-6, bottom 7-9. The label after each camera name shows its assigned location (or 'auto' if name-detected).
-            </div>
-            <!-- 3x3 slot grid editor -->
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding:6px 4px">
-              ${Array.from({length:9},(_,i)=>{
-                const sl = 'slot'+(i+1);
-                const cur = slots[sl] || '';
-                const cam = allCams.find(c => c.id === cur);
-                const isIrr = cam && hnxIsIrrCam(cam);
-                return `<div style="border:1px solid ${cur?(isIrr?'rgba(77,208,225,.55)':'rgba(102,187,106,.55)'):'rgba(77,208,225,.25)'};border-radius:8px;padding:10px;background:${cur?'rgba(2,12,22,.85)':'rgba(2,8,18,.55)'}">
-                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-                    <div style="font-family:Orbitron,sans-serif;font-size:11px;font-weight:800;color:#80deea;letter-spacing:.08em">SLOT ${i+1}</div>
-                    <div style="flex:1"></div>
-                    <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.10em;color:${cur?(isIrr?'#80deea':'#80e885'):'#6a8ea3'};text-transform:uppercase">${cur?(isIrr?'🟦 IRR':'🟩 GH'):'empty'}</div>
-                  </div>
-                  <select class="hnx-cell hnx-slot-sel" data-gh="${editingGh}" data-slot="${sl}" style="width:100%;padding:6px 8px;font-size:11px">${camOptions.replace('value="'+cur+'"', 'value="'+cur+'" selected')}</select>
-                  ${cur && cam ? '<div style="font-family:\'JetBrains Mono\',monospace;font-size:9.5px;color:#a5d6e6;margin-top:6px;letter-spacing:.05em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📺 ' + escHtml(cam.name || cam.id) + '</div>' : ''}
-                </div>`;
-              }).join('')}
-            </div>
-            <div style="display:flex;gap:8px;padding:14px 4px 4px;border-top:1px dashed rgba(77,208,225,.25);margin-top:8px">
-              <button class="hnx-btn hnx-btn-c" data-action="auto-fill-grid" data-gh="${editingGh}">⚡ Auto-fill from Location Map</button>
-              <button class="hnx-btn hnx-btn-ghost" data-action="clear-gh-grid" data-gh="${editingGh}">↺ Clear all slots</button>
-              <div style="flex:1"></div>
-              <button class="hnx-btn hnx-btn-g" data-action="save-gh-grid" data-gh="${editingGh}">✓ Save & view in Command Center</button>
-            </div>
-          </div>
-        `;
-      }
-
-      return `
-        <div class="hnx-banner">
-          <div class="hnx-banner-i">🎬</div>
-          <div>
-            <div class="hnx-banner-t">COMMAND CENTER GRID · CCTV slot assignments per GH+FR pair</div>
-            <div class="hnx-banner-s">For each GH, assign which camera shows in each of the 9 slots in the GH Command Center 3×3 grid. <b>Click any GH card below to configure its slots.</b> If no slots are explicitly set for a GH, the system auto-fills using the Location Map. Explicit slot assignments OVERRIDE auto-fill.</div>
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:14px">
-          ${cardsHtml}
-        </div>
-        ${editorHtml}
       `;
     }
   
@@ -97048,53 +96881,6 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
           return text.includes(p);
         });
       }
-
-      // ============== COMMAND CENTER GRID handlers (v2.11) ==============
-      panel.querySelectorAll('[data-action="edit-gh-grid"]').forEach(b => b.addEventListener('click', (e) => {
-        e.stopPropagation();
-        state.gridEditingGh = b.dataset.gh;
-        drawPanel();
-      }));
-      panel.querySelectorAll('[data-action="cancel-edit"]').forEach(b => b.addEventListener('click', () => {
-        state.gridEditingGh = null;
-        drawPanel();
-      }));
-      panel.querySelectorAll('.hnx-slot-sel').forEach(sel => sel.addEventListener('change', () => {
-        const gh = sel.dataset.gh;
-        const slot = sel.dataset.slot;
-        const slots = hnxGetGhSlots(gh);
-        slots[slot] = sel.value || null;
-        hnxSetGhSlots(gh, slots);
-        toast(slot + ' → ' + (sel.value || 'empty'));
-      }));
-      panel.querySelectorAll('[data-action="auto-fill-grid"]').forEach(b => b.addEventListener('click', () => {
-        const gh = b.dataset.gh;
-        const cams = hnxCamerasForGh(gh); // uses auto-detect since explicit slots aren't all set yet
-        const slots = {};
-        for(let i=1; i<=9; i++){
-          slots['slot'+i] = (cams[i-1] && !cams[i-1].empty) ? cams[i-1].id : null;
-        }
-        hnxSetGhSlots(gh, slots);
-        drawPanel();
-        toast('Auto-filled ' + gh + ' from Location Map');
-      }));
-      panel.querySelectorAll('[data-action="clear-gh-grid"]').forEach(b => b.addEventListener('click', () => {
-        const gh = b.dataset.gh;
-        if(!confirm('Clear all 9 slot assignments for ' + gh + '? Falls back to auto-detect.')) return;
-        const g = hnxLoadCctvGrid();
-        delete g[gh];
-        hnxSaveCctvGrid(g);
-        drawPanel();
-        toast('Cleared ' + gh + ' slot assignments');
-      }));
-      panel.querySelectorAll('[data-action="save-gh-grid"]').forEach(b => b.addEventListener('click', () => {
-        const gh = b.dataset.gh;
-        // Force GH Command Center to re-render with new assignments next time it's viewed
-        if(window._hnxGhcState) window._hnxGhcState.selected = gh;
-        toast('Saved · open Production → GH Command Center → ' + gh + ' to see it live');
-        state.gridEditingGh = null;
-        drawPanel();
-      }));
 
       // DVR actions
       panel.querySelectorAll('[data-action="add-dvr"]').forEach(b => b.addEventListener('click', () => editDvr(-1)));
@@ -99045,28 +98831,6 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       return isTech || isFr;
     });
   }
-  // ==== CCTV Command Center Grid storage (v2.11) ====
-  // Stores explicit camera-to-slot assignment per GH (9 slots in the 3x3 grid)
-  // Falls back to auto-detect if no slot assignments
-  const HNX_CCTV_GRID_KEY = 'hydroPro_cctv_grid_v1';
-  function hnxLoadCctvGrid(){
-    try{ const s = localStorage.getItem(HNX_CCTV_GRID_KEY); if(s) return JSON.parse(s); }catch(e){}
-    return {};
-  }
-  function hnxSaveCctvGrid(map){ try{ localStorage.setItem(HNX_CCTV_GRID_KEY, JSON.stringify(map)); }catch(e){} }
-  function hnxGetGhSlots(ghId){
-    const g = hnxLoadCctvGrid();
-    return g[ghId] || { slot1:null, slot2:null, slot3:null, slot4:null, slot5:null, slot6:null, slot7:null, slot8:null, slot9:null };
-  }
-  function hnxSetGhSlots(ghId, slots){
-    const g = hnxLoadCctvGrid();
-    g[ghId] = slots;
-    hnxSaveCctvGrid(g);
-  }
-  function hnxGhHasExplicitSlots(ghId){
-    const s = hnxGetGhSlots(ghId);
-    return Object.values(s).some(v => v && v.trim());
-  }
   function hnxAllOpenCalls(){
     const closedSet = ['closed_fixed','closed_finalize','closed_cant_fix','cancelled','closed'];
     try{
@@ -99074,255 +98838,6 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       return calls.filter(c => !closedSet.includes((c.status||'').toLowerCase()));
     }catch(e){ return []; }
   }
-
-  // ==================================================================
-  // CUBE IMAGERY · v2.9 · Inline animated SVG illustrations per cube type
-  // ==================================================================
-  function hnxCubeImagery(type){
-    const svgs = {
-      production: `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <radialGradient id="hnxLeafGrad" cx="50%" cy="40%">
-            <stop offset="0%" stop-color="#a5d6a7"/>
-            <stop offset="100%" stop-color="#388e3c"/>
-          </radialGradient>
-        </defs>
-        <!-- Sun rays in background -->
-        <g opacity="0.4">
-          ${Array.from({length:8},(_,i)=>{const a=i*45;return `<line x1="100" y1="100" x2="${100+Math.cos(a*Math.PI/180)*85}" y2="${100+Math.sin(a*Math.PI/180)*85}" stroke="#ffca52" stroke-width="1" stroke-dasharray="2 3" opacity="0.5"/>`;}).join('')}
-        </g>
-        <!-- Lettuce head with multiple swaying leaves -->
-        <g class="hnx-svg-leaf-2">
-          <path d="M100 185 Q60 130 50 95 Q45 75 60 65 Q85 60 105 80 Q110 115 100 185" fill="url(#hnxLeafGrad)" opacity="0.95"/>
-          <path d="M70 110 Q65 95 75 90" stroke="#1b5e20" stroke-width="1.5" fill="none" opacity="0.6"/>
-        </g>
-        <g class="hnx-svg-leaf-1">
-          <path d="M100 185 Q100 135 95 100 Q90 75 110 75 Q130 80 125 105 Q115 150 100 185" fill="#66bb6a" opacity="0.95"/>
-          <path d="M105 110 Q105 90 110 85" stroke="#1b5e20" stroke-width="1.5" fill="none" opacity="0.6"/>
-        </g>
-        <g class="hnx-svg-leaf-3">
-          <path d="M100 185 Q140 130 150 95 Q155 75 140 65 Q115 60 95 80 Q90 115 100 185" fill="url(#hnxLeafGrad)" opacity="0.95"/>
-          <path d="M130 110 Q135 95 125 90" stroke="#1b5e20" stroke-width="1.5" fill="none" opacity="0.6"/>
-        </g>
-        <g class="hnx-svg-leaf-2">
-          <path d="M100 185 Q80 155 70 135 Q65 122 80 118 Q92 120 95 138 Q98 162 100 185" fill="#81c784" opacity="0.9"/>
-        </g>
-        <g class="hnx-svg-leaf-1">
-          <path d="M100 185 Q120 155 130 135 Q135 122 120 118 Q108 120 105 138 Q102 162 100 185" fill="#81c784" opacity="0.9"/>
-        </g>
-        <!-- Center heart -->
-        <ellipse cx="100" cy="125" rx="14" ry="9" fill="#c8e6c9" opacity="0.7"/>
-        <ellipse cx="100" cy="125" rx="6" ry="4" fill="#fff9c4" opacity="0.9"/>
-        <!-- Base/stem -->
-        <ellipse cx="100" cy="185" rx="18" ry="5" fill="#558b2f" opacity="0.9"/>
-      </svg>`,
-      tech: `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <radialGradient id="hnxGearGrad" cx="50%" cy="50%">
-            <stop offset="0%" stop-color="#84fff9"/>
-            <stop offset="100%" stop-color="#00838f"/>
-          </radialGradient>
-        </defs>
-        <!-- Large gear -->
-        <g class="hnx-svg-gear-1" transform="translate(120 100)">
-          <g>
-            ${Array.from({length:10},(_,i)=>{const a=i*36;return `<rect x="-7" y="-50" width="14" height="14" transform="rotate(${a})" fill="url(#hnxGearGrad)" opacity="0.9"/>`;}).join('')}
-            <circle r="42" fill="#0288d1" opacity="0.85"/>
-            <circle r="42" fill="none" stroke="#80deea" stroke-width="3"/>
-            <circle r="20" fill="#02080f" opacity="0.9"/>
-            <circle r="20" fill="none" stroke="#84fff9" stroke-width="2"/>
-            <circle r="6" fill="#84fff9"/>
-            <!-- Spokes -->
-            ${Array.from({length:6},(_,i)=>{const a=i*60;return `<line x1="0" y1="0" x2="${Math.cos(a*Math.PI/180)*38}" y2="${Math.sin(a*Math.PI/180)*38}" stroke="#80deea" stroke-width="2" opacity="0.7"/>`;}).join('')}
-          </g>
-        </g>
-        <!-- Small gear -->
-        <g class="hnx-svg-gear-2" transform="translate(55 145)">
-          <g>
-            ${Array.from({length:8},(_,i)=>{const a=i*45;return `<rect x="-5" y="-32" width="10" height="10" transform="rotate(${a})" fill="#84fff9" opacity="0.85"/>`;}).join('')}
-            <circle r="26" fill="#0277bd" opacity="0.85"/>
-            <circle r="26" fill="none" stroke="#84fff9" stroke-width="2"/>
-            <circle r="11" fill="#02080f" opacity="0.9"/>
-            <circle r="11" fill="none" stroke="#80deea" stroke-width="1.5"/>
-            <circle r="3" fill="#80deea"/>
-          </g>
-        </g>
-        <!-- Wrench -->
-        <g transform="translate(30 55) rotate(-30)" opacity="0.85">
-          <rect x="0" y="0" width="58" height="12" fill="#b0bec5" rx="2"/>
-          <rect x="0" y="0" width="58" height="3" fill="#eceff1" rx="2"/>
-          <circle cx="0" cy="6" r="11" fill="#b0bec5"/>
-          <circle cx="0" cy="6" r="5" fill="#02080f"/>
-          <circle cx="58" cy="6" r="9" fill="#b0bec5"/>
-          <rect x="51" y="2" width="14" height="8" fill="#b0bec5"/>
-          <rect x="55" y="4" width="6" height="4" fill="#02080f"/>
-        </g>
-        <!-- Warning sparks -->
-        <g class="hnx-svg-neuron" transform="translate(170 40)">
-          <polygon points="0,-6 2,-2 6,-2 3,1 4,5 0,3 -4,5 -3,1 -6,-2 -2,-2" fill="#ffca52"/>
-        </g>
-      </svg>`,
-      irrigation: `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="hnxPoolGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="#4fc3f7"/>
-            <stop offset="100%" stop-color="#0277bd"/>
-          </linearGradient>
-        </defs>
-        <!-- Pipe at top -->
-        <rect x="10" y="15" width="180" height="18" fill="#90a4ae" rx="4" opacity="0.9"/>
-        <rect x="10" y="15" width="180" height="6" fill="#cfd8dc" rx="2" opacity="0.85"/>
-        <!-- Nozzles -->
-        <rect x="40" y="33" width="14" height="18" fill="#78909c" opacity="0.9" rx="2"/>
-        <rect x="93" y="33" width="14" height="18" fill="#78909c" opacity="0.9" rx="2"/>
-        <rect x="146" y="33" width="14" height="18" fill="#78909c" opacity="0.9" rx="2"/>
-        <!-- Falling drops -->
-        <g class="hnx-svg-drop-1">
-          <path d="M47 60 Q40 75 47 88 Q54 75 47 60" fill="#4fc3f7"/>
-          <ellipse cx="47" cy="78" rx="3" ry="6" fill="#fff" opacity="0.6"/>
-        </g>
-        <g class="hnx-svg-drop-2">
-          <path d="M100 60 Q93 75 100 88 Q107 75 100 60" fill="#29b6f6"/>
-          <ellipse cx="100" cy="78" rx="3" ry="6" fill="#fff" opacity="0.6"/>
-        </g>
-        <g class="hnx-svg-drop-3">
-          <path d="M153 60 Q146 75 153 88 Q160 75 153 60" fill="#4fc3f7"/>
-          <ellipse cx="153" cy="78" rx="3" ry="6" fill="#fff" opacity="0.6"/>
-        </g>
-        <g class="hnx-svg-drop-4">
-          <path d="M73 60 Q66 75 73 88 Q80 75 73 60" fill="#29b6f6"/>
-        </g>
-        <g class="hnx-svg-drop-1">
-          <path d="M127 60 Q120 75 127 88 Q134 75 127 60" fill="#4fc3f7"/>
-        </g>
-        <!-- Pool with waves -->
-        <path class="hnx-svg-wave" d="M-30 150 Q10 144 50 150 T130 150 T210 150 T290 150 L290 200 L-30 200 Z" fill="url(#hnxPoolGrad)" opacity="0.85"/>
-        <path class="hnx-svg-wave" d="M-30 158 Q10 154 50 158 T130 158 T210 158 T290 158 L290 200 L-30 200 Z" fill="#0288d1" opacity="0.9"/>
-        <!-- Pool surface highlights -->
-        <ellipse cx="60" cy="155" rx="20" ry="3" fill="#fff" opacity="0.3"/>
-        <ellipse cx="140" cy="155" rx="15" ry="2" fill="#fff" opacity="0.25"/>
-      </svg>`,
-      drums: `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="hnxDrumLiq" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="#4fc3f7"/>
-            <stop offset="100%" stop-color="#01579b"/>
-          </linearGradient>
-        </defs>
-        <!-- 3 drums side by side with animated liquid + labels -->
-        ${[
-          {x:20, h:90, lbl:'A', col:'#80e885'},
-          {x:80, h:70, lbl:'B', col:'#80deea'},
-          {x:140, h:50, lbl:'C', col:'#ffca52'}
-        ].map(d=>{
-          const fillY = 175 - d.h;
-          return `<g>
-            <!-- Drum body -->
-            <rect x="${d.x}" y="35" width="40" height="140" fill="#37474f" opacity="0.9" rx="4"/>
-            <rect x="${d.x+2}" y="35" width="36" height="140" fill="none" stroke="${d.col}" stroke-width="2" rx="3"/>
-            <!-- Lid -->
-            <ellipse cx="${d.x+20}" cy="35" rx="20" ry="6" fill="#546e7a" opacity="0.95"/>
-            <ellipse cx="${d.x+20}" cy="35" rx="20" ry="6" fill="none" stroke="${d.col}" stroke-width="2"/>
-            <!-- Liquid fill -->
-            <rect x="${d.x+2}" y="${fillY}" width="36" height="${175-fillY-2}" fill="url(#hnxDrumLiq)" opacity="0.95" rx="2"/>
-            <!-- Liquid wave at top -->
-            <path class="hnx-svg-wave" d="M${d.x+2} ${fillY} Q${d.x+10} ${fillY-3} ${d.x+20} ${fillY} T${d.x+38} ${fillY} L${d.x+38} ${fillY+4} L${d.x+2} ${fillY+4} Z" fill="#4fc3f7" opacity="0.9"/>
-            <!-- Bubbles -->
-            <circle class="hnx-svg-neuron" cx="${d.x+10}" cy="${fillY+30}" r="3" fill="#fff" opacity="0.5"/>
-            <circle class="hnx-svg-neuron" cx="${d.x+28}" cy="${fillY+50}" r="2" fill="#fff" opacity="0.6"/>
-            <!-- Label -->
-            <text x="${d.x+20}" y="${d.x===20?107:d.x===80?107:107}" text-anchor="middle" font-family="Orbitron, sans-serif" font-size="22" font-weight="800" fill="${d.col}" opacity="0.95">${d.lbl}</text>
-          </g>`;
-        }).join('')}
-      </svg>`,
-      brain: `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <radialGradient id="hnxBrainCore" cx="50%" cy="50%">
-            <stop offset="0%" stop-color="#fff"/>
-            <stop offset="30%" stop-color="#84fff9"/>
-            <stop offset="100%" stop-color="#0277bd"/>
-          </radialGradient>
-        </defs>
-        <!-- Outer ring -->
-        <circle cx="100" cy="100" r="78" fill="none" stroke="#80deea" stroke-width="1" stroke-dasharray="3 5" opacity="0.5"/>
-        <!-- Synapses -->
-        <line class="hnx-svg-synapse" x1="40" y1="50" x2="100" y2="100" stroke="#80deea" stroke-width="2" opacity="0.7"/>
-        <line class="hnx-svg-synapse" x1="160" y1="50" x2="100" y2="100" stroke="#84fff9" stroke-width="2" opacity="0.7"/>
-        <line class="hnx-svg-synapse" x1="40" y1="150" x2="100" y2="100" stroke="#80e885" stroke-width="2" opacity="0.7"/>
-        <line class="hnx-svg-synapse" x1="160" y1="150" x2="100" y2="100" stroke="#80deea" stroke-width="2" opacity="0.7"/>
-        <line class="hnx-svg-synapse" x1="40" y1="50" x2="40" y2="150" stroke="#84fff9" stroke-width="2" opacity="0.5"/>
-        <line class="hnx-svg-synapse" x1="160" y1="50" x2="160" y2="150" stroke="#80e885" stroke-width="2" opacity="0.5"/>
-        <line class="hnx-svg-synapse" x1="100" y1="25" x2="100" y2="100" stroke="#80deea" stroke-width="2" opacity="0.6"/>
-        <line class="hnx-svg-synapse" x1="100" y1="175" x2="100" y2="100" stroke="#84fff9" stroke-width="2" opacity="0.6"/>
-        <line class="hnx-svg-synapse" x1="40" y1="50" x2="160" y2="150" stroke="#80deea" stroke-width="1" opacity="0.3"/>
-        <line class="hnx-svg-synapse" x1="160" y1="50" x2="40" y2="150" stroke="#84fff9" stroke-width="1" opacity="0.3"/>
-        <!-- Neurons -->
-        <circle class="hnx-svg-neuron" cx="40" cy="50" r="7" fill="#80deea"/>
-        <circle class="hnx-svg-neuron" cx="160" cy="50" r="7" fill="#84fff9"/>
-        <circle class="hnx-svg-neuron" cx="40" cy="150" r="7" fill="#80e885"/>
-        <circle class="hnx-svg-neuron" cx="160" cy="150" r="7" fill="#80deea"/>
-        <circle class="hnx-svg-neuron" cx="100" cy="25" r="6" fill="#84fff9"/>
-        <circle class="hnx-svg-neuron" cx="100" cy="175" r="6" fill="#80e885"/>
-        <!-- Central core -->
-        <circle cx="100" cy="100" r="22" fill="url(#hnxBrainCore)" opacity="0.95"/>
-        <circle cx="100" cy="100" r="12" fill="#fff" opacity="0.7"/>
-        <circle cx="100" cy="100" r="5" fill="#fff"/>
-        <!-- Orbiting particle (additional motion) -->
-        <circle cx="100" cy="100" r="4" fill="#fff" opacity="0.9">
-          <animateTransform attributeName="transform" type="rotate" from="0 100 100" to="360 100 100" dur="6s" repeatCount="indefinite"/>
-          <animate attributeName="cx" values="100;145;100;55;100" dur="6s" repeatCount="indefinite"/>
-        </circle>
-      </svg>`,
-      activity: `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-        <!-- Vertical timeline with severity dots -->
-        <line x1="100" y1="20" x2="100" y2="180" stroke="#80deea" stroke-width="2" opacity="0.6"/>
-        <line x1="100" y1="20" x2="100" y2="180" stroke="#84fff9" stroke-width="1" opacity="0.4" stroke-dasharray="4 4"/>
-        <!-- Severity dots with glow -->
-        <g class="hnx-svg-act-dot">
-          <circle cx="100" cy="40" r="11" fill="#ff7a78" opacity="0.3"/>
-          <circle cx="100" cy="40" r="6" fill="#ff7a78" opacity="0.95"/>
-        </g>
-        <g class="hnx-svg-act-dot">
-          <circle cx="100" cy="80" r="11" fill="#ffca52" opacity="0.3"/>
-          <circle cx="100" cy="80" r="6" fill="#ffca52" opacity="0.95"/>
-        </g>
-        <g class="hnx-svg-act-dot">
-          <circle cx="100" cy="120" r="11" fill="#80deea" opacity="0.3"/>
-          <circle cx="100" cy="120" r="6" fill="#80deea" opacity="0.95"/>
-        </g>
-        <g class="hnx-svg-act-dot">
-          <circle cx="100" cy="160" r="11" fill="#80e885" opacity="0.3"/>
-          <circle cx="100" cy="160" r="6" fill="#80e885" opacity="0.95"/>
-        </g>
-        <!-- Side branches -->
-        <line x1="100" y1="40" x2="135" y2="40" stroke="#ff7a78" stroke-width="1.5" opacity="0.7"/>
-        <line x1="100" y1="80" x2="135" y2="80" stroke="#ffca52" stroke-width="1.5" opacity="0.7"/>
-        <line x1="100" y1="120" x2="65" y2="120" stroke="#80deea" stroke-width="1.5" opacity="0.7"/>
-        <line x1="100" y1="160" x2="65" y2="160" stroke="#80e885" stroke-width="1.5" opacity="0.7"/>
-      </svg>`
-    };
-    return svgs[type] || '';
-  }
-  function hnxApplyCubeImagery(){
-    // After GH Command Center renders, inject SVG backgrounds into each cube
-    try{
-      const left = document.getElementById('hnxGhcLeft');
-      const right = document.getElementById('hnxGhcRight');
-      if(left){
-        const cubes = left.querySelectorAll('.hnx-w');
-        if(cubes[0] && !cubes[0].querySelector('.hnx-cube-bg')){ cubes[0].classList.add('hnx-cube-imagery'); cubes[0].insertAdjacentHTML('afterbegin', '<div class="hnx-cube-bg">' + hnxCubeImagery('production') + '</div>'); }
-        if(cubes[1] && !cubes[1].querySelector('.hnx-cube-bg')){ cubes[1].classList.add('hnx-cube-imagery'); cubes[1].insertAdjacentHTML('afterbegin', '<div class="hnx-cube-bg">' + hnxCubeImagery('tech') + '</div>'); }
-        if(cubes[2] && !cubes[2].querySelector('.hnx-cube-bg')){ cubes[2].classList.add('hnx-cube-imagery'); cubes[2].insertAdjacentHTML('afterbegin', '<div class="hnx-cube-bg">' + hnxCubeImagery('activity') + '</div>'); }
-      }
-      if(right){
-        const cubes = right.querySelectorAll('.hnx-w');
-        if(cubes[0] && !cubes[0].querySelector('.hnx-cube-bg')){ cubes[0].classList.add('hnx-cube-imagery'); cubes[0].insertAdjacentHTML('afterbegin', '<div class="hnx-cube-bg">' + hnxCubeImagery('irrigation') + '</div>'); }
-        // Drum cube (cubes[1]) is now self-illustrating with inline drum visualization · skip background imagery
-        if(cubes[2] && !cubes[2].querySelector('.hnx-cube-bg')){ cubes[2].classList.add('hnx-cube-imagery'); cubes[2].insertAdjacentHTML('afterbegin', '<div class="hnx-cube-bg">' + hnxCubeImagery('brain') + '</div>'); }
-      }
-    }catch(e){ console.warn('[HNX-Ext] cube imagery error', e); }
-  }
-  window.hnxApplyCubeImagery = hnxApplyCubeImagery;
 
   // ==================================================================
   // BULLETPROOF BRAIN INJECTION
@@ -99478,8 +98993,8 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
           <!-- Status marquee strip -->
           <div class="hnx-marquee-wrap" style="margin:8px 14px 14px;border-radius:6px;padding:6px 0;position:relative;z-index:2;background:rgba(0,131,143,.10)">
             <div class="hnx-marquee" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#a5d6e6;letter-spacing:.10em;padding:0 30px">
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.12</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.12</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.7</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.7</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
             </div>
           </div>
           <!-- Pair selector -->
@@ -100977,300 +100492,6 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 .hnx-param-unit{font-size:11px;color:#6a8ea3;font-weight:500;margin-left:3px}
 .hnx-param-target{font-family:'JetBrains Mono',monospace;font-size:9px;color:#6a8ea3;letter-spacing:.10em;margin-top:3px}
 .hnx-param-dev{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;margin-top:1px}
-/* === HNX-EXT v2.12 · VERTICAL FILLING DRUMS === */
-.hnx-drum-cube { padding-bottom: 10px; }
-.hnx-drum-grid {
-  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;
-  padding: 16px 8px 8px;
-}
-.hnx-drum-cell {
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  position: relative; z-index: 2;
-}
-.hnx-drum-vis {
-  position: relative; width: 56px; height: 140px;
-  border: 2px solid rgba(102,187,106,.55);
-  border-top: none;
-  border-radius: 0 0 14px 14px;
-  background: linear-gradient(180deg, rgba(2,18,28,.4), rgba(2,12,22,.85));
-  overflow: hidden;
-  box-shadow: 0 0 14px rgba(102,187,106,.18), inset 0 0 12px rgba(2,8,18,.6);
-}
-.hnx-drum-vis::before {
-  content: ''; position: absolute;
-  top: -7px; left: -2px; right: -2px;
-  height: 14px;
-  border: 2px solid rgba(102,187,106,.55);
-  border-radius: 50%;
-  background: linear-gradient(180deg, rgba(102,187,106,.10), rgba(2,18,28,.65));
-  z-index: 3;
-}
-.hnx-drum-vis::after {
-  content: ''; position: absolute;
-  bottom: 4px; left: 6px; right: 6px;
-  height: 4px;
-  border-radius: 50%;
-  background: rgba(102,187,106,.15);
-  pointer-events: none;
-}
-.hnx-drum-liquid {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  background: linear-gradient(180deg, #4fc3f7 0%, #0288d1 50%, #01579b 100%);
-  transition: height 1s cubic-bezier(.4,1.5,.6,1);
-  box-shadow: inset 0 4px 8px rgba(255,255,255,.15), inset 0 -4px 6px rgba(0,0,0,.3);
-}
-.hnx-drum-liquid::before {
-  content: ''; position: absolute;
-  top: -2px; left: -3px; right: -3px;
-  height: 6px;
-  background: linear-gradient(180deg, rgba(255,255,255,.4), rgba(132,255,249,.6), rgba(2,40,80,.4));
-  border-radius: 50%;
-  animation: hnxLiquidWaveV 2.8s ease-in-out infinite;
-}
-.hnx-drum-liquid::after {
-  content: ''; position: absolute;
-  top: -4px; left: 0; right: 0;
-  height: 12px;
-  background: repeating-linear-gradient(90deg, transparent, transparent 8px, rgba(255,255,255,.18) 8px, rgba(255,255,255,.18) 14px);
-  animation: hnxWaveShift 3s linear infinite;
-  opacity: .5;
-}
-@keyframes hnxLiquidWaveV {
-  0%, 100% { transform: scaleY(1) translateX(0); }
-  50% { transform: scaleY(.7) translateX(-4px); }
-}
-@keyframes hnxWaveShift {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-14px); }
-}
-.hnx-drum-liquid.warn { background: linear-gradient(180deg, #ffd54f 0%, #ff9800 50%, #e65100 100%); }
-.hnx-drum-liquid.crit { background: linear-gradient(180deg, #ff8a80 0%, #f44336 50%, #b71c1c 100%); }
-.hnx-drum-bubble {
-  position: absolute;
-  width: 5px; height: 5px;
-  background: radial-gradient(circle, rgba(255,255,255,.9), rgba(255,255,255,.3));
-  border-radius: 50%;
-  bottom: 0;
-  animation: hnxDrumBubble 3.5s ease-in infinite;
-  pointer-events: none;
-  z-index: 1;
-}
-@keyframes hnxDrumBubble {
-  0% { bottom: 0; opacity: 0; transform: scale(.5); }
-  10% { opacity: .8; transform: scale(1); }
-  90% { opacity: .6; }
-  100% { bottom: 95%; opacity: 0; transform: scale(1.4); }
-}
-.hnx-drum-info { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.hnx-drum-label {
-  font-family: Orbitron, sans-serif; font-weight: 800; font-size: 22px;
-  color: #80e885; letter-spacing: .08em; line-height: 1;
-  text-shadow: 0 0 12px rgba(128,232,133,.6);
-}
-.hnx-drum-value {
-  font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700;
-  color: #80deea; letter-spacing: .04em;
-}
-.hnx-drum-value.warn { color: #ffca52; }
-.hnx-drum-value.crit { color: #ff7a78; }
-
-/* === HNX-EXT v2.12 · BOLD VISIBLE THEMATIC IMAGERY === */
-.hnx-cube-imagery { position: relative; overflow: hidden; min-height: 180px; }
-.hnx-cube-imagery > .hnx-cube-bg {
-  position: absolute; inset: 0;
-  pointer-events: none; z-index: 0;
-  opacity: 0.45;
-  display: flex; align-items: center; justify-content: flex-end;
-  padding: 8px 12px;
-}
-.hnx-cube-imagery > .hnx-cube-bg svg {
-  width: 78%; max-width: 220px; height: auto; max-height: 200px;
-  filter: drop-shadow(0 0 22px rgba(132,255,249,.55));
-}
-/* Subtle gradient overlay behind text for readability */
-.hnx-cube-imagery::before {
-  content: ''; position: absolute; inset: 0;
-  background: linear-gradient(90deg, rgba(2,8,18,.85) 0%, rgba(2,8,18,.55) 45%, rgba(2,8,18,0) 100%);
-  pointer-events: none; z-index: 0;
-}
-.hnx-cube-imagery > .hnx-w-h,
-.hnx-cube-imagery > .hnx-rlist,
-.hnx-cube-imagery > .hnx-ghbars,
-.hnx-cube-imagery > div:not(.hnx-cube-bg) { position: relative; z-index: 2; }
-.hnx-cube-imagery .hnx-w-h { position: relative; z-index: 2; }
-/* === HNX-EXT v2.12 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
-/* Production: Lettuce leaves sway */
-@keyframes hnxLettuceSway {
-  0%, 100% { transform: rotate(-3deg); }
-  50% { transform: rotate(3deg); }
-}
-@keyframes hnxLettuceSway2 {
-  0%, 100% { transform: rotate(4deg); }
-  50% { transform: rotate(-4deg); }
-}
-.hnx-svg-leaf-1 { transform-origin: 50% 100%; animation: hnxLettuceSway 4s ease-in-out infinite; }
-.hnx-svg-leaf-2 { transform-origin: 50% 100%; animation: hnxLettuceSway2 5s ease-in-out infinite; }
-.hnx-svg-leaf-3 { transform-origin: 50% 100%; animation: hnxLettuceSway 3.5s ease-in-out infinite .5s; }
-/* Tech: Gear rotation */
-@keyframes hnxGearSpin { 0% { transform: rotate(0); } 100% { transform: rotate(360deg); } }
-@keyframes hnxGearSpinRev { 0% { transform: rotate(0); } 100% { transform: rotate(-360deg); } }
-.hnx-svg-gear-1 { transform-origin: 60% 50%; animation: hnxGearSpin 14s linear infinite; }
-.hnx-svg-gear-2 { transform-origin: 30% 70%; animation: hnxGearSpinRev 18s linear infinite; }
-/* Irrigation: Water drops */
-@keyframes hnxDropFall {
-  0% { transform: translateY(-30px); opacity: 0; }
-  20% { opacity: 1; }
-  80% { opacity: 1; }
-  100% { transform: translateY(80px); opacity: 0; }
-}
-.hnx-svg-drop-1 { animation: hnxDropFall 2s ease-in infinite; }
-.hnx-svg-drop-2 { animation: hnxDropFall 2.4s ease-in infinite .5s; }
-.hnx-svg-drop-3 { animation: hnxDropFall 1.8s ease-in infinite 1s; }
-.hnx-svg-drop-4 { animation: hnxDropFall 2.2s ease-in infinite 1.5s; }
-/* Drum: Liquid wave */
-@keyframes hnxLiquidWave {
-  0%, 100% { transform: translateX(0); }
-  50% { transform: translateX(-12px); }
-}
-.hnx-svg-wave { animation: hnxLiquidWave 3s ease-in-out infinite; }
-/* AI Brain: Neural network pulse */
-@keyframes hnxBrainPulse {
-  0%, 100% { opacity: 0.4; r: 4; }
-  50% { opacity: 1; r: 6; }
-}
-@keyframes hnxBrainDash {
-  0% { stroke-dashoffset: 20; }
-  100% { stroke-dashoffset: 0; }
-}
-.hnx-svg-neuron { animation: hnxBrainPulse 1.8s ease-in-out infinite; }
-.hnx-svg-neuron:nth-child(odd) { animation-delay: .3s; }
-.hnx-svg-neuron:nth-child(3n) { animation-delay: .9s; }
-.hnx-svg-synapse { stroke-dasharray: 4 4; animation: hnxBrainDash 1.5s linear infinite; }
-/* Activity: Pulsing dots on timeline */
-@keyframes hnxActivityPulse {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.3); }
-}
-.hnx-svg-act-dot { transform-origin: center; animation: hnxActivityPulse 2s ease-in-out infinite; }
-.hnx-svg-act-dot:nth-child(2) { animation-delay: .4s; }
-.hnx-svg-act-dot:nth-child(3) { animation-delay: .8s; }
-.hnx-svg-act-dot:nth-child(4) { animation-delay: 1.2s; }
-
-/* === HNX-EXT v2.12 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
-/* CCTV cell motion enhancements — corner brackets, double scan, breathing border */
-.hnx-cctv-motion { animation: hnxCellPulse 4s ease-in-out infinite; }
-@keyframes hnxCellPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(132,255,249,.0), inset 0 0 0 1px rgba(132,255,249,.0); }
-  50% { box-shadow: 0 0 16px rgba(132,255,249,.20), inset 0 0 0 1px rgba(132,255,249,.18); }
-}
-.hnx-cctv-motion.empty { animation: none; }
-.hnx-cctv-scanline-2 { position:absolute; left:0; right:0; height:1px; background: linear-gradient(90deg, transparent, rgba(102,187,106,.6), transparent); animation: hnxScan2 8s linear infinite; pointer-events:none; z-index:1; opacity:.55; }
-@keyframes hnxScan2 { 0% { top:100% } 100% { top:-2px } }
-.hnx-cctv-bracket { position:absolute; width:14px; height:14px; border-color:rgba(132,255,249,.8); border-style:solid; pointer-events:none; z-index:3; animation: hnxBracketPulse 2.5s ease-in-out infinite; }
-.hnx-cctv-bracket.br-tl { top:4px; left:4px; border-width: 2px 0 0 2px; }
-.hnx-cctv-bracket.br-tr { top:4px; right:4px; border-width: 2px 2px 0 0; animation-delay: .3s; }
-.hnx-cctv-bracket.br-bl { bottom:4px; left:4px; border-width: 0 0 2px 2px; animation-delay: .6s; }
-.hnx-cctv-bracket.br-br { bottom:4px; right:4px; border-width: 0 2px 2px 0; animation-delay: .9s; }
-@keyframes hnxBracketPulse { 0%, 100% { opacity:.4; transform:scale(1); } 50% { opacity:1; transform:scale(1.15); } }
-.hnx-cctv-target { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:60px; height:60px; pointer-events:none; z-index:1; opacity:.18; }
-.hnx-cctv-target-x, .hnx-cctv-target-y { position:absolute; background:rgba(132,255,249,.7); }
-.hnx-cctv-target-x { top:50%; left:0; right:0; height:1px; transform:translateY(-50%); }
-.hnx-cctv-target-y { left:50%; top:0; bottom:0; width:1px; transform:translateX(-50%); }
-.hnx-cctv-target::before { content:''; position:absolute; inset:25%; border:1px dashed rgba(132,255,249,.5); border-radius:50%; animation: hnxCoreSpin 8s linear infinite; }
-/* Data cube motion - applied to .hnx-w cards in brain/command views */
-.hnx-cube-motion {
-  position: relative;
-  overflow: hidden;
-  animation: hnxCubePulse 6s ease-in-out infinite;
-}
-@keyframes hnxCubePulse {
-  0%, 100% { border-color: rgba(77,208,225,.30); box-shadow: 0 0 0 0 rgba(132,255,249,0); }
-  50% { border-color: rgba(132,255,249,.55); box-shadow: 0 0 18px rgba(132,255,249,.18), inset 0 0 12px rgba(77,208,225,.06); }
-}
-.hnx-cube-motion::before {
-  content:''; position:absolute; top:0; left:-100%; width:50%; height:2px;
-  background: linear-gradient(90deg, transparent, rgba(132,255,249,.6), transparent);
-  animation: hnxCubeSwipe 4s linear infinite;
-  pointer-events:none; z-index:2;
-}
-@keyframes hnxCubeSwipe {
-  0% { left:-50%; }
-  100% { left:150%; }
-}
-.hnx-cube-motion::after {
-  content:''; position:absolute; bottom:0; right:-100%; width:50%; height:2px;
-  background: linear-gradient(90deg, transparent, rgba(102,187,106,.5), transparent);
-  animation: hnxCubeSwipeRev 5.2s linear infinite;
-  pointer-events:none; z-index:2;
-}
-@keyframes hnxCubeSwipeRev {
-  0% { right:-50%; }
-  100% { right:150%; }
-}
-/* DRONE FLEET STRIP */
-.hnx-drone-fleet {
-  display: grid;
-  grid-template-columns: auto repeat(6, 1fr) auto;
-  gap: 14px;
-  align-items: center;
-  padding: 12px 18px;
-  border: 1px solid rgba(132,255,249,.4);
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(0,131,143,.15), rgba(2,8,18,.92));
-  position: relative;
-  overflow: hidden;
-  margin-bottom: 14px;
-}
-.hnx-drone-fleet::before {
-  content:''; position:absolute; inset:0;
-  background-image: radial-gradient(circle 2px at 15% 50%, rgba(132,255,249,.5) 1px, transparent 2px), radial-gradient(circle 1.5px at 85% 30%, rgba(102,187,106,.5) 1px, transparent 2px);
-  animation: hnxParticleFloat 6s ease-in-out infinite;
-  pointer-events:none;
-}
-.hnx-drone-title {
-  display: flex; align-items: center; gap: 10px;
-  font-family: Orbitron, sans-serif; font-weight: 800; font-size: 13px;
-  color: #e6f7fb; letter-spacing: .05em;
-  position: relative; z-index: 2;
-}
-.hnx-drone-icon {
-  position: relative; width: 36px; height: 36px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 22px;
-  filter: drop-shadow(0 0 10px rgba(132,255,249,.8));
-  animation: hnxDroneHover 2.8s ease-in-out infinite;
-}
-@keyframes hnxDroneHover {
-  0%, 100% { transform: translateY(0) rotate(-2deg); }
-  50% { transform: translateY(-4px) rotate(2deg); }
-}
-.hnx-drone-icon::after {
-  content:''; position:absolute; bottom:-4px; left:50%; transform:translateX(-50%);
-  width: 22px; height: 4px;
-  background: radial-gradient(ellipse, rgba(132,255,249,.6), transparent 70%);
-  filter: blur(2px);
-  animation: hnxDroneShadow 2.8s ease-in-out infinite;
-}
-@keyframes hnxDroneShadow {
-  0%, 100% { width:24px; opacity:.7; }
-  50% { width:14px; opacity:.4; }
-}
-.hnx-drone-cell {
-  text-align: center;
-  position: relative; z-index: 2;
-  padding: 0 8px;
-  border-left: 1px dashed rgba(77,208,225,.20);
-}
-.hnx-drone-cell-l { font-family:'JetBrains Mono',monospace; font-size:8.5px; letter-spacing:.16em; color:#80deea; text-transform:uppercase; margin-bottom:3px; }
-.hnx-drone-cell-v { font-family: Orbitron, sans-serif; font-weight:800; font-size:18px; color:#e6f7fb; line-height:1; }
-.hnx-drone-cell-s { font-family:'JetBrains Mono',monospace; font-size:9px; color:#a5d6e6; margin-top:3px; letter-spacing:.05em; }
-.hnx-drone-status {
-  font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.16em;
-  color:#80e885; text-transform:uppercase;
-  background:rgba(102,187,106,.15); border:1px solid rgba(102,187,106,.55); border-radius:999px;
-  padding:5px 12px;
-  position:relative; z-index:2;
-}
 ` + HNX_QUICKBAR_CSS;
 })();
 
