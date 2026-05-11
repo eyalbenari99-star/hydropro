@@ -94068,7 +94068,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 
 </script>
 
-<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.16 (FULL SCREEN monitor mode for each GH Command Center) -->
+<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.18 (fullscreen actually fills the monitor screen now) -->
 <script>
 /* ============================================================================
  * HYDRONEXIS-AI · EXTENSIONS PACK v1.0
@@ -94181,7 +94181,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.16 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.18 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -94190,7 +94190,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.16';
+        vEl.textContent = orig + ' · HNX v2.18';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -94205,7 +94205,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.16 Diagnostics:\n\n' +
+        'HNX-EXT v2.18 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
@@ -94251,7 +94251,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const style = document.createElement('style');
     style.id = 'hnx-ext-styles';
     style.textContent = HNX_CSS + `
-/* === HNX-EXT v2.16 · MOTION & ANIMATION PACK === */
+/* === HNX-EXT v2.18 · MOTION & ANIMATION PACK === */
 @keyframes hnxPulseGlow {
   0%, 100% { box-shadow: 0 0 30px rgba(102,187,106,.18), inset 0 0 40px rgba(102,187,106,.05); }
   50%      { box-shadow: 0 0 60px rgba(102,187,106,.45), inset 0 0 70px rgba(102,187,106,.12); }
@@ -95814,8 +95814,10 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const body = $('#hnx-gh_command-body');
     if(!body) return;
   
-    if(!window._hnxGhcState) window._hnxGhcState = { selected:'GH1' };
+    if(!window._hnxGhcState) window._hnxGhcState = { selected:'GH1', selectedFr:'FR1_2', mode:'gh' };
     const state = window._hnxGhcState;
+    if(!state.mode) state.mode = 'gh';
+    if(!state.selectedFr) state.selectedFr = 'FR1_2';
     let cctvConfig = hnxLoadCctv();
   
     // Build shell once
@@ -95833,6 +95835,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
             </div>
             <div class="hnx-tcenter" id="hnxGhcKpis"></div>
             <div class="hnx-tright">
+              <button class="hnx-btn hnx-mode-btn" onclick="window._hnxGhcToggleMode && window._hnxGhcToggleMode()" id="hnxModeBtn" title="Switch between GH and FR Command Center"><span id="hnxModeBtnLbl">💧 FR View</span></button>
               <button class="hnx-btn hnx-btn-c hnx-fs-btn" onclick="window._hnxGhcToggleFullscreen && window._hnxGhcToggleFullscreen()" title="Full Screen monitor view"><span class="hnx-fs-ico">⛶</span> <span class="hnx-fs-lbl">Full Screen</span></button>
               <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxGhcRefresh && window._hnxGhcRefresh()">↻ Refresh</button>
             </div>
@@ -96244,18 +96247,58 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
   
     function drawChips(){
       const wrap = document.getElementById('hnxGhcChips');
-      wrap.innerHTML = `<span class="hnx-tlabel">Greenhouse</span>` +
-        HNX_GHC_LIST.map(g => {
-          const p = HNX_GHC_PROFILES[g];
-          const alertCls = p.alert ? ' hnx-gh-chip-alert' : '';
-          return `<button class="hnx-chip hnx-gh-chip${alertCls} ${g===state.selected?'on':''}" data-gh="${g}">${g}${p.alert?' ●':''}</button>`;
-        }).join('');
-      wrap.querySelectorAll('.hnx-gh-chip').forEach(b => {
-        b.addEventListener('click', () => { state.selected = b.dataset.gh; drawAll(); });
-      });
+      if(state.mode === 'fr'){
+        const frList = ['FR1_2','FR3_4','FR5_6','FR7_8','FR9','FR10'];
+        const frGhs = { FR1_2:['GH1','GH2'], FR3_4:['GH3','GH4'], FR5_6:['GH5','GH6'], FR7_8:['GH7','GH8'], FR9:['GH9'], FR10:['GH10'] };
+        wrap.innerHTML = `<span class="hnx-tlabel">Fertigation Room</span>` +
+          frList.map(fr => {
+            const ghs = frGhs[fr] || [];
+            const anyAlert = ghs.some(g => (HNX_GHC_PROFILES[g]||{}).alert);
+            const alertCls = anyAlert ? ' hnx-gh-chip-alert' : '';
+            return `<button class="hnx-chip hnx-fr-chip${alertCls} ${fr===state.selectedFr?'on':''}" data-fr="${fr}" title="Serves ${ghs.join(' + ')}">${fr}${anyAlert?' ●':''} <small style="opacity:.6;font-size:9px">${ghs.join('+')}</small></button>`;
+          }).join('');
+        wrap.querySelectorAll('.hnx-fr-chip').forEach(b => {
+          b.addEventListener('click', () => {
+            state.selectedFr = b.dataset.fr;
+            // Auto-pick the first paired GH so existing GH-based rendering still works
+            const frGhsMap = { FR1_2:'GH1', FR3_4:'GH3', FR5_6:'GH5', FR7_8:'GH7', FR9:'GH9', FR10:'GH10' };
+            state.selected = frGhsMap[state.selectedFr] || 'GH1';
+            drawAll();
+          });
+        });
+      } else {
+        wrap.innerHTML = `<span class="hnx-tlabel">Greenhouse</span>` +
+          HNX_GHC_LIST.map(g => {
+            const p = HNX_GHC_PROFILES[g];
+            const alertCls = p.alert ? ' hnx-gh-chip-alert' : '';
+            return `<button class="hnx-chip hnx-gh-chip${alertCls} ${g===state.selected?'on':''}" data-gh="${g}">${g}${p.alert?' ●':''}</button>`;
+          }).join('');
+        wrap.querySelectorAll('.hnx-gh-chip').forEach(b => {
+          b.addEventListener('click', () => { state.selected = b.dataset.gh; drawAll(); });
+        });
+      }
     }
   
     function drawKpis(){
+      if(state.mode === 'fr'){
+        const frGhsMap = { FR1_2:['GH1','GH2'], FR3_4:['GH3','GH4'], FR5_6:['GH5','GH6'], FR7_8:['GH7','GH8'], FR9:['GH9'], FR10:['GH10'] };
+        const ghs = frGhsMap[state.selectedFr] || [];
+        const totalPlants = ghs.reduce((s,g) => s + ((HNX_GHC_PROFILES[g]||{}).plantCap||0), 0);
+        let totalCrits = 0, totalOpen = 0;
+        ghs.forEach(g => {
+          const i = ghFilteredIssues(g); const c = ghFilteredCalls(g);
+          totalCrits += i.filter(x => (x.priority||'').toLowerCase()==='critical').length + c.filter(x => (x.priority||'').toLowerCase()==='urgent').length;
+          totalOpen += i.length + c.length;
+        });
+        document.getElementById('hnxGhcKpis').innerHTML = `
+          <span class="hnx-kpi hnx-kpi-c"><b>${ghs.length}</b> GH${ghs.length>1?'s':''} served</span>
+          <span class="hnx-kpi hnx-kpi-g"><b>${totalPlants.toLocaleString()}</b> total plants</span>
+          <span class="hnx-kpi hnx-kpi-c"><b>3</b> drums (600L)</span>
+          <span class="hnx-kpi ${totalCrits>0?'hnx-kpi-r':'hnx-kpi-g'}"><b>${totalCrits}</b> critical</span>
+          <span class="hnx-kpi hnx-kpi-w"><b>${totalOpen}</b> open</span>
+        `;
+        return;
+      }
       const p = HNX_GHC_PROFILES[state.selected];
       const issues = ghFilteredIssues(state.selected);
       const calls = ghFilteredCalls(state.selected);
@@ -96323,12 +96366,65 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     }
   
     function drawLeft(){
+      const left = document.getElementById('hnxGhcLeft');
+      // ===== FR MODE: Show FR-centric info (paired GHs, pool data, alerts) =====
+      if(state.mode === 'fr'){
+        const frGhsMap = { FR1_2:['GH1','GH2'], FR3_4:['GH3','GH4'], FR5_6:['GH5','GH6'], FR7_8:['GH7','GH8'], FR9:['GH9'], FR10:['GH10'] };
+        const ghs = frGhsMap[state.selectedFr] || [];
+        const ghCardsHtml = ghs.map(g => {
+          const prof = HNX_GHC_PROFILES[g] || {};
+          const iss = ghFilteredIssues(g);
+          const cls = ghFilteredCalls(g);
+          const crits = iss.filter(i => (i.priority||'').toLowerCase()==='critical').length + cls.filter(c => (c.priority||'').toLowerCase()==='urgent').length;
+          return `<div class="hnx-row" style="cursor:pointer;border-bottom:1px solid rgba(77,208,225,.15);padding:8px 4px" onclick="(function(){window._hnxGhcState.mode='gh';window._hnxGhcState.selected='${g}';window._hnxGhcRefresh && window._hnxGhcRefresh();})()" title="Click to switch to ${g} view">
+            <span class="hnx-row-l"><b style="color:#80e885;font-size:13px">${g}</b> <small style="color:#a5d6e6;margin-left:4px">${escHtml(prof.crop||'—')} · ${escHtml((prof.stage||'').toUpperCase())}</small></span>
+            <span class="hnx-row-v ${crits?'crit':'ok'}">${crits?'⚠ '+crits:'✓ OK'}</span>
+          </div>`;
+        }).join('');
+        // FR-wide alerts: aggregate issues from all paired GHs that match FR machine patterns
+        const allFrCalls = (typeof loadCalls === 'function') ? (loadCalls() || []) : [];
+        const frPattern = new RegExp('(' + state.selectedFr.replace('_','.') + '|fertigation|chiller|ozone|reverse.?osmosis|drum|pool|ventilation)', 'i');
+        const frCalls = allFrCalls.filter(c => {
+          const txt = (c.title||'')+' '+(c.subject||'')+' '+(c.area||'')+' '+(c.subsystem||'');
+          return frPattern.test(txt);
+        }).slice(0, 5);
+        left.innerHTML = `
+          <div class="hnx-w hnx-w-ok hnx-cube-motion">
+            <div class="hnx-w-h">💧 FR Overview · ${escHtml(state.selectedFr)}</div>
+            <div class="hnx-rlist">
+              <div class="hnx-row"><span class="hnx-row-l">🏭 Paired GHs</span><span class="hnx-row-v cy">${ghs.join(' + ')}</span></div>
+              <div class="hnx-row"><span class="hnx-row-l">🛢 Drums</span><span class="hnx-row-v">A · B · C</span></div>
+              <div class="hnx-row"><span class="hnx-row-l">🏊 Pool</span><span class="hnx-row-v ok">Pool-${state.selectedFr.replace('FR','').split('_')[0]}</span></div>
+              <div class="hnx-row"><span class="hnx-row-l">⚡ Ozone</span><span class="hnx-row-v ok">ACTIVE</span></div>
+              <div class="hnx-row"><span class="hnx-row-l">🌬 Ventilation</span><span class="hnx-row-v ok">ACTIVE</span></div>
+            </div>
+          </div>
+          <div class="hnx-w hnx-cube-motion">
+            <div class="hnx-w-h">🏭 Greenhouses Served</div>
+            <div class="hnx-rlist">
+              ${ghCardsHtml || '<div style="color:#6a8ea3;padding:8px 0">No paired GHs</div>'}
+              <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#6a8ea3;padding:8px 4px 4px;letter-spacing:.08em">▸ Click any GH row to switch to its view</div>
+            </div>
+          </div>
+          <div class="hnx-w hnx-cube-motion ${frCalls.length?'':'hnx-w-ok'}">
+            <div class="hnx-w-h">📋 FR-Related Calls</div>
+            <div class="hnx-rlist" style="font-size:11px">
+              ${frCalls.map(c => {
+                const t = (c.priority||'').toLowerCase();
+                const cls = (t==='critical'||t==='urgent')?'crit':(t==='warning'||t==='high')?'warn':'cy';
+                return `<div class="hnx-ins" style="padding:5px 2px"><span class="hnx-ins-d ${cls}"></span><div><div class="hnx-ins-t" style="font-size:11px">${escHtml((c.title||c.subject||'').slice(0,48))}</div><div style="font-size:9px;color:#6a8ea3;letter-spacing:.06em;margin-top:2px">${escHtml(ageStr(c.createdAt||c.raisedAt))}</div></div></div>`;
+              }).join('') || '<div style="color:#6a8ea3;font-size:11px;padding:6px 0">No FR-related calls</div>'}
+            </div>
+          </div>
+        `;
+        return;
+      }
+      // ===== GH MODE (original behavior) =====
       const p = HNX_GHC_PROFILES[state.selected];
       const issues = ghFilteredIssues(state.selected);
       const calls = ghFilteredCalls(state.selected);
       const crits = issues.filter(i => (i.priority||'').toLowerCase()==='critical');
       const warns = issues.filter(i => (i.priority||'').toLowerCase()==='warning');
-      const left = document.getElementById('hnxGhcLeft');
       left.innerHTML = `
         <div class="hnx-w hnx-w-ok hnx-cube-motion">
           <div class="hnx-w-h">Production · ${state.selected}</div>
@@ -96529,6 +96625,38 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     }, 1000);
   
     window._hnxGhcRefresh = drawAll;
+
+    // v2.17 · Toggle between GH Command Center and FR Command Center view
+    window._hnxGhcToggleMode = function(){
+      state.mode = (state.mode === 'fr') ? 'gh' : 'fr';
+      // Update header title + subtitle + mode button label
+      const titleEl = body.querySelector('.hnx-tbtitle');
+      const subEl = body.querySelector('.hnx-tbsub');
+      const markEl = body.querySelector('.hnx-tbmark');
+      const modeLbl = document.getElementById('hnxModeBtnLbl');
+      const selEl = document.getElementById('hnxGhcSel');
+      if(state.mode === 'fr'){
+        if(titleEl) titleEl.innerHTML = 'FR Command Center <span>· <span id="hnxGhcSel">' + state.selectedFr + '</span></span>';
+        if(subEl) subEl.textContent = 'Fertigation Room · Pools · Drums · Chillers · Ozone · RO · Ventilation';
+        if(markEl){ markEl.textContent = '💧'; markEl.classList.remove('hnx-tbmark-cy'); markEl.style.background = 'linear-gradient(135deg, rgba(77,208,225,.35), rgba(2,30,40,.55))'; }
+        if(modeLbl) modeLbl.textContent = '🏭 GH View';
+      } else {
+        if(titleEl) titleEl.innerHTML = 'GH Command Center <span>· <span id="hnxGhcSel">' + state.selected + '</span></span>';
+        if(subEl) subEl.textContent = '9-Camera Wall · Production · Tech · Irrigation · AI Brain';
+        if(markEl){ markEl.textContent = '🏭'; markEl.classList.add('hnx-tbmark-cy'); markEl.style.background = ''; }
+        if(modeLbl) modeLbl.textContent = '💧 FR View';
+      }
+      drawAll();
+    };
+    // Run once on first render to set correct title for current mode
+    setTimeout(() => {
+      if(state.mode === 'fr'){
+        // Trigger the title update without flipping mode
+        const cur = state.mode;
+        state.mode = 'gh';
+        window._hnxGhcToggleMode();
+      }
+    }, 50);
 
     // v2.16 · Fullscreen toggle for monitor display
     window._hnxGhcToggleFullscreen = function(){
@@ -99883,8 +100011,8 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
           <!-- Status marquee strip -->
           <div class="hnx-marquee-wrap" style="margin:8px 14px 14px;border-radius:6px;padding:6px 0;position:relative;z-index:2;background:rgba(0,131,143,.10)">
             <div class="hnx-marquee" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#a5d6e6;letter-spacing:.10em;padding:0 30px">
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.16</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.16</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.18</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.18</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
             </div>
           </div>
           <!-- Pair selector -->
@@ -101382,7 +101510,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 .hnx-param-unit{font-size:11px;color:#6a8ea3;font-weight:500;margin-left:3px}
 .hnx-param-target{font-family:'JetBrains Mono',monospace;font-size:9px;color:#6a8ea3;letter-spacing:.10em;margin-top:3px}
 .hnx-param-dev{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;margin-top:1px}
-/* === HNX-EXT v2.16 · MACHINES GRID === */
+/* === HNX-EXT v2.18 · MACHINES GRID === */
 .hnx-machines-cube { position: relative; }
 .hnx-machines-grid {
   display: grid;
@@ -101498,7 +101626,122 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
   color: #ff3030;
 }
 
-/* === HNX-EXT v2.16 · FULLSCREEN MONITOR MODE === */
+/* === HNX-EXT v2.18 · FULLSCREEN TRULY FILLS MONITOR === */
+.hnx-app:fullscreen,
+.hnx-app:-webkit-full-screen {
+  background: radial-gradient(ellipse at center, #02101a 0%, #02080f 70%, #000 100%) !important;
+  padding: 12px 16px !important;
+  overflow-y: auto !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+}
+.hnx-app:fullscreen *,
+.hnx-app:-webkit-full-screen * { max-width: none !important; }
+/* When the GH command app is in fullscreen, ensure no outer wrapper constrains it */
+.hnx-app:fullscreen,
+.hnx-app:-webkit-full-screen {
+  position: fixed !important;
+  top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+}
+.hnx-app.hnx-fs-active { /* Same rules for browsers that miss native :fullscreen */
+  width: 100vw !important; max-width: none !important;
+}
+.hnx-app.hnx-fs-active .hnx-fs-overlay { display: block; }
+.hnx-app.hnx-fs-active .hnx-tbar {
+  background: linear-gradient(180deg, rgba(2,30,40,.95), rgba(2,8,18,.85));
+  border-bottom: 2px solid rgba(102,187,106,.45);
+  padding: 12px 24px;
+  margin: -12px -16px 14px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.4);
+}
+.hnx-app.hnx-fs-active .hnx-tbtitle { font-size: 24px !important; }
+.hnx-app.hnx-fs-active .hnx-tbsub { font-size: 13px !important; }
+.hnx-app.hnx-fs-active .hnx-ghc-bar {
+  padding: 12px 6px;
+  background: rgba(2,18,28,.5);
+  border-radius: 10px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(77,208,225,.2);
+}
+.hnx-app.hnx-fs-active .hnx-chip {
+  padding: 8px 16px !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+}
+/* The 3-column stage grid · expand columns to fill width */
+.hnx-app.hnx-fs-active .hnx-ghc-stage {
+  display: grid !important;
+  grid-template-columns: minmax(260px, 18%) 1fr minmax(290px, 22%) !important;
+  gap: 14px !important;
+  width: 100% !important;
+  max-width: none !important;
+}
+/* CCTV grid · cells fill the viewport height proportionally */
+.hnx-app.hnx-fs-active .hnx-cctv-wall {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr 1fr !important;
+  grid-auto-rows: 1fr !important;
+  gap: 8px !important;
+  min-height: calc(100vh - 360px);
+}
+.hnx-app.hnx-fs-active .hnx-cctv-cell {
+  min-height: 0 !important;
+  aspect-ratio: auto !important;
+  height: 100% !important;
+}
+.hnx-app.hnx-fs-active #hnxGhcDrones { margin-bottom: 10px; }
+.hnx-app.hnx-fs-active .hnx-w-h { font-size: 13px !important; }
+.hnx-app.hnx-fs-active .hnx-w { padding: 12px 14px !important; }
+.hnx-app.hnx-fs-active .hnx-row { padding: 7px 4px !important; }
+.hnx-app.hnx-fs-active .hnx-row-l { font-size: 13px !important; }
+.hnx-app.hnx-fs-active .hnx-row-v { font-size: 14px !important; font-weight: 700 !important; }
+.hnx-app.hnx-fs-active .hnx-machine-card { padding: 12px 14px; }
+.hnx-app.hnx-fs-active .hnx-machine-icon { width: 60px !important; height: 60px !important; }
+.hnx-app.hnx-fs-active .hnx-machine-name { font-size: 13px !important; }
+.hnx-app.hnx-fs-active .hnx-machine-status { font-size: 11px !important; }
+.hnx-app.hnx-fs-active .hnx-drum-grid { gap: 24px !important; padding: 18px 8px 10px !important; }
+.hnx-app.hnx-fs-active .hnx-drum-vis { width: 80px !important; height: 180px !important; }
+.hnx-app.hnx-fs-active .hnx-drum-label { font-size: 30px !important; }
+.hnx-app.hnx-fs-active .hnx-drum-value { font-size: 17px !important; }
+.hnx-app.hnx-fs-active .hnx-machines-grid { gap: 12px !important; }
+.hnx-app.hnx-fs-active .hnx-kpi { padding: 8px 14px !important; font-size: 13px !important; }
+.hnx-app.hnx-fs-active .hnx-kpi b { font-size: 17px !important; }
+/* Drone fleet bar */
+.hnx-app.hnx-fs-active #hnxGhcDrones .hnx-w-h { font-size: 14px !important; }
+/* Open items at bottom */
+.hnx-app.hnx-fs-active .hnx-ghc-bottom { margin-top: 14px; }
+
+/* === HNX-EXT v2.18 · FR MODE TOGGLE === */
+.hnx-mode-btn {
+  background: linear-gradient(135deg, rgba(77,208,225,.22), rgba(132,255,249,.18)) !important;
+  border: 1px solid rgba(77,208,225,.55) !important;
+  color: #84fff9 !important;
+  font-weight: 700 !important;
+  letter-spacing: .05em;
+  margin-right: 6px;
+}
+.hnx-mode-btn:hover {
+  background: linear-gradient(135deg, rgba(77,208,225,.36), rgba(132,255,249,.30)) !important;
+  box-shadow: 0 0 14px rgba(77,208,225,.4);
+}
+.hnx-fr-chip {
+  background: linear-gradient(135deg, rgba(77,208,225,.10), rgba(2,30,40,.5)) !important;
+  border-color: rgba(77,208,225,.30) !important;
+  font-size: 11px;
+  padding: 7px 12px;
+}
+.hnx-fr-chip.on {
+  background: linear-gradient(135deg, rgba(77,208,225,.40), rgba(132,255,249,.25)) !important;
+  border-color: #84fff9 !important;
+  color: #fff !important;
+  box-shadow: 0 0 14px rgba(132,255,249,.35);
+}
+
+/* === HNX-EXT v2.18 · FULLSCREEN MONITOR MODE === */
 .hnx-fs-btn { 
   background: linear-gradient(135deg, rgba(102,187,106,.22), rgba(77,208,225,.22)) !important;
   border: 1px solid rgba(102,187,106,.55) !important;
@@ -101529,50 +101772,6 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
   background: linear-gradient(135deg, rgba(255,202,82,.40), rgba(255,140,40,.45)) !important;
   box-shadow: 0 0 18px rgba(255,202,82,.5);
 }
-.hnx-app:fullscreen,
-.hnx-app:-webkit-full-screen {
-  background: radial-gradient(ellipse at center, #02101a 0%, #02080f 70%, #000 100%);
-  padding: 16px 22px;
-  overflow-y: auto;
-  width: 100vw;
-  height: 100vh;
-}
-.hnx-app.hnx-fs-active .hnx-fs-overlay { display: block; }
-.hnx-app.hnx-fs-active .hnx-tbar {
-  background: linear-gradient(180deg, rgba(2,30,40,.95), rgba(2,8,18,.85));
-  border-bottom: 2px solid rgba(102,187,106,.45);
-  padding: 14px 24px;
-  margin: -16px -22px 18px;
-  box-shadow: 0 4px 16px rgba(0,0,0,.4);
-}
-.hnx-app.hnx-fs-active .hnx-tbtitle { font-size: 22px !important; }
-.hnx-app.hnx-fs-active .hnx-tbsub { font-size: 12px !important; }
-.hnx-app.hnx-fs-active .hnx-ghc-bar { 
-  padding: 14px 6px; 
-  background: rgba(2,18,28,.5);
-  border-radius: 10px;
-  margin-bottom: 14px;
-  border: 1px solid rgba(77,208,225,.2);
-}
-.hnx-app.hnx-fs-active .hnx-chip {
-  padding: 8px 14px !important;
-  font-size: 13px !important;
-  font-weight: 700 !important;
-}
-.hnx-app.hnx-fs-active .hnx-ghc-stage { gap: 16px !important; }
-.hnx-app.hnx-fs-active .hnx-cctv-cell {
-  min-height: 220px !important;
-}
-.hnx-app.hnx-fs-active .hnx-w-h {
-  font-size: 13px !important;
-}
-.hnx-app.hnx-fs-active .hnx-machine-card { padding: 12px 14px; }
-.hnx-app.hnx-fs-active .hnx-machine-icon { width: 56px !important; height: 56px !important; }
-.hnx-app.hnx-fs-active .hnx-machine-name { font-size: 12.5px !important; }
-.hnx-app.hnx-fs-active .hnx-machine-status { font-size: 10.5px !important; }
-.hnx-app.hnx-fs-active .hnx-drum-vis { width: 70px !important; height: 170px !important; }
-.hnx-app.hnx-fs-active .hnx-drum-label { font-size: 26px !important; }
-.hnx-app.hnx-fs-active .hnx-drum-value { font-size: 16px !important; }
 
 /* v2.15 · Additional motion keyframes used in machine SVGs */
 @keyframes hnxDropRise {
@@ -101586,7 +101785,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
   100% { transform: translateX(50px); opacity: 0; }
 }
 
-/* === HNX-EXT v2.16 · VERTICAL FILLING DRUMS === */
+/* === HNX-EXT v2.18 · VERTICAL FILLING DRUMS === */
 .hnx-drum-cube { padding-bottom: 10px; }
 .hnx-drum-grid {
   display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;
@@ -101693,7 +101892,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 .hnx-drum-value.warn { color: #ffca52; }
 .hnx-drum-value.crit { color: #ff7a78; }
 
-/* === HNX-EXT v2.16 · BOLD VISIBLE THEMATIC IMAGERY === */
+/* === HNX-EXT v2.18 · BOLD VISIBLE THEMATIC IMAGERY === */
 .hnx-cube-imagery { position: relative; overflow: hidden; min-height: 180px; }
 .hnx-cube-imagery > .hnx-cube-bg {
   position: absolute; inset: 0;
@@ -101717,7 +101916,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 .hnx-cube-imagery > .hnx-ghbars,
 .hnx-cube-imagery > div:not(.hnx-cube-bg) { position: relative; z-index: 2; }
 .hnx-cube-imagery .hnx-w-h { position: relative; z-index: 2; }
-/* === HNX-EXT v2.16 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
+/* === HNX-EXT v2.18 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
 /* Production: Lettuce leaves sway */
 @keyframes hnxLettuceSway {
   0%, 100% { transform: rotate(-3deg); }
@@ -101775,7 +101974,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 .hnx-svg-act-dot:nth-child(3) { animation-delay: .8s; }
 .hnx-svg-act-dot:nth-child(4) { animation-delay: 1.2s; }
 
-/* === HNX-EXT v2.16 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
+/* === HNX-EXT v2.18 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
 /* CCTV cell motion enhancements — corner brackets, double scan, breathing border */
 .hnx-cctv-motion { animation: hnxCellPulse 4s ease-in-out infinite; }
 @keyframes hnxCellPulse {
