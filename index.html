@@ -94068,7 +94068,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 
 </script>
 
-<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.41 (Customer Invoice Generator · auto from deliveries · print/PDF · CSV/JSON) -->
+<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.45 (Fix CCTV wizard · complete yaml with TLS · auto-detected next step) -->
 <script>
 /* ============================================================================
  * HYDRONEXIS-AI · EXTENSIONS PACK v1.0
@@ -94661,7 +94661,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.41 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.45 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -94670,7 +94670,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.41';
+        vEl.textContent = orig + ' · HNX v2.45';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -94685,7 +94685,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.41 Diagnostics:\n\n' +
+        'HNX-EXT v2.45 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
@@ -94731,7 +94731,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const style = document.createElement('style');
     style.id = 'hnx-ext-styles';
     style.textContent = HNX_CSS + `
-/* === HNX-EXT v2.41 · MOTION & ANIMATION PACK === */
+/* === HNX-EXT v2.45 · MOTION & ANIMATION PACK === */
 @keyframes hnxPulseGlow {
   0%, 100% { box-shadow: 0 0 30px rgba(102,187,106,.18), inset 0 0 40px rgba(102,187,106,.05); }
   50%      { box-shadow: 0 0 60px rgba(102,187,106,.45), inset 0 0 70px rgba(102,187,106,.12); }
@@ -100873,8 +100873,17 @@ var qrcode = function() {
   // Replaces "NO CAMERA ASSIGNED" with AI-curated value tiles
   // ==================================================================
   function _hnxRenderSmartTile(slotIndex, currentGh){
-    // Pick a tile type by slot index so each empty slot shows different content.
-    // The order is curated for visual variety + value density.
+    // v2.43 · Smart tiles are now OPT-IN via setting · default is simple "no camera" placeholder
+    const smartOn = (function(){ try{ return localStorage.getItem('hydroPro_smart_tiles_v1') === 'on'; }catch(e){ return false; } })();
+    if(!smartOn){
+      // Simple, clean empty-slot placeholder · just a label, no fluff
+      return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;background:linear-gradient(135deg,#04111d,#020812);font-family:'JetBrains Mono',monospace;color:#3b5d72;text-align:center;padding:10px;gap:6px">
+        <div style="font-size:24px;opacity:.30">📷</div>
+        <div style="font-size:10px;letter-spacing:.16em;color:#6a8ea3">SLOT ${slotIndex}</div>
+        <div style="font-size:9px;letter-spacing:.10em;color:#3b5d72">no camera assigned</div>
+      </div>`;
+    }
+    // Smart tiles enabled · cycle through types per slot
     const tileTypes = ['recent_activity','ai_insight','plant_health','recent_harvests','call_to_action'];
     const tileType = tileTypes[(slotIndex - 5) % tileTypes.length] || 'call_to_action';
     try{
@@ -102006,11 +102015,12 @@ var qrcode = function() {
 
       <!-- Bulk actions -->
       <div class="hnx-w" style="margin-top:14px">
-        <div class="hnx-w-h">⚡ Bulk Actions</div>
+        <div class="hnx-w-h">⚡ Bulk Actions · Display options</div>
         <div style="padding:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-family:JetBrains Mono,monospace;font-size:11px;color:#a5d6e6;letter-spacing:.04em">
           <button class="hnx-btn hnx-btn-c" onclick="window._hnxCamAssignAutoFill && window._hnxCamAssignAutoFill()" title="Sequentially assign available streams to empty slots starting from GH1">⚡ Auto-fill empty slots sequentially</button>
           <button class="hnx-btn hnx-btn-danger" onclick="window._hnxCamAssignClearAll && window._hnxCamAssignClearAll()">🗑 Clear ALL assignments</button>
           <div style="flex:1"></div>
+          ${(() => { const on = (function(){ try{ return localStorage.getItem('hydroPro_smart_tiles_v1') === 'on'; }catch(e){ return false; } })(); return `<label style="display:flex;gap:6px;align-items:center;cursor:pointer;background:rgba(2,18,28,.5);padding:6px 12px;border-radius:5px;border:1px solid ${on?'rgba(102,187,106,.40)':'rgba(77,208,225,.25)'}"><input type="checkbox" ${on?'checked':''} onchange="try{localStorage.setItem('hydroPro_smart_tiles_v1', this.checked?'on':'off');if(typeof toast==='function')toast('Smart tiles '+(this.checked?'enabled':'disabled')+' · reload to apply');}catch(e){}"> AI smart tiles in empty slots (default off)</label>`; })()}
           <span>Total streams available: <b style="color:#80e885">${streams.length}</b></span>
         </div>
       </div>
@@ -103666,6 +103676,649 @@ var qrcode = function() {
     if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('invoice_settings', 'Updated invoice settings');
     window._hnxInvSetView('list');
   };
+
+  // ==================================================================
+  // v2.42 · MOBILE-OPTIMIZED LAYOUT
+  // Responsive overrides for phone/tablet field use
+  // - Collapsible sidebar drawer with hamburger
+  // - Stacked grids, larger touch targets, mobile typography
+  // - Field-supervisor mode: simplified hot actions
+  // ==================================================================
+
+  // ---- Mobile drawer state ----
+  window._hnxMobile = window._hnxMobile || { drawerOpen: false };
+
+  function _hnxIsMobile(){ return window.innerWidth < 900; }
+  function _hnxIsTablet(){ return window.innerWidth >= 640 && window.innerWidth < 1024; }
+  function _hnxIsPhone(){ return window.innerWidth < 640; }
+
+  // Inject the hamburger button into the topbar
+  function _hnxInjectMobileChrome(){
+    if(document.getElementById('hnxMobileBtn')) return;
+    const topbar = document.querySelector('.topbar, .hnx-tbar, header');
+    if(!topbar) { setTimeout(_hnxInjectMobileChrome, 800); return; }
+
+    // Hamburger
+    const burger = document.createElement('button');
+    burger.id = 'hnxMobileBtn';
+    burger.className = 'hnx-mobile-burger';
+    burger.setAttribute('aria-label', 'Open menu');
+    burger.innerHTML = '<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="19" y2="6"/><line x1="3" y1="11" x2="19" y2="11"/><line x1="3" y1="16" x2="19" y2="16"/></svg>';
+    burger.onclick = () => window._hnxMobileToggleDrawer();
+    topbar.insertBefore(burger, topbar.firstChild);
+
+    // Backdrop for closing drawer
+    if(!document.getElementById('hnxMobileBackdrop')){
+      const bd = document.createElement('div');
+      bd.id = 'hnxMobileBackdrop';
+      bd.className = 'hnx-mobile-backdrop';
+      bd.onclick = () => window._hnxMobileToggleDrawer(false);
+      document.body.appendChild(bd);
+    }
+
+    // Floating "Raise Call" button (mobile only)
+    if(!document.getElementById('hnxMobileFab')){
+      const fab = document.createElement('button');
+      fab.id = 'hnxMobileFab';
+      fab.className = 'hnx-mobile-fab';
+      fab.innerHTML = '<span style="font-size:18px">📞</span><span class="hnx-fab-lbl">Raise Call</span>';
+      fab.title = 'Quick raise call';
+      fab.onclick = () => {
+        // Find and click the master app's "Raise Call" button if present
+        const rcBtn = document.querySelector('button[onclick*="raiseCall"], button[onclick*="openCall"], button.raise-call, [data-action="raise-call"]');
+        if(rcBtn) rcBtn.click();
+        else {
+          // Fallback: navigate to GH command center
+          if(typeof window.switchView === 'function') try{ window.switchView('gh_command'); }catch(e){}
+        }
+      };
+      document.body.appendChild(fab);
+    }
+  }
+
+  window._hnxMobileToggleDrawer = function(force){
+    const sidebar = document.querySelector('.module-sidebar, aside.module-sidebar');
+    const backdrop = document.getElementById('hnxMobileBackdrop');
+    const willOpen = (typeof force === 'boolean') ? force : !window._hnxMobile.drawerOpen;
+    window._hnxMobile.drawerOpen = willOpen;
+    if(sidebar){
+      sidebar.classList.toggle('hnx-mobile-drawer-open', willOpen);
+    }
+    if(backdrop){
+      backdrop.classList.toggle('on', willOpen);
+    }
+    document.body.classList.toggle('hnx-mobile-locked', willOpen);
+  };
+
+  // Auto-close drawer when picking a module item (mobile only)
+  document.addEventListener('click', (e) => {
+    if(!_hnxIsMobile()) return;
+    if(!window._hnxMobile.drawerOpen) return;
+    const t = e.target;
+    if(!t || !t.closest) return;
+    const link = t.closest('.module-sidebar a, .module-sidebar button, .module-sidebar [data-view]');
+    if(link) setTimeout(() => window._hnxMobileToggleDrawer(false), 100);
+  }, { capture: true });
+
+  // ESC closes drawer
+  document.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape' && window._hnxMobile.drawerOpen) window._hnxMobileToggleDrawer(false);
+  });
+
+  // Re-evaluate on resize (close drawer if user rotates to landscape desktop)
+  window.addEventListener('resize', () => {
+    if(!_hnxIsMobile() && window._hnxMobile.drawerOpen) window._hnxMobileToggleDrawer(false);
+    _hnxUpdateMobileBodyClass();
+  });
+
+  function _hnxUpdateMobileBodyClass(){
+    document.body.classList.toggle('hnx-is-mobile', _hnxIsMobile());
+    document.body.classList.toggle('hnx-is-phone', _hnxIsPhone());
+    document.body.classList.toggle('hnx-is-tablet', _hnxIsTablet());
+  }
+  _hnxUpdateMobileBodyClass();
+
+  // Run injection after DOM is ready
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', _hnxInjectMobileChrome);
+  } else {
+    setTimeout(_hnxInjectMobileChrome, 200);
+  }
+  // Re-inject if master app re-renders topbar
+  setInterval(() => {
+    if(!document.getElementById('hnxMobileBtn')) _hnxInjectMobileChrome();
+  }, 2500);
+
+  // ==================================================================
+  // v2.43 · CCTV TROUBLESHOOTER · diagnose & fix in one place
+  // ==================================================================
+
+  window._hnxOpenCctvTroubleshooter = async function(){
+    const prior = document.getElementById('hnxTsDlg'); if(prior) prior.remove();
+    const dlg = document.createElement('div');
+    dlg.id = 'hnxTsDlg';
+    dlg.className = 'hnx-url-modal';
+    dlg.innerHTML = `
+      <div class="hnx-url-modal-inner" style="max-width:880px;max-height:92vh;display:flex;flex-direction:column">
+        <div class="hnx-url-modal-h" style="flex-shrink:0">
+          <span style="font-family:Orbitron,sans-serif;font-weight:800;letter-spacing:.04em;font-size:14px">🆘 CCTV TROUBLESHOOTER · why aren't my cameras showing?</span>
+          <div style="flex:1"></div>
+          <button class="hnx-btn hnx-btn-ghost" onclick="document.getElementById('hnxTsDlg').remove()" style="padding:4px 10px;font-size:11px">✕ Close</button>
+        </div>
+        <div id="hnxTsBody" style="padding:18px 24px;overflow:auto;flex:1;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#a5d6e6;line-height:1.7">
+          <div style="color:#80deea">▸ Running diagnostics on your setup…</div>
+        </div>
+      </div>
+      <div class="hnx-url-modal-bg" onclick="document.getElementById('hnxTsDlg').remove()"></div>
+    `;
+    document.body.appendChild(dlg);
+    await _hnxRunTroubleshooter();
+  };
+
+  async function _hnxRunTroubleshooter(){
+    const body = document.getElementById('hnxTsBody');
+    if(!body) return;
+    body.innerHTML = '';
+
+    const cfg = (typeof hnxLoadDvrConfig === 'function') ? hnxLoadDvrConfig() : { devices:[], bridgeIp:'' };
+    const pageProto = window.location.protocol;
+    const pageHost = window.location.host;
+    const bridgeBase = cfg.bridgeIp ? ((cfg.bridgeProtocol||'http') + '://' + cfg.bridgeIp + ':' + (cfg.bridgePort||1984)) : null;
+
+    const results = [];
+    const addResult = (status, title, detail, action) => {
+      results.push({ status, title, detail, action });
+    };
+
+    // ===== CHECK 1: Bridge IP configured? =====
+    if(!cfg.bridgeIp){
+      addResult('fail', 'Bridge IP not set', 'No bridge IP has been entered in DVR Setup.', {
+        label: 'Open DVR Setup',
+        fn: 'window._hnxTsGoto("dvr")'
+      });
+    } else if(cfg.bridgeIp === 'localhost' || cfg.bridgeIp === '127.0.0.1'){
+      addResult('warn', 'Bridge IP is "localhost" — works only on the SAME machine that runs go2rtc', 'Other devices on your LAN cannot reach "localhost" because each device thinks localhost = itself. To view CCTV from phones, tablets, or other PCs, set the bridge IP to the actual LAN IP of the Windows machine running go2rtc (find it with <code style="color:#84fff9">ipconfig</code> on that machine — usually <code style="color:#84fff9">192.168.x.x</code>).', null);
+    } else {
+      addResult('pass', 'Bridge IP configured', `<span style="color:#84fff9">${bridgeBase}</span>`, null);
+    }
+
+    // ===== CHECK 2: Mixed content =====
+    const isMixed = (pageProto === 'https:' && bridgeBase && /^http:\/\//i.test(bridgeBase));
+    if(isMixed){
+      addResult('fail', '🔒 MIXED CONTENT BLOCKED — this is the most likely reason streams aren\'t flowing', `
+        Your dashboard runs on <b style="color:#fff">${pageProto}//${pageHost}</b> (HTTPS).<br>
+        Your bridge runs on <b style="color:#fff">${bridgeBase}</b> (HTTP).<br>
+        <b style="color:#ff7a78">Chrome/Edge/Firefox will silently block</b> HTTPS pages from loading HTTP resources. This is a browser security rule that no dashboard code can override.<br><br>
+        <b style="color:#80e885">Three ways to fix · pick one:</b>
+      `, {
+        label: '🔧 Show me how to fix this',
+        fn: 'window._hnxShowFixOptions()'
+      });
+    } else if(bridgeBase) {
+      addResult('pass', 'No mixed content issue', `Dashboard ${pageProto} → bridge ${cfg.bridgeProtocol}: compatible.`, null);
+    }
+
+    // ===== CHECK 3: Reachable? =====
+    if(bridgeBase && !isMixed){
+      try{
+        const r = await fetch(bridgeBase + '/api/streams', { method:'GET', signal: AbortSignal.timeout(5000) });
+        if(r.ok){
+          const data = await r.json();
+          const ids = Object.keys(data || {});
+          if(ids.length === 0){
+            addResult('warn', 'Bridge is reachable, but no streams configured on it', `go2rtc is running but has zero streams. You need to push streams from the dashboard to the bridge.`, {
+              label: '⚡ Push streams now',
+              fn: 'document.getElementById("hnxTsDlg").remove(); window._hnxBridgePush && window._hnxBridgePush()'
+            });
+          } else {
+            addResult('pass', 'Bridge is reachable and has streams', `${ids.length} stream(s) configured: ${ids.slice(0,5).join(', ')}${ids.length>5?', ...':''}`, null);
+          }
+        } else {
+          addResult('fail', 'Bridge responded with error', `HTTP ${r.status} from ${bridgeBase}/api/streams. Check go2rtc.yaml has CORS enabled: <code style="color:#84fff9">api: { origin: "*" }</code>`, null);
+        }
+      }catch(e){
+        addResult('fail', 'Cannot reach bridge', `Failed to connect to ${bridgeBase}. Common causes:<br>• go2rtc.exe is not running<br>• Bridge IP is wrong<br>• Windows Firewall is blocking port ${cfg.bridgePort||1984}<br>• You're on a different network than the bridge machine<br><br>Error: <code style="color:#ffca52">${escHtml(e.message||String(e))}</code>`, null);
+      }
+    }
+
+    // ===== CHECK 4: DVRs configured =====
+    const enabledDvrs = cfg.devices.filter(d => d.enabled);
+    if(enabledDvrs.length === 0){
+      addResult('fail', 'No DVRs added in dashboard', 'You need to add at least one DVR/NVR before any streams can exist. Click + Add device in DVR Setup.', {
+        label: 'Open DVR Setup',
+        fn: 'window._hnxTsGoto("dvr")'
+      });
+    } else {
+      const totalCh = enabledDvrs.reduce((s,d) => s + (parseInt(d.channels,10)||0), 0);
+      addResult('pass', `${enabledDvrs.length} DVR(s) configured · ${totalCh} channel(s) total`, enabledDvrs.map(d => `▸ ${escHtml(d.name)} · ${escHtml(d.ip)} · ${d.channels} channels`).join('<br>'), null);
+    }
+
+    // ===== CHECK 5: Camera assignments =====
+    const grid = (typeof hnxLoadCctvGrid === 'function') ? hnxLoadCctvGrid() : {};
+    let totalAssigned = 0;
+    Object.values(grid).forEach(slots => {
+      for(let i=1; i<=9; i++) if(slots['slot'+i]) totalAssigned++;
+    });
+    if(totalAssigned === 0){
+      addResult('warn', 'No cameras assigned to slots', 'You have DVRs configured, but none of their channels are mapped to specific GH/FR slots. Open Camera Assignment to map them, or edit each DVR and use the channel-mapping section.', {
+        label: 'Open Camera Assignment',
+        fn: 'window._hnxTsGoto("cam_assign")'
+      });
+    } else {
+      addResult('pass', `${totalAssigned} camera(s) assigned to slots`, `Cameras are mapped to specific GH/FR slots.`, null);
+    }
+
+    // ===== CHECK 6: HLS.js loaded =====
+    if(typeof window.Hls === 'undefined' || !window.Hls.isSupported()){
+      addResult('fail', 'HLS.js library not available', 'The dashboard needs HLS.js to play live streams in modern browsers. Try a hard reload (Ctrl+Shift+R).', null);
+    } else {
+      addResult('pass', 'HLS.js library loaded', `Version ${window.Hls.version || '?'} · MediaSource supported.`, null);
+    }
+
+    // Render results
+    const passes = results.filter(r => r.status === 'pass').length;
+    const fails = results.filter(r => r.status === 'fail').length;
+    const warns = results.filter(r => r.status === 'warn').length;
+
+    let html = `
+      <div style="display:flex;gap:14px;margin-bottom:18px;padding:12px 14px;background:rgba(2,18,28,.45);border:1px solid rgba(77,208,225,.20);border-radius:6px">
+        <div><b style="color:#80e885;font-size:14px">${passes}</b> <span style="color:#a5d6e6">passed</span></div>
+        <div><b style="color:#ffca52;font-size:14px">${warns}</b> <span style="color:#a5d6e6">warnings</span></div>
+        <div><b style="color:#ff7a78;font-size:14px">${fails}</b> <span style="color:#a5d6e6">failed</span></div>
+        <div style="flex:1"></div>
+        <button class="hnx-btn hnx-btn-c" onclick="window._hnxRunTroubleshooter && window._hnxRunTroubleshooter()" style="padding:5px 12px;font-size:11px">↻ Re-check</button>
+      </div>
+    `;
+    results.forEach(r => {
+      const color = r.status === 'pass' ? '#80e885' : r.status === 'warn' ? '#ffca52' : '#ff7a78';
+      const icon = r.status === 'pass' ? '✓' : r.status === 'warn' ? '⚠' : '✗';
+      const border = r.status === 'pass' ? 'rgba(102,187,106,.30)' : r.status === 'warn' ? 'rgba(255,202,82,.40)' : 'rgba(255,122,120,.50)';
+      html += `<div style="margin-bottom:14px;padding:14px;background:rgba(2,18,28,.40);border:1px solid ${border};border-radius:6px">
+        <div style="display:flex;align-items:flex-start;gap:10px">
+          <span style="color:${color};font-size:18px;font-weight:700;flex-shrink:0">${icon}</span>
+          <div style="flex:1">
+            <div style="font-family:Orbitron,sans-serif;font-weight:700;color:${color};font-size:12.5px;letter-spacing:.04em;margin-bottom:6px">${r.title}</div>
+            <div style="color:#e6f7fb;line-height:1.7">${r.detail}</div>
+            ${r.action ? `<button class="hnx-btn hnx-btn-c" onclick="${r.action.fn}" style="margin-top:10px;padding:7px 16px;font-size:12px">${escHtml(r.action.label)}</button>` : ''}
+          </div>
+        </div>
+      </div>`;
+    });
+
+    if(fails === 0 && warns === 0){
+      html += `<div style="margin-top:18px;padding:16px;background:rgba(102,187,106,.10);border:1px solid #80e885;border-radius:6px;color:#80e885;text-align:center;font-family:Orbitron,sans-serif;font-weight:800;letter-spacing:.04em">✓ EVERYTHING LOOKS HEALTHY · cameras should be flowing. If you still don't see video, open Command Center → reload (Ctrl+R) → cameras will reconnect.</div>`;
+    }
+
+    body.innerHTML = html;
+    window._hnxRunTroubleshooter = _hnxRunTroubleshooter;
+  }
+  window._hnxRunTroubleshooter = _hnxRunTroubleshooter;
+
+  window._hnxTsGoto = function(tab){
+    document.getElementById('hnxTsDlg')?.remove();
+    if(typeof window.switchView === 'function'){
+      try{ window.switchView('it_cctv_setup'); }catch(e){}
+    }
+    setTimeout(() => {
+      const t = document.querySelector('.hnx-it-tab[data-tab="' + tab + '"]');
+      if(t) t.click();
+    }, 250);
+  };
+
+  // ===== "Show me how to fix mixed content" guide =====
+  window._hnxShowFixOptions = function(){
+    const prior = document.getElementById('hnxFixDlg'); if(prior) prior.remove();
+    const dlg = document.createElement('div');
+    dlg.id = 'hnxFixDlg';
+    dlg.className = 'hnx-url-modal';
+    dlg.innerHTML = `
+      <div class="hnx-url-modal-inner" style="max-width:840px;max-height:92vh;display:flex;flex-direction:column">
+        <div class="hnx-url-modal-h">
+          <span style="font-family:Orbitron,sans-serif;font-weight:800;letter-spacing:.04em">🔧 FIX MIXED CONTENT · 3 working paths</span>
+          <div style="flex:1"></div>
+          <button class="hnx-btn hnx-btn-ghost" onclick="document.getElementById('hnxFixDlg').remove()" style="padding:4px 10px;font-size:11px">✕</button>
+        </div>
+        <div style="padding:18px 22px;overflow:auto;flex:1;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#a5d6e6;line-height:1.7">
+
+          <p style="margin:0 0 14px;color:#e6f7fb">Pick the option that fits your situation. All three are free.</p>
+
+          <!-- OPTION A · TLS on go2rtc -->
+          <div style="margin-bottom:18px;padding:14px;border:2px solid #80e885;border-radius:6px;background:rgba(102,187,106,.05)">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              <span style="font-family:Orbitron,sans-serif;font-weight:800;color:#80e885;font-size:14px;letter-spacing:.04em">A · Enable HTTPS on go2rtc</span>
+              <span style="background:rgba(102,187,106,.20);color:#80e885;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:700">⭐ EASIEST · 2 min</span>
+            </div>
+            <p style="margin:6px 0;color:#a5d6e6">Edit your <code style="color:#84fff9">C:\\Users\\IT_EAYAN\\Downloads\\go2rtc_win64\\go2rtc.yaml</code> in Notepad. Replace everything with:</p>
+            <pre style="background:rgba(0,0,0,.55);padding:12px;border-radius:4px;color:#84fff9;font-size:11px;line-height:1.5;overflow:auto;white-space:pre">api:
+  origin: "*"
+  tls_listen: ":1985"
+
+streams:
+  # streams will be added by dashboard push</pre>
+            <p style="margin:8px 0">Then:</p>
+            <ol style="margin:0;padding-left:22px;line-height:1.8">
+              <li>Save the file (Ctrl+S)</li>
+              <li>Close the go2rtc.exe window → reopen go2rtc.exe</li>
+              <li>In dashboard DVR Setup → Bridge: protocol <b style="color:#80e885">https</b>, port <b style="color:#80e885">1985</b> → 💾 Save bridge</li>
+              <li>Open <code style="color:#84fff9">https://YOUR_LAN_IP:1985</code> in browser → click <b>Advanced → Proceed</b> (one-time self-signed cert warning)</li>
+              <li>Back in dashboard → click <b>⚡ Push to bridge</b> → streams flow</li>
+            </ol>
+          </div>
+
+          <!-- OPTION B · Tailscale -->
+          <div style="margin-bottom:18px;padding:14px;border:1px solid rgba(77,208,225,.40);border-radius:6px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              <span style="font-family:Orbitron,sans-serif;font-weight:800;color:#80deea;font-size:14px;letter-spacing:.04em">B · Tailscale VPN</span>
+              <span style="background:rgba(77,208,225,.20);color:#80deea;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:700">BEST FOR REMOTE · 10 min</span>
+            </div>
+            <p style="margin:6px 0">Free VPN. Install on Windows bridge machine + every viewing device. Each device gets a stable HTTPS URL like <code style="color:#84fff9">https://your-bridge.ts.net:1984</code>. Works from anywhere — supervisor's phone, manager's home computer, etc.</p>
+            <ol style="margin:6px 0;padding-left:22px;line-height:1.8">
+              <li>Install Tailscale on Windows machine: <a href="https://tailscale.com/download/windows" target="_blank" style="color:#84fff9">tailscale.com/download/windows</a></li>
+              <li>Install Tailscale on your phone + viewing devices</li>
+              <li>Sign in (free Gmail or email account)</li>
+              <li>On Windows, note the Tailscale-assigned URL (looks like <code style="color:#84fff9">https://aba-bridge.ts.net</code>)</li>
+              <li>In dashboard: Bridge protocol <b>https</b>, IP = the .ts.net hostname, port 1984</li>
+              <li>Free for up to 100 devices</li>
+            </ol>
+          </div>
+
+          <!-- OPTION C · Local file -->
+          <div style="margin-bottom:18px;padding:14px;border:1px solid rgba(255,202,82,.40);border-radius:6px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              <span style="font-family:Orbitron,sans-serif;font-weight:800;color:#ffca52;font-size:14px;letter-spacing:.04em">C · Open dashboard locally (LAN-only)</span>
+              <span style="background:rgba(255,202,82,.20);color:#ffca52;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:700">FALLBACK · 5 min</span>
+            </div>
+            <p style="margin:6px 0">Save the dashboard HTML to the Windows machine, serve it from a tiny HTTP server. Both dashboard and bridge run on HTTP from the same LAN — no mixed content.</p>
+            <ol style="margin:6px 0;padding-left:22px;line-height:1.8">
+              <li>Save the HydroNexis-AI HTML file to <code style="color:#84fff9">C:\\hydronexis\\index.html</code></li>
+              <li>Open Command Prompt → <code style="color:#84fff9">cd C:\\hydronexis</code></li>
+              <li>Run a simple server: <code style="color:#84fff9">python -m http.server 8080</code> (Python must be installed) or use any static-file tool</li>
+              <li>Open in browser: <code style="color:#84fff9">http://localhost:8080/index.html</code> (or LAN IP from other devices)</li>
+              <li>Bridge IP: <code style="color:#84fff9">localhost</code> or <code style="color:#84fff9">127.0.0.1</code> · protocol <b>http</b></li>
+              <li>Downside: only works from devices on the same LAN as the Windows machine</li>
+            </ol>
+          </div>
+
+          <div style="margin-top:18px;padding:14px;background:rgba(2,18,28,.50);border-radius:6px;color:#a5d6e6;text-align:center">
+            <b style="color:#80e885">My recommendation:</b> Start with <b style="color:#80e885">Option A</b> (TLS on go2rtc) since you already have everything else set up.<br>
+            <span style="font-size:10.5px;color:#80deea">When TLS is enabled and bridge IP is set to your LAN IP (not localhost), open the troubleshooter again — every check should turn green.</span>
+          </div>
+
+        </div>
+      </div>
+      <div class="hnx-url-modal-bg" onclick="document.getElementById('hnxFixDlg').remove()"></div>
+    `;
+    document.body.appendChild(dlg);
+  };
+
+  // ===== Add a prominent button in the GH Command Center =====
+  // Hook into existing GH command center render to add a "🆘 Camera trouble?" button next to refresh
+  function _hnxInjectTroubleshooterButton(){
+    // Find topbar refresh button in the GH command center
+    const refreshBtn = document.querySelector('button[onclick*="_hnxGhcRefresh"]');
+    if(!refreshBtn) return;
+    if(document.getElementById('hnxTsBtn')) return;
+    const tsBtn = document.createElement('button');
+    tsBtn.id = 'hnxTsBtn';
+    tsBtn.className = 'hnx-btn hnx-btn-c';
+    tsBtn.style.cssText = 'padding:7px 12px;font-size:11px;background:linear-gradient(135deg,rgba(255,202,82,.30),rgba(120,80,0,.40));border-color:#ffca52;color:#ffca52;font-weight:700';
+    tsBtn.innerHTML = '🆘 Camera trouble?';
+    tsBtn.title = 'Diagnose why cameras are not showing';
+    tsBtn.onclick = () => window._hnxOpenCctvTroubleshooter();
+    refreshBtn.parentElement.insertBefore(tsBtn, refreshBtn);
+  }
+  setInterval(_hnxInjectTroubleshooterButton, 1200);
+
+
+  // ==================================================================
+  // v2.44 · LOGIN BRAIN · inject orbital spark particles
+  // ==================================================================
+  function _hnxBrainAddSparks(){
+    const hero = document.querySelector('.login-brain-hero');
+    if(!hero) return;
+    if(hero.querySelector('.hnx-spark')) return; // Already injected
+    for(let i = 1; i <= 6; i++){
+      const sp = document.createElement('div');
+      sp.className = 'hnx-spark s' + i;
+      // Position each spark at the center of the brain hero before animation translates it outward
+      sp.style.left = '50%';
+      sp.style.top = '50%';
+      sp.style.marginLeft = '-2px';
+      sp.style.marginTop = '-2px';
+      hero.appendChild(sp);
+    }
+  }
+  // Run on load + periodically (login screen may render after this script)
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', _hnxBrainAddSparks);
+  } else {
+    setTimeout(_hnxBrainAddSparks, 200);
+  }
+  setInterval(_hnxBrainAddSparks, 1500);
+
+
+  // ==================================================================
+  // v2.45 · FIX MY CCTV · guided step-by-step wizard
+  // Auto-detects current state and tells user EXACTLY what to do next
+  // ==================================================================
+
+  window._hnxOpenFixCctvWizard = async function(){
+    const prior = document.getElementById('hnxFixCctvDlg'); if(prior) prior.remove();
+    const cfg = (typeof hnxLoadDvrConfig === 'function') ? hnxLoadDvrConfig() : { devices:[], bridgeIp:'' };
+    const dvrs = cfg.devices.filter(d => d.enabled && d.ip);
+    const pageProto = window.location.protocol;
+    const bridgeBase = cfg.bridgeIp ? ((cfg.bridgeProtocol||'http') + '://' + cfg.bridgeIp + ':' + (cfg.bridgePort||1984)) : null;
+    const isMixed = (pageProto === 'https:' && bridgeBase && /^http:\/\//i.test(bridgeBase));
+
+    // Determine the SINGLE most important next step
+    let stepNum = 1, stepTitle = '', stepBody = '';
+
+    if(dvrs.length === 0){
+      stepNum = 1;
+      stepTitle = 'STEP 1 · Add a DVR/NVR in the dashboard';
+      stepBody = `<p>You have no DVRs configured. Cameras can only stream if at least one DVR knows where to find them.</p>
+        <p><b style="color:#80e885">Do this now:</b></p>
+        <ol style="line-height:1.9">
+          <li>Click the button below to open DVR Setup</li>
+          <li>Click <b>+ Add device</b></li>
+          <li>Fill in: Name, IP address of the DVR, Username, Password, # of channels</li>
+          <li>Pick manufacturer preset (Hikvision/Dahua/etc) so RTSP URL template is correct</li>
+          <li>Save</li>
+          <li>Come back here when done</li>
+        </ol>
+        <button class="hnx-btn hnx-btn-g" onclick="document.getElementById('hnxFixCctvDlg').remove();window._hnxTsGoto && window._hnxTsGoto('dvr')" style="padding:9px 18px;font-size:13px;margin-top:10px">→ Open DVR Setup</button>`;
+    }
+    else if(!cfg.bridgeIp || cfg.bridgeIp === 'localhost' || cfg.bridgeIp === '127.0.0.1'){
+      stepNum = 2;
+      stepTitle = 'STEP 2 · Set bridge IP to your LAN IP (not localhost)';
+      stepBody = `<p>You have ${dvrs.length} DVR(s) configured, but the bridge IP is ${!cfg.bridgeIp?'<b style="color:#ff7a78">empty</b>':'<b style="color:#ffca52">"'+cfg.bridgeIp+'"</b>'}.</p>
+        <p style="color:#ffca52"><b>"localhost" only works for ONE computer · the one running go2rtc.exe.</b> Other devices on your network think localhost = themselves, so they can't reach the bridge.</p>
+        <p><b style="color:#80e885">Find your bridge LAN IP:</b></p>
+        <ol style="line-height:1.9">
+          <li>On the Windows machine running go2rtc, press <kbd style="background:#222;padding:2px 8px;border-radius:3px;color:#84fff9">Win + R</kbd></li>
+          <li>Type <code style="color:#84fff9">cmd</code> and press Enter</li>
+          <li>Type <code style="color:#84fff9">ipconfig</code> and press Enter</li>
+          <li>Find the line "IPv4 Address" under your Wi-Fi or Ethernet adapter</li>
+          <li>It looks like <code style="color:#84fff9">192.168.1.50</code> or <code style="color:#84fff9">192.168.0.105</code></li>
+          <li>Use that IP below ↓</li>
+        </ol>
+        <div style="margin:14px 0;padding:14px;background:rgba(2,18,28,.5);border-radius:6px;border:1px solid rgba(102,187,106,.40)">
+          <label style="display:flex;flex-direction:column;gap:6px">
+            <span style="font-family:Orbitron,sans-serif;font-weight:700;font-size:11px;color:#80e885;letter-spacing:.04em">Enter your bridge LAN IP</span>
+            <input type="text" id="hnxFixBridgeIp" placeholder="e.g. 192.168.1.50" class="hnx-cell" style="padding:10px;font-size:14px;font-family:'JetBrains Mono',monospace;letter-spacing:.04em" value="${cfg.bridgeIp && cfg.bridgeIp !== 'localhost' && cfg.bridgeIp !== '127.0.0.1' ? cfg.bridgeIp : ''}">
+          </label>
+          <button class="hnx-btn hnx-btn-g" onclick="window._hnxFixSetBridgeIp && window._hnxFixSetBridgeIp()" style="margin-top:10px;padding:9px 18px;font-size:12px">💾 Save & continue →</button>
+        </div>`;
+    }
+    else if(isMixed){
+      stepNum = 3;
+      stepTitle = 'STEP 3 · Enable HTTPS on go2rtc (fixes mixed-content)';
+      stepBody = `<p>You have ${dvrs.length} DVR(s) + bridge at <code style="color:#84fff9">${bridgeBase}</code>. But:</p>
+        <p style="padding:10px 14px;background:rgba(255,122,120,.10);border:1px solid #ff7a78;border-radius:4px;color:#ff7a78">
+          <b>🔒 Your dashboard is HTTPS but bridge is HTTP.</b><br>Chrome physically blocks this combination · no dashboard code can override it. The fix happens on go2rtc, not in dashboard.
+        </p>
+        <p><b style="color:#80e885">3-step fix (5 minutes):</b></p>
+        <ol style="line-height:2;font-size:12px">
+          <li><b>Generate a complete go2rtc.yaml</b> with TLS + your DVRs baked in: <button class="hnx-btn hnx-btn-g" onclick="window._hnxFixDownloadYaml && window._hnxFixDownloadYaml()" style="padding:6px 14px;font-size:11px;margin-left:6px">⬇ Download go2rtc.yaml</button></li>
+          <li><b>Replace</b> the file at <code style="color:#84fff9">C:\\Users\\IT_EAYAN\\Downloads\\go2rtc_win64\\go2rtc.yaml</code> with the downloaded one</li>
+          <li><b>Close</b> go2rtc.exe window (red X), then <b>double-click go2rtc.exe</b> to restart it</li>
+          <li>Open <code style="color:#84fff9">https://${cfg.bridgeIp}:1985</code> in browser → <b style="color:#ffca52">"Not secure" warning</b> → click <b>Advanced → Proceed to ${cfg.bridgeIp} (unsafe)</b> · one time only</li>
+          <li>You should see the go2rtc admin UI · streams should be listed (one row per DVR channel)</li>
+          <li>Come back here · click "Check again" below</li>
+        </ol>
+        <div style="margin-top:14px;padding:12px;background:rgba(2,18,28,.45);border:1px solid rgba(77,208,225,.30);border-radius:6px">
+          <p style="margin:0 0 8px;color:#80deea;font-weight:700">After completing the steps above:</p>
+          <button class="hnx-btn hnx-btn-c" onclick="window._hnxFixSwitchToHttps && window._hnxFixSwitchToHttps()" style="padding:8px 14px;font-size:11px">🔐 Switch dashboard to HTTPS bridge (port 1985)</button>
+          <button class="hnx-btn hnx-btn-g" onclick="window._hnxOpenFixCctvWizard && window._hnxOpenFixCctvWizard()" style="padding:8px 14px;font-size:11px;margin-left:6px">↻ Check again</button>
+        </div>`;
+    }
+    else {
+      // Bridge config is "right" · try to reach it
+      let reachState = 'pending', streamsOnBridge = 0;
+      try{
+        const r = await fetch(bridgeBase + '/api/streams', { method:'GET', signal: AbortSignal.timeout(5000) });
+        if(r.ok){
+          const data = await r.json();
+          streamsOnBridge = Object.keys(data || {}).length;
+          reachState = 'ok';
+        } else {
+          reachState = 'http_error';
+        }
+      }catch(e){
+        reachState = 'unreachable';
+      }
+
+      if(reachState === 'unreachable'){
+        stepNum = 4;
+        stepTitle = 'STEP 4 · Bridge is configured but unreachable';
+        stepBody = `<p>Dashboard tried to ping <code style="color:#84fff9">${bridgeBase}/api/streams</code> but got no response.</p>
+          <p><b style="color:#ffca52">Possible causes:</b></p>
+          <ul style="line-height:1.9">
+            <li><b>go2rtc.exe is not running</b> on the Windows machine · double-click it to start</li>
+            <li><b>Windows Firewall is blocking</b> port ${cfg.bridgePort||1984} · open Windows Defender Firewall → Allow an app → add go2rtc.exe</li>
+            <li><b>You're on a different network</b> than the bridge machine (e.g. your phone on cellular, bridge on WiFi)</li>
+            <li><b>Bridge IP changed</b> · IPs can change after router reboot · re-run ipconfig and update</li>
+          </ul>
+          <button class="hnx-btn hnx-btn-g" onclick="window._hnxOpenFixCctvWizard && window._hnxOpenFixCctvWizard()" style="padding:9px 18px;font-size:12px;margin-top:10px">↻ Try again</button>`;
+      }
+      else if(reachState === 'http_error'){
+        stepNum = 4;
+        stepTitle = 'STEP 4 · Bridge responded with an error';
+        stepBody = `<p>Bridge is reachable but returned a non-OK response. Likely cause: CORS not enabled in go2rtc.yaml.</p>
+          <p>Make sure your go2rtc.yaml has at the top:</p>
+          <pre style="background:rgba(0,0,0,.55);padding:12px;border-radius:4px;color:#84fff9;font-size:12px">api:
+  origin: "*"</pre>
+          <button class="hnx-btn hnx-btn-g" onclick="window._hnxFixDownloadYaml && window._hnxFixDownloadYaml()" style="padding:9px 18px;font-size:12px;margin-top:10px">⬇ Get fresh yaml with CORS</button>`;
+      }
+      else if(streamsOnBridge === 0){
+        stepNum = 5;
+        stepTitle = 'STEP 5 · Bridge is reachable · push streams to it';
+        stepBody = `<p>Excellent · bridge at <code style="color:#84fff9">${bridgeBase}</code> is responding. But it has <b style="color:#ffca52">0 streams</b> configured.</p>
+          <p>Your dashboard has ${dvrs.length} DVR(s) with channel info. Click below to push them all to the bridge:</p>
+          <button class="hnx-btn hnx-btn-g" onclick="document.getElementById('hnxFixCctvDlg').remove();window._hnxBridgePush && window._hnxBridgePush()" style="padding:11px 22px;font-size:14px;margin-top:10px">⚡ PUSH STREAMS TO BRIDGE NOW</button>
+          <p style="margin-top:12px;color:#a5d6e6">If push fails, paste yaml manually:</p>
+          <button class="hnx-btn hnx-btn-c" onclick="window._hnxFixDownloadYaml && window._hnxFixDownloadYaml()" style="padding:7px 14px;font-size:11px">⬇ Download yaml</button>`;
+      }
+      else {
+        // All looks good
+        stepNum = 6;
+        stepTitle = '✓ STEP 6 · Looking healthy · final checks';
+        stepBody = `<p style="color:#80e885;font-weight:700">Bridge is reachable AND has ${streamsOnBridge} stream(s) configured.</p>
+          <p>If cameras still don't show in Command Center:</p>
+          <ol style="line-height:1.9">
+            <li>Go to <b>📷 Camera Assignment</b> tab · make sure each slot has a stream selected from the dropdown (not "no stream")</li>
+            <li>Go to <b>🏭 Command Center</b> · hard-refresh (Ctrl+Shift+R) to reload streams</li>
+            <li>Each cell should show live video within 5-10 seconds</li>
+          </ol>
+          <button class="hnx-btn hnx-btn-c" onclick="document.getElementById('hnxFixCctvDlg').remove();window._hnxTsGoto && window._hnxTsGoto('cam_assign')" style="padding:8px 14px;font-size:12px">📷 Open Camera Assignment</button>
+          <button class="hnx-btn hnx-btn-g" onclick="document.getElementById('hnxFixCctvDlg').remove();if(typeof window.switchView==='function'){try{window.switchView('gh_command')}catch(e){}}" style="padding:8px 14px;font-size:12px;margin-left:6px">🏭 Go to Command Center</button>`;
+      }
+    }
+
+    const dlg = document.createElement('div');
+    dlg.id = 'hnxFixCctvDlg';
+    dlg.className = 'hnx-url-modal';
+    dlg.innerHTML = `
+      <div class="hnx-url-modal-inner" style="max-width:760px;max-height:92vh;display:flex;flex-direction:column">
+        <div class="hnx-url-modal-h">
+          <span style="font-family:Orbitron,sans-serif;font-weight:800;letter-spacing:.04em;font-size:14px">🚨 FIX MY CCTV · auto-detected your next step</span>
+          <div style="flex:1"></div>
+          <button class="hnx-btn hnx-btn-ghost" onclick="document.getElementById('hnxFixCctvDlg').remove()" style="padding:4px 10px;font-size:11px">✕</button>
+        </div>
+        <div style="padding:18px 24px;overflow:auto;flex:1;font-family:'JetBrains Mono',monospace;font-size:12px;color:#a5d6e6;line-height:1.6">
+          <!-- Progress -->
+          <div style="display:flex;gap:6px;margin-bottom:18px;align-items:center">
+            ${[1,2,3,4,5,6].map(n => `<div style="flex:1;height:6px;border-radius:3px;background:${n<stepNum?'#80e885':n===stepNum?'#ffca52':'rgba(77,208,225,.20)'}"></div>`).join('')}
+          </div>
+          <div style="font-family:Orbitron,sans-serif;font-weight:800;color:#84fff9;font-size:16px;letter-spacing:.04em;margin-bottom:14px">${escHtml(stepTitle)}</div>
+          ${stepBody}
+        </div>
+      </div>
+      <div class="hnx-url-modal-bg" onclick="document.getElementById('hnxFixCctvDlg').remove()"></div>
+    `;
+    document.body.appendChild(dlg);
+  };
+
+  window._hnxFixSetBridgeIp = function(){
+    const v = (document.getElementById('hnxFixBridgeIp')||{}).value || '';
+    const ip = v.trim();
+    if(!ip){ alert('Enter a valid IP address'); return; }
+    if(!/^[\d.]+$/.test(ip) && !/^[a-z0-9.\-]+$/i.test(ip)){
+      alert('That does not look like a valid IP or hostname'); return;
+    }
+    const cfg = hnxLoadDvrConfig();
+    cfg.bridgeIp = ip;
+    cfg.bridgeProtocol = cfg.bridgeProtocol || 'http';
+    cfg.bridgePort = cfg.bridgePort || 1984;
+    hnxSaveDvrConfig(cfg);
+    if(typeof toast === 'function') toast('💾 Bridge IP saved · checking next step…');
+    document.getElementById('hnxFixCctvDlg')?.remove();
+    setTimeout(window._hnxOpenFixCctvWizard, 400);
+  };
+
+  window._hnxFixSwitchToHttps = function(){
+    const cfg = hnxLoadDvrConfig();
+    cfg.bridgeProtocol = 'https';
+    cfg.bridgePort = 1985;
+    hnxSaveDvrConfig(cfg);
+    if(typeof toast === 'function') toast('🔐 Bridge switched to HTTPS:1985 · checking…');
+    document.getElementById('hnxFixCctvDlg')?.remove();
+    setTimeout(window._hnxOpenFixCctvWizard, 400);
+  };
+
+  window._hnxFixDownloadYaml = function(){
+    const yaml = hnxGenerateGo2rtcYaml();
+    const blob = new Blob([yaml], { type: 'text/yaml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'go2rtc.yaml'; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    if(typeof toast === 'function') toast('⬇ go2rtc.yaml downloaded · save to your go2rtc folder');
+  };
+
+  // Make the "FIX MY CCTV" button MUCH more visible in Command Center
+  function _hnxInjectFixCctvButton(){
+    if(document.getElementById('hnxFixCctvBigBtn')) return;
+    // Find topbar refresh button in the GH command center
+    const refreshBtn = document.querySelector('button[onclick*="_hnxGhcRefresh"]');
+    if(!refreshBtn) return;
+    const btn = document.createElement('button');
+    btn.id = 'hnxFixCctvBigBtn';
+    btn.style.cssText = 'padding:8px 16px;font-family:Orbitron,sans-serif;font-weight:800;font-size:11.5px;letter-spacing:.06em;background:linear-gradient(135deg,#ff5252,#c62828);color:#fff;border:1px solid #ff7a78;border-radius:6px;cursor:pointer;box-shadow:0 0 14px rgba(255,82,82,.50);animation:hnxFixCctvPulse 2s ease-in-out infinite';
+    btn.innerHTML = '🚨 FIX CCTV';
+    btn.title = 'Auto-detect what is wrong + step-by-step fix';
+    btn.onclick = () => window._hnxOpenFixCctvWizard();
+    refreshBtn.parentElement.insertBefore(btn, refreshBtn);
+  }
+  setInterval(_hnxInjectFixCctvButton, 1200);
+
+  // Pulse animation for the fix button
+  (function(){
+    if(document.getElementById('hnxFixCctvStyle')) return;
+    const st = document.createElement('style');
+    st.id = 'hnxFixCctvStyle';
+    st.textContent = `@keyframes hnxFixCctvPulse { 0%,100%{ box-shadow:0 0 12px rgba(255,82,82,.50); } 50%{ box-shadow:0 0 22px rgba(255,82,82,.85), 0 0 35px rgba(255,82,82,.30); } }`;
+    document.head.appendChild(st);
+  })();
 
   // ============== MAIN RENDER ==============
   function renderFrCommandView(){
@@ -106255,13 +106908,39 @@ service cloud.firestore {
 
   function hnxGenerateGo2rtcYaml(){
     const cfg = hnxLoadDvrConfig();
+    const bridgeIp = cfg.bridgeIp || '<your-LAN-ip>';
+    const port = cfg.bridgePort || 1984;
     const lines = [
-      '# go2rtc config · auto-generated by HydroNexis v2.33',
-      '# Paste this into your go2rtc.yaml on the bridge server',
-      '# After saving, restart go2rtc · streams appear at http://' + (cfg.bridgeIp || '<bridge-ip>') + ':' + (cfg.bridgePort || 1984),
+      '# ====================================================',
+      '# go2rtc.yaml · auto-generated by HydroNexis-AI v2.45',
+      '# ====================================================',
+      '# This file enables HTTPS + CORS so the Netlify dashboard',
+      '# can reach the bridge without mixed-content blocks.',
+      '#',
+      '# STEPS:',
+      '#  1. Save this file as go2rtc.yaml (REPLACE existing one)',
+      '#     Path: C:\\Users\\IT_EAYAN\\Downloads\\go2rtc_win64\\go2rtc.yaml',
+      '#  2. Close go2rtc.exe (if running) then double-click it again to restart',
+      '#  3. In browser visit:  https://' + bridgeIp + ':1985',
+      '#     You will see a "Not secure" warning (self-signed cert) →',
+      '#     click "Advanced" → "Proceed to ' + bridgeIp + ' (unsafe)"',
+      '#     Do this ONCE per browser · then it remembers.',
+      '#  4. In dashboard DVR Setup: protocol=HTTPS, port=1985, IP=' + bridgeIp,
+      '#     Click 💾 Save bridge · then click ⚡ Push to bridge',
+      '# ====================================================',
+      '',
+      '# API + CORS · lets dashboard connect from any origin',
+      'api:',
+      '  origin: "*"',
+      '  listen: ":' + port + '"            # HTTP on port ' + port + ' (legacy support)',
+      '  tls_listen: ":1985"          # HTTPS on port 1985 (USE THIS for Netlify)',
+      '',
+      'log:',
+      '  level: info',
       '',
       'streams:'
     ];
+    let streamCount = 0;
     cfg.devices.forEach(dvr => {
       if(!dvr.enabled || !dvr.ip) return;
       const channels = parseInt(dvr.channels, 10) || 1;
@@ -106271,19 +106950,27 @@ service cloud.firestore {
         const rtsp = _hnxResolveRtspUrl(dvr, ch);
         lines.push('  ' + streamId + ':');
         lines.push('    - ' + rtsp + '  # ' + (dvr.name || dvr.manufacturer) + ' · channel ' + ch);
+        streamCount++;
       }
     });
-    if(cfg.devices.length === 0){
-      lines.push('  # (no DVR devices configured yet · add one above)');
+    if(streamCount === 0){
+      lines.push('  # NO DVRS CONFIGURED · go back to DVR Setup tab → click "+ Add device"');
+      lines.push('  # Fill in DVR IP, username, password, channel count → save → regenerate this yaml');
+      lines.push('  #');
+      lines.push('  # EXAMPLE (replace values for your DVR):');
+      lines.push('  # office_cam_ch1:');
+      lines.push('  #   - rtsp://admin:password@192.168.1.50:554/Streaming/Channels/101  # Hikvision example');
     }
     lines.push('');
     lines.push('webrtc:');
     lines.push('  candidates:');
-    lines.push('    - ' + (cfg.bridgeIp || '<bridge-ip>') + ':8555');
+    lines.push('    - ' + bridgeIp + ':8555');
     lines.push('    - stun:8555');
     lines.push('');
-    lines.push('# Browser fetches HLS stream at:');
-    lines.push('# http://' + (cfg.bridgeIp || '<bridge-ip>') + ':' + (cfg.bridgePort || 1984) + '/api/stream.m3u8?src=<streamId>');
+    lines.push('# ====================================================');
+    lines.push('# Browser HLS URL pattern (auto-set by dashboard):');
+    lines.push('#   https://' + bridgeIp + ':1985/api/stream.m3u8?src=<streamId>');
+    lines.push('# ====================================================');
     return lines.join('\n');
   }
 
@@ -109759,8 +110446,8 @@ service cloud.firestore {
           <!-- Status marquee strip -->
           <div class="hnx-marquee-wrap" style="margin:8px 14px 14px;border-radius:6px;padding:6px 0;position:relative;z-index:2;background:rgba(0,131,143,.10)">
             <div class="hnx-marquee" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#a5d6e6;letter-spacing:.10em;padding:0 30px">
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.41</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.41</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.45</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.45</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
             </div>
           </div>
           <!-- Pair selector -->
@@ -111258,7 +111945,7 @@ service cloud.firestore {
 .hnx-param-unit{font-size:11px;color:#6a8ea3;font-weight:500;margin-left:3px}
 .hnx-param-target{font-family:'JetBrains Mono',monospace;font-size:9px;color:#6a8ea3;letter-spacing:.10em;margin-top:3px}
 .hnx-param-dev{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;margin-top:1px}
-/* === HNX-EXT v2.41 · MACHINES GRID === */
+/* === HNX-EXT v2.45 · MACHINES GRID === */
 .hnx-machines-cube { position: relative; }
 .hnx-machines-grid {
   display: grid;
@@ -111374,7 +112061,7 @@ service cloud.firestore {
   color: #ff3030;
 }
 
-/* === HNX-EXT v2.41 · DRONE FLEET DETAIL PANEL === */
+/* === HNX-EXT v2.45 · DRONE FLEET DETAIL PANEL === */
 .hnx-drone-detail {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1.2fr;
@@ -111504,7 +112191,7 @@ service cloud.firestore {
 .hnx-drone-hist-stat.crit { background: rgba(255,48,48,.15); color: #ff7a78; border:1px solid rgba(255,48,48,.35); }
 .hnx-drone-hist-stat.live { background: rgba(132,255,249,.18); color: #84fff9; border:1px solid rgba(132,255,249,.45); animation: hnxBlink 1.2s steps(2) infinite; }
 
-/* === HNX-EXT v2.41 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
+/* === HNX-EXT v2.45 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
 .hnx-rotate-ctrl {
   display: inline-flex;
   align-items: center;
@@ -111587,7 +112274,7 @@ service cloud.firestore {
 .hnx-app.hnx-fs-active .hnx-crit-btn { font-size: 13px !important; padding: 7px 14px !important; }
 .hnx-app.hnx-fs-active .hnx-rotate-critcount { font-size: 13px; padding: 6px 14px; }
 
-/* === HNX-EXT v2.41 · URL-DRIVEN MONITOR PRESETS === */
+/* === HNX-EXT v2.45 · URL-DRIVEN MONITOR PRESETS === */
 .hnx-url-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-prof-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-app.hnx-fs-active .hnx-url-btn { font-size: 13px !important; padding: 7px 14px !important; }
@@ -111861,6 +112548,640 @@ service cloud.firestore {
 }
 .hnx-mcw-area { transition: border-color .25s ease; }
 
+/* ==================================================================
+   v2.42 · MOBILE RESPONSIVE STYLES
+   Activates on screens < 900px (phone + small tablet)
+   ================================================================== */
+
+/* === Hamburger button (always present, hidden on desktop) === */
+.hnx-mobile-burger {
+  display: none;
+  background: linear-gradient(135deg, rgba(102,187,106,.20), rgba(2,30,20,.50));
+  border: 1px solid rgba(102,187,106,.40);
+  color: #80e885;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin-right: 8px;
+}
+.hnx-mobile-burger:hover { background: linear-gradient(135deg, rgba(102,187,106,.30), rgba(2,30,20,.55)); }
+.hnx-mobile-burger:active { transform: scale(.96); }
+
+.hnx-mobile-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,8,15,.78);
+  backdrop-filter: blur(2px);
+  z-index: 9998;
+  opacity: 0;
+  transition: opacity .25s ease;
+}
+.hnx-mobile-backdrop.on { display: block; opacity: 1; }
+
+.hnx-mobile-fab {
+  display: none;
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  background: linear-gradient(135deg, #ff5252, #c62828);
+  color: #fff;
+  border: 2px solid #ff7a78;
+  border-radius: 30px;
+  padding: 12px 18px;
+  font-family: Orbitron, sans-serif;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: .06em;
+  cursor: pointer;
+  z-index: 9990;
+  box-shadow: 0 4px 16px rgba(255,82,82,.40), 0 2px 6px rgba(0,0,0,.30);
+  gap: 8px;
+  align-items: center;
+  transition: transform .12s ease, box-shadow .15s ease;
+}
+.hnx-mobile-fab:hover { box-shadow: 0 6px 20px rgba(255,82,82,.55), 0 2px 8px rgba(0,0,0,.35); }
+.hnx-mobile-fab:active { transform: scale(.94); }
+
+body.hnx-mobile-locked { overflow: hidden; }
+
+/* === Mobile breakpoint === */
+@media (max-width: 899px) {
+  /* Show mobile chrome */
+  .hnx-mobile-burger { display: inline-flex; }
+  .hnx-mobile-fab { display: inline-flex; }
+
+  /* === Topbar adjustments === */
+  .topbar, .hnx-tbar {
+    flex-wrap: nowrap !important;
+    padding: 6px 10px !important;
+    gap: 6px !important;
+    min-height: 56px;
+  }
+  .topbar > *, .hnx-tbar > * { flex-shrink: 1; min-width: 0; }
+  .topbar img, .hnx-tbar img { max-height: 36px !important; }
+
+  /* Hide non-essential topbar items on phone */
+  .topbar .hn-build-info,
+  .topbar .topbar-date,
+  .topbar [class*="manager-summary"],
+  .topbar button[class*="manager"],
+  .topbar button[class*="summary"]:not([class*="hnx"]) {
+    display: none !important;
+  }
+
+  /* === Sidebar becomes a drawer === */
+  .module-sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    width: 78% !important;
+    max-width: 320px !important;
+    height: 100vh !important;
+    z-index: 9999 !important;
+    transform: translateX(-105%);
+    transition: transform .28s cubic-bezier(.4,0,.2,1);
+    box-shadow: 4px 0 24px rgba(0,0,0,.5);
+    overflow-y: auto !important;
+    padding-top: 60px !important;
+  }
+  .module-sidebar.hnx-mobile-drawer-open {
+    transform: translateX(0);
+  }
+  .module-sidebar a,
+  .module-sidebar button,
+  .module-sidebar [data-view] {
+    min-height: 48px !important;
+    padding: 10px 14px !important;
+    font-size: 13px !important;
+  }
+
+  /* === Main content takes full width === */
+  .main-content,
+  .hnx-main,
+  main:not(.module-sidebar) {
+    margin-left: 0 !important;
+    width: 100% !important;
+    padding: 8px !important;
+  }
+  /* Common children that might have explicit left margin/padding to clear the sidebar */
+  body > div > div[style*="margin-left"]:not(.module-sidebar) {
+    margin-left: 0 !important;
+  }
+
+  /* === Typography === */
+  body, .hnx-app, .hnx-w {
+    font-size: 13px;
+  }
+  .hnx-tbtitle { font-size: 14px !important; }
+  .hnx-tbsub { font-size: 10.5px !important; }
+  .hnx-w-h { font-size: 12px !important; padding: 10px 12px !important; }
+  .hnx-banner-t { font-size: 12px !important; letter-spacing: .04em !important; }
+  .hnx-banner-s { font-size: 11px !important; line-height: 1.5 !important; }
+
+  /* === Banner stacks vertically on phone === */
+  .hnx-banner {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    padding: 10px 12px !important;
+    gap: 6px !important;
+  }
+  .hnx-banner-i {
+    font-size: 18px !important;
+    width: 36px !important;
+    height: 36px !important;
+  }
+  .hnx-banner > button, .hnx-banner > div:last-child > button {
+    margin-left: 0 !important;
+    width: 100%;
+  }
+
+  /* === KPI/card grids stack === */
+  .hnx-crates-kpis,
+  .hnx-kpi-grid,
+  .hnx-grid-3,
+  [style*="grid-template-columns:repeat(3,1fr)"],
+  [style*="grid-template-columns:repeat(4,1fr)"],
+  [style*="grid-template-columns:repeat(5,1fr)"],
+  [style*="grid-template-columns:repeat(6,1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+  /* Single column on very small phones */
+  @media (max-width: 480px) {
+    .hnx-crates-kpis,
+    [style*="grid-template-columns:repeat(3,1fr)"],
+    [style*="grid-template-columns:repeat(4,1fr)"],
+    [style*="grid-template-columns:repeat(5,1fr)"],
+    [style*="grid-template-columns:repeat(6,1fr)"] {
+      grid-template-columns: 1fr !important;
+    }
+  }
+  .hnx-kpi-card {
+    padding: 10px 12px !important;
+  }
+  .hnx-kpi-v { font-size: 22px !important; }
+  .hnx-kpi-l { font-size: 9.5px !important; }
+  .hnx-kpi-s { font-size: 9.5px !important; }
+
+  /* === Form grids stack === */
+  [style*="grid-template-columns:repeat(2,1fr)"],
+  [style*="grid-template-columns:1fr 1fr"],
+  [style*="grid-template-columns:2fr 1fr"],
+  [style*="grid-template-columns:1.5fr 1fr 1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+  label[style*="grid-column"] {
+    grid-column: span 1 !important;
+  }
+
+  /* === CCTV wall: 3x3 → 2x4 on tablet, 1col on phone === */
+  .hnx-cctv-wall,
+  .hnx-wall,
+  [class*="cctv-grid"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 6px !important;
+  }
+  @media (max-width: 480px) {
+    .hnx-cctv-wall,
+    .hnx-wall,
+    [class*="cctv-grid"] {
+      grid-template-columns: 1fr !important;
+    }
+  }
+  .hnx-cctv-cell, .hnx-mcw-cell {
+    aspect-ratio: 16/9 !important;
+    min-height: 100px;
+  }
+
+  /* === Master CCTV Wall mini cells: 3 cols → 2 cols phone === */
+  .hnx-mcw-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 4px !important;
+  }
+  @media (max-width: 480px) {
+    .hnx-mcw-grid { grid-template-columns: 1fr !important; }
+  }
+
+  /* === Camera assignment slot cards: 3 cols → 1 col === */
+  .hnx-slot-card { padding: 12px !important; }
+
+  /* === GH/FR Command Center stage: 3 cols → 1 col, columns stack === */
+  .hnx-ghc-stage {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto auto auto !important;
+    gap: 10px !important;
+  }
+  .hnx-ghc-col-l, .hnx-ghc-col-r {
+    width: 100% !important;
+  }
+
+  /* === Tabs become horizontally scrollable === */
+  .hnx-crates-tabs,
+  .hnx-it-tabs,
+  .nav-tabs,
+  .hnx-tabs {
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    flex-wrap: nowrap !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    padding-bottom: 4px;
+  }
+  .hnx-crates-tabs::-webkit-scrollbar,
+  .hnx-it-tabs::-webkit-scrollbar,
+  .nav-tabs::-webkit-scrollbar { height: 4px; }
+  .hnx-crates-tabs::-webkit-scrollbar-thumb,
+  .hnx-it-tabs::-webkit-scrollbar-thumb,
+  .nav-tabs::-webkit-scrollbar-thumb { background: rgba(77,208,225,.30); border-radius: 2px; }
+
+  .hnx-crates-tab,
+  .hnx-it-tab,
+  .nav-tab {
+    flex-shrink: 0 !important;
+    min-height: 44px !important;
+    font-size: 11.5px !important;
+    padding: 9px 13px !important;
+    white-space: nowrap;
+  }
+
+  /* === Touch targets: all buttons min 44px === */
+  .hnx-btn:not(.hnx-btn-ghost),
+  button.hnx-btn {
+    min-height: 40px;
+    padding: 8px 14px;
+    font-size: 12px;
+  }
+  .hnx-btn-ghost { min-height: 36px; }
+
+  /* Floating area chips for camera assignment etc. */
+  .hnx-area-chip {
+    min-height: 36px !important;
+    padding: 8px 12px !important;
+    font-size: 11px !important;
+  }
+
+  /* === Tables → scroll horizontally === */
+  .hnx-tablescr,
+  .hnx-tablewrap,
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+
+  /* Log rows (e.g. activity log, harvest log) — show as cards on phone */
+  .hnx-log-thead { display: none !important; }
+  .hnx-log-row {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    padding: 10px 12px !important;
+    border: 1px solid rgba(77,208,225,.15);
+    border-radius: 5px;
+    margin-bottom: 6px;
+    background: rgba(2,18,28,.40);
+    gap: 4px !important;
+  }
+  .hnx-log-row > div { width: auto !important; min-width: 0 !important; text-align: left !important; }
+
+  /* === Delivery / harvest rows on mobile === */
+  .hnx-deliv-row {
+    flex-wrap: wrap !important;
+    padding: 10px 12px !important;
+    gap: 6px !important;
+    align-items: flex-start !important;
+  }
+  .hnx-deliv-row > div { min-width: auto !important; width: auto !important; }
+
+  /* === FR Command Center area selector === */
+  .hnx-toolbar, .hnx-ghc-bar {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap !important;
+    padding: 8px !important;
+    gap: 6px !important;
+  }
+  .hnx-toolbar > *, .hnx-ghc-bar > * { flex-shrink: 0; }
+
+  /* === Modals: full screen on phone === */
+  .hnx-url-modal-inner {
+    max-width: 96vw !important;
+    max-height: 92vh !important;
+    margin: 4vh auto !important;
+    overflow-y: auto !important;
+  }
+  .hnx-url-modal-h {
+    padding: 12px 14px !important;
+    font-size: 14px !important;
+  }
+
+  /* === Cells (inputs) === */
+  .hnx-cell {
+    font-size: 13px !important;
+    padding: 10px !important;
+    min-height: 40px;
+  }
+  textarea.hnx-cell { min-height: 70px; }
+  select.hnx-cell { font-size: 12px !important; }
+
+  /* === Notification bell + topbar icon buttons size up === */
+  .topbar button, .hnx-tbar button {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  /* Hide right-column drone fleet stuff on phone (still in tablet) */
+  @media (max-width: 480px) {
+    #hnxGhcDrones, .hnx-drone-fleet, .drone-fleet-bar {
+      display: none !important;
+    }
+  }
+
+  /* === Daily Report tables on phone: hide some columns === */
+  .hnx-rpt-app .hnx-deliv-row > div[style*="min-width:200px"],
+  .hnx-rpt-app .hnx-deliv-row > div[style*="min-width:160px"] {
+    display: none;
+  }
+
+  /* === Settings + edit forms get more space === */
+  .hnx-w {
+    margin-bottom: 10px !important;
+    border-radius: 6px;
+  }
+
+  /* === Camera assignment dropdowns full-width === */
+  .hnx-slot-card .hnx-cell { width: 100% !important; }
+  .hnx-slot-card { padding: 12px !important; }
+
+  /* === Hide auxiliary text on cramped phones === */
+  @media (max-width: 480px) {
+    .hnx-fab-lbl { display: none; }
+    .hnx-mobile-fab { padding: 14px !important; border-radius: 50%; }
+  }
+
+  /* === Setup wizard takes full screen on phone === */
+  #hnxWizDlg .hnx-url-modal-inner {
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    margin: 0 !important;
+    height: 100vh !important;
+    border-radius: 0 !important;
+  }
+
+  /* === Bigger touch target for area chips === */
+  .hnx-mcw-area .hnx-w-h { padding: 14px !important; }
+}
+
+/* === Tablet refinements (640-1024px) === */
+@media (min-width: 640px) and (max-width: 899px) {
+  .hnx-crates-kpis,
+  [style*="grid-template-columns:repeat(3,1fr)"],
+  [style*="grid-template-columns:repeat(4,1fr)"],
+  [style*="grid-template-columns:repeat(5,1fr)"],
+  [style*="grid-template-columns:repeat(6,1fr)"] {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+  .hnx-cctv-wall, .hnx-wall {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+  .hnx-mcw-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+}
+
+/* === Print styles: remove mobile chrome === */
+@media print {
+  .hnx-mobile-burger,
+  .hnx-mobile-backdrop,
+  .hnx-mobile-fab,
+  .module-sidebar { display: none !important; }
+}
+
+
+/* ==================================================================
+   v2.44 · LOGIN BRAIN · enhanced motion · both hemispheres alive
+   ================================================================== */
+
+/* === SPLIT-HEMISPHERE PULSE === 
+   Red glow on the left (firing neurons), blue glow on the right (data flow).
+   Both pulse offset so brain looks like it's thinking. */
+.login-brain-hero::before {
+  content: "";
+  position: absolute;
+  inset: -25px;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse 55% 75% at 22% 50%, rgba(255, 90, 40, .60), transparent 60%),
+    radial-gradient(ellipse 55% 75% at 78% 50%, rgba(60, 165, 255, .60), transparent 60%);
+  filter: blur(22px);
+  animation: hnxBrainHemiPulseL 2.4s ease-in-out infinite,
+             hnxBrainHemiPulseR 2.8s ease-in-out infinite;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* === NEURAL LIGHT SWEEP ===
+   A vertical light bar that sweeps across the brain horizontally,
+   simulating a thought traveling from one hemisphere to the other. */
+.login-brain-hero::after {
+  content: "";
+  position: absolute;
+  top: 20px;
+  bottom: 20px;
+  left: 20px;
+  right: 20px;
+  border-radius: 50%;
+  background: linear-gradient(
+    105deg,
+    transparent 38%,
+    rgba(180, 230, 255, .00) 42%,
+    rgba(255, 255, 255, .35) 50%,
+    rgba(180, 230, 255, .00) 58%,
+    transparent 62%
+  );
+  background-size: 220% 100%;
+  background-position: -110% 50%;
+  animation: hnxBrainSweep 3.6s cubic-bezier(.6, .05, .4, .95) infinite;
+  mix-blend-mode: screen;
+  z-index: 4;
+  pointer-events: none;
+}
+
+/* === ENHANCED BREATHE on the brain image itself ===
+   Replaces the default breathe with a deeper pulse + brightness flicker
+   that mimics neural-network spikes. */
+.login-brain-hero .login-brain-img {
+  animation:
+    hnxBrainBreatheDeep 3.2s ease-in-out infinite,
+    hnxBrainFlicker 7s steps(20, end) infinite !important;
+}
+
+/* === GREEN AMBIENT GLOW gets a dual-color shift now === */
+.login-brain-hero .login-brain-glow {
+  animation: hnxBrainGlowDual 4s ease-in-out infinite !important;
+}
+
+/* === RIM gets a subtle counter-rotation overlay for depth === */
+.login-brain-hero .login-brain-rim::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 90, 40, .35);
+  border-top-color: rgba(60, 165, 255, .50);
+  border-right-color: rgba(60, 165, 255, .50);
+  animation: hnxBrainRimCounter 16s linear infinite reverse;
+}
+
+/* === ORBITAL SPARK DOTS === */
+.login-brain-hero {
+  /* Allow particles to render outside */
+  overflow: visible;
+}
+.login-brain-hero .hnx-spark {
+  position: absolute;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 5;
+  filter: blur(.5px);
+}
+.login-brain-hero .hnx-spark.s1 { background: #ff7a40; box-shadow: 0 0 8px #ff7a40, 0 0 14px #ff7a40; animation: hnxSpark1 4.5s linear infinite; }
+.login-brain-hero .hnx-spark.s2 { background: #66c8ff; box-shadow: 0 0 8px #66c8ff, 0 0 14px #66c8ff; animation: hnxSpark2 5.5s linear infinite; }
+.login-brain-hero .hnx-spark.s3 { background: #ffffff; box-shadow: 0 0 6px #fff,    0 0 12px #b4e6ff; animation: hnxSpark3 6.5s linear infinite .8s; }
+.login-brain-hero .hnx-spark.s4 { background: #ff5252; box-shadow: 0 0 8px #ff5252, 0 0 14px #ff5252; animation: hnxSpark4 5.0s linear infinite 1.2s; }
+.login-brain-hero .hnx-spark.s5 { background: #4dd0e1; box-shadow: 0 0 8px #4dd0e1, 0 0 14px #4dd0e1; animation: hnxSpark5 6.0s linear infinite 2.0s; }
+.login-brain-hero .hnx-spark.s6 { background: #80e885; box-shadow: 0 0 8px #80e885, 0 0 14px #80e885; animation: hnxSpark6 7.0s linear infinite .4s; }
+
+/* ===== KEYFRAMES ===== */
+
+@keyframes hnxBrainHemiPulseL {
+  0%, 100% { opacity: .55; }
+  50%      { opacity: .98; }
+}
+@keyframes hnxBrainHemiPulseR {
+  0%, 100% { opacity: .60; }
+  50%      { opacity: .95; }
+}
+
+@keyframes hnxBrainSweep {
+  0%   { background-position: -110% 50%; opacity: .0; }
+  10%  { opacity: .85; }
+  45%  { background-position:   50% 50%; opacity: 1; }
+  55%  { background-position:   50% 50%; opacity: 1; }
+  90%  { opacity: .85; }
+  100% { background-position:  210% 50%; opacity: .0; }
+}
+
+@keyframes hnxBrainBreatheDeep {
+  0%, 100% {
+    box-shadow:
+      0 0 50px rgba(255,120,60,.45),
+      0 0 90px rgba(80,180,255,.42),
+      inset 0 0 30px rgba(0,0,0,.40);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow:
+      0 0 80px rgba(255,120,60,.90),
+      0 0 130px rgba(80,180,255,.80),
+      0 0 180px rgba(80,180,255,.25),
+      inset 0 0 40px rgba(0,0,0,.30);
+    transform: scale(1.035);
+  }
+}
+
+@keyframes hnxBrainFlicker {
+  0%, 100%      { filter: brightness(1.00) saturate(1.00) contrast(1.00); }
+  19%           { filter: brightness(1.00) saturate(1.00) contrast(1.00); }
+  20%           { filter: brightness(1.35) saturate(1.40) contrast(1.10); }
+  21%           { filter: brightness(1.00) saturate(1.00) contrast(1.00); }
+  44%           { filter: brightness(1.00) saturate(1.00) contrast(1.00); }
+  45%           { filter: brightness(1.20) saturate(1.25) contrast(1.05); }
+  46%           { filter: brightness(1.00) saturate(1.00) contrast(1.00); }
+  72%           { filter: brightness(1.00) saturate(1.00) contrast(1.00); }
+  73%           { filter: brightness(1.40) saturate(1.50) contrast(1.12); }
+  74%           { filter: brightness(1.00) saturate(1.00) contrast(1.00); }
+}
+
+@keyframes hnxBrainGlowDual {
+  0%, 100% {
+    background: radial-gradient(circle at 30% 50%, rgba(255,90,40,.18) 0%, transparent 55%),
+                radial-gradient(circle at 70% 50%, rgba(60,165,255,.18) 0%, transparent 55%),
+                radial-gradient(circle, rgba(102,187,106,.20) 0%, transparent 70%);
+    transform: scale(1);
+  }
+  50% {
+    background: radial-gradient(circle at 30% 50%, rgba(255,90,40,.40) 0%, transparent 55%),
+                radial-gradient(circle at 70% 50%, rgba(60,165,255,.40) 0%, transparent 55%),
+                radial-gradient(circle, rgba(102,187,106,.28) 0%, transparent 70%);
+    transform: scale(1.05);
+  }
+}
+
+@keyframes hnxBrainRimCounter {
+  to { transform: rotate(-360deg); }
+}
+
+/* Each spark orbits at a different radius/angle/duration */
+@keyframes hnxSpark1 {
+  0%   { transform: rotate(0deg)   translate(125px) rotate(0deg);   opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { transform: rotate(360deg) translate(125px) rotate(-360deg); opacity: 0; }
+}
+@keyframes hnxSpark2 {
+  0%   { transform: rotate(60deg)  translate(135px) rotate(-60deg);  opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: rotate(-300deg) translate(135px) rotate(300deg);  opacity: 0; }
+}
+@keyframes hnxSpark3 {
+  0%   { transform: rotate(120deg) translate(115px) rotate(-120deg); opacity: 0; }
+  20%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { transform: rotate(480deg) translate(115px) rotate(-480deg); opacity: 0; }
+}
+@keyframes hnxSpark4 {
+  0%   { transform: rotate(200deg) translate(130px) rotate(-200deg); opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: rotate(-160deg) translate(130px) rotate(160deg); opacity: 0; }
+}
+@keyframes hnxSpark5 {
+  0%   { transform: rotate(280deg) translate(120px) rotate(-280deg); opacity: 0; }
+  20%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { transform: rotate(640deg) translate(120px) rotate(-640deg); opacity: 0; }
+}
+@keyframes hnxSpark6 {
+  0%   { transform: rotate(340deg) translate(140px) rotate(-340deg); opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: rotate(-20deg)  translate(140px) rotate(20deg);   opacity: 0; }
+}
+
+/* Respect user's motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .login-brain-hero::before,
+  .login-brain-hero::after,
+  .login-brain-hero .login-brain-img,
+  .login-brain-hero .login-brain-glow,
+  .login-brain-hero .login-brain-rim::after,
+  .login-brain-hero .hnx-spark {
+    animation: none !important;
+  }
+}
+
+
 /* v2.34 · Stream error display in CCTV cells */
 .hnx-stream-err {
   display: flex; flex-direction: column;
@@ -112111,7 +113432,7 @@ service cloud.firestore {
 .hnx-fs-tap-s { font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #84fff9; letter-spacing: .06em; margin-bottom: 14px; animation: hnxBlink 1.5s steps(2) infinite; }
 .hnx-fs-tap-hint { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6a8ea3; letter-spacing: .06em; }
 
-/* === HNX-EXT v2.41 · DRUM CAPACITY EDITOR === */
+/* === HNX-EXT v2.45 · DRUM CAPACITY EDITOR === */
 .hnx-drum-settings {
   background: linear-gradient(180deg, rgba(2,30,40,.8), rgba(2,18,28,.95));
   border: 1px solid rgba(102,187,106,.45);
@@ -112138,7 +113459,7 @@ service cloud.firestore {
   box-shadow: 0 0 8px rgba(128,232,133,.4);
 }
 
-/* === HNX-EXT v2.41 · FULLSCREEN TRULY FILLS MONITOR === */
+/* === HNX-EXT v2.45 · FULLSCREEN TRULY FILLS MONITOR === */
 .hnx-app:fullscreen,
 .hnx-app:-webkit-full-screen {
   background: radial-gradient(ellipse at center, #02101a 0%, #02080f 70%, #000 100%) !important;
@@ -112227,7 +113548,7 @@ service cloud.firestore {
 /* Open items at bottom */
 .hnx-app.hnx-fs-active .hnx-ghc-bottom { margin-top: 14px; }
 
-/* === HNX-EXT v2.41 · FR MODE TOGGLE === */
+/* === HNX-EXT v2.45 · FR MODE TOGGLE === */
 .hnx-mode-btn {
   background: linear-gradient(135deg, rgba(77,208,225,.22), rgba(132,255,249,.18)) !important;
   border: 1px solid rgba(77,208,225,.55) !important;
@@ -112253,7 +113574,7 @@ service cloud.firestore {
   box-shadow: 0 0 14px rgba(132,255,249,.35);
 }
 
-/* === HNX-EXT v2.41 · FULLSCREEN MONITOR MODE === */
+/* === HNX-EXT v2.45 · FULLSCREEN MONITOR MODE === */
 .hnx-fs-btn { 
   background: linear-gradient(135deg, rgba(102,187,106,.22), rgba(77,208,225,.22)) !important;
   border: 1px solid rgba(102,187,106,.55) !important;
@@ -112297,7 +113618,7 @@ service cloud.firestore {
   100% { transform: translateX(50px); opacity: 0; }
 }
 
-/* === HNX-EXT v2.41 · VERTICAL FILLING DRUMS === */
+/* === HNX-EXT v2.45 · VERTICAL FILLING DRUMS === */
 .hnx-drum-cube { padding-bottom: 10px; }
 .hnx-drum-grid {
   display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;
@@ -112404,7 +113725,7 @@ service cloud.firestore {
 .hnx-drum-value.warn { color: #ffca52; }
 .hnx-drum-value.crit { color: #ff7a78; }
 
-/* === HNX-EXT v2.41 · BOLD VISIBLE THEMATIC IMAGERY === */
+/* === HNX-EXT v2.45 · BOLD VISIBLE THEMATIC IMAGERY === */
 .hnx-cube-imagery { position: relative; overflow: hidden; min-height: 180px; }
 .hnx-cube-imagery > .hnx-cube-bg {
   position: absolute; inset: 0;
@@ -112428,7 +113749,7 @@ service cloud.firestore {
 .hnx-cube-imagery > .hnx-ghbars,
 .hnx-cube-imagery > div:not(.hnx-cube-bg) { position: relative; z-index: 2; }
 .hnx-cube-imagery .hnx-w-h { position: relative; z-index: 2; }
-/* === HNX-EXT v2.41 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
+/* === HNX-EXT v2.45 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
 /* Production: Lettuce leaves sway */
 @keyframes hnxLettuceSway {
   0%, 100% { transform: rotate(-3deg); }
@@ -112486,7 +113807,7 @@ service cloud.firestore {
 .hnx-svg-act-dot:nth-child(3) { animation-delay: .8s; }
 .hnx-svg-act-dot:nth-child(4) { animation-delay: 1.2s; }
 
-/* === HNX-EXT v2.41 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
+/* === HNX-EXT v2.45 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
 /* CCTV cell motion enhancements — corner brackets, double scan, breathing border */
 .hnx-cctv-motion { animation: hnxCellPulse 4s ease-in-out infinite; }
 @keyframes hnxCellPulse {
