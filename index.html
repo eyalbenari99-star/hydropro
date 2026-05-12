@@ -94068,7 +94068,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 
 </script>
 
-<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.36 (Daily Operations Report · printable PDF + CSV/JSON exports) -->
+<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.37 (Camera Assignment Matrix + Master CCTV Wall) -->
 <script>
 /* ============================================================================
  * HYDRONEXIS-AI · EXTENSIONS PACK v1.0
@@ -94661,7 +94661,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.36 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.37 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -94670,7 +94670,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.36';
+        vEl.textContent = orig + ' · HNX v2.37';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -94685,7 +94685,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.36 Diagnostics:\n\n' +
+        'HNX-EXT v2.37 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
@@ -94731,7 +94731,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const style = document.createElement('style');
     style.id = 'hnx-ext-styles';
     style.textContent = HNX_CSS + `
-/* === HNX-EXT v2.36 · MOTION & ANIMATION PACK === */
+/* === HNX-EXT v2.37 · MOTION & ANIMATION PACK === */
 @keyframes hnxPulseGlow {
   0%, 100% { box-shadow: 0 0 30px rgba(102,187,106,.18), inset 0 0 40px rgba(102,187,106,.05); }
   50%      { box-shadow: 0 0 60px rgba(102,187,106,.45), inset 0 0 70px rgba(102,187,106,.12); }
@@ -94938,7 +94938,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
   // 2. ENSURE VIEW CONTAINER DIVS EXIST
   // ==================================================================
   function ensureViewContainers(){
-    const ids = ['modules_rollup','plant_census','water_daily','irr_command','wall_launcher','gh_command','fr_command','crates_mgr','daily_report','it_cctv_setup','dept_setup','energy_daily','maint_brain','prod_brain','hr_brain','payroll_brain','inv_brain','pack_brain','log_brain','crm_brain','qc_brain','fleet_brain','lic_brain','prj_brain','sec_brain','daily_metrics'];
+    const ids = ['modules_rollup','plant_census','water_daily','irr_command','wall_launcher','gh_command','fr_command','crates_mgr','daily_report','it_cctv_setup','master_cctv_wall','dept_setup','energy_daily','maint_brain','prod_brain','hr_brain','payroll_brain','inv_brain','pack_brain','log_brain','crm_brain','qc_brain','fleet_brain','lic_brain','prj_brain','sec_brain','daily_metrics'];
     // Find a sibling view to append next to — use any .view we can find
     const anchor = document.querySelector('.view') || document.body;
     const parent = anchor.parentNode || document.body;
@@ -95112,6 +95112,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
         if(v === 'fr_command') renderFrCommandView();
         if(v === 'crates_mgr') renderCratesMgrView();
         if(v === 'daily_report') renderDailyReportView();
+        if(v === 'master_cctv_wall') renderMasterCctvWall();
         if(v === 'it_cctv_setup') renderCctvSetupView();
         if(v === 'dept_setup') renderDeptSetupView();
       }catch(e){ console.error('[HNX-Ext] Render error for', v, e); }
@@ -101865,6 +101866,420 @@ var qrcode = function() {
     if(typeof toast === 'function') toast('⬇ JSON downloaded · ' + r.dateStr);
   };
 
+  // ==================================================================
+  // v2.37 · CAMERA ASSIGNMENT MATRIX + MASTER CCTV WALL
+  // - Unified per-GH/FR slot mapping UI
+  // - Master live wall showing all 90+ cameras for IT supervisor/admin
+  // ==================================================================
+
+  const HNX_AREAS = [
+    { id:'GH1',  type:'gh',  label:'GH1 · Greenhouse 1' },
+    { id:'GH2',  type:'gh',  label:'GH2 · Greenhouse 2' },
+    { id:'GH3',  type:'gh',  label:'GH3 · Greenhouse 3' },
+    { id:'GH4',  type:'gh',  label:'GH4 · Greenhouse 4' },
+    { id:'GH5',  type:'gh',  label:'GH5 · Greenhouse 5' },
+    { id:'GH6',  type:'gh',  label:'GH6 · Greenhouse 6' },
+    { id:'GH7',  type:'gh',  label:'GH7 · Greenhouse 7' },
+    { id:'GH8',  type:'gh',  label:'GH8 · Greenhouse 8' },
+    { id:'GH9',  type:'gh',  label:'GH9 · Greenhouse 9' },
+    { id:'GH10', type:'gh',  label:'GH10 · Greenhouse 10' },
+    { id:'FR1_2',type:'fr',  label:'FR1_2 · Fertigation Room (GH1+GH2)' },
+    { id:'FR3_4',type:'fr',  label:'FR3_4 · Fertigation Room (GH3+GH4)' },
+    { id:'FR5_6',type:'fr',  label:'FR5_6 · Fertigation Room (GH5+GH6)' },
+    { id:'FR7_8',type:'fr',  label:'FR7_8 · Fertigation Room (GH7+GH8)' },
+    { id:'FR9',  type:'fr',  label:'FR9 · Fertigation Room (GH9)' },
+    { id:'FR10', type:'fr',  label:'FR10 · Fertigation Room (GH10)' }
+  ];
+  const HNX_SLOT_LABELS_GH = [
+    '1 · North entry', '2 · Center aisle', '3 · South aisle',
+    '4 · East NFT row', '5 · West NFT row', '6 · Cooling pad',
+    '7 · Big fans', '8 · Spray system', '9 · Roof view'
+  ];
+  const HNX_SLOT_LABELS_FR = [
+    '1 · Pool overview', '2 · Drum bank', '3 · EC/pH sensors',
+    '4 · Mix tank', '5 · Pump bank', '6 · RO system',
+    '7 · Chillers', '8 · Ozone unit', '9 · Ventilation'
+  ];
+
+  // List all available streams from DVR config + manual entries from camera_streams
+  function _hnxListAvailableStreams(){
+    const out = [];
+    try{
+      const cfg = (typeof hnxLoadDvrConfig === 'function') ? hnxLoadDvrConfig() : null;
+      if(cfg && cfg.devices){
+        cfg.devices.forEach(d => {
+          if(!d.enabled) return;
+          const channels = parseInt(d.channels,10) || 0;
+          for(let ch=1; ch<=channels; ch++){
+            const slug = (d.streamPrefix||'cam').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+            const id = slug + '-ch' + ch;
+            out.push({ id, label: d.name + ' · ch' + ch, url: (typeof hnxBridgeStreamUrl==='function')?hnxBridgeStreamUrl(id):'', source:'dvr' });
+          }
+        });
+      }
+    }catch(e){}
+    // Also include any manually-set entries in hydroPro_camera_streams not already in the DVR list
+    try{
+      const streams = _hnxLoad('hydroPro_camera_streams', {}) || {};
+      const known = new Set(out.map(o => o.id));
+      Object.keys(streams).forEach(id => {
+        if(!known.has(id)){
+          out.push({ id, label: id + ' · manual', url: streams[id], source:'manual' });
+        }
+      });
+    }catch(e){}
+    return out;
+  }
+
+  // ============== CAMERA ASSIGNMENT TAB ==============
+  function drawCamAssignTab(){
+    if(!window._hnxCamAssignState) window._hnxCamAssignState = { selectedArea: 'GH1' };
+    const ast = window._hnxCamAssignState;
+    const areaId = ast.selectedArea;
+    const area = HNX_AREAS.find(a => a.id === areaId) || HNX_AREAS[0];
+    const slots = (typeof hnxGetGhSlots === 'function') ? hnxGetGhSlots(areaId) : {};
+    const streams = _hnxListAvailableStreams();
+    const camStreams = _hnxLoad('hydroPro_camera_streams', {}) || {};
+    const slotLabels = area.type === 'fr' ? HNX_SLOT_LABELS_FR : HNX_SLOT_LABELS_GH;
+
+    // Count assigned vs total across all areas
+    let totalAssigned = 0, totalSlots = HNX_AREAS.length * 9;
+    HNX_AREAS.forEach(a => {
+      const s = (typeof hnxGetGhSlots === 'function') ? hnxGetGhSlots(a.id) : {};
+      for(let i=1; i<=9; i++) if(s['slot'+i]) totalAssigned++;
+    });
+
+    return `
+      <div class="hnx-banner">
+        <div class="hnx-banner-i">🎯</div>
+        <div>
+          <div class="hnx-banner-t">CAMERA ASSIGNMENT MATRIX · ${totalAssigned}/${totalSlots} slots mapped</div>
+          <div class="hnx-banner-s">Map each camera stream to its physical slot in a GH or FR room. Pick a stream from your configured DVRs (set up in <b>📹 DVR/NVR Setup</b>) — or paste any custom URL. Once assigned, the camera appears in <b>Production → GH/FR Command Center</b> for that area.</div>
+        </div>
+      </div>
+
+      <!-- Area navigator -->
+      <div class="hnx-w" style="margin-bottom:14px;padding:10px 14px">
+        <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em;margin-bottom:8px">SELECT AREA</div>
+        <div style="display:flex;flex-wrap:wrap;gap:5px">
+          ${HNX_AREAS.map(a => {
+            const s = (typeof hnxGetGhSlots === 'function') ? hnxGetGhSlots(a.id) : {};
+            let assigned = 0;
+            for(let i=1; i<=9; i++) if(s['slot'+i]) assigned++;
+            const on = a.id === areaId;
+            return `<button onclick="window._hnxCamAssignPick && window._hnxCamAssignPick('${a.id}')" class="hnx-area-chip ${on?'on':''}" style="font-family:Orbitron,sans-serif;font-weight:700;font-size:11px;letter-spacing:.04em;padding:7px 12px;border-radius:5px;border:1px solid ${on?'#80e885':(a.type==='fr'?'rgba(77,208,225,.30)':'rgba(102,187,106,.25)')};background:${on?'linear-gradient(180deg,rgba(102,187,106,.30),rgba(2,30,20,.55))':'rgba(2,18,28,.4)'};color:${on?'#80e885':(a.type==='fr'?'#84fff9':'#a5d6e6')};cursor:pointer;transition:all .15s ease">${a.id} <span style="font-size:9px;color:${assigned===9?'#80e885':assigned>0?'#ffca52':'#6a8ea3'}">${assigned}/9</span></button>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- Area detail · 9 slot cards -->
+      <div class="hnx-w">
+        <div class="hnx-w-h">${escHtml(area.label)} · 9 slots</div>
+        <div style="padding:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+          ${slotLabels.map((label, idx) => {
+            const slotKey = 'slot' + (idx + 1);
+            const cameraId = slots[slotKey] || '';
+            const url = cameraId ? (camStreams[cameraId] || '') : '';
+            const isCustom = url && !streams.find(s => s.id === cameraId);
+            return `<div class="hnx-slot-card ${cameraId?'on':''}">
+              <div style="font-family:Orbitron,sans-serif;font-weight:800;font-size:10px;color:${cameraId?'#80e885':'#6a8ea3'};letter-spacing:.10em;margin-bottom:8px">SLOT ${escHtml(label)}</div>
+              <select class="hnx-cell hnx-slot-pick" data-area="${escHtml(areaId)}" data-slot="${idx+1}" style="width:100%;padding:7px;font-size:11px;font-family:JetBrains Mono,monospace;margin-bottom:6px" onchange="window._hnxCamAssignChange && window._hnxCamAssignChange('${areaId}', ${idx+1}, this.value)">
+                <option value="">— Empty (smart tile shown) —</option>
+                ${streams.map(s => `<option value="${escHtml(s.id)}" ${s.id===cameraId?'selected':''}>${escHtml(s.label)}</option>`).join('')}
+                ${isCustom ? `<option value="${escHtml(cameraId)}" selected>${escHtml(cameraId)} · custom</option>` : ''}
+                <option value="__custom__">+ Custom stream ID / URL...</option>
+              </select>
+              ${cameraId ? `
+                <div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#80deea;background:rgba(2,18,28,.6);padding:5px 7px;border-radius:3px;margin-bottom:6px;word-break:break-all">ID: <b style="color:#84fff9">${escHtml(cameraId)}</b></div>
+                ${url ? `<div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#80deea;background:rgba(2,18,28,.6);padding:5px 7px;border-radius:3px;margin-bottom:6px;word-break:break-all">URL: <span style="color:#a5d6e6">${escHtml(url.slice(0, 80))}${url.length>80?'…':''}</span></div>` : '<div style="font-family:JetBrains Mono,monospace;font-size:9px;color:#ffca52;padding:5px 7px">⚠ No URL · stream ID exists but no URL mapped</div>'}
+                <div style="display:flex;gap:5px">
+                  <button onclick="window._hnxCamAssignTest && window._hnxCamAssignTest('${escHtml(cameraId)}')" class="hnx-btn hnx-btn-c" style="flex:1;padding:5px;font-size:10px">📺 Test</button>
+                  <button onclick="window._hnxCamAssignClear && window._hnxCamAssignClear('${areaId}', ${idx+1})" class="hnx-btn hnx-btn-ghost" style="padding:5px 8px;font-size:10px">✕</button>
+                </div>
+              ` : `<div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#6a8ea3;text-align:center;padding:8px">Slot empty · will show AI smart tile</div>`}
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="padding:8px 14px;border-top:1px dashed rgba(77,208,225,.20);display:flex;gap:8px;align-items:center;font-family:JetBrains Mono,monospace;font-size:10px;color:#a5d6e6;letter-spacing:.04em">
+          ▸ Changes save automatically · open <b style="color:#80e885">Production → ${area.type==='fr'?'FR':'GH'} Command Center → ${areaId}</b> to see the cameras live · empty slots get AI smart tiles instead
+        </div>
+      </div>
+
+      <!-- Bulk actions -->
+      <div class="hnx-w" style="margin-top:14px">
+        <div class="hnx-w-h">⚡ Bulk Actions</div>
+        <div style="padding:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-family:JetBrains Mono,monospace;font-size:11px;color:#a5d6e6;letter-spacing:.04em">
+          <button class="hnx-btn hnx-btn-c" onclick="window._hnxCamAssignAutoFill && window._hnxCamAssignAutoFill()" title="Sequentially assign available streams to empty slots starting from GH1">⚡ Auto-fill empty slots sequentially</button>
+          <button class="hnx-btn hnx-btn-danger" onclick="window._hnxCamAssignClearAll && window._hnxCamAssignClearAll()">🗑 Clear ALL assignments</button>
+          <div style="flex:1"></div>
+          <span>Total streams available: <b style="color:#80e885">${streams.length}</b></span>
+        </div>
+      </div>
+    `;
+  }
+
+  window._hnxCamAssignPick = function(areaId){
+    window._hnxCamAssignState = window._hnxCamAssignState || {};
+    window._hnxCamAssignState.selectedArea = areaId;
+    _hnxRefreshCamAssign();
+  };
+  window._hnxCamAssignChange = function(areaId, slotN, value){
+    if(value === '__custom__'){
+      const custom = prompt('Enter custom stream ID or full URL:');
+      if(!custom){ _hnxRefreshCamAssign(); return; }
+      // If it looks like a URL, treat as URL + auto-assign a synthetic ID
+      let camId, camUrl;
+      if(/^https?:\/\//i.test(custom)){
+        camId = 'custom_' + areaId + '_slot' + slotN;
+        camUrl = custom.trim();
+      } else {
+        camId = custom.trim();
+        camUrl = '';
+      }
+      const slots = (typeof hnxGetGhSlots === 'function') ? hnxGetGhSlots(areaId) : {};
+      slots['slot'+slotN] = camId;
+      if(typeof hnxSetGhSlots === 'function') hnxSetGhSlots(areaId, slots);
+      if(camUrl){
+        const cs = _hnxLoad('hydroPro_camera_streams', {}) || {};
+        cs[camId] = camUrl;
+        _hnxSave('hydroPro_camera_streams', cs);
+      }
+      if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('camera_assign', 'Assigned custom "'+camId+'" to '+areaId+' slot '+slotN, areaId);
+      if(typeof toast === 'function') toast('✓ Assigned · '+areaId+' slot '+slotN);
+    } else {
+      const slots = (typeof hnxGetGhSlots === 'function') ? hnxGetGhSlots(areaId) : {};
+      slots['slot'+slotN] = value || null;
+      if(typeof hnxSetGhSlots === 'function') hnxSetGhSlots(areaId, slots);
+      // Also ensure URL is in camera_streams (from DVR auto-resolved URL)
+      if(value){
+        const cs = _hnxLoad('hydroPro_camera_streams', {}) || {};
+        if(!cs[value] && typeof hnxBridgeStreamUrl === 'function'){
+          cs[value] = hnxBridgeStreamUrl(value);
+          _hnxSave('hydroPro_camera_streams', cs);
+        }
+      }
+      if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('camera_assign', (value?'Assigned "'+value+'"':'Cleared') + ' · '+areaId+' slot '+slotN, areaId);
+      if(typeof toast === 'function') toast(value ? ('✓ '+areaId+' slot '+slotN+' → '+value) : ('Cleared · '+areaId+' slot '+slotN));
+    }
+    _hnxRefreshCamAssign();
+    // Force GH/FR Command Centers to re-render if they're showing this area
+    if(typeof window._hnxGhcRefresh === 'function'){ try{ window._hnxGhcRefresh(); }catch(e){} }
+  };
+  window._hnxCamAssignClear = function(areaId, slotN){
+    const slots = (typeof hnxGetGhSlots === 'function') ? hnxGetGhSlots(areaId) : {};
+    slots['slot'+slotN] = null;
+    if(typeof hnxSetGhSlots === 'function') hnxSetGhSlots(areaId, slots);
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('camera_assign', 'Cleared '+areaId+' slot '+slotN, areaId);
+    if(typeof toast === 'function') toast('Cleared · '+areaId+' slot '+slotN);
+    _hnxRefreshCamAssign();
+    if(typeof window._hnxGhcRefresh === 'function'){ try{ window._hnxGhcRefresh(); }catch(e){} }
+  };
+  window._hnxCamAssignTest = function(streamId){
+    const cs = _hnxLoad('hydroPro_camera_streams', {}) || {};
+    const url = cs[streamId];
+    if(!url){ alert('No URL stored for stream "'+streamId+'" · check DVR Setup or paste URL manually'); return; }
+    // Open a quick-test modal with the stream
+    const prior = document.getElementById('hnxStreamTestDlg'); if(prior) prior.remove();
+    const dlg = document.createElement('div');
+    dlg.id = 'hnxStreamTestDlg';
+    dlg.className = 'hnx-url-modal';
+    const cellId = 'hnxTestStream_' + Math.random().toString(36).slice(2,8);
+    dlg.innerHTML = `
+      <div class="hnx-url-modal-inner" style="max-width:720px">
+        <div class="hnx-url-modal-h">
+          <span>📺 Test stream · ${escHtml(streamId)}</span>
+          <div style="flex:1"></div>
+          <button class="hnx-btn hnx-btn-ghost" onclick="(window._hnxHlsInstances['${cellId}']&&window._hnxHlsInstances['${cellId}'].destroy());delete window._hnxHlsInstances['${cellId}'];document.getElementById('hnxStreamTestDlg').remove()" style="padding:4px 8px;font-size:11px">✕</button>
+        </div>
+        <div style="padding:10px 4px">
+          <div style="position:relative;background:#000;aspect-ratio:16/9;border-radius:6px;overflow:hidden">${(typeof _hnxRenderStreamHtml === 'function') ? _hnxRenderStreamHtml(url, cellId).replace('class="hnx-cctv-media"','class="hnx-cctv-media" style="width:100%;height:100%;object-fit:contain"') : ''}</div>
+          <div style="font-family:JetBrains Mono,monospace;font-size:10.5px;color:#a5d6e6;margin-top:8px;word-break:break-all">URL: ${escHtml(url)}</div>
+        </div>
+      </div>
+      <div class="hnx-url-modal-bg" onclick="(window._hnxHlsInstances['${cellId}']&&window._hnxHlsInstances['${cellId}'].destroy());delete window._hnxHlsInstances['${cellId}'];document.getElementById('hnxStreamTestDlg').remove()"></div>
+    `;
+    document.body.appendChild(dlg);
+  };
+  window._hnxCamAssignAutoFill = function(){
+    const streams = _hnxListAvailableStreams();
+    if(streams.length === 0){ alert('No streams available · configure DVRs in 📹 DVR/NVR Setup first'); return; }
+    if(!confirm('Auto-fill empty slots with '+streams.length+' available streams (sequentially across GH1 → GH10 → FRs)?')) return;
+    let streamIdx = 0;
+    let filled = 0;
+    for(const a of HNX_AREAS){
+      const slots = (typeof hnxGetGhSlots === 'function') ? hnxGetGhSlots(a.id) : {};
+      for(let i=1; i<=9; i++){
+        if(!slots['slot'+i] && streamIdx < streams.length){
+          slots['slot'+i] = streams[streamIdx].id;
+          streamIdx++;
+          filled++;
+        }
+      }
+      if(typeof hnxSetGhSlots === 'function') hnxSetGhSlots(a.id, slots);
+      if(streamIdx >= streams.length) break;
+    }
+    // Ensure URLs are stored
+    const cs = _hnxLoad('hydroPro_camera_streams', {}) || {};
+    streams.forEach(s => { if(!cs[s.id] && s.url) cs[s.id] = s.url; });
+    _hnxSave('hydroPro_camera_streams', cs);
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('camera_assign_bulk', 'Auto-filled '+filled+' slots with '+streams.length+' available streams');
+    if(typeof toast === 'function') toast('⚡ Auto-filled '+filled+' slots');
+    _hnxRefreshCamAssign();
+    if(typeof window._hnxGhcRefresh === 'function'){ try{ window._hnxGhcRefresh(); }catch(e){} }
+  };
+  window._hnxCamAssignClearAll = function(){
+    if(!confirm('Clear ALL camera assignments across every GH and FR? This cannot be undone (streams stay configured in DVR Setup).')) return;
+    if(!confirm('Are you SURE? Type-confirm in next prompt.')) return;
+    const conf = prompt('Type CLEAR to wipe all assignments:');
+    if(conf !== 'CLEAR'){ if(typeof toast === 'function') toast('Cancelled'); return; }
+    if(typeof hnxSaveCctvGrid === 'function') hnxSaveCctvGrid({});
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('camera_assign_clearall', 'All camera assignments cleared');
+    if(typeof toast === 'function') toast('🗑 All assignments cleared');
+    _hnxRefreshCamAssign();
+    if(typeof window._hnxGhcRefresh === 'function'){ try{ window._hnxGhcRefresh(); }catch(e){} }
+  };
+  function _hnxRefreshCamAssign(){
+    // Re-trigger the CCTV Setup tab dispatch to redraw
+    const tab = document.querySelector('.hnx-it-tab[data-tab="cam_assign"]');
+    if(tab) tab.click();
+  }
+
+  // ============== MASTER CCTV WALL VIEW ==============
+  function renderMasterCctvWall(){
+    const body = document.querySelector('#hnx-master_cctv_wall-body');
+    if(!body) return;
+    if(!window._hnxMcwState) window._hnxMcwState = { filter:'all', collapsed:{} };
+    const st = window._hnxMcwState;
+    const camStreams = _hnxLoad('hydroPro_camera_streams', {}) || {};
+
+    // Count assignments per area
+    const areaData = HNX_AREAS.map(a => {
+      const slots = (typeof hnxGetGhSlots === 'function') ? hnxGetGhSlots(a.id) : {};
+      let assigned = 0;
+      const cams = [];
+      for(let i=1; i<=9; i++){
+        const camId = slots['slot'+i];
+        const url = camId ? camStreams[camId] : '';
+        cams.push({ slot:i, camId, url });
+        if(camId && url) assigned++;
+      }
+      return { ...a, slots: cams, assigned };
+    });
+
+    let visibleAreas = areaData;
+    if(st.filter === 'gh') visibleAreas = areaData.filter(a => a.type === 'gh');
+    if(st.filter === 'fr') visibleAreas = areaData.filter(a => a.type === 'fr');
+    if(st.filter === 'with') visibleAreas = areaData.filter(a => a.assigned > 0);
+    if(st.filter === 'without') visibleAreas = areaData.filter(a => a.assigned === 0);
+
+    const totalAssigned = areaData.reduce((s,a) => s + a.assigned, 0);
+    const totalSlots = areaData.length * 9;
+
+    body.innerHTML = `
+      <div class="hnx-app hnx-mcw-app">
+        <div class="hnx-tbar">
+          <div class="hnx-tbmark hnx-tbmark-cy" style="background:linear-gradient(135deg, rgba(244,67,54,.30), rgba(2,30,40,.55))">📺</div>
+          <div>
+            <div class="hnx-tbtitle">Master CCTV Wall <span>· <span style="color:#80e885">${totalAssigned}/${totalSlots}</span> cameras online</span></div>
+            <div class="hnx-tbsub">All areas live · IT supervisor / admin view · ${HNX_AREAS.length} areas × 9 slots</div>
+          </div>
+          <div style="flex:1"></div>
+          <button class="hnx-btn hnx-btn-c" onclick="window._hnxMcwRefresh && window._hnxMcwRefresh()">↻ Refresh</button>
+          <button class="hnx-btn hnx-btn-c" onclick="if(typeof window.switchView==='function'){window.switchView('it_cctv_setup');setTimeout(()=>{const t=document.querySelector('.hnx-it-tab[data-tab=\\'cam_assign\\']');if(t)t.click();},200);}">🎯 Assign cameras</button>
+        </div>
+
+        <!-- Filter pills -->
+        <div class="hnx-w" style="margin-bottom:14px;padding:10px 14px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em;margin-right:6px">FILTER</span>
+          ${[
+            ['all','All ('+areaData.length+')'],
+            ['gh','GHs only ('+areaData.filter(a=>a.type==='gh').length+')'],
+            ['fr','FRs only ('+areaData.filter(a=>a.type==='fr').length+')'],
+            ['with','With cameras ('+areaData.filter(a=>a.assigned>0).length+')'],
+            ['without','Empty ('+areaData.filter(a=>a.assigned===0).length+')']
+          ].map(([k,lbl]) => `<button onclick="window._hnxMcwFilter && window._hnxMcwFilter('${k}')" class="hnx-area-chip ${st.filter===k?'on':''}" style="font-family:Orbitron,sans-serif;font-weight:700;font-size:10.5px;letter-spacing:.04em;padding:6px 10px;border-radius:5px;border:1px solid ${st.filter===k?'#80e885':'rgba(77,208,225,.30)'};background:${st.filter===k?'linear-gradient(180deg,rgba(102,187,106,.30),rgba(2,30,20,.55))':'rgba(2,18,28,.4)'};color:${st.filter===k?'#80e885':'#a5d6e6'};cursor:pointer">${lbl}</button>`).join('')}
+          <div style="flex:1"></div>
+          <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxMcwCollapseAll && window._hnxMcwCollapseAll(true)" style="padding:5px 10px;font-size:10.5px">Collapse all</button>
+          <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxMcwCollapseAll && window._hnxMcwCollapseAll(false)" style="padding:5px 10px;font-size:10.5px">Expand all</button>
+        </div>
+
+        <!-- Area sections -->
+        <div style="display:flex;flex-direction:column;gap:14px">
+          ${visibleAreas.map(a => {
+            const collapsed = st.collapsed[a.id];
+            const fillPct = Math.round((a.assigned / 9) * 100);
+            const fillColor = a.assigned === 9 ? '#80e885' : a.assigned > 0 ? '#ffca52' : '#6a8ea3';
+            return `<div class="hnx-w hnx-mcw-area" style="border-color:${fillColor}">
+              <div class="hnx-w-h" style="display:flex;align-items:center;gap:10px;cursor:pointer" onclick="window._hnxMcwToggle && window._hnxMcwToggle('${a.id}')">
+                <span style="font-size:14px">${a.type==='fr'?'💧':'🏭'}</span>
+                <span style="color:${fillColor}">${escHtml(a.label)}</span>
+                <span style="font-family:JetBrains Mono,monospace;font-size:10.5px;color:${fillColor};font-weight:700">· ${a.assigned}/9</span>
+                <div style="flex:1"></div>
+                <button onclick="event.stopPropagation();window._hnxMcwGotoArea && window._hnxMcwGotoArea('${a.id}','${a.type}')" class="hnx-btn hnx-btn-c" style="padding:4px 10px;font-size:10px">↗ Open ${a.type==='fr'?'FR':'GH'} Center</button>
+                <span style="font-family:Orbitron,sans-serif;font-size:14px;color:${fillColor}">${collapsed?'▶':'▼'}</span>
+              </div>
+              ${!collapsed ? `
+                <div class="hnx-mcw-grid">
+                  ${a.slots.map(s => {
+                    const cellId = 'mcw_' + a.id + '_s' + s.slot;
+                    if(!s.url){
+                      return `<div class="hnx-mcw-cell empty">
+                        <div style="font-size:11px;color:#3b5d72">slot ${s.slot}</div>
+                        <div style="font-family:JetBrains Mono,monospace;font-size:8.5px;letter-spacing:.10em;color:#3b5d72;margin-top:4px">NO CAMERA</div>
+                      </div>`;
+                    }
+                    const mediaHtml = (typeof _hnxRenderStreamHtml === 'function') ? _hnxRenderStreamHtml(s.url, cellId) : `<video src="${escHtml(s.url)}" muted autoplay playsinline loop style="width:100%;height:100%;object-fit:cover"></video>`;
+                    return `<div class="hnx-mcw-cell">
+                      ${mediaHtml}
+                      <div class="hnx-mcw-cell-overlay">
+                        <span class="hnx-mcw-cell-rec">REC</span>
+                        <span class="hnx-mcw-cell-id">${escHtml(s.camId||('s'+s.slot))}</span>
+                      </div>
+                    </div>`;
+                  }).join('')}
+                </div>
+              ` : ''}
+            </div>`;
+          }).join('')}
+        </div>
+
+        ${visibleAreas.length === 0 ? '<div style="padding:30px;text-align:center;color:#6a8ea3;font-family:JetBrains Mono,monospace;font-size:11px">No areas match the current filter</div>' : ''}
+
+        ${totalAssigned === 0 ? `
+          <div class="hnx-w" style="margin-top:14px;border-color:rgba(255,202,82,.40)">
+            <div class="hnx-w-h" style="color:#ffca52">⚠ No cameras assigned yet</div>
+            <div style="padding:14px;font-family:JetBrains Mono,monospace;font-size:11px;color:#a5d6e6;line-height:1.7">
+              To populate this wall:<br>
+              <b style="color:#80e885">1.</b> Go to <b>🔧 MAINT. → 🎥 CCTV Setup → 📹 DVR/NVR Setup</b> and add your DVRs<br>
+              <b style="color:#80e885">2.</b> Then go to <b>🎯 Camera Assignment</b> tab and map each stream to a slot<br>
+              <b style="color:#80e885">3.</b> Cameras will appear here AND in Production → GH/FR Command Centers automatically
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+  window._hnxMcwRefresh = renderMasterCctvWall;
+  window._hnxMcwFilter = function(k){ window._hnxMcwState.filter = k; renderMasterCctvWall(); };
+  window._hnxMcwToggle = function(id){
+    window._hnxMcwState.collapsed[id] = !window._hnxMcwState.collapsed[id];
+    renderMasterCctvWall();
+  };
+  window._hnxMcwCollapseAll = function(collapsed){
+    HNX_AREAS.forEach(a => { window._hnxMcwState.collapsed[a.id] = collapsed; });
+    renderMasterCctvWall();
+  };
+  window._hnxMcwGotoArea = function(areaId, type){
+    if(typeof window.switchView !== 'function') return;
+    if(type === 'fr'){
+      try{ window.switchView('fr_command'); }catch(e){}
+      setTimeout(() => { if(window._hnxGhcState){ window._hnxGhcState.mode='fr'; window._hnxGhcState.selectedFr=areaId; } if(window._hnxGhcRefresh) window._hnxGhcRefresh(); }, 250);
+    } else {
+      try{ window.switchView('gh_command'); }catch(e){}
+      setTimeout(() => { if(window._hnxGhcState){ window._hnxGhcState.mode='gh'; window._hnxGhcState.selected=areaId; } if(window._hnxGhcRefresh) window._hnxGhcRefresh(); }, 250);
+    }
+  };
+
   // ============== MAIN RENDER ==============
   function renderFrCommandView(){
     // Force FR mode then delegate to the shared renderer using the fr_command body
@@ -103790,6 +104205,7 @@ var qrcode = function() {
             <button class="hnx-it-tab" data-tab="grid">🎬 Command Center Grid</button>
             <button class="hnx-it-tab" data-tab="cloud">🌐 Cloud Sync</button>
             <button class="hnx-it-tab" data-tab="dvr">📹 DVR/NVR Setup</button>
+            <button class="hnx-it-tab" data-tab="cam_assign">🎯 Camera Assignment</button>
             <button class="hnx-it-tab" data-tab="activity">📜 Activity Log</button>
             <button class="hnx-it-tab" data-tab="bridge">🔗 Bridge Config (go2rtc)</button>
             <button class="hnx-it-tab" data-tab="checklist">✅ IT Checklist</button>
@@ -103830,6 +104246,7 @@ var qrcode = function() {
       else if(state.tab === 'grid') panel.innerHTML = drawGridSetupTab();
       else if(state.tab === 'cloud') panel.innerHTML = drawCloudSyncTab();
       else if(state.tab === 'dvr') panel.innerHTML = drawDvrTab();
+      else if(state.tab === 'cam_assign') panel.innerHTML = drawCamAssignTab();
       else if(state.tab === 'activity') panel.innerHTML = drawActivityLogTab();
       else if(state.tab === 'bridge') panel.innerHTML = drawBridgeTab();
       else if(state.tab === 'checklist') panel.innerHTML = drawChecklistTab();
@@ -107753,8 +108170,8 @@ service cloud.firestore {
           <!-- Status marquee strip -->
           <div class="hnx-marquee-wrap" style="margin:8px 14px 14px;border-radius:6px;padding:6px 0;position:relative;z-index:2;background:rgba(0,131,143,.10)">
             <div class="hnx-marquee" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#a5d6e6;letter-spacing:.10em;padding:0 30px">
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.36</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.36</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.37</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.37</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
             </div>
           </div>
           <!-- Pair selector -->
@@ -109252,7 +109669,7 @@ service cloud.firestore {
 .hnx-param-unit{font-size:11px;color:#6a8ea3;font-weight:500;margin-left:3px}
 .hnx-param-target{font-family:'JetBrains Mono',monospace;font-size:9px;color:#6a8ea3;letter-spacing:.10em;margin-top:3px}
 .hnx-param-dev{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;margin-top:1px}
-/* === HNX-EXT v2.36 · MACHINES GRID === */
+/* === HNX-EXT v2.37 · MACHINES GRID === */
 .hnx-machines-cube { position: relative; }
 .hnx-machines-grid {
   display: grid;
@@ -109368,7 +109785,7 @@ service cloud.firestore {
   color: #ff3030;
 }
 
-/* === HNX-EXT v2.36 · DRONE FLEET DETAIL PANEL === */
+/* === HNX-EXT v2.37 · DRONE FLEET DETAIL PANEL === */
 .hnx-drone-detail {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1.2fr;
@@ -109498,7 +109915,7 @@ service cloud.firestore {
 .hnx-drone-hist-stat.crit { background: rgba(255,48,48,.15); color: #ff7a78; border:1px solid rgba(255,48,48,.35); }
 .hnx-drone-hist-stat.live { background: rgba(132,255,249,.18); color: #84fff9; border:1px solid rgba(132,255,249,.45); animation: hnxBlink 1.2s steps(2) infinite; }
 
-/* === HNX-EXT v2.36 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
+/* === HNX-EXT v2.37 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
 .hnx-rotate-ctrl {
   display: inline-flex;
   align-items: center;
@@ -109581,7 +109998,7 @@ service cloud.firestore {
 .hnx-app.hnx-fs-active .hnx-crit-btn { font-size: 13px !important; padding: 7px 14px !important; }
 .hnx-app.hnx-fs-active .hnx-rotate-critcount { font-size: 13px; padding: 6px 14px; }
 
-/* === HNX-EXT v2.36 · URL-DRIVEN MONITOR PRESETS === */
+/* === HNX-EXT v2.37 · URL-DRIVEN MONITOR PRESETS === */
 .hnx-url-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-prof-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-app.hnx-fs-active .hnx-url-btn { font-size: 13px !important; padding: 7px 14px !important; }
@@ -109785,6 +110202,75 @@ service cloud.firestore {
   font-weight: 700;
 }
 .hnx-btn-danger:hover { background: linear-gradient(135deg, rgba(255,82,82,.40), rgba(244,67,54,.30)); }
+
+
+/* v2.37 · Camera assignment + Master CCTV Wall */
+.hnx-slot-card {
+  background: linear-gradient(160deg, rgba(2,18,28,.55), rgba(2,8,18,.65));
+  border: 1px solid rgba(77,208,225,.20);
+  border-radius: 6px;
+  padding: 10px 12px;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.hnx-slot-card.on {
+  border-color: rgba(102,187,106,.45);
+  box-shadow: 0 0 8px rgba(102,187,106,.15);
+}
+.hnx-slot-card:hover { border-color: rgba(132,255,249,.40); }
+
+.hnx-area-chip { transition: all .15s ease; }
+.hnx-area-chip:hover { transform: translateY(-1px); }
+.hnx-area-chip.on { box-shadow: 0 0 10px rgba(102,187,106,.25); }
+
+.hnx-mcw-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 10px;
+  background: rgba(2,8,18,.5);
+}
+.hnx-mcw-cell {
+  position: relative;
+  aspect-ratio: 16/9;
+  background: #000;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid rgba(77,208,225,.15);
+}
+.hnx-mcw-cell.empty {
+  background: linear-gradient(135deg, #04111d, #020812);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed rgba(77,208,225,.18);
+}
+.hnx-mcw-cell .hnx-cctv-media { width: 100%; height: 100%; object-fit: cover; }
+.hnx-mcw-cell-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 5px 7px;
+  background: linear-gradient(0deg, rgba(0,0,0,.55) 0%, transparent 35%);
+  pointer-events: none;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8.5px;
+  letter-spacing: .06em;
+}
+.hnx-mcw-cell-rec {
+  color: #ff5252;
+  font-weight: 800;
+  text-shadow: 0 0 4px rgba(255,82,82,.8);
+}
+.hnx-mcw-cell-id {
+  color: #80deea;
+  background: rgba(2,8,18,.65);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+.hnx-mcw-area { transition: border-color .25s ease; }
 
 /* v2.34 · Stream error display in CCTV cells */
 .hnx-stream-err {
@@ -110036,7 +110522,7 @@ service cloud.firestore {
 .hnx-fs-tap-s { font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #84fff9; letter-spacing: .06em; margin-bottom: 14px; animation: hnxBlink 1.5s steps(2) infinite; }
 .hnx-fs-tap-hint { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6a8ea3; letter-spacing: .06em; }
 
-/* === HNX-EXT v2.36 · DRUM CAPACITY EDITOR === */
+/* === HNX-EXT v2.37 · DRUM CAPACITY EDITOR === */
 .hnx-drum-settings {
   background: linear-gradient(180deg, rgba(2,30,40,.8), rgba(2,18,28,.95));
   border: 1px solid rgba(102,187,106,.45);
@@ -110063,7 +110549,7 @@ service cloud.firestore {
   box-shadow: 0 0 8px rgba(128,232,133,.4);
 }
 
-/* === HNX-EXT v2.36 · FULLSCREEN TRULY FILLS MONITOR === */
+/* === HNX-EXT v2.37 · FULLSCREEN TRULY FILLS MONITOR === */
 .hnx-app:fullscreen,
 .hnx-app:-webkit-full-screen {
   background: radial-gradient(ellipse at center, #02101a 0%, #02080f 70%, #000 100%) !important;
@@ -110152,7 +110638,7 @@ service cloud.firestore {
 /* Open items at bottom */
 .hnx-app.hnx-fs-active .hnx-ghc-bottom { margin-top: 14px; }
 
-/* === HNX-EXT v2.36 · FR MODE TOGGLE === */
+/* === HNX-EXT v2.37 · FR MODE TOGGLE === */
 .hnx-mode-btn {
   background: linear-gradient(135deg, rgba(77,208,225,.22), rgba(132,255,249,.18)) !important;
   border: 1px solid rgba(77,208,225,.55) !important;
@@ -110178,7 +110664,7 @@ service cloud.firestore {
   box-shadow: 0 0 14px rgba(132,255,249,.35);
 }
 
-/* === HNX-EXT v2.36 · FULLSCREEN MONITOR MODE === */
+/* === HNX-EXT v2.37 · FULLSCREEN MONITOR MODE === */
 .hnx-fs-btn { 
   background: linear-gradient(135deg, rgba(102,187,106,.22), rgba(77,208,225,.22)) !important;
   border: 1px solid rgba(102,187,106,.55) !important;
@@ -110222,7 +110708,7 @@ service cloud.firestore {
   100% { transform: translateX(50px); opacity: 0; }
 }
 
-/* === HNX-EXT v2.36 · VERTICAL FILLING DRUMS === */
+/* === HNX-EXT v2.37 · VERTICAL FILLING DRUMS === */
 .hnx-drum-cube { padding-bottom: 10px; }
 .hnx-drum-grid {
   display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;
@@ -110329,7 +110815,7 @@ service cloud.firestore {
 .hnx-drum-value.warn { color: #ffca52; }
 .hnx-drum-value.crit { color: #ff7a78; }
 
-/* === HNX-EXT v2.36 · BOLD VISIBLE THEMATIC IMAGERY === */
+/* === HNX-EXT v2.37 · BOLD VISIBLE THEMATIC IMAGERY === */
 .hnx-cube-imagery { position: relative; overflow: hidden; min-height: 180px; }
 .hnx-cube-imagery > .hnx-cube-bg {
   position: absolute; inset: 0;
@@ -110353,7 +110839,7 @@ service cloud.firestore {
 .hnx-cube-imagery > .hnx-ghbars,
 .hnx-cube-imagery > div:not(.hnx-cube-bg) { position: relative; z-index: 2; }
 .hnx-cube-imagery .hnx-w-h { position: relative; z-index: 2; }
-/* === HNX-EXT v2.36 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
+/* === HNX-EXT v2.37 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
 /* Production: Lettuce leaves sway */
 @keyframes hnxLettuceSway {
   0%, 100% { transform: rotate(-3deg); }
@@ -110411,7 +110897,7 @@ service cloud.firestore {
 .hnx-svg-act-dot:nth-child(3) { animation-delay: .8s; }
 .hnx-svg-act-dot:nth-child(4) { animation-delay: 1.2s; }
 
-/* === HNX-EXT v2.36 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
+/* === HNX-EXT v2.37 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
 /* CCTV cell motion enhancements — corner brackets, double scan, breathing border */
 .hnx-cctv-motion { animation: hnxCellPulse 4s ease-in-out infinite; }
 @keyframes hnxCellPulse {
