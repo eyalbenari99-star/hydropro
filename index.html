@@ -94068,7 +94068,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 
 </script>
 
-<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.37 (Camera Assignment Matrix + Master CCTV Wall) -->
+<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.39 (Channel-to-location mapping inside DVR form · auto-distribute · per-DVR mapping summary) -->
 <script>
 /* ============================================================================
  * HYDRONEXIS-AI · EXTENSIONS PACK v1.0
@@ -94661,7 +94661,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.37 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.39 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -94670,7 +94670,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.37';
+        vEl.textContent = orig + ' · HNX v2.39';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -94685,7 +94685,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.37 Diagnostics:\n\n' +
+        'HNX-EXT v2.39 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
@@ -94731,7 +94731,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const style = document.createElement('style');
     style.id = 'hnx-ext-styles';
     style.textContent = HNX_CSS + `
-/* === HNX-EXT v2.37 · MOTION & ANIMATION PACK === */
+/* === HNX-EXT v2.39 · MOTION & ANIMATION PACK === */
 @keyframes hnxPulseGlow {
   0%, 100% { box-shadow: 0 0 30px rgba(102,187,106,.18), inset 0 0 40px rgba(102,187,106,.05); }
   50%      { box-shadow: 0 0 60px rgba(102,187,106,.45), inset 0 0 70px rgba(102,187,106,.12); }
@@ -94986,17 +94986,14 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 
     add('production', {
       id: 'gh_command',
-      label: '🏭 GH Command Center',
+      label: '🏭 Command Center',
       perm: null,
-      title: 'Per-greenhouse command center · 9-camera CCTV wall · production, tech issues, and irrigation data filtered to selected GH'
+      title: 'Unified Command Center · pick a GH and see its production data + paired fertigation room (FR) data · drums, pool, sensors · 9-camera CCTV wall · use 🌱/💧 toggle inside to switch camera focus between GH and FR'
     });
 
-    add('production', {
-      id: 'fr_command',
-      label: '💧 FR Command Center',
-      perm: null,
-      title: 'Per-fertigation-room command center · pools, drums, EC/pH, chillers, ozone, RO, ventilation · with paired GHs overview'
-    });
+    // v2.38 · FR Command Center MERGED into unified Command Center · registration commented out
+    // The FR view is still rendered internally inside Command Center via mode toggle.
+    // add('production', { id: 'fr_command', label: '💧 FR Command Center', ... });
 
     add('production', {
       id: 'plant_census',
@@ -102271,13 +102268,28 @@ var qrcode = function() {
   };
   window._hnxMcwGotoArea = function(areaId, type){
     if(typeof window.switchView !== 'function') return;
-    if(type === 'fr'){
-      try{ window.switchView('fr_command'); }catch(e){}
-      setTimeout(() => { if(window._hnxGhcState){ window._hnxGhcState.mode='fr'; window._hnxGhcState.selectedFr=areaId; } if(window._hnxGhcRefresh) window._hnxGhcRefresh(); }, 250);
-    } else {
-      try{ window.switchView('gh_command'); }catch(e){}
-      setTimeout(() => { if(window._hnxGhcState){ window._hnxGhcState.mode='gh'; window._hnxGhcState.selected=areaId; } if(window._hnxGhcRefresh) window._hnxGhcRefresh(); }, 250);
-    }
+    // v2.38 · Unified Command Center · always navigate to gh_command, set focus mode
+    try{ window.switchView('gh_command'); }catch(e){}
+    setTimeout(() => {
+      if(!window._hnxGhcState) window._hnxGhcState = { selected:'GH1', selectedFr:'FR1_2', mode:'gh' };
+      if(type === 'fr'){
+        window._hnxGhcState.mode = 'fr';
+        window._hnxGhcState.selectedFr = areaId;
+        // Also try to pair with first GH that serves this FR
+        const ghToFr = (typeof HNX_GH_TO_FR !== 'undefined') ? HNX_GH_TO_FR : null;
+        if(ghToFr){
+          const pairedGh = Object.keys(ghToFr).find(g => ghToFr[g] === areaId);
+          if(pairedGh) window._hnxGhcState.selected = pairedGh;
+        }
+      } else {
+        window._hnxGhcState.mode = 'gh';
+        window._hnxGhcState.selected = areaId;
+        // Auto-set FR companion
+        const ghToFr = (typeof HNX_GH_TO_FR !== 'undefined') ? HNX_GH_TO_FR : null;
+        if(ghToFr && ghToFr[areaId]) window._hnxGhcState.selectedFr = ghToFr[areaId];
+      }
+      if(window._hnxGhcRefresh) window._hnxGhcRefresh();
+    }, 250);
   };
 
   // ============== MAIN RENDER ==============
@@ -102296,6 +102308,11 @@ var qrcode = function() {
     const state = window._hnxGhcState;
     if(!state.mode) state.mode = 'gh';
     if(!state.selectedFr) state.selectedFr = 'FR1_2';
+    // v2.38 · Auto-pair: when in GH mode and a GH is picked, derive the FR companion
+    if(state.mode === 'gh' && state.selected){
+      const map = (typeof HNX_GH_TO_FR !== 'undefined') ? HNX_GH_TO_FR : null;
+      if(map && map[state.selected]){ state.selectedFr = map[state.selected]; }
+    }
     // v2.27 · If we're loading inside the dedicated FR view, force FR mode; if we're loading inside the dedicated GH view, force GH mode
     if(bodySelector === '#hnx-fr_command-body') state.mode = 'fr';
     else if(bodySelector === '#hnx-gh_command-body' && state.mode === 'fr'){
@@ -102324,13 +102341,13 @@ var qrcode = function() {
             <div class="hnx-tbrand">
               <div class="hnx-tbmark hnx-tbmark-cy">🏭</div>
               <div>
-                <div class="hnx-tbtitle">GH Command Center <span>· <span id="hnxGhcSel">GH1</span></span></div>
+                <div class="hnx-tbtitle">Command Center <span>· <span id="hnxGhcSel">GH1</span></span> <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80e885;letter-spacing:.10em;margin-left:8px">· 🌱 GH FOCUS</span></div>
                 <div class="hnx-tbsub">9-Camera Wall · Production · Tech · Irrigation · AI Brain</div>
               </div>
             </div>
             <div class="hnx-tcenter" id="hnxGhcKpis"></div>
             <div class="hnx-tright">
-              <button class="hnx-btn hnx-mode-btn" onclick="window._hnxGhcToggleMode && window._hnxGhcToggleMode()" id="hnxModeBtn" title="Jump to the other dedicated command center tab"><span id="hnxModeBtnLbl">💧 Jump to FR</span></button>
+              <button class="hnx-btn hnx-mode-btn" onclick="window._hnxGhcToggleMode && window._hnxGhcToggleMode()" id="hnxModeBtn" title="Switch camera focus between GH (greenhouse) and FR (fertigation room)"><span id="hnxModeBtnLbl">💧 Switch to FR Focus</span></button>
               <button class="hnx-btn hnx-btn-c hnx-fs-btn" onclick="window._hnxGhcToggleFullscreen && window._hnxGhcToggleFullscreen()" title="Full Screen monitor view"><span class="hnx-fs-ico">⛶</span> <span class="hnx-fs-lbl">Full Screen</span></button>
               <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxGhcRefresh && window._hnxGhcRefresh()">↻ Refresh</button>
             </div>
@@ -103874,52 +103891,41 @@ var qrcode = function() {
 
     // v2.17 · Toggle between GH Command Center and FR Command Center view
     window._hnxGhcToggleMode = function(){
-      // v2.27 · If we're inside a dedicated FR or GH tab, NAVIGATE to the other dedicated tab instead of toggling in-place
-      const inFrTab = !!document.querySelector('#hnx-fr_command-body .hnx-app');
-      const inGhTab = !!document.querySelector('#hnx-gh_command-body .hnx-app');
-      if(state.mode === 'fr' && inFrTab && typeof window.switchView === 'function'){
-        // Switch to dedicated GH tab
-        window.switchView('gh_command');
-        return;
-      }
-      if(state.mode === 'gh' && inGhTab && typeof window.switchView === 'function'){
-        // Switch to dedicated FR tab
-        window.switchView('fr_command');
-        return;
-      }
-      // Fallback: in-place toggle (for legacy in-page calls)
+      // v2.38 · Unified Command Center · in-place focus toggle (no navigation)
       state.mode = (state.mode === 'fr') ? 'gh' : 'fr';
       const titleEl = body.querySelector('.hnx-tbtitle');
       const subEl = body.querySelector('.hnx-tbsub');
       const markEl = body.querySelector('.hnx-tbmark');
       const modeLbl = document.getElementById('hnxModeBtnLbl');
       if(state.mode === 'fr'){
-        if(titleEl) titleEl.innerHTML = 'FR Command Center <span>· <span id="hnxGhcSel">' + state.selectedFr + '</span></span>';
-        if(subEl) subEl.textContent = 'Fertigation Room · Pools · Drums · Chillers · Ozone · RO · Ventilation';
+        if(titleEl) titleEl.innerHTML = 'Command Center <span>· <span id="hnxGhcSel">' + state.selectedFr + '</span></span> <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#84fff9;letter-spacing:.10em;margin-left:8px">· 💧 FR FOCUS</span>';
+        if(subEl) subEl.textContent = 'Fertigation Room · Pools · Drums · Chillers · Ozone · RO · Ventilation · paired with GHs';
         if(markEl){ markEl.textContent = '💧'; markEl.classList.remove('hnx-tbmark-cy'); markEl.style.background = 'linear-gradient(135deg, rgba(77,208,225,.35), rgba(2,30,40,.55))'; }
-        if(modeLbl) modeLbl.textContent = '🏭 Jump to GH';
+        if(modeLbl) modeLbl.textContent = '🌱 Switch to GH Focus';
       } else {
-        if(titleEl) titleEl.innerHTML = 'GH Command Center <span>· <span id="hnxGhcSel">' + state.selected + '</span></span>';
-        if(subEl) subEl.textContent = '9-Camera Wall · Production · Tech · Irrigation · AI Brain';
+        if(titleEl) titleEl.innerHTML = 'Command Center <span>· <span id="hnxGhcSel">' + state.selected + '</span></span> <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80e885;letter-spacing:.10em;margin-left:8px">· 🌱 GH FOCUS</span>';
+        if(subEl) subEl.textContent = '9-Camera Wall · Production · Tech · Irrigation · AI Brain · paired with FR';
         if(markEl){ markEl.textContent = '🏭'; markEl.classList.add('hnx-tbmark-cy'); markEl.style.background = ''; }
-        if(modeLbl) modeLbl.textContent = '💧 Jump to FR';
+        if(modeLbl) modeLbl.textContent = '💧 Switch to FR Focus';
       }
+      if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('cmdctr_mode', 'Switched focus to ' + state.mode.toUpperCase(), state.mode==='fr'?state.selectedFr:state.selected);
       drawAll();
     };
-    // Run once on first render to set correct title for current mode (v2.27: do it inline, not via toggleMode which now navigates)
+    // v2.38 · Run once on first render to set correct title for current mode
     setTimeout(() => {
+      const titleEl = body.querySelector('.hnx-tbtitle');
+      const subEl = body.querySelector('.hnx-tbsub');
+      const markEl = body.querySelector('.hnx-tbmark');
+      const modeLbl = document.getElementById('hnxModeBtnLbl');
       if(state.mode === 'fr'){
-        const titleEl = body.querySelector('.hnx-tbtitle');
-        const subEl = body.querySelector('.hnx-tbsub');
-        const markEl = body.querySelector('.hnx-tbmark');
-        const modeLbl = document.getElementById('hnxModeBtnLbl');
-        if(titleEl) titleEl.innerHTML = 'FR Command Center <span>· <span id="hnxGhcSel">' + state.selectedFr + '</span></span>';
-        if(subEl) subEl.textContent = 'Fertigation Room · Pools · Drums · Chillers · Ozone · RO · Ventilation';
+        if(titleEl) titleEl.innerHTML = 'Command Center <span>· <span id="hnxGhcSel">' + state.selectedFr + '</span></span> <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#84fff9;letter-spacing:.10em;margin-left:8px">· 💧 FR FOCUS</span>';
+        if(subEl) subEl.textContent = 'Fertigation Room · Pools · Drums · Chillers · Ozone · RO · Ventilation · paired with GHs';
         if(markEl){ markEl.textContent = '💧'; markEl.classList.remove('hnx-tbmark-cy'); markEl.style.background = 'linear-gradient(135deg, rgba(77,208,225,.35), rgba(2,30,40,.55))'; }
-        if(modeLbl) modeLbl.textContent = '🏭 Jump to GH';
+        if(modeLbl) modeLbl.textContent = '🌱 Switch to GH Focus';
       } else {
-        const modeLbl = document.getElementById('hnxModeBtnLbl');
-        if(modeLbl) modeLbl.textContent = '💧 Jump to FR';
+        if(titleEl) titleEl.innerHTML = 'Command Center <span>· <span id="hnxGhcSel">' + state.selected + '</span></span> <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80e885;letter-spacing:.10em;margin-left:8px">· 🌱 GH FOCUS</span>';
+        if(subEl) subEl.textContent = '9-Camera Wall · Production · Tech · Irrigation · AI Brain · paired with FR';
+        if(modeLbl) modeLbl.textContent = '💧 Switch to FR Focus';
       }
     }, 50);
 
@@ -104968,11 +104974,119 @@ service cloud.firestore {
     if(isNew) c.devices.push(dvr);
     else { const idx = c.devices.findIndex(x => x.id === id); if(idx >= 0) c.devices[idx] = dvr; else c.devices.push(dvr); }
     hnxSaveDvrConfig(c);
-    if(typeof toast === 'function') toast('✓ Saved · ' + dvr.name);
-    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('dvr_save', (isNew?'Added':'Updated')+' DVR "'+dvr.name+'" · '+dvr.ip+':'+dvr.port+' · '+dvr.channels+'ch');
+
+    // v2.39 · Read the channel→area→slot mapping rows and apply to camera grid + streams
+    const slug = (dvr.streamPrefix||'cam').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+    const cams = _hnxLoad('hydroPro_camera_streams', {}) || {};
+    const grid = (typeof hnxLoadCctvGrid === 'function') ? hnxLoadCctvGrid() : {};
+    let mappingApplied = 0;
+    const channelMap = {}; // capture for storing on the dvr record
+    document.querySelectorAll('.hnx-dvr-ch-area').forEach(sel => {
+      const ch = parseInt(sel.dataset.ch, 10);
+      const area = sel.value;
+      const slotSel = document.querySelector('.hnx-dvr-ch-slot[data-ch="'+ch+'"]');
+      const slot = slotSel ? parseInt(slotSel.value, 10) : 1;
+      if(!area || !ch) return;
+      const streamId = slug + '-ch' + ch;
+      channelMap[ch] = { area, slot };
+      // Ensure URL exists in camera_streams
+      if(typeof hnxBridgeStreamUrl === 'function'){
+        const url = hnxBridgeStreamUrl(streamId);
+        if(url) cams[streamId] = url;
+      }
+      // Assign to grid
+      if(!grid[area]) grid[area] = { slot1:null, slot2:null, slot3:null, slot4:null, slot5:null, slot6:null, slot7:null, slot8:null, slot9:null };
+      grid[area]['slot'+slot] = streamId;
+      mappingApplied++;
+    });
+    // Save channelMap on the dvr record too (for re-loading in edit form)
+    const cAgain = hnxLoadDvrConfig();
+    const dvrIdx = cAgain.devices.findIndex(x => x.id === dvr.id);
+    if(dvrIdx >= 0){ cAgain.devices[dvrIdx].channelMap = channelMap; hnxSaveDvrConfig(cAgain); }
+    if(typeof hnxSaveCctvGrid === 'function') hnxSaveCctvGrid(grid);
+    _hnxSave('hydroPro_camera_streams', cams);
+
+    if(typeof toast === 'function') toast('✓ Saved · ' + dvr.name + (mappingApplied ? ' · '+mappingApplied+' cameras placed in grid' : ' · no mapping (placeable via Camera Assignment)'));
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('dvr_save', (isNew?'Added':'Updated')+' DVR "'+dvr.name+'" · '+dvr.ip+':'+dvr.port+' · '+dvr.channels+'ch · '+mappingApplied+' mapped');
     window._hnxDvrState.editingId = null;
     window._hnxDvrRefresh();
+    // Re-render command center if it's open
+    if(typeof window._hnxGhcRefresh === 'function'){ try{ window._hnxGhcRefresh(); }catch(e){} }
   };
+
+  // v2.39 · Auto-distribute channels across consecutive area+slot positions
+  window._hnxDvrAutoDistribute = function(){
+    const startArea = (document.getElementById('hnxDvrAutoArea')||{}).value;
+    const startSlot = parseInt((document.getElementById('hnxDvrAutoSlot')||{}).value, 10) || 1;
+    const skipAssigned = !!(document.getElementById('hnxDvrAutoSkip')||{}).checked;
+    if(!startArea){ alert('Pick a starting area first'); return; }
+    if(typeof HNX_AREAS === 'undefined'){ alert('Areas not loaded yet'); return; }
+    const channels = parseInt((document.getElementById('hnxDvrChannels')||{}).value, 10) || 4;
+    const startIdx = HNX_AREAS.findIndex(a => a.id === startArea);
+    if(startIdx === -1){ alert('Area not found'); return; }
+    const grid = (typeof hnxLoadCctvGrid === 'function') ? hnxLoadCctvGrid() : {};
+    // Build a flat list of (area, slot) positions starting from the picked one
+    const positions = [];
+    for(let ai = startIdx; ai < HNX_AREAS.length; ai++){
+      const aId = HNX_AREAS[ai].id;
+      const slotStart = (ai === startIdx) ? startSlot : 1;
+      for(let s = slotStart; s <= 9; s++){
+        if(skipAssigned){
+          const existing = (grid[aId] || {})['slot'+s];
+          if(existing){ continue; } // skip
+        }
+        positions.push({ area: aId, slot: s });
+        if(positions.length >= channels) break;
+      }
+      if(positions.length >= channels) break;
+    }
+    if(positions.length < channels && typeof toast === 'function'){
+      toast('⚠ Only ' + positions.length + ' free positions found · last ' + (channels - positions.length) + ' channel(s) unassigned', 'crit');
+    }
+    // Apply to the form dropdowns
+    document.querySelectorAll('.hnx-dvr-ch-area').forEach((sel, i) => {
+      const slotSel = document.querySelector('.hnx-dvr-ch-slot[data-ch="'+sel.dataset.ch+'"]');
+      const pos = positions[i];
+      if(pos){
+        sel.value = pos.area;
+        if(slotSel) slotSel.value = String(pos.slot);
+        sel.parentElement.style.borderColor = 'rgba(102,187,106,.50)';
+      }
+    });
+    _hnxDvrUpdateMappingSummary();
+    if(typeof toast === 'function') toast('⚡ Auto-distributed '+positions.length+' channel(s) starting at '+startArea+' slot '+startSlot);
+  };
+
+  window._hnxDvrClearMapping = function(){
+    document.querySelectorAll('.hnx-dvr-ch-area').forEach(sel => { sel.value = ''; sel.parentElement.style.borderColor = 'rgba(77,208,225,.18)'; });
+    _hnxDvrUpdateMappingSummary();
+  };
+
+  function _hnxDvrUpdateMappingSummary(){
+    const sums = {};
+    document.querySelectorAll('.hnx-dvr-ch-area').forEach(sel => {
+      const area = sel.value;
+      if(!area) return;
+      sums[area] = (sums[area]||0) + 1;
+    });
+    const total = Object.values(sums).reduce((a,b)=>a+b,0);
+    const summary = document.getElementById('hnxDvrMappingSummary');
+    if(summary){
+      const parts = Object.entries(sums).map(([a,n]) => '<span style="color:#80e885">'+a+'</span> ('+n+')');
+      summary.innerHTML = total === 0 ? '<span style="color:#6a8ea3">No channels mapped yet · pick an area for each above, or use Auto-distribute</span>' : '▸ ' + total + ' channel(s) mapped → ' + parts.join(' · ');
+    }
+  }
+  // Wire change events to keep summary updated
+  document.addEventListener('change', function(e){
+    if(e.target && e.target.classList && (e.target.classList.contains('hnx-dvr-ch-area') || e.target.classList.contains('hnx-dvr-ch-slot'))){
+      _hnxDvrUpdateMappingSummary();
+      // Recolor the row border
+      const row = e.target.closest('div[style*="border"]');
+      const areaSel = e.target.classList.contains('hnx-dvr-ch-area') ? e.target : (row ? row.querySelector('.hnx-dvr-ch-area') : null);
+      if(row && areaSel){ row.style.borderColor = areaSel.value ? 'rgba(102,187,106,.30)' : 'rgba(77,208,225,.18)'; }
+    }
+  });
+  setTimeout(_hnxDvrUpdateMappingSummary, 100);
   window._hnxDvrDel = function(id){
     const c = hnxLoadDvrConfig();
     const d = c.devices.find(x => x.id === id); if(!d) return;
@@ -105104,6 +105218,28 @@ service cloud.firestore {
                   <div style="font-family:JetBrains Mono,monospace;font-size:10.5px;color:#a5d6e6;margin-top:3px">
                     ${escHtml((HNX_MANUFACTURERS.find(m=>m.id===d.manufacturer)||{}).name||d.manufacturer||'?')} · <b style="color:#84fff9">${escHtml(d.ip||'?')}:${d.port||554}</b> · ${channels} channel${channels===1?'':'s'} · prefix <code style="color:#80deea">${escHtml(d.streamPrefix||'cam')}</code>
                   </div>
+                  ${(() => {
+                    // v2.39 · Show mapping summary for this DVR
+                    const grid = (typeof hnxLoadCctvGrid === 'function') ? hnxLoadCctvGrid() : {};
+                    const slug = (d.streamPrefix||'cam').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+                    const sums = {};
+                    let mapped = 0;
+                    for(let ch=1; ch<=channels; ch++){
+                      const sid = slug + '-ch' + ch;
+                      for(const aId of Object.keys(grid)){
+                        const slots = grid[aId];
+                        for(let s=1; s<=9; s++){
+                          if(slots['slot'+s] === sid){
+                            sums[aId] = (sums[aId]||0) + 1;
+                            mapped++;
+                            break;
+                          }
+                        }
+                      }
+                    }
+                    const parts = Object.entries(sums).map(([a,n]) => '<span style="color:#80e885">'+a+'</span> (' + n + ')').join(' · ');
+                    return '<div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;margin-top:3px;letter-spacing:.04em">→ ' + (mapped===0 ? '<span style="color:#ffca52">⚠ no channels mapped to any area yet · edit to assign</span>' : (mapped + '/' + channels + ' mapped: ' + parts)) + '</div>';
+                  })()}
                 </div>
                 <div style="display:flex;gap:5px">
                   <button class="hnx-btn hnx-btn-c" onclick="window._hnxDvrTest && window._hnxDvrTest('${escHtml(d.id)}')" title="Test connection" style="padding:5px 10px;font-size:11px">🔌 Test</button>
@@ -105169,10 +105305,79 @@ service cloud.firestore {
               <b style="color:#80e885">Preview channel 1 RTSP:</b><br>
               <span id="hnxDvrPreviewUrl" style="color:#84fff9;word-break:break-all">${escHtml(_hnxResolveRtspUrl({...editing, rtspTemplate: editing.rtspTemplate || HNX_RTSP_TEMPLATES[editing.manufacturer]}, 1))}</span>
             </div>
+            <!-- v2.39 · Channel Mapping · tells the system where each channel's camera physically is -->
+            <div style="grid-column:span 4;border-top:2px dashed rgba(255,202,82,.40);padding-top:14px;margin-top:8px">
+              <div style="font-family:Orbitron,sans-serif;font-weight:800;font-size:13px;color:#ffca52;letter-spacing:.08em;margin-bottom:6px">🎯 CHANNEL → LOCATION MAPPING</div>
+              <div style="font-family:JetBrains Mono,monospace;font-size:10.5px;color:#a5d6e6;letter-spacing:.04em;line-height:1.6;margin-bottom:12px">For each channel of this DVR, pick which physical area & slot the camera covers. Saving this also assigns the streams to the camera grid — no extra step needed in Camera Assignment.</div>
+
+              <!-- Auto-distribute helper -->
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:rgba(2,18,28,.5);border:1px solid rgba(255,202,82,.25);border-radius:5px;padding:10px 12px;margin-bottom:12px">
+                <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#ffca52;letter-spacing:.08em">⚡ AUTO-DISTRIBUTE</span>
+                <span style="font-family:JetBrains Mono,monospace;font-size:10.5px;color:#a5d6e6">starting at</span>
+                <select id="hnxDvrAutoArea" class="hnx-cell" style="padding:6px 8px;font-size:11px;font-family:JetBrains Mono,monospace">
+                  ${(typeof HNX_AREAS !== 'undefined' ? HNX_AREAS : []).map(a => `<option value="${a.id}">${escHtml(a.id)} · ${escHtml(a.label.split(' · ')[1]||'')}</option>`).join('')}
+                </select>
+                <span style="font-family:JetBrains Mono,monospace;font-size:10.5px;color:#a5d6e6">slot</span>
+                <select id="hnxDvrAutoSlot" class="hnx-cell" style="padding:6px 8px;font-size:11px;font-family:JetBrains Mono,monospace">
+                  ${[1,2,3,4,5,6,7,8,9].map(n => `<option value="${n}">${n}</option>`).join('')}
+                </select>
+                <label style="display:flex;align-items:center;gap:4px;font-family:JetBrains Mono,monospace;font-size:10px;color:#a5d6e6;cursor:pointer">
+                  <input type="checkbox" id="hnxDvrAutoSkip" checked style="margin:0">
+                  skip already-assigned
+                </label>
+                <button type="button" class="hnx-btn hnx-btn-c" onclick="window._hnxDvrAutoDistribute && window._hnxDvrAutoDistribute()" style="padding:6px 12px;font-size:11px">⚡ Fill ${editing.channels || 4} channels</button>
+                <button type="button" class="hnx-btn hnx-btn-ghost" onclick="window._hnxDvrClearMapping && window._hnxDvrClearMapping()" style="padding:6px 10px;font-size:10.5px">Clear mapping</button>
+              </div>
+
+              <!-- Per-channel rows -->
+              <div id="hnxDvrChannelRows" style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                ${(() => {
+                  const channels = parseInt(editing.channels, 10) || 4;
+                  const cm = editing.channelMap || {};
+                  // Also pre-fill from existing grid if editing
+                  const grid = (typeof hnxLoadCctvGrid === 'function') ? hnxLoadCctvGrid() : {};
+                  if(!isNew && Object.keys(cm).length === 0){
+                    const slug = (editing.streamPrefix || 'cam').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+                    for(let ch=1; ch<=channels; ch++){
+                      const streamId = slug + '-ch' + ch;
+                      // Search grid for this stream
+                      for(const areaId of Object.keys(grid)){
+                        const slots = grid[areaId];
+                        for(let sl=1; sl<=9; sl++){
+                          if(slots['slot'+sl] === streamId){
+                            cm[ch] = { area: areaId, slot: sl };
+                            break;
+                          }
+                        }
+                        if(cm[ch]) break;
+                      }
+                    }
+                  }
+                  const rows = [];
+                  for(let ch=1; ch<=channels; ch++){
+                    const m = cm[ch] || {};
+                    rows.push(`<div style="display:flex;gap:6px;align-items:center;padding:6px 8px;background:rgba(2,18,28,.45);border:1px solid ${m.area?'rgba(102,187,106,.30)':'rgba(77,208,225,.18)'};border-radius:4px">
+                      <span style="font-family:Orbitron,sans-serif;font-weight:800;font-size:11px;color:${m.area?'#80e885':'#80deea'};letter-spacing:.04em;min-width:40px">CH ${ch}</span>
+                      <span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#6a8ea3">→</span>
+                      <select class="hnx-cell hnx-dvr-ch-area" data-ch="${ch}" style="padding:5px 7px;font-size:10.5px;font-family:JetBrains Mono,monospace;flex:1">
+                        <option value="">— Unassigned —</option>
+                        ${(typeof HNX_AREAS !== 'undefined' ? HNX_AREAS : []).map(a => `<option value="${a.id}" ${m.area===a.id?'selected':''}>${escHtml(a.id)}</option>`).join('')}
+                      </select>
+                      <select class="hnx-cell hnx-dvr-ch-slot" data-ch="${ch}" style="padding:5px 7px;font-size:10.5px;font-family:JetBrains Mono,monospace;width:80px">
+                        ${[1,2,3,4,5,6,7,8,9].map(n => `<option value="${n}" ${m.slot===n?'selected':''}>slot ${n}</option>`).join('')}
+                      </select>
+                    </div>`);
+                  }
+                  return rows.join('');
+                })()}
+              </div>
+              <div id="hnxDvrMappingSummary" style="margin-top:10px;font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.04em"></div>
+            </div>
+
             <div style="grid-column:span 4;display:flex;gap:8px;padding-top:6px;border-top:1px dashed rgba(77,208,225,.25)">
               <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxDvrCancelEdit && window._hnxDvrCancelEdit()">✕ Cancel</button>
               <div style="flex:1"></div>
-              <button class="hnx-btn hnx-btn-g" onclick="window._hnxDvrSave && window._hnxDvrSave('${escHtml(isNew?'new':editing.id)}')">💾 Save device</button>
+              <button class="hnx-btn hnx-btn-g" onclick="window._hnxDvrSave && window._hnxDvrSave('${escHtml(isNew?'new':editing.id)}')">💾 Save device & apply mapping</button>
             </div>
           </div>
         </div>
@@ -108170,8 +108375,8 @@ service cloud.firestore {
           <!-- Status marquee strip -->
           <div class="hnx-marquee-wrap" style="margin:8px 14px 14px;border-radius:6px;padding:6px 0;position:relative;z-index:2;background:rgba(0,131,143,.10)">
             <div class="hnx-marquee" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#a5d6e6;letter-spacing:.10em;padding:0 30px">
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.37</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.37</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.39</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.39</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
             </div>
           </div>
           <!-- Pair selector -->
@@ -109669,7 +109874,7 @@ service cloud.firestore {
 .hnx-param-unit{font-size:11px;color:#6a8ea3;font-weight:500;margin-left:3px}
 .hnx-param-target{font-family:'JetBrains Mono',monospace;font-size:9px;color:#6a8ea3;letter-spacing:.10em;margin-top:3px}
 .hnx-param-dev{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;margin-top:1px}
-/* === HNX-EXT v2.37 · MACHINES GRID === */
+/* === HNX-EXT v2.39 · MACHINES GRID === */
 .hnx-machines-cube { position: relative; }
 .hnx-machines-grid {
   display: grid;
@@ -109785,7 +109990,7 @@ service cloud.firestore {
   color: #ff3030;
 }
 
-/* === HNX-EXT v2.37 · DRONE FLEET DETAIL PANEL === */
+/* === HNX-EXT v2.39 · DRONE FLEET DETAIL PANEL === */
 .hnx-drone-detail {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1.2fr;
@@ -109915,7 +110120,7 @@ service cloud.firestore {
 .hnx-drone-hist-stat.crit { background: rgba(255,48,48,.15); color: #ff7a78; border:1px solid rgba(255,48,48,.35); }
 .hnx-drone-hist-stat.live { background: rgba(132,255,249,.18); color: #84fff9; border:1px solid rgba(132,255,249,.45); animation: hnxBlink 1.2s steps(2) infinite; }
 
-/* === HNX-EXT v2.37 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
+/* === HNX-EXT v2.39 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
 .hnx-rotate-ctrl {
   display: inline-flex;
   align-items: center;
@@ -109998,7 +110203,7 @@ service cloud.firestore {
 .hnx-app.hnx-fs-active .hnx-crit-btn { font-size: 13px !important; padding: 7px 14px !important; }
 .hnx-app.hnx-fs-active .hnx-rotate-critcount { font-size: 13px; padding: 6px 14px; }
 
-/* === HNX-EXT v2.37 · URL-DRIVEN MONITOR PRESETS === */
+/* === HNX-EXT v2.39 · URL-DRIVEN MONITOR PRESETS === */
 .hnx-url-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-prof-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-app.hnx-fs-active .hnx-url-btn { font-size: 13px !important; padding: 7px 14px !important; }
@@ -110522,7 +110727,7 @@ service cloud.firestore {
 .hnx-fs-tap-s { font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #84fff9; letter-spacing: .06em; margin-bottom: 14px; animation: hnxBlink 1.5s steps(2) infinite; }
 .hnx-fs-tap-hint { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6a8ea3; letter-spacing: .06em; }
 
-/* === HNX-EXT v2.37 · DRUM CAPACITY EDITOR === */
+/* === HNX-EXT v2.39 · DRUM CAPACITY EDITOR === */
 .hnx-drum-settings {
   background: linear-gradient(180deg, rgba(2,30,40,.8), rgba(2,18,28,.95));
   border: 1px solid rgba(102,187,106,.45);
@@ -110549,7 +110754,7 @@ service cloud.firestore {
   box-shadow: 0 0 8px rgba(128,232,133,.4);
 }
 
-/* === HNX-EXT v2.37 · FULLSCREEN TRULY FILLS MONITOR === */
+/* === HNX-EXT v2.39 · FULLSCREEN TRULY FILLS MONITOR === */
 .hnx-app:fullscreen,
 .hnx-app:-webkit-full-screen {
   background: radial-gradient(ellipse at center, #02101a 0%, #02080f 70%, #000 100%) !important;
@@ -110638,7 +110843,7 @@ service cloud.firestore {
 /* Open items at bottom */
 .hnx-app.hnx-fs-active .hnx-ghc-bottom { margin-top: 14px; }
 
-/* === HNX-EXT v2.37 · FR MODE TOGGLE === */
+/* === HNX-EXT v2.39 · FR MODE TOGGLE === */
 .hnx-mode-btn {
   background: linear-gradient(135deg, rgba(77,208,225,.22), rgba(132,255,249,.18)) !important;
   border: 1px solid rgba(77,208,225,.55) !important;
@@ -110664,7 +110869,7 @@ service cloud.firestore {
   box-shadow: 0 0 14px rgba(132,255,249,.35);
 }
 
-/* === HNX-EXT v2.37 · FULLSCREEN MONITOR MODE === */
+/* === HNX-EXT v2.39 · FULLSCREEN MONITOR MODE === */
 .hnx-fs-btn { 
   background: linear-gradient(135deg, rgba(102,187,106,.22), rgba(77,208,225,.22)) !important;
   border: 1px solid rgba(102,187,106,.55) !important;
@@ -110708,7 +110913,7 @@ service cloud.firestore {
   100% { transform: translateX(50px); opacity: 0; }
 }
 
-/* === HNX-EXT v2.37 · VERTICAL FILLING DRUMS === */
+/* === HNX-EXT v2.39 · VERTICAL FILLING DRUMS === */
 .hnx-drum-cube { padding-bottom: 10px; }
 .hnx-drum-grid {
   display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;
@@ -110815,7 +111020,7 @@ service cloud.firestore {
 .hnx-drum-value.warn { color: #ffca52; }
 .hnx-drum-value.crit { color: #ff7a78; }
 
-/* === HNX-EXT v2.37 · BOLD VISIBLE THEMATIC IMAGERY === */
+/* === HNX-EXT v2.39 · BOLD VISIBLE THEMATIC IMAGERY === */
 .hnx-cube-imagery { position: relative; overflow: hidden; min-height: 180px; }
 .hnx-cube-imagery > .hnx-cube-bg {
   position: absolute; inset: 0;
@@ -110839,7 +111044,7 @@ service cloud.firestore {
 .hnx-cube-imagery > .hnx-ghbars,
 .hnx-cube-imagery > div:not(.hnx-cube-bg) { position: relative; z-index: 2; }
 .hnx-cube-imagery .hnx-w-h { position: relative; z-index: 2; }
-/* === HNX-EXT v2.37 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
+/* === HNX-EXT v2.39 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
 /* Production: Lettuce leaves sway */
 @keyframes hnxLettuceSway {
   0%, 100% { transform: rotate(-3deg); }
@@ -110897,7 +111102,7 @@ service cloud.firestore {
 .hnx-svg-act-dot:nth-child(3) { animation-delay: .8s; }
 .hnx-svg-act-dot:nth-child(4) { animation-delay: 1.2s; }
 
-/* === HNX-EXT v2.37 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
+/* === HNX-EXT v2.39 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
 /* CCTV cell motion enhancements — corner brackets, double scan, breathing border */
 .hnx-cctv-motion { animation: hnxCellPulse 4s ease-in-out infinite; }
 @keyframes hnxCellPulse {
