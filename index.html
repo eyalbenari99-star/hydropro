@@ -104799,20 +104799,53 @@ streams:
     const bridgePort = 1985;
     let streams = {};
     try{ streams = JSON.parse(localStorage.getItem('hydroPro_camera_streams') || '{}'); }catch(e){}
+    // PATCH v2.48.1: consumers (hnxGetStreamUrl, renderMasterCctvWall) read camStreams[id] as a
+    // plain URL STRING, not an object. Writing the URL directly fixes empty cells in the command screen.
     data.cameras.forEach(c => {
-      streams[c.slug] = {
-        id: c.slug,
-        name: c.location,
-        url: `${proto}://${bridgeIp}:${bridgePort}/api/stream.m3u8?src=${c.slug}`,
-        format: 'hls',
-        location: c.location,
-        ip: c.ip,
-        type: c.type,
-        nvr: c.nvr,
-        source: 'aba_cameras'
-      };
+      streams[c.slug] = `${proto}://${bridgeIp}:${bridgePort}/api/stream.m3u8?src=${c.slug}`;
     });
     try{ localStorage.setItem('hydroPro_camera_streams', JSON.stringify(streams)); }catch(e){}
+
+    // === STEP 2.5 · PATCH v2.48.1 · Populate hydroPro_it_cctv_cameras so hnxGetAllCameras() finds slugs ===
+    // Without this, hnxCamerasForGh() does all.find(c=>c.id==='gh3-left-view') -> undefined -> "(NOT FOUND)"
+    try{
+      let existing = [];
+      try{ existing = JSON.parse(localStorage.getItem('hydroPro_it_cctv_cameras') || '[]'); }catch(e){}
+      if(!Array.isArray(existing)) existing = [];
+      const existingMap = {};
+      existing.forEach(c => { if(c && c.id) existingMap[c.id] = c; });
+      const chCounters = {1:0, 2:0, 3:0, 4:0};
+      const groupName = nvr => nvr===1?'TV1 GREENHOUSES':nvr===2?'TV2 GH PERIMETER':nvr===3?'TV3 OFFICE/PACKAGING':'TV4';
+      const slugCams = data.cameras.map(c => {
+        chCounters[c.nvr] = (chCounters[c.nvr]||0) + 1;
+        const ch = chCounters[c.nvr];
+        const prior = existingMap[c.slug] || {};
+        return Object.assign({
+          id: c.slug,
+          cameraNo: 'D' + ch,
+          name: c.location,
+          nvrId: 'NVR-' + c.nvr,
+          channel: ch,
+          location: c.location,
+          group: groupName(c.nvr),
+          model: c.type,
+          ip: c.ip,
+          type: 'bullet',
+          status: 'active'
+        }, prior);
+      });
+      localStorage.setItem('hydroPro_it_cctv_cameras', JSON.stringify(slugCams));
+      let nvrs = [];
+      try{ nvrs = JSON.parse(localStorage.getItem('hydroPro_it_cctv_nvrs') || '[]'); }catch(e){}
+      if(!Array.isArray(nvrs)) nvrs = [];
+      const nvrLabels = {'NVR-1':'NVR-1 (Greenhouses)','NVR-2':'NVR-2 (Perimeter)','NVR-3':'NVR-3 (Office/Packaging)','NVR-4':'NVR-4 (Extra)'};
+      Object.keys(nvrLabels).forEach(nid => {
+        if(!nvrs.find(n => n.id === nid)){
+          nvrs.push({ id:nid, name:nvrLabels[nid], location:'Auto-created by HNX import', channels:32, model:'Hikvision DS-7632', notes:'' });
+        }
+      });
+      localStorage.setItem('hydroPro_it_cctv_nvrs', JSON.stringify(nvrs));
+    }catch(e){ console.warn('[import patch v2.48.1] cctv cameras populate failed:', e); }
 
     // === STEP 3 · Auto-assign cameras to GH/FR slots ===
     let grid = {};
