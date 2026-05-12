@@ -94068,7 +94068,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 
 </script>
 
-<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.40 (Bridge automation · setup wizard · push streams via go2rtc API · no copy-paste needed) -->
+<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.41 (Customer Invoice Generator · auto from deliveries · print/PDF · CSV/JSON) -->
 <script>
 /* ============================================================================
  * HYDRONEXIS-AI · EXTENSIONS PACK v1.0
@@ -94661,7 +94661,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.40 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.41 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -94670,7 +94670,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.40';
+        vEl.textContent = orig + ' · HNX v2.41';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -94685,7 +94685,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.40 Diagnostics:\n\n' +
+        'HNX-EXT v2.41 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
@@ -94731,7 +94731,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const style = document.createElement('style');
     style.id = 'hnx-ext-styles';
     style.textContent = HNX_CSS + `
-/* === HNX-EXT v2.40 · MOTION & ANIMATION PACK === */
+/* === HNX-EXT v2.41 · MOTION & ANIMATION PACK === */
 @keyframes hnxPulseGlow {
   0%, 100% { box-shadow: 0 0 30px rgba(102,187,106,.18), inset 0 0 40px rgba(102,187,106,.05); }
   50%      { box-shadow: 0 0 60px rgba(102,187,106,.45), inset 0 0 70px rgba(102,187,106,.12); }
@@ -96423,6 +96423,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
           <button class="hnx-crates-tab ${state.tab==='deliveries'?'on':''}" data-ctab="deliveries">🚚 Deliveries</button>
           <button class="hnx-crates-tab ${state.tab==='returns'?'on':''}"    data-ctab="returns">↩️ Returns</button>
           <button class="hnx-crates-tab ${state.tab==='customers'?'on':''}"  data-ctab="customers">👥 Customers</button>
+          <button class="hnx-crates-tab ${state.tab==='invoices'?'on':''}"   data-ctab="invoices">🧾 Invoices</button>
           <button class="hnx-crates-tab ${state.tab==='history'?'on':''}"    data-ctab="history">📜 History</button>
         </div>
 
@@ -96450,6 +96451,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       case 'deliveries': return renderDeliveries();
       case 'returns':    return renderReturns();
       case 'customers':  return renderCustomers();
+      case 'invoices':   return renderInvoices();
       case 'history':    return renderCrateHistory();
       default: return '<div style="padding:24px;color:#6a8ea3">Unknown tab</div>';
     }
@@ -102930,6 +102932,741 @@ var qrcode = function() {
     }
   }, 30000);
 
+  // ==================================================================
+  // v2.41 · CUSTOMER INVOICE GENERATOR
+  // Generates professional invoices from delivery data
+  // Per-crate or per-kg pricing · multi-currency · A4 print/PDF export
+  // ==================================================================
+
+  const HNX_INVOICES_KEY = 'hydroPro_invoices_v1';
+  const HNX_INV_SETTINGS_KEY = 'hydroPro_invoice_settings_v1';
+  const HNX_PRICING_KEY = 'hydroPro_pricing_v1';
+
+  // Add these to synced keys (these mirror across devices)
+  try{
+    if(typeof HNX_SYNCED_KEYS !== 'undefined'){
+      ['hydroPro_invoices_v1','hydroPro_invoice_settings_v1','hydroPro_pricing_v1'].forEach(k => {
+        if(!HNX_SYNCED_KEYS.includes(k)) HNX_SYNCED_KEYS.push(k);
+      });
+    }
+  }catch(e){}
+
+  function hnxLoadInvoices(){ return _hnxLoad(HNX_INVOICES_KEY, []) || []; }
+  function hnxSaveInvoices(arr){ _hnxSave(HNX_INVOICES_KEY, arr || []); }
+  function hnxLoadInvSettings(){
+    return _hnxLoad(HNX_INV_SETTINGS_KEY, {
+      companyName: 'ABA Pardes Agritech Corp.',
+      address: 'Victoria Homes\nPhilippines',
+      phone: '',
+      email: '',
+      taxId: '',
+      bankAccount: '',
+      taxRate: 12,
+      paymentTerms: 'Net 30',
+      invoicePrefix: 'INV-' + new Date().getFullYear() + '-',
+      nextInvoiceNumber: 1,
+      currency: 'PHP',
+      currencySymbol: '₱',
+      notes: 'Thank you for your business!'
+    }) || {};
+  }
+  function hnxSaveInvSettings(s){ _hnxSave(HNX_INV_SETTINGS_KEY, s || {}); }
+  function hnxLoadPricing(){
+    return _hnxLoad(HNX_PRICING_KEY, {
+      mode: 'perCrate',
+      perCrate: {},
+      perKg: { default: 100 },
+      flat: 0,
+      defaultPrice: 250
+    }) || {};
+  }
+  function hnxSavePricing(p){ _hnxSave(HNX_PRICING_KEY, p || {}); }
+
+  function _hnxFmtMoney(n){
+    const s = hnxLoadInvSettings();
+    const sym = s.currencySymbol || '₱';
+    const num = (Number(n) || 0).toFixed(2);
+    // Add thousands separators
+    const [intPart, decPart] = num.split('.');
+    const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return sym + withCommas + '.' + decPart;
+  }
+  function _hnxNextInvoiceNum(){
+    const s = hnxLoadInvSettings();
+    const num = String(s.nextInvoiceNumber || 1).padStart(4, '0');
+    return (s.invoicePrefix || 'INV-') + num;
+  }
+  function _hnxIncrementInvNum(){
+    const s = hnxLoadInvSettings();
+    s.nextInvoiceNumber = (s.nextInvoiceNumber || 1) + 1;
+    hnxSaveInvSettings(s);
+  }
+
+  // Compute amounts for a list of deliveries based on pricing config
+  function _hnxComputeLineItems(deliveryIds){
+    const pricing = hnxLoadPricing();
+    const deliveries = hnxLoadDeliveries();
+    const crates = hnxLoadCrates();
+    const crateById = {}; crates.forEach(c => crateById[c.id] = c);
+    const types = hnxLoadCrateTypes();
+    const typeById = {}; types.forEach(t => typeById[t.id] = t);
+    const items = [];
+    deliveryIds.forEach(did => {
+      const d = deliveries.find(x => x.id === did);
+      if(!d) return;
+      // Group by crate type + crop
+      const groups = {};
+      (d.crateIds || []).forEach(cid => {
+        const c = crateById[cid]; if(!c) return;
+        const t = typeById[c.typeId] || { name:'Crate' };
+        const crop = (c.contents||{}).crop || 'mixed';
+        const gh = (c.contents||{}).gh || '';
+        const key = t.id + '|' + crop;
+        if(!groups[key]) groups[key] = { typeName: t.name, typeId: t.id, crop, gh, count:0, weightKg:0, sampleGh: gh };
+        groups[key].count++;
+        groups[key].weightKg += ((c.contents||{}).weightKg || 0);
+      });
+      Object.values(groups).forEach(g => {
+        let unitPrice = 0, qty = g.count, unit = 'crate';
+        if(pricing.mode === 'perCrate'){
+          unitPrice = (pricing.perCrate && pricing.perCrate[g.typeId]) || pricing.defaultPrice || 0;
+        } else if(pricing.mode === 'perKg'){
+          unitPrice = (pricing.perKg && (pricing.perKg[g.crop] || pricing.perKg.default)) || pricing.defaultPrice || 0;
+          qty = +g.weightKg.toFixed(2); unit = 'kg';
+        } else if(pricing.mode === 'flat'){
+          unitPrice = pricing.flat || 0;
+        }
+        const lineTotal = +(qty * unitPrice).toFixed(2);
+        items.push({
+          description: g.typeName + ' · ' + g.crop + (g.gh?' · '+g.gh:'') + ' · Delivery ' + (d.id||'').slice(-6),
+          deliveryId: d.id,
+          crateType: g.typeName,
+          crop: g.crop,
+          qty,
+          unit,
+          unitPrice,
+          lineTotal,
+          crateCount: g.count,
+          weightKg: +g.weightKg.toFixed(2)
+        });
+      });
+    });
+    return items;
+  }
+
+  // ============== MAIN INVOICE RENDER ==============
+  function renderInvoices(){
+    const view = window._hnxInvView || 'list';
+    if(view === 'new') return renderInvoiceNew();
+    if(view === 'detail') return renderInvoiceDetail();
+    if(view === 'settings') return renderInvoiceSettings();
+    return renderInvoiceList();
+  }
+  window._hnxInvSetView = function(v, opts){
+    window._hnxInvView = v;
+    if(opts) Object.assign(window, opts);
+    if(typeof window._hnxCratesRefresh === 'function') window._hnxCratesRefresh();
+  };
+
+  function renderInvoiceList(){
+    const filter = window._hnxInvFilter || 'all';
+    const all = hnxLoadInvoices();
+    const filtered = filter === 'all' ? all : all.filter(i => i.status === filter);
+    const sorted = filtered.slice().sort((a,b) => (b.dateIssued||0) - (a.dateIssued||0));
+
+    // KPIs
+    const draft = all.filter(i => i.status === 'draft').length;
+    const sent = all.filter(i => i.status === 'sent').length;
+    const paid = all.filter(i => i.status === 'paid').length;
+    const overdue = all.filter(i => i.status === 'overdue' || (i.status === 'sent' && i.dueDate && i.dueDate < Date.now())).length;
+    const totalRev = all.filter(i => i.status === 'paid').reduce((s,i) => s + (i.total||0), 0);
+    const outstanding = all.filter(i => i.status === 'sent').reduce((s,i) => s + (i.total||0), 0);
+
+    return `
+      <div class="hnx-banner">
+        <div class="hnx-banner-i">🧾</div>
+        <div style="flex:1">
+          <div class="hnx-banner-t">CUSTOMER INVOICES · ${all.length} total</div>
+          <div class="hnx-banner-s">Generate professional invoices from delivery data · auto-calculates from crate counts or kg · per-customer pricing · A4 print/PDF · CSV export</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxInvSetView && window._hnxInvSetView('settings')" style="padding:8px 14px">⚙ Settings</button>
+          <button class="hnx-btn hnx-btn-g" onclick="window._hnxInvSetView && window._hnxInvSetView('new')" style="padding:8px 18px">+ New Invoice</button>
+        </div>
+      </div>
+
+      <div class="hnx-crates-kpis" style="margin-bottom:14px">
+        <div class="hnx-w hnx-kpi-card"><div class="hnx-kpi-l">Draft</div><div class="hnx-kpi-v" style="color:#6a8ea3">${draft}</div><div class="hnx-kpi-s">unsent</div></div>
+        <div class="hnx-w hnx-kpi-card"><div class="hnx-kpi-l">Sent</div><div class="hnx-kpi-v" style="color:#80deea">${sent}</div><div class="hnx-kpi-s">awaiting payment</div></div>
+        <div class="hnx-w hnx-kpi-card"><div class="hnx-kpi-l">Paid</div><div class="hnx-kpi-v" style="color:#80e885">${paid}</div><div class="hnx-kpi-s">completed</div></div>
+        <div class="hnx-w hnx-kpi-card"><div class="hnx-kpi-l">Overdue</div><div class="hnx-kpi-v" style="color:${overdue>0?'#ff7a78':'#6a8ea3'}">${overdue}</div><div class="hnx-kpi-s">past due date</div></div>
+        <div class="hnx-w hnx-kpi-card"><div class="hnx-kpi-l">Outstanding</div><div class="hnx-kpi-v" style="color:#ffca52;font-size:16px">${_hnxFmtMoney(outstanding)}</div><div class="hnx-kpi-s">to be collected</div></div>
+        <div class="hnx-w hnx-kpi-card"><div class="hnx-kpi-l">Collected YTD</div><div class="hnx-kpi-v" style="color:#80e885;font-size:16px">${_hnxFmtMoney(totalRev)}</div><div class="hnx-kpi-s">paid invoices</div></div>
+      </div>
+
+      <!-- Filter pills -->
+      <div class="hnx-w" style="margin-bottom:14px;padding:10px 14px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em;margin-right:4px">FILTER</span>
+        ${[
+          ['all','All ('+all.length+')'],
+          ['draft','Drafts ('+draft+')'],
+          ['sent','Sent ('+sent+')'],
+          ['paid','Paid ('+paid+')'],
+          ['overdue','Overdue ('+overdue+')']
+        ].map(([k,lbl]) => `<button onclick="window._hnxInvFilterPick && window._hnxInvFilterPick('${k}')" style="font-family:Orbitron,sans-serif;font-weight:700;font-size:10.5px;padding:5px 12px;border-radius:5px;border:1px solid ${filter===k?'#80e885':'rgba(77,208,225,.30)'};background:${filter===k?'linear-gradient(180deg,rgba(102,187,106,.30),rgba(2,30,20,.55))':'rgba(2,18,28,.4)'};color:${filter===k?'#80e885':'#a5d6e6'};cursor:pointer;letter-spacing:.04em">${lbl}</button>`).join('')}
+      </div>
+
+      <!-- Invoice list -->
+      <div class="hnx-w">
+        ${sorted.length === 0 ? '<div style="padding:30px;text-align:center;color:#6a8ea3;font-family:JetBrains Mono,monospace;font-size:11px">No invoices ' + (filter==='all'?'yet · click <b style="color:#80e885">+ New Invoice</b> to create one':'with status "'+filter+'"') + '</div>' :
+          '<div class="hnx-log-thead">' +
+          '<div style="width:130px">Number</div>' +
+          '<div style="width:120px">Date</div>' +
+          '<div style="flex:1">Customer</div>' +
+          '<div style="width:130px;text-align:right">Total</div>' +
+          '<div style="width:100px">Status</div>' +
+          '<div style="width:180px;text-align:right">Actions</div>' +
+          '</div>' +
+          sorted.map(inv => {
+            const d = new Date(inv.dateIssued || 0);
+            const isOver = inv.status === 'sent' && inv.dueDate && inv.dueDate < Date.now();
+            const stColor = inv.status === 'paid' ? '#80e885' : isOver ? '#ff7a78' : inv.status === 'sent' ? '#80deea' : inv.status === 'cancelled' ? '#6a8ea3' : '#ffca52';
+            const stLabel = isOver ? 'OVERDUE' : (inv.status || '').toUpperCase();
+            return `<div class="hnx-log-row">
+              <div style="width:130px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#84fff9;font-weight:700">${escHtml(inv.number||inv.id)}</div>
+              <div style="width:120px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#a5d6e6">${d.toLocaleDateString()}</div>
+              <div style="flex:1;font-family:Orbitron,sans-serif;font-weight:700;color:#80e885;font-size:12px">${escHtml(inv.customerName||'?')}</div>
+              <div style="width:130px;text-align:right;font-family:Orbitron,sans-serif;font-weight:800;color:#84fff9;font-size:13px">${_hnxFmtMoney(inv.total)}</div>
+              <div style="width:100px;font-family:Orbitron,sans-serif;font-weight:800;font-size:10px;color:${stColor};letter-spacing:.06em">${stLabel}</div>
+              <div style="width:180px;text-align:right;display:flex;gap:4px;justify-content:flex-end">
+                <button class="hnx-btn hnx-btn-c" onclick="window._hnxInvOpen && window._hnxInvOpen('${escHtml(inv.id)}')" style="padding:4px 9px;font-size:10px">👁 View</button>
+                <button class="hnx-btn hnx-btn-c" onclick="window._hnxInvPrint && window._hnxInvPrint('${escHtml(inv.id)}')" style="padding:4px 9px;font-size:10px">🖨</button>
+                <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxInvDelete && window._hnxInvDelete('${escHtml(inv.id)}')" style="padding:4px 9px;font-size:10px">🗑</button>
+              </div>
+            </div>`;
+          }).join('')}
+      </div>
+    `;
+  }
+  window._hnxInvFilterPick = function(k){ window._hnxInvFilter = k; if(window._hnxCratesRefresh) window._hnxCratesRefresh(); };
+  window._hnxInvOpen = function(id){ window._hnxInvCurrentId = id; window._hnxInvSetView('detail'); };
+  window._hnxInvDelete = function(id){
+    if(!confirm('Delete this invoice? This cannot be undone.')) return;
+    let arr = hnxLoadInvoices();
+    arr = arr.filter(i => i.id !== id);
+    hnxSaveInvoices(arr);
+    if(typeof toast === 'function') toast('🗑 Invoice deleted');
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('invoice_delete', 'Deleted invoice ' + id);
+    if(window._hnxCratesRefresh) window._hnxCratesRefresh();
+  };
+
+  // ============== NEW INVOICE WIZARD ==============
+  function renderInvoiceNew(){
+    const customers = hnxLoadCustomers();
+    const draft = window._hnxInvDraft || (window._hnxInvDraft = {
+      customerId: customers[0] ? customers[0].id : '',
+      dateFrom: new Date(Date.now() - 30*86400000).toISOString().slice(0,10),
+      dateTo: new Date().toISOString().slice(0,10),
+      includeReturned: true,
+      includeInTransit: false,
+      notes: ''
+    });
+
+    // Find candidate deliveries
+    const deliveries = hnxLoadDeliveries();
+    const fromTs = new Date(draft.dateFrom + 'T00:00:00').getTime();
+    const toTs = new Date(draft.dateTo + 'T23:59:59').getTime();
+    const candidates = deliveries.filter(d => {
+      if(d.customerId !== draft.customerId) return false;
+      const ts = d.dispatchTime || d.createdAt || 0;
+      if(ts < fromTs || ts > toTs) return false;
+      if(d.status === 'returned_full' || d.status === 'returned_partial') return draft.includeReturned;
+      if(d.status === 'in_transit') return draft.includeInTransit;
+      return draft.includeReturned;
+    });
+
+    const settings = hnxLoadInvSettings();
+    const pricing = hnxLoadPricing();
+    const selectedDeliveryIds = draft.selectedDeliveryIds || candidates.map(d => d.id);
+    draft.selectedDeliveryIds = selectedDeliveryIds;
+    const lineItems = _hnxComputeLineItems(selectedDeliveryIds);
+    const subtotal = lineItems.reduce((s,i) => s + (i.lineTotal||0), 0);
+    const taxRate = settings.taxRate || 0;
+    const taxAmount = +(subtotal * taxRate / 100).toFixed(2);
+    const total = +(subtotal + taxAmount).toFixed(2);
+
+    return `
+      <div class="hnx-banner">
+        <div class="hnx-banner-i">+</div>
+        <div style="flex:1">
+          <div class="hnx-banner-t">NEW INVOICE</div>
+          <div class="hnx-banner-s">Pick customer + date range · auto-calculates line items from deliveries · pricing from settings · review then save as draft or finalize</div>
+        </div>
+        <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxInvCancelNew && window._hnxInvCancelNew()" style="padding:8px 14px">✕ Cancel</button>
+      </div>
+
+      ${customers.length === 0 ? `
+        <div class="hnx-w" style="border-color:rgba(255,202,82,.40);margin-bottom:14px">
+          <div class="hnx-w-h" style="color:#ffca52">⚠ No customers configured</div>
+          <div style="padding:14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5d6e6;line-height:1.7">Add at least one customer first in the <b>👥 Customers</b> tab, then come back here.</div>
+        </div>
+      ` : `
+        <!-- Filters -->
+        <div class="hnx-w" style="margin-bottom:14px;padding:14px;display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;align-items:end">
+          <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Customer *</span>
+            <select id="hnxInvCust" class="hnx-cell" style="padding:8px;font-size:12px" onchange="window._hnxInvDraftSet && window._hnxInvDraftSet('customerId', this.value)">
+              ${customers.map(c => `<option value="${escHtml(c.id)}" ${draft.customerId===c.id?'selected':''}>${escHtml(c.name)}</option>`).join('')}
+            </select>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">From</span>
+            <input type="date" class="hnx-cell" value="${draft.dateFrom}" onchange="window._hnxInvDraftSet && window._hnxInvDraftSet('dateFrom', this.value)" style="padding:8px;font-size:12px;font-family:JetBrains Mono,monospace">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">To</span>
+            <input type="date" class="hnx-cell" value="${draft.dateTo}" onchange="window._hnxInvDraftSet && window._hnxInvDraftSet('dateTo', this.value)" style="padding:8px;font-size:12px;font-family:JetBrains Mono,monospace">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Include</span>
+            <div style="display:flex;gap:8px;font-family:JetBrains Mono,monospace;font-size:10px;color:#a5d6e6;align-items:center;padding:7px 0">
+              <label style="display:flex;gap:3px;cursor:pointer"><input type="checkbox" ${draft.includeReturned?'checked':''} onchange="window._hnxInvDraftSet && window._hnxInvDraftSet('includeReturned', this.checked)"> returned</label>
+              <label style="display:flex;gap:3px;cursor:pointer"><input type="checkbox" ${draft.includeInTransit?'checked':''} onchange="window._hnxInvDraftSet && window._hnxInvDraftSet('includeInTransit', this.checked)"> in-transit</label>
+            </div>
+          </label>
+        </div>
+
+        <!-- Candidate deliveries -->
+        <div class="hnx-w" style="margin-bottom:14px">
+          <div class="hnx-w-h">📋 Deliveries in range · ${candidates.length} found · ${selectedDeliveryIds.length} selected</div>
+          ${candidates.length === 0 ? '<div style="padding:18px;text-align:center;color:#6a8ea3;font-family:JetBrains Mono,monospace;font-size:11px">No deliveries match the customer + date range + filters</div>' :
+            candidates.map(d => {
+              const checked = selectedDeliveryIds.includes(d.id);
+              return `<div class="hnx-deliv-row">
+                <input type="checkbox" ${checked?'checked':''} onchange="window._hnxInvToggleDelivery && window._hnxInvToggleDelivery('${escHtml(d.id)}')" style="margin-right:8px">
+                <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#a5d6e6;min-width:90px">${new Date(d.dispatchTime||d.createdAt||0).toLocaleDateString()}</div>
+                <div style="flex:1;font-family:JetBrains Mono,monospace;font-size:11px;color:#84fff9">#${escHtml((d.id||'').slice(-8))}</div>
+                <div style="font-family:JetBrains Mono,monospace;font-size:10.5px;color:#a5d6e6">🚛 ${escHtml(d.truckPlate||'?')}</div>
+                <div style="font-family:JetBrains Mono,monospace;font-size:11px;color:#80deea;min-width:100px;text-align:right">${(d.crateIds||[]).length} crate(s)</div>
+                <div style="font-family:Orbitron,sans-serif;font-weight:800;font-size:10px;color:${d.status==='returned_full'?'#80e885':d.status==='returned_partial'?'#ffca52':d.status==='in_transit'?'#80deea':'#a5d6e6'};letter-spacing:.04em;min-width:120px;text-align:right">${(d.status||'').toUpperCase().replace(/_/g,' ')}</div>
+              </div>`;
+            }).join('')
+          }
+        </div>
+
+        <!-- Line items preview -->
+        <div class="hnx-w" style="margin-bottom:14px">
+          <div class="hnx-w-h">💰 Line items · pricing mode: ${pricing.mode} · ${lineItems.length} item${lineItems.length===1?'':'s'}</div>
+          ${lineItems.length === 0 ? '<div style="padding:18px;text-align:center;color:#6a8ea3;font-family:JetBrains Mono,monospace;font-size:11px">No line items · select deliveries above</div>' :
+            '<div class="hnx-log-thead">' +
+            '<div style="flex:1">Description</div>' +
+            '<div style="width:80px;text-align:right">Qty</div>' +
+            '<div style="width:60px">Unit</div>' +
+            '<div style="width:110px;text-align:right">Unit Price</div>' +
+            '<div style="width:120px;text-align:right">Line Total</div>' +
+            '</div>' +
+            lineItems.map(it => `<div class="hnx-log-row">
+              <div style="flex:1;font-family:JetBrains Mono,monospace;font-size:11px;color:#e6f7fb">${escHtml(it.description)}</div>
+              <div style="width:80px;text-align:right;font-family:JetBrains Mono,monospace;font-size:11px;color:#84fff9">${it.qty}</div>
+              <div style="width:60px;font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea">${escHtml(it.unit)}</div>
+              <div style="width:110px;text-align:right;font-family:JetBrains Mono,monospace;font-size:11px;color:#a5d6e6">${_hnxFmtMoney(it.unitPrice)}</div>
+              <div style="width:120px;text-align:right;font-family:Orbitron,sans-serif;font-weight:800;font-size:12px;color:#80e885">${_hnxFmtMoney(it.lineTotal)}</div>
+            </div>`).join('')
+          }
+        </div>
+
+        <!-- Totals + notes + actions -->
+        <div class="hnx-w" style="margin-bottom:14px">
+          <div style="padding:14px;display:grid;grid-template-columns:2fr 1fr;gap:18px">
+            <div>
+              <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Notes / payment terms (appears on invoice)</span>
+                <textarea class="hnx-cell" rows="4" onchange="window._hnxInvDraftSet && window._hnxInvDraftSet('notes', this.value)" style="padding:8px;font-size:11px;font-family:JetBrains Mono,monospace;resize:vertical">${escHtml(draft.notes||settings.notes||'')}</textarea>
+              </label>
+            </div>
+            <div style="background:rgba(2,18,28,.55);border:1px solid rgba(77,208,225,.20);border-radius:6px;padding:14px;font-family:JetBrains Mono,monospace;font-size:11.5px;color:#a5d6e6;line-height:1.9">
+              <div style="display:flex;justify-content:space-between"><span>Subtotal</span><b style="color:#84fff9">${_hnxFmtMoney(subtotal)}</b></div>
+              <div style="display:flex;justify-content:space-between"><span>Tax (${taxRate}%)</span><b style="color:#84fff9">${_hnxFmtMoney(taxAmount)}</b></div>
+              <div style="display:flex;justify-content:space-between;border-top:1px solid rgba(77,208,225,.30);padding-top:6px;margin-top:6px"><b style="font-family:Orbitron,sans-serif;font-size:12px;letter-spacing:.06em">TOTAL</b><b style="font-family:Orbitron,sans-serif;font-size:16px;color:#80e885">${_hnxFmtMoney(total)}</b></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hnx-w" style="padding:14px;display:flex;gap:10px;align-items:center">
+          <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxInvCancelNew && window._hnxInvCancelNew()" style="padding:9px 16px">✕ Cancel</button>
+          <div style="flex:1"></div>
+          <button class="hnx-btn hnx-btn-c" onclick="window._hnxInvSave && window._hnxInvSave('draft')" style="padding:9px 16px" ${lineItems.length===0?'disabled':''}>💾 Save as Draft</button>
+          <button class="hnx-btn hnx-btn-g" onclick="window._hnxInvSave && window._hnxInvSave('sent')" style="padding:9px 18px;font-size:13px" ${lineItems.length===0?'disabled':''}>📤 Finalize & Mark Sent</button>
+        </div>
+      `}
+    `;
+  }
+  window._hnxInvDraftSet = function(k, v){
+    if(!window._hnxInvDraft) window._hnxInvDraft = {};
+    window._hnxInvDraft[k] = v;
+    // If customer or dates changed, reset selection
+    if(['customerId','dateFrom','dateTo','includeReturned','includeInTransit'].includes(k)){
+      delete window._hnxInvDraft.selectedDeliveryIds;
+    }
+    if(window._hnxCratesRefresh) window._hnxCratesRefresh();
+  };
+  window._hnxInvToggleDelivery = function(id){
+    const draft = window._hnxInvDraft || {};
+    let sel = draft.selectedDeliveryIds || [];
+    if(sel.includes(id)) sel = sel.filter(x => x !== id);
+    else sel = sel.concat(id);
+    draft.selectedDeliveryIds = sel;
+    window._hnxInvDraft = draft;
+    if(window._hnxCratesRefresh) window._hnxCratesRefresh();
+  };
+  window._hnxInvCancelNew = function(){
+    delete window._hnxInvDraft;
+    window._hnxInvSetView('list');
+  };
+  window._hnxInvSave = function(status){
+    const draft = window._hnxInvDraft || {};
+    if(!draft.customerId){ alert('Pick a customer first'); return; }
+    const sel = draft.selectedDeliveryIds || [];
+    if(sel.length === 0){ alert('Select at least one delivery'); return; }
+    const customers = hnxLoadCustomers();
+    const customer = customers.find(c => c.id === draft.customerId);
+    if(!customer){ alert('Customer not found'); return; }
+    const settings = hnxLoadInvSettings();
+    const lineItems = _hnxComputeLineItems(sel);
+    const subtotal = lineItems.reduce((s,i) => s + (i.lineTotal||0), 0);
+    const taxRate = settings.taxRate || 0;
+    const taxAmount = +(subtotal * taxRate / 100).toFixed(2);
+    const total = +(subtotal + taxAmount).toFixed(2);
+    const days = parseInt((settings.paymentTerms||'').match(/\d+/)||[30], 10) || 30;
+    const inv = {
+      id: 'inv_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+      number: _hnxNextInvoiceNum(),
+      customerId: customer.id,
+      customerName: customer.name,
+      customerAddress: customer.address || '',
+      customerContact: customer.contact || '',
+      customerEmail: customer.email || '',
+      dateIssued: Date.now(),
+      dueDate: Date.now() + days*86400000,
+      paymentTerms: settings.paymentTerms || 'Net 30',
+      taxRate, taxAmount, subtotal, total,
+      currency: settings.currency || 'PHP',
+      currencySymbol: settings.currencySymbol || '₱',
+      lineItems,
+      deliveryIds: sel,
+      notes: draft.notes || settings.notes || '',
+      status,
+      createdAt: Date.now()
+    };
+    const arr = hnxLoadInvoices();
+    arr.push(inv);
+    hnxSaveInvoices(arr);
+    _hnxIncrementInvNum();
+    if(typeof toast === 'function') toast('✓ Invoice ' + inv.number + ' saved as ' + status.toUpperCase());
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('invoice_create', 'Created '+inv.number+' for '+inv.customerName+' · '+_hnxFmtMoney(inv.total)+' · '+status);
+    delete window._hnxInvDraft;
+    window._hnxInvCurrentId = inv.id;
+    window._hnxInvSetView('detail');
+  };
+
+  // ============== INVOICE DETAIL ==============
+  function renderInvoiceDetail(){
+    const id = window._hnxInvCurrentId;
+    const inv = hnxLoadInvoices().find(i => i.id === id);
+    if(!inv) return '<div style="padding:24px;color:#6a8ea3">Invoice not found</div>';
+    const isOver = inv.status === 'sent' && inv.dueDate && inv.dueDate < Date.now();
+    const stColor = inv.status === 'paid' ? '#80e885' : isOver ? '#ff7a78' : inv.status === 'sent' ? '#80deea' : '#ffca52';
+    return `
+      <div class="hnx-banner">
+        <div class="hnx-banner-i">🧾</div>
+        <div style="flex:1">
+          <div class="hnx-banner-t">${escHtml(inv.number)} · ${escHtml(inv.customerName)}</div>
+          <div class="hnx-banner-s">Issued ${new Date(inv.dateIssued).toLocaleDateString()} · Due ${new Date(inv.dueDate).toLocaleDateString()} · <b style="color:${stColor}">${(isOver?'OVERDUE':inv.status||'').toUpperCase()}</b></div>
+        </div>
+        <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxInvSetView && window._hnxInvSetView('list')" style="padding:8px 14px">← Back</button>
+      </div>
+
+      <!-- Status actions -->
+      <div class="hnx-w" style="margin-bottom:14px;padding:12px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span style="font-family:JetBrains Mono,monospace;font-size:10.5px;color:#80deea;letter-spacing:.06em">STATUS</span>
+        ${inv.status !== 'sent' ? '<button class="hnx-btn hnx-btn-c" onclick="window._hnxInvSetStatus && window._hnxInvSetStatus(\''+inv.id+'\', \'sent\')" style="padding:6px 12px;font-size:11px">📤 Mark as Sent</button>' : ''}
+        ${inv.status !== 'paid' ? '<button class="hnx-btn hnx-btn-g" onclick="window._hnxInvSetStatus && window._hnxInvSetStatus(\''+inv.id+'\', \'paid\')" style="padding:6px 12px;font-size:11px">✓ Mark as Paid</button>' : ''}
+        ${inv.status !== 'cancelled' ? '<button class="hnx-btn hnx-btn-danger" onclick="window._hnxInvSetStatus && window._hnxInvSetStatus(\''+inv.id+'\', \'cancelled\')" style="padding:6px 12px;font-size:11px">✕ Cancel</button>' : ''}
+        <div style="flex:1"></div>
+        <button class="hnx-btn hnx-btn-c" onclick="window._hnxInvPrint && window._hnxInvPrint('${escHtml(inv.id)}')" style="padding:8px 14px">🖨 Print / Save PDF</button>
+        <button class="hnx-btn hnx-btn-c" onclick="window._hnxInvExportJson && window._hnxInvExportJson('${escHtml(inv.id)}')" style="padding:6px 12px;font-size:11px">⬇ JSON</button>
+      </div>
+
+      <!-- Customer + summary -->
+      <div class="hnx-w" style="margin-bottom:14px">
+        <div class="hnx-w-h">👥 Bill To</div>
+        <div style="padding:14px;display:grid;grid-template-columns:2fr 1fr;gap:18px">
+          <div style="font-family:JetBrains Mono,monospace;font-size:11.5px;color:#e6f7fb;line-height:1.7">
+            <div style="font-family:Orbitron,sans-serif;font-weight:800;font-size:14px;color:#80e885;letter-spacing:.04em">${escHtml(inv.customerName)}</div>
+            ${inv.customerAddress ? '<div style="white-space:pre-line">'+escHtml(inv.customerAddress)+'</div>' : ''}
+            ${inv.customerContact ? '<div>👤 '+escHtml(inv.customerContact)+'</div>' : ''}
+            ${inv.customerEmail ? '<div>✉ '+escHtml(inv.customerEmail)+'</div>' : ''}
+          </div>
+          <div style="background:rgba(2,18,28,.55);border:1px solid rgba(77,208,225,.20);border-radius:6px;padding:14px;font-family:JetBrains Mono,monospace;font-size:11.5px;color:#a5d6e6;line-height:1.9">
+            <div style="display:flex;justify-content:space-between"><span>Subtotal</span><b style="color:#84fff9">${_hnxFmtMoney(inv.subtotal)}</b></div>
+            <div style="display:flex;justify-content:space-between"><span>Tax (${inv.taxRate}%)</span><b style="color:#84fff9">${_hnxFmtMoney(inv.taxAmount)}</b></div>
+            <div style="display:flex;justify-content:space-between;border-top:1px solid rgba(77,208,225,.30);padding-top:6px;margin-top:6px"><b style="font-family:Orbitron,sans-serif;font-size:12px">TOTAL</b><b style="font-family:Orbitron,sans-serif;font-size:18px;color:#80e885">${_hnxFmtMoney(inv.total)}</b></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Line items -->
+      <div class="hnx-w" style="margin-bottom:14px">
+        <div class="hnx-w-h">💰 Line Items · ${inv.lineItems.length}</div>
+        <div class="hnx-log-thead">
+          <div style="flex:1">Description</div>
+          <div style="width:80px;text-align:right">Qty</div>
+          <div style="width:60px">Unit</div>
+          <div style="width:110px;text-align:right">Unit Price</div>
+          <div style="width:120px;text-align:right">Line Total</div>
+        </div>
+        ${inv.lineItems.map(it => `<div class="hnx-log-row">
+          <div style="flex:1;font-family:JetBrains Mono,monospace;font-size:11px;color:#e6f7fb">${escHtml(it.description)}</div>
+          <div style="width:80px;text-align:right;font-family:JetBrains Mono,monospace;font-size:11px;color:#84fff9">${it.qty}</div>
+          <div style="width:60px;font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea">${escHtml(it.unit)}</div>
+          <div style="width:110px;text-align:right;font-family:JetBrains Mono,monospace;font-size:11px;color:#a5d6e6">${_hnxFmtMoney(it.unitPrice)}</div>
+          <div style="width:120px;text-align:right;font-family:Orbitron,sans-serif;font-weight:800;font-size:12px;color:#80e885">${_hnxFmtMoney(it.lineTotal)}</div>
+        </div>`).join('')}
+      </div>
+
+      ${inv.notes ? `<div class="hnx-w"><div class="hnx-w-h">📝 Notes</div><div style="padding:14px;font-family:JetBrains Mono,monospace;font-size:11px;color:#a5d6e6;line-height:1.7;white-space:pre-line">${escHtml(inv.notes)}</div></div>` : ''}
+    `;
+  }
+  window._hnxInvSetStatus = function(id, status){
+    const arr = hnxLoadInvoices();
+    const inv = arr.find(i => i.id === id);
+    if(!inv) return;
+    inv.status = status;
+    if(status === 'paid') inv.paidDate = Date.now();
+    hnxSaveInvoices(arr);
+    if(typeof toast === 'function') toast('✓ ' + inv.number + ' marked ' + status);
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('invoice_status', inv.number + ' → ' + status);
+    if(window._hnxCratesRefresh) window._hnxCratesRefresh();
+  };
+
+  // ============== PRINT ==============
+  window._hnxInvPrint = function(id){
+    const inv = hnxLoadInvoices().find(i => i.id === id);
+    if(!inv){ alert('Invoice not found'); return; }
+    const settings = hnxLoadInvSettings();
+    const w = window.open('', '_blank', 'width=900,height=1100');
+    if(!w){ alert('Pop-up blocked · allow pop-ups for invoice printing'); return; }
+    const css = `
+      @page { size: A4; margin: 14mm; }
+      * { box-sizing: border-box; }
+      body { margin:0;padding:0;font-family:'Helvetica','Arial',sans-serif;color:#000;background:#fff;font-size:11px;line-height:1.4 }
+      .invoice { max-width:700px;margin:0 auto }
+      .hdr { display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #000;padding-bottom:14px;margin-bottom:18px }
+      .hdr-l h1 { margin:0;font-size:22px;letter-spacing:.04em }
+      .hdr-l .addr { font-size:10.5px;color:#444;line-height:1.5;margin-top:5px;white-space:pre-line }
+      .hdr-r { text-align:right }
+      .hdr-r h2 { margin:0;font-size:28px;letter-spacing:.06em;color:#000 }
+      .hdr-r .num { font-size:14px;color:#444;margin-top:3px }
+      .meta { display:flex;justify-content:space-between;margin-bottom:18px }
+      .meta-box { flex:1;padding:10px 12px;border:1px solid #aaa;border-radius:4px }
+      .meta-box:not(:last-child) { margin-right:10px }
+      .meta-box .l { font-size:9px;color:#666;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px }
+      .meta-box .v { font-size:11.5px;color:#000;font-weight:700;white-space:pre-line }
+      table { width:100%;border-collapse:collapse;margin-bottom:18px }
+      th { background:#000;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.06em }
+      td { padding:8px 10px;border-bottom:1px solid #ddd;font-size:11px }
+      td.r, th.r { text-align:right }
+      tfoot td { border-bottom:none;font-weight:700 }
+      .totals { float:right;width:280px;margin-bottom:24px }
+      .totals .row { display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dotted #ddd }
+      .totals .row.total { border:none;border-top:2px solid #000;padding-top:8px;margin-top:6px;font-size:16px;font-weight:800 }
+      .notes { clear:both;padding:14px;border:1px solid #aaa;border-radius:4px;font-size:10.5px;white-space:pre-line;background:#f8f8f8 }
+      .bank { margin-top:14px;padding:10px 14px;border:1px solid #aaa;border-radius:4px;font-size:10px;background:#fafafa }
+      .ftr { margin-top:24px;padding-top:12px;border-top:1px solid #aaa;text-align:center;font-size:9.5px;color:#666 }
+      .status-stamp { display:inline-block;padding:6px 14px;font-size:14px;font-weight:800;letter-spacing:.10em;border:2px solid;border-radius:3px;text-transform:uppercase;transform:rotate(-5deg) }
+      .status-stamp.paid { color:#080;border-color:#080 }
+      .status-stamp.draft { color:#888;border-color:#888 }
+      .status-stamp.cancelled { color:#c33;border-color:#c33;text-decoration:line-through }
+      @media print { .noprint { display:none !important } }
+    `;
+    const stamp = (inv.status === 'paid' || inv.status === 'draft' || inv.status === 'cancelled') ?
+      '<div style="position:absolute;top:120px;right:60px"><span class="status-stamp ' + inv.status + '">' + inv.status + '</span></div>' : '';
+    const safe = (s) => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${safe(inv.number)} · ${safe(inv.customerName)}</title><style>${css}<\/style></head><body>
+      <div class="noprint" style="position:sticky;top:0;background:#222;color:#fff;padding:10px 14px;text-align:center;font-size:13px;z-index:99">
+        Invoice ${safe(inv.number)} · ${safe(inv.customerName)} · ${_hnxFmtMoney(inv.total)}
+        <button onclick="window.print()" style="margin-left:14px;padding:7px 16px;background:#80e885;color:#000;border:none;border-radius:4px;font-weight:700;cursor:pointer">🖨 Print / Save as PDF</button>
+        <button onclick="window.close()" style="margin-left:8px;padding:7px 16px;background:#444;color:#fff;border:none;border-radius:4px;cursor:pointer">Close</button>
+      </div>
+      <div class="invoice" style="position:relative;padding:24px 0">
+        ${stamp}
+        <div class="hdr">
+          <div class="hdr-l">
+            <h1>${safe(settings.companyName)}</h1>
+            <div class="addr">${safe(settings.address)}${settings.phone?'\\n📞 '+safe(settings.phone):''}${settings.email?'\\n✉ '+safe(settings.email):''}${settings.taxId?'\\nTIN: '+safe(settings.taxId):''}</div>
+          </div>
+          <div class="hdr-r">
+            <h2>INVOICE</h2>
+            <div class="num">${safe(inv.number)}</div>
+          </div>
+        </div>
+        <div class="meta">
+          <div class="meta-box">
+            <div class="l">Bill To</div>
+            <div class="v">${safe(inv.customerName)}${inv.customerAddress?'\\n'+safe(inv.customerAddress):''}${inv.customerContact?'\\n👤 '+safe(inv.customerContact):''}${inv.customerEmail?'\\n✉ '+safe(inv.customerEmail):''}</div>
+          </div>
+          <div class="meta-box">
+            <div class="l">Invoice Date</div>
+            <div class="v">${new Date(inv.dateIssued).toLocaleDateString()}</div>
+            <div class="l" style="margin-top:6px">Due Date</div>
+            <div class="v">${new Date(inv.dueDate).toLocaleDateString()}</div>
+          </div>
+          <div class="meta-box">
+            <div class="l">Payment Terms</div>
+            <div class="v">${safe(inv.paymentTerms)}</div>
+            <div class="l" style="margin-top:6px">Status</div>
+            <div class="v">${safe((inv.status||'').toUpperCase())}</div>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th style="width:55%">Description</th><th class="r">Qty</th><th>Unit</th><th class="r">Unit Price</th><th class="r">Amount</th></tr></thead>
+          <tbody>
+            ${inv.lineItems.map(it => `<tr><td>${safe(it.description)}</td><td class="r">${it.qty}</td><td>${safe(it.unit)}</td><td class="r">${_hnxFmtMoney(it.unitPrice)}</td><td class="r">${_hnxFmtMoney(it.lineTotal)}</td></tr>`).join('')}
+          </tbody>
+        </table>
+        <div class="totals">
+          <div class="row"><span>Subtotal</span><span>${_hnxFmtMoney(inv.subtotal)}</span></div>
+          <div class="row"><span>Tax (${inv.taxRate}%)</span><span>${_hnxFmtMoney(inv.taxAmount)}</span></div>
+          <div class="row total"><span>TOTAL ${safe(inv.currency)}</span><span>${_hnxFmtMoney(inv.total)}</span></div>
+        </div>
+        ${inv.notes ? '<div class="notes"><strong>Notes:</strong>\\n'+safe(inv.notes)+'</div>' : ''}
+        ${settings.bankAccount ? '<div class="bank"><strong>Payment Details:</strong>\\n'+safe(settings.bankAccount)+'</div>' : ''}
+        <div class="ftr">${safe(settings.companyName)} · Invoice ${safe(inv.number)} · Generated by HydroNexis-AI</div>
+      </div>
+      </body></html>`);
+    w.document.close();
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('invoice_print', 'Printed '+inv.number);
+    if(typeof toast === 'function') toast('🖨 Invoice opened · click Print in the window');
+  };
+  window._hnxInvExportJson = function(id){
+    const inv = hnxLoadInvoices().find(i => i.id === id);
+    if(!inv) return;
+    const blob = new Blob([JSON.stringify(inv, null, 2)], { type:'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = inv.number + '.json'; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    if(typeof toast === 'function') toast('⬇ JSON downloaded');
+  };
+
+  // ============== SETTINGS ==============
+  function renderInvoiceSettings(){
+    const s = hnxLoadInvSettings();
+    const p = hnxLoadPricing();
+    const types = hnxLoadCrateTypes();
+    return `
+      <div class="hnx-banner">
+        <div class="hnx-banner-i">⚙</div>
+        <div style="flex:1">
+          <div class="hnx-banner-t">INVOICE SETTINGS</div>
+          <div class="hnx-banner-s">Configure your company info, tax rate, and pricing model. These values appear on every invoice you generate.</div>
+        </div>
+        <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxInvSetView && window._hnxInvSetView('list')" style="padding:8px 14px">← Back</button>
+      </div>
+
+      <div class="hnx-w" style="margin-bottom:14px">
+        <div class="hnx-w-h">🏢 Company Info</div>
+        <div style="padding:14px;display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
+          <label style="display:flex;flex-direction:column;gap:4px;grid-column:span 2"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Company name</span><input type="text" id="hnxInvCo" class="hnx-cell" value="${escHtml(s.companyName||'')}" style="padding:8px;font-size:12px"></label>
+          <label style="display:flex;flex-direction:column;gap:4px;grid-column:span 2"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Address (multi-line)</span><textarea id="hnxInvAddr" class="hnx-cell" rows="3" style="padding:8px;font-size:11px;font-family:JetBrains Mono,monospace;resize:vertical">${escHtml(s.address||'')}</textarea></label>
+          <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Phone</span><input type="text" id="hnxInvPhone" class="hnx-cell" value="${escHtml(s.phone||'')}" style="padding:8px;font-size:12px"></label>
+          <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Email</span><input type="text" id="hnxInvEmail" class="hnx-cell" value="${escHtml(s.email||'')}" style="padding:8px;font-size:12px"></label>
+          <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Tax ID / TIN</span><input type="text" id="hnxInvTin" class="hnx-cell" value="${escHtml(s.taxId||'')}" style="padding:8px;font-size:12px"></label>
+          <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Currency symbol</span><input type="text" id="hnxInvCur" class="hnx-cell" value="${escHtml(s.currencySymbol||'₱')}" style="padding:8px;font-size:12px;width:80px"></label>
+          <label style="display:flex;flex-direction:column;gap:4px;grid-column:span 2"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Bank account details (appears on invoice footer)</span><textarea id="hnxInvBank" class="hnx-cell" rows="3" placeholder="e.g. Bank: BDO · Account #: 0000-0000-0000 · Name: ABA Pardes Agritech Corp." style="padding:8px;font-size:11px;font-family:JetBrains Mono,monospace;resize:vertical">${escHtml(s.bankAccount||'')}</textarea></label>
+        </div>
+      </div>
+
+      <div class="hnx-w" style="margin-bottom:14px">
+        <div class="hnx-w-h">📊 Invoice Defaults</div>
+        <div style="padding:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+          <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Tax rate %</span><input type="number" id="hnxInvTax" class="hnx-cell" value="${s.taxRate||0}" step="0.1" style="padding:8px;font-size:12px"></label>
+          <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Payment terms</span><input type="text" id="hnxInvTerm" class="hnx-cell" value="${escHtml(s.paymentTerms||'Net 30')}" style="padding:8px;font-size:12px;font-family:JetBrains Mono,monospace"></label>
+          <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Invoice # prefix</span><input type="text" id="hnxInvPrefix" class="hnx-cell" value="${escHtml(s.invoicePrefix||'INV-')}" style="padding:8px;font-size:12px;font-family:JetBrains Mono,monospace"></label>
+          <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Next #</span><input type="number" id="hnxInvNext" class="hnx-cell" value="${s.nextInvoiceNumber||1}" style="padding:8px;font-size:12px"></label>
+          <label style="display:flex;flex-direction:column;gap:4px;grid-column:span 4"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Default invoice note / footer text</span><textarea id="hnxInvNote" class="hnx-cell" rows="2" style="padding:8px;font-size:11px;font-family:JetBrains Mono,monospace;resize:vertical">${escHtml(s.notes||'')}</textarea></label>
+        </div>
+      </div>
+
+      <div class="hnx-w" style="margin-bottom:14px">
+        <div class="hnx-w-h">💰 Pricing Model</div>
+        <div style="padding:14px">
+          <div style="display:flex;gap:14px;font-family:JetBrains Mono,monospace;font-size:11.5px;color:#a5d6e6;margin-bottom:14px">
+            <label style="display:flex;gap:5px;cursor:pointer"><input type="radio" name="hnxPmode" value="perCrate" ${p.mode==='perCrate'?'checked':''} onchange="window._hnxInvSetPMode && window._hnxInvSetPMode('perCrate')"> Per crate (by type)</label>
+            <label style="display:flex;gap:5px;cursor:pointer"><input type="radio" name="hnxPmode" value="perKg" ${p.mode==='perKg'?'checked':''} onchange="window._hnxInvSetPMode && window._hnxInvSetPMode('perKg')"> Per kg (by crop)</label>
+            <label style="display:flex;gap:5px;cursor:pointer"><input type="radio" name="hnxPmode" value="flat" ${p.mode==='flat'?'checked':''} onchange="window._hnxInvSetPMode && window._hnxInvSetPMode('flat')"> Flat rate per crate</label>
+          </div>
+          ${p.mode === 'perCrate' ? `
+            <div style="font-family:JetBrains Mono,monospace;font-size:10.5px;color:#80deea;margin-bottom:8px">Set unit price per crate type:</div>
+            ${types.length === 0 ? '<div style="color:#ffca52;font-size:11px">No crate types configured · add some in 🛢 Crate Types tab first</div>' :
+              '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">' + types.map(t => `<label style="display:flex;justify-content:space-between;align-items:center;background:rgba(2,18,28,.4);padding:8px 12px;border-radius:5px;border:1px solid rgba(77,208,225,.18)"><span style="font-family:JetBrains Mono,monospace;font-size:11px;color:#a5d6e6">${escHtml(t.name)} <span style="color:#6a8ea3">(${t.volumeL||'?'}L)</span></span><input type="number" data-tid="${escHtml(t.id)}" class="hnx-cell hnx-price-type" value="${(p.perCrate||{})[t.id]||''}" placeholder="${p.defaultPrice||0}" step="0.01" style="padding:5px 8px;font-size:11px;width:120px;font-family:JetBrains Mono,monospace;text-align:right"></label>`).join('') + '</div>'}
+            <label style="display:flex;flex-direction:column;gap:4px;margin-top:10px;max-width:200px"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Default (fallback)</span><input type="number" id="hnxPriceDefault" class="hnx-cell" value="${p.defaultPrice||0}" step="0.01" style="padding:7px;font-size:12px;font-family:JetBrains Mono,monospace"></label>
+          ` : p.mode === 'perKg' ? `
+            <div style="font-family:JetBrains Mono,monospace;font-size:10.5px;color:#80deea;margin-bottom:8px">Set price per kg by crop (or use default for all):</div>
+            <label style="display:flex;flex-direction:column;gap:4px;max-width:300px"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea">Default price per kg (all crops)</span><input type="number" id="hnxPriceKgDefault" class="hnx-cell" value="${(p.perKg||{}).default||0}" step="0.01" style="padding:7px;font-size:12px;font-family:JetBrains Mono,monospace"></label>
+            <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#6a8ea3;margin-top:10px">▸ Per-crop pricing can be added later via direct edit · default applies to all crops</div>
+          ` : `
+            <label style="display:flex;flex-direction:column;gap:4px;max-width:200px"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea">Flat rate per crate</span><input type="number" id="hnxPriceFlat" class="hnx-cell" value="${p.flat||0}" step="0.01" style="padding:7px;font-size:12px;font-family:JetBrains Mono,monospace"></label>
+          `}
+        </div>
+      </div>
+
+      <div class="hnx-w" style="padding:14px;display:flex;gap:10px;align-items:center">
+        <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxInvSetView && window._hnxInvSetView('list')" style="padding:9px 16px">✕ Cancel</button>
+        <div style="flex:1"></div>
+        <button class="hnx-btn hnx-btn-g" onclick="window._hnxInvSettingsSave && window._hnxInvSettingsSave()" style="padding:9px 18px;font-size:13px">💾 Save settings</button>
+      </div>
+    `;
+  }
+  window._hnxInvSetPMode = function(m){
+    const p = hnxLoadPricing();
+    p.mode = m;
+    hnxSavePricing(p);
+    if(window._hnxCratesRefresh) window._hnxCratesRefresh();
+  };
+  window._hnxInvSettingsSave = function(){
+    const s = hnxLoadInvSettings();
+    s.companyName = (document.getElementById('hnxInvCo')||{}).value || s.companyName;
+    s.address = (document.getElementById('hnxInvAddr')||{}).value || s.address;
+    s.phone = (document.getElementById('hnxInvPhone')||{}).value || '';
+    s.email = (document.getElementById('hnxInvEmail')||{}).value || '';
+    s.taxId = (document.getElementById('hnxInvTin')||{}).value || '';
+    s.currencySymbol = (document.getElementById('hnxInvCur')||{}).value || '₱';
+    s.bankAccount = (document.getElementById('hnxInvBank')||{}).value || '';
+    s.taxRate = parseFloat((document.getElementById('hnxInvTax')||{}).value) || 0;
+    s.paymentTerms = (document.getElementById('hnxInvTerm')||{}).value || 'Net 30';
+    s.invoicePrefix = (document.getElementById('hnxInvPrefix')||{}).value || 'INV-';
+    s.nextInvoiceNumber = parseInt((document.getElementById('hnxInvNext')||{}).value, 10) || 1;
+    s.notes = (document.getElementById('hnxInvNote')||{}).value || '';
+    hnxSaveInvSettings(s);
+
+    const p = hnxLoadPricing();
+    if(p.mode === 'perCrate'){
+      p.perCrate = p.perCrate || {};
+      document.querySelectorAll('.hnx-price-type').forEach(inp => {
+        const tid = inp.dataset.tid;
+        const v = parseFloat(inp.value);
+        if(!isNaN(v) && v > 0) p.perCrate[tid] = v;
+        else delete p.perCrate[tid];
+      });
+      const def = (document.getElementById('hnxPriceDefault')||{}).value;
+      p.defaultPrice = parseFloat(def) || 0;
+    } else if(p.mode === 'perKg'){
+      p.perKg = p.perKg || {};
+      p.perKg.default = parseFloat((document.getElementById('hnxPriceKgDefault')||{}).value) || 0;
+    } else if(p.mode === 'flat'){
+      p.flat = parseFloat((document.getElementById('hnxPriceFlat')||{}).value) || 0;
+    }
+    hnxSavePricing(p);
+    if(typeof toast === 'function') toast('💾 Settings saved');
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('invoice_settings', 'Updated invoice settings');
+    window._hnxInvSetView('list');
+  };
+
   // ============== MAIN RENDER ==============
   function renderFrCommandView(){
     // Force FR mode then delegate to the shared renderer using the fr_command body
@@ -109022,8 +109759,8 @@ service cloud.firestore {
           <!-- Status marquee strip -->
           <div class="hnx-marquee-wrap" style="margin:8px 14px 14px;border-radius:6px;padding:6px 0;position:relative;z-index:2;background:rgba(0,131,143,.10)">
             <div class="hnx-marquee" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#a5d6e6;letter-spacing:.10em;padding:0 30px">
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.40</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.40</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.41</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.41</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
             </div>
           </div>
           <!-- Pair selector -->
@@ -110521,7 +111258,7 @@ service cloud.firestore {
 .hnx-param-unit{font-size:11px;color:#6a8ea3;font-weight:500;margin-left:3px}
 .hnx-param-target{font-family:'JetBrains Mono',monospace;font-size:9px;color:#6a8ea3;letter-spacing:.10em;margin-top:3px}
 .hnx-param-dev{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;margin-top:1px}
-/* === HNX-EXT v2.40 · MACHINES GRID === */
+/* === HNX-EXT v2.41 · MACHINES GRID === */
 .hnx-machines-cube { position: relative; }
 .hnx-machines-grid {
   display: grid;
@@ -110637,7 +111374,7 @@ service cloud.firestore {
   color: #ff3030;
 }
 
-/* === HNX-EXT v2.40 · DRONE FLEET DETAIL PANEL === */
+/* === HNX-EXT v2.41 · DRONE FLEET DETAIL PANEL === */
 .hnx-drone-detail {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1.2fr;
@@ -110767,7 +111504,7 @@ service cloud.firestore {
 .hnx-drone-hist-stat.crit { background: rgba(255,48,48,.15); color: #ff7a78; border:1px solid rgba(255,48,48,.35); }
 .hnx-drone-hist-stat.live { background: rgba(132,255,249,.18); color: #84fff9; border:1px solid rgba(132,255,249,.45); animation: hnxBlink 1.2s steps(2) infinite; }
 
-/* === HNX-EXT v2.40 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
+/* === HNX-EXT v2.41 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
 .hnx-rotate-ctrl {
   display: inline-flex;
   align-items: center;
@@ -110850,7 +111587,7 @@ service cloud.firestore {
 .hnx-app.hnx-fs-active .hnx-crit-btn { font-size: 13px !important; padding: 7px 14px !important; }
 .hnx-app.hnx-fs-active .hnx-rotate-critcount { font-size: 13px; padding: 6px 14px; }
 
-/* === HNX-EXT v2.40 · URL-DRIVEN MONITOR PRESETS === */
+/* === HNX-EXT v2.41 · URL-DRIVEN MONITOR PRESETS === */
 .hnx-url-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-prof-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-app.hnx-fs-active .hnx-url-btn { font-size: 13px !important; padding: 7px 14px !important; }
@@ -111374,7 +112111,7 @@ service cloud.firestore {
 .hnx-fs-tap-s { font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #84fff9; letter-spacing: .06em; margin-bottom: 14px; animation: hnxBlink 1.5s steps(2) infinite; }
 .hnx-fs-tap-hint { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6a8ea3; letter-spacing: .06em; }
 
-/* === HNX-EXT v2.40 · DRUM CAPACITY EDITOR === */
+/* === HNX-EXT v2.41 · DRUM CAPACITY EDITOR === */
 .hnx-drum-settings {
   background: linear-gradient(180deg, rgba(2,30,40,.8), rgba(2,18,28,.95));
   border: 1px solid rgba(102,187,106,.45);
@@ -111401,7 +112138,7 @@ service cloud.firestore {
   box-shadow: 0 0 8px rgba(128,232,133,.4);
 }
 
-/* === HNX-EXT v2.40 · FULLSCREEN TRULY FILLS MONITOR === */
+/* === HNX-EXT v2.41 · FULLSCREEN TRULY FILLS MONITOR === */
 .hnx-app:fullscreen,
 .hnx-app:-webkit-full-screen {
   background: radial-gradient(ellipse at center, #02101a 0%, #02080f 70%, #000 100%) !important;
@@ -111490,7 +112227,7 @@ service cloud.firestore {
 /* Open items at bottom */
 .hnx-app.hnx-fs-active .hnx-ghc-bottom { margin-top: 14px; }
 
-/* === HNX-EXT v2.40 · FR MODE TOGGLE === */
+/* === HNX-EXT v2.41 · FR MODE TOGGLE === */
 .hnx-mode-btn {
   background: linear-gradient(135deg, rgba(77,208,225,.22), rgba(132,255,249,.18)) !important;
   border: 1px solid rgba(77,208,225,.55) !important;
@@ -111516,7 +112253,7 @@ service cloud.firestore {
   box-shadow: 0 0 14px rgba(132,255,249,.35);
 }
 
-/* === HNX-EXT v2.40 · FULLSCREEN MONITOR MODE === */
+/* === HNX-EXT v2.41 · FULLSCREEN MONITOR MODE === */
 .hnx-fs-btn { 
   background: linear-gradient(135deg, rgba(102,187,106,.22), rgba(77,208,225,.22)) !important;
   border: 1px solid rgba(102,187,106,.55) !important;
@@ -111560,7 +112297,7 @@ service cloud.firestore {
   100% { transform: translateX(50px); opacity: 0; }
 }
 
-/* === HNX-EXT v2.40 · VERTICAL FILLING DRUMS === */
+/* === HNX-EXT v2.41 · VERTICAL FILLING DRUMS === */
 .hnx-drum-cube { padding-bottom: 10px; }
 .hnx-drum-grid {
   display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;
@@ -111667,7 +112404,7 @@ service cloud.firestore {
 .hnx-drum-value.warn { color: #ffca52; }
 .hnx-drum-value.crit { color: #ff7a78; }
 
-/* === HNX-EXT v2.40 · BOLD VISIBLE THEMATIC IMAGERY === */
+/* === HNX-EXT v2.41 · BOLD VISIBLE THEMATIC IMAGERY === */
 .hnx-cube-imagery { position: relative; overflow: hidden; min-height: 180px; }
 .hnx-cube-imagery > .hnx-cube-bg {
   position: absolute; inset: 0;
@@ -111691,7 +112428,7 @@ service cloud.firestore {
 .hnx-cube-imagery > .hnx-ghbars,
 .hnx-cube-imagery > div:not(.hnx-cube-bg) { position: relative; z-index: 2; }
 .hnx-cube-imagery .hnx-w-h { position: relative; z-index: 2; }
-/* === HNX-EXT v2.40 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
+/* === HNX-EXT v2.41 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
 /* Production: Lettuce leaves sway */
 @keyframes hnxLettuceSway {
   0%, 100% { transform: rotate(-3deg); }
@@ -111749,7 +112486,7 @@ service cloud.firestore {
 .hnx-svg-act-dot:nth-child(3) { animation-delay: .8s; }
 .hnx-svg-act-dot:nth-child(4) { animation-delay: 1.2s; }
 
-/* === HNX-EXT v2.40 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
+/* === HNX-EXT v2.41 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
 /* CCTV cell motion enhancements — corner brackets, double scan, breathing border */
 .hnx-cctv-motion { animation: hnxCellPulse 4s ease-in-out infinite; }
 @keyframes hnxCellPulse {
