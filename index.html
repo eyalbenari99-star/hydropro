@@ -94068,7 +94068,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 
 </script>
 
-<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.45 (Fix CCTV wizard · complete yaml with TLS · auto-detected next step) -->
+<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.46 (Wizard rewrite · bulletproof · single function · error catching) -->
 <script>
 /* ============================================================================
  * HYDRONEXIS-AI · EXTENSIONS PACK v1.0
@@ -94661,7 +94661,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.45 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.46 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -94670,7 +94670,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.45';
+        vEl.textContent = orig + ' · HNX v2.46';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -94685,7 +94685,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.45 Diagnostics:\n\n' +
+        'HNX-EXT v2.46 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
@@ -94731,7 +94731,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const style = document.createElement('style');
     style.id = 'hnx-ext-styles';
     style.textContent = HNX_CSS + `
-/* === HNX-EXT v2.45 · MOTION & ANIMATION PACK === */
+/* === HNX-EXT v2.46 · MOTION & ANIMATION PACK === */
 @keyframes hnxPulseGlow {
   0%, 100% { box-shadow: 0 0 30px rgba(102,187,106,.18), inset 0 0 40px rgba(102,187,106,.05); }
   50%      { box-shadow: 0 0 60px rgba(102,187,106,.45), inset 0 0 70px rgba(102,187,106,.12); }
@@ -104320,6 +104320,440 @@ streams:
     document.head.appendChild(st);
   })();
 
+  // ==================================================================
+  // v2.46 · WIZARD REWRITE · single bulletproof implementation
+  // Replaces the fragmented v2.40 wizard with one robust function
+  // ==================================================================
+
+  // Override the old wizard entry point
+  window._hnxOpenWizard = function(){
+    try{
+      const prior = document.getElementById('hnxWizDlg'); if(prior) prior.remove();
+      if(!window._hnxWizState) window._hnxWizState = { step:1 };
+      const dlg = document.createElement('div');
+      dlg.id = 'hnxWizDlg';
+      dlg.className = 'hnx-url-modal';
+      dlg.innerHTML = `
+        <div class="hnx-url-modal-inner" style="max-width:860px;max-height:92vh;display:flex;flex-direction:column">
+          <div class="hnx-url-modal-h" style="flex-shrink:0">
+            <span style="font-family:Orbitron,sans-serif;font-weight:800;letter-spacing:.04em;font-size:14px">🧙 CAMERA SETUP WIZARD</span>
+            <div style="flex:1"></div>
+            <button class="hnx-btn hnx-btn-ghost" onclick="document.getElementById('hnxWizDlg').remove();delete window._hnxWizState" style="padding:4px 10px;font-size:11px">✕ Close</button>
+          </div>
+          <div id="hnxWizSteps" style="display:flex;gap:0;padding:14px 16px 0;flex-shrink:0;border-bottom:1px solid rgba(77,208,225,.15)"></div>
+          <div id="hnxWizBody" style="padding:18px 22px;overflow:auto;flex:1;min-height:280px"></div>
+          <div id="hnxWizFoot" style="padding:12px 16px;border-top:1px solid rgba(77,208,225,.15);display:flex;gap:8px;align-items:center;flex-shrink:0"></div>
+        </div>
+        <div class="hnx-url-modal-bg" onclick="document.getElementById('hnxWizDlg').remove();delete window._hnxWizState"></div>
+      `;
+      document.body.appendChild(dlg);
+      _hnxWizRenderV2();
+    }catch(e){
+      alert('Wizard could not open: ' + (e.message || e));
+      console.error('Wizard open error:', e);
+    }
+  };
+
+  // Helpers safe against missing dependencies
+  function _hnxWizEsc(s){
+    if(s == null) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function _hnxWizLoadCfg(){
+    try{ return hnxLoadDvrConfig() || { devices:[], bridgeIp:'', bridgePort:1984, bridgeProtocol:'http' }; }
+    catch(e){ return { devices:[], bridgeIp:'', bridgePort:1984, bridgeProtocol:'http' }; }
+  }
+  function _hnxWizSaveCfg(c){
+    try{ hnxSaveDvrConfig(c); return true; }
+    catch(e){ console.error('Save cfg failed:', e); return false; }
+  }
+
+  function _hnxWizRenderV2(){
+    const body = document.getElementById('hnxWizBody');
+    const foot = document.getElementById('hnxWizFoot');
+    const nav  = document.getElementById('hnxWizSteps');
+    if(!body || !foot || !nav){
+      console.warn('[wizard] container elements missing');
+      return;
+    }
+
+    const st = window._hnxWizState || { step:1 };
+    window._hnxWizState = st;
+    const step = Math.max(1, Math.min(5, parseInt(st.step,10) || 1));
+    st.step = step;
+
+    // === STEP NAV ===
+    const steps = [
+      { n:1, label:'Bridge',  icon:'🌉' },
+      { n:2, label:'DVR',     icon:'📹' },
+      { n:3, label:'Mapping', icon:'🎯' },
+      { n:4, label:'Push',    icon:'⚡' },
+      { n:5, label:'Verify',  icon:'✓' }
+    ];
+    nav.innerHTML = steps.map(s => {
+      const on = s.n === step;
+      const done = s.n < step;
+      const bg = on ? '#80e885' : (done ? 'rgba(102,187,106,.40)' : 'rgba(77,208,225,.20)');
+      const col = on ? '#80e885' : (done ? '#80deea' : '#6a8ea3');
+      return `<div style="flex:1;padding:8px 10px;text-align:center;border-bottom:3px solid ${bg};font-family:'JetBrains Mono',monospace;font-size:11px;color:${col};font-weight:${on?700:400};letter-spacing:.06em;cursor:pointer" onclick="window._hnxWizGotoV2 && window._hnxWizGotoV2(${s.n})">${done?'✓':s.icon} ${s.n}. ${_hnxWizEsc(s.label)}</div>`;
+    }).join('');
+
+    // === STEP BODY ===
+    try{
+      const cfg = _hnxWizLoadCfg();
+      if(step === 1)      _hnxWizPaintStep1(body, foot, cfg, st);
+      else if(step === 2) _hnxWizPaintStep2(body, foot, cfg, st);
+      else if(step === 3) _hnxWizPaintStep3(body, foot, cfg, st);
+      else if(step === 4) _hnxWizPaintStep4(body, foot, cfg, st);
+      else if(step === 5) _hnxWizPaintStep5(body, foot, cfg, st);
+      else {
+        body.innerHTML = '<div style="padding:20px;color:#ff7a78">Unknown step: ' + step + '</div>';
+        foot.innerHTML = '';
+      }
+    }catch(e){
+      console.error('[wizard] render error step ' + step + ':', e);
+      body.innerHTML = `<div style="padding:20px;font-family:'JetBrains Mono',monospace;color:#ff7a78">
+        <div style="font-family:Orbitron,sans-serif;font-weight:800;color:#ff7a78;font-size:14px;margin-bottom:10px">⚠ Wizard render error in Step ${step}</div>
+        <div style="color:#e6f7fb;margin-bottom:10px">${_hnxWizEsc(e.message || String(e))}</div>
+        <pre style="background:rgba(0,0,0,.5);padding:10px;border-radius:4px;font-size:10px;color:#a5d6e6;overflow:auto;max-height:200px">${_hnxWizEsc(e.stack || '')}</pre>
+        <button class="hnx-btn hnx-btn-c" onclick="window._hnxWizGotoV2(1)" style="margin-top:10px">← Restart</button>
+      </div>`;
+      foot.innerHTML = '<button class="hnx-btn hnx-btn-ghost" onclick="document.getElementById(\'hnxWizDlg\').remove();delete window._hnxWizState" style="padding:8px 16px;font-size:12px">Close wizard</button>';
+    }
+  }
+  window._hnxWizRenderV2 = _hnxWizRenderV2;
+  window._hnxWizGotoV2 = function(n){ window._hnxWizState.step = n; _hnxWizRenderV2(); };
+
+  // ===== STEP 1 · BRIDGE =====
+  function _hnxWizPaintStep1(body, foot, cfg, st){
+    const pageProto = window.location.protocol;
+    const recommend = pageProto === 'https:' ? 'https' : 'http';
+    const recommendPort = recommend === 'https' ? 1985 : 1984;
+    body.innerHTML = `
+      <div style="font-family:Orbitron,sans-serif;font-weight:800;color:#80e885;font-size:15px;letter-spacing:.04em;margin-bottom:6px">🌉 Step 1 · go2rtc Bridge</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5d6e6;line-height:1.7;margin-bottom:14px">Where is your go2rtc bridge running? It is the small program on a Windows/Pi/Linux box in your LAN that translates DVR RTSP to HLS for the dashboard.</div>
+
+      <div style="background:rgba(255,202,82,.10);border:1px solid rgba(255,202,82,.35);border-radius:5px;padding:10px 12px;margin-bottom:14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#ffca52;line-height:1.6">
+        <b>⚠ Use the LAN IP, not "localhost"</b><br>
+        <span style="color:#a5d6e6">On Windows · open Command Prompt · type <code style="color:#84fff9">ipconfig</code> · find "IPv4 Address" · use that (e.g. <code style="color:#84fff9">192.168.1.9</code>)</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;margin-bottom:14px">
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.06em">Bridge LAN IP *</span>
+          <input type="text" id="hnxWizIp2" class="hnx-cell" value="${_hnxWizEsc(cfg.bridgeIp||'')}" placeholder="192.168.1.9" style="padding:10px;font-size:13px;font-family:'JetBrains Mono',monospace"></label>
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.06em">Port</span>
+          <input type="number" id="hnxWizPort2" class="hnx-cell" value="${cfg.bridgePort || recommendPort}" style="padding:10px;font-size:13px;font-family:'JetBrains Mono',monospace"></label>
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.06em">Protocol</span>
+          <select id="hnxWizProto2" class="hnx-cell" style="padding:10px;font-size:12px">
+            <option value="http" ${(cfg.bridgeProtocol||'http')==='http'?'selected':''}>http</option>
+            <option value="https" ${cfg.bridgeProtocol==='https'?'selected':''}>https (TLS)</option>
+          </select></label>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+        <button class="hnx-btn hnx-btn-c" onclick="window._hnxWizTestBridge2 && window._hnxWizTestBridge2()" style="padding:8px 16px;font-size:12px">🔌 Test connection</button>
+        <span id="hnxWizResult2" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#6a8ea3">▸ Click Test to verify bridge is reachable</span>
+      </div>
+
+      ${pageProto === 'https:' ? `<div style="padding:10px 12px;background:rgba(255,82,82,.10);border:1px solid #ff7a78;border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#ff7a78;line-height:1.5">⚠ Your dashboard is on HTTPS · bridge MUST also be HTTPS (port 1985 with TLS enabled in go2rtc.yaml) or browser will silently block streams</div>` : ''}
+    `;
+    foot.innerHTML = `
+      <div style="flex:1;color:#6a8ea3;font-family:'JetBrains Mono',monospace;font-size:10.5px">Step 1 of 5 · Bridge</div>
+      <button class="hnx-btn hnx-btn-g" onclick="window._hnxWizSaveBridge2 && window._hnxWizSaveBridge2()" style="padding:9px 18px;font-size:12px">Save & Next →</button>
+    `;
+  }
+  window._hnxWizTestBridge2 = async function(){
+    const ip = (document.getElementById('hnxWizIp2')||{}).value.trim();
+    const port = parseInt((document.getElementById('hnxWizPort2')||{}).value,10) || 1984;
+    const proto = (document.getElementById('hnxWizProto2')||{}).value || 'http';
+    const result = document.getElementById('hnxWizResult2');
+    if(!ip){ if(result) result.innerHTML = '<span style="color:#ff7a78">⚠ Enter the IP first</span>'; return; }
+    const base = proto+'://'+ip+':'+port;
+    if(result) result.innerHTML = '<span style="color:#80deea">○ pinging ' + _hnxWizEsc(base) + ' …</span>';
+    // Mixed-content pre-check
+    if(window.location.protocol === 'https:' && proto === 'http'){
+      if(result) result.innerHTML = '<span style="color:#ff7a78">🔒 Mixed content blocked · dashboard is HTTPS but bridge is HTTP · change protocol to https + port 1985 (after enabling TLS in go2rtc.yaml)</span>';
+      return;
+    }
+    try{
+      const r = await fetch(base + '/api/streams', { method:'GET', signal: AbortSignal.timeout(5000) });
+      if(!r.ok){ if(result) result.innerHTML = '<span style="color:#ff7a78">✗ HTTP ' + r.status + ' · check go2rtc.yaml has api.origin: "*"</span>'; return; }
+      const data = await r.json();
+      const ids = Object.keys(data||{});
+      if(result) result.innerHTML = '<span style="color:#80e885">✓ Bridge online · ' + ids.length + ' stream(s) currently on bridge</span>';
+    }catch(e){
+      if(result) result.innerHTML = '<span style="color:#ff7a78">✗ Unreachable: ' + _hnxWizEsc(e.message||String(e)) + '</span>';
+    }
+  };
+  window._hnxWizSaveBridge2 = function(){
+    const c = _hnxWizLoadCfg();
+    c.bridgeIp = (document.getElementById('hnxWizIp2')||{}).value.trim();
+    c.bridgePort = parseInt((document.getElementById('hnxWizPort2')||{}).value, 10) || 1984;
+    c.bridgeProtocol = (document.getElementById('hnxWizProto2')||{}).value || 'http';
+    if(!c.bridgeIp){ alert('Enter the bridge IP first'); return; }
+    if(c.bridgeIp === 'localhost' || c.bridgeIp === '127.0.0.1'){
+      if(!confirm('Using "localhost" means only THIS computer can view CCTV. Other devices on the network cannot reach localhost. Continue anyway?')) return;
+    }
+    if(!_hnxWizSaveCfg(c)){ alert('Could not save bridge config · check console'); return; }
+    if(typeof toast === 'function') toast('💾 Bridge saved · ' + c.bridgeProtocol + '://' + c.bridgeIp + ':' + c.bridgePort);
+    _hnxWizGotoV2(2);
+  };
+
+  // ===== STEP 2 · DVR =====
+  function _hnxWizPaintStep2(body, foot, cfg, st){
+    const existingDvrs = cfg.devices || [];
+    if(!st.dvrDraft){
+      st.dvrDraft = existingDvrs[0] ? Object.assign({}, existingDvrs[0]) : {
+        name: 'Main NVR',
+        manufacturer: 'hikvision',
+        ip: '',
+        port: 554,
+        username: 'admin',
+        password: '',
+        channels: 4,
+        streamPrefix: 'cam',
+        enabled: true
+      };
+    }
+    const d = st.dvrDraft;
+    const brands = (typeof HNX_MANUFACTURERS !== 'undefined') ? HNX_MANUFACTURERS : [
+      { id:'hikvision', name:'Hikvision' },
+      { id:'dahua', name:'Dahua' },
+      { id:'uniview', name:'Uniview' },
+      { id:'reolink', name:'Reolink' },
+      { id:'tplink', name:'TP-Link' },
+      { id:'annke', name:'Annke' },
+      { id:'custom', name:'Custom' }
+    ];
+
+    body.innerHTML = `
+      <div style="font-family:Orbitron,sans-serif;font-weight:800;color:#80e885;font-size:15px;letter-spacing:.04em;margin-bottom:6px">📹 Step 2 · DVR / NVR Details</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5d6e6;line-height:1.7;margin-bottom:14px">${existingDvrs.length > 0 ? 'Editing existing DVR · or pick another one below' : 'Enter the IP and credentials of your physical DVR/NVR box. This is the recorder with the hard drive where your cameras plug in.'}</div>
+
+      ${existingDvrs.length > 1 ? `<div style="margin-bottom:14px"><label style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea">Pick DVR to edit:</label>
+        <select id="hnxWizPickDvr" onchange="window._hnxWizPickDvr2 && window._hnxWizPickDvr2()" class="hnx-cell" style="padding:8px;font-size:12px;margin-top:4px;display:block;width:100%;max-width:400px">
+          ${existingDvrs.map(x => `<option value="${_hnxWizEsc(x.id)}" ${x.id===d.id?'selected':''}>${_hnxWizEsc(x.name)} · ${_hnxWizEsc(x.ip||'?')} · ${x.channels||1}ch</option>`).join('')}
+          <option value="__new__">+ Add new DVR</option>
+        </select></div>` : ''}
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px">
+        <label style="display:flex;flex-direction:column;gap:4px;grid-column:span 2"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea">Name</span>
+          <input type="text" id="hnxWizDvrName2" class="hnx-cell" value="${_hnxWizEsc(d.name||'')}" placeholder="Main NVR" style="padding:9px;font-size:12px"></label>
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea">Brand</span>
+          <select id="hnxWizDvrMfg2" class="hnx-cell" style="padding:9px;font-size:11px">${brands.map(m => `<option value="${_hnxWizEsc(m.id)}" ${d.manufacturer===m.id?'selected':''}>${_hnxWizEsc(m.name)}</option>`).join('')}</select></label>
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea">Channels</span>
+          <input type="number" id="hnxWizDvrCh2" class="hnx-cell" value="${d.channels||4}" min="1" max="64" style="padding:9px;font-size:12px"></label>
+
+        <label style="display:flex;flex-direction:column;gap:4px;grid-column:span 2"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea">DVR IP address *</span>
+          <input type="text" id="hnxWizDvrIp2" class="hnx-cell" value="${_hnxWizEsc(d.ip||'')}" placeholder="192.168.1.108" style="padding:9px;font-size:13px;font-family:'JetBrains Mono',monospace"></label>
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea">RTSP port</span>
+          <input type="number" id="hnxWizDvrPort2" class="hnx-cell" value="${d.port||554}" style="padding:9px;font-size:12px"></label>
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea">Stream prefix</span>
+          <input type="text" id="hnxWizDvrPrefix2" class="hnx-cell" value="${_hnxWizEsc(d.streamPrefix||'cam')}" style="padding:9px;font-size:11px"></label>
+
+        <label style="display:flex;flex-direction:column;gap:4px;grid-column:span 2"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea">Username</span>
+          <input type="text" id="hnxWizDvrUser2" class="hnx-cell" value="${_hnxWizEsc(d.username||'admin')}" style="padding:9px;font-size:12px"></label>
+        <label style="display:flex;flex-direction:column;gap:4px;grid-column:span 2"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea">Password <span style="color:#ffca52">(local only)</span></span>
+          <input type="password" id="hnxWizDvrPass2" class="hnx-cell" value="${_hnxWizEsc(d.password||'')}" autocomplete="new-password" style="padding:9px;font-size:12px"></label>
+      </div>
+
+      <div style="background:rgba(2,18,28,.5);border:1px solid rgba(77,208,225,.18);border-radius:5px;padding:9px 11px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;line-height:1.5"><b style="color:#80e885">RTSP preview (channel 1):</b><br><span id="hnxWizPreview2" style="color:#84fff9;word-break:break-all">${(function(){ try{ return _hnxWizEsc(_hnxResolveRtspUrl(d, 1) || ''); }catch(e){ return '(needs IP + password to compute)'; }})()}</span></div>
+    `;
+    foot.innerHTML = `
+      <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxWizGotoV2(1)" style="padding:9px 14px;font-size:12px">← Back</button>
+      <div style="flex:1;color:#6a8ea3;font-family:'JetBrains Mono',monospace;font-size:10.5px;text-align:center">Step 2 of 5 · DVR</div>
+      <button class="hnx-btn hnx-btn-g" onclick="window._hnxWizSaveDvr2 && window._hnxWizSaveDvr2()" style="padding:9px 18px;font-size:12px">Save & Next →</button>
+    `;
+  }
+  window._hnxWizPickDvr2 = function(){
+    const v = (document.getElementById('hnxWizPickDvr')||{}).value;
+    const cfg = _hnxWizLoadCfg();
+    if(v === '__new__'){
+      window._hnxWizState.dvrDraft = { name:'New NVR', manufacturer:'hikvision', ip:'', port:554, username:'admin', password:'', channels:4, streamPrefix:'cam', enabled:true };
+    } else {
+      const d = cfg.devices.find(x => x.id === v);
+      if(d) window._hnxWizState.dvrDraft = Object.assign({}, d);
+    }
+    _hnxWizRenderV2();
+  };
+  window._hnxWizSaveDvr2 = function(){
+    const st = window._hnxWizState;
+    const draft = st.dvrDraft || {};
+    draft.name = (document.getElementById('hnxWizDvrName2')||{}).value || 'Unnamed DVR';
+    draft.manufacturer = (document.getElementById('hnxWizDvrMfg2')||{}).value || 'hikvision';
+    draft.ip = ((document.getElementById('hnxWizDvrIp2')||{}).value || '').trim();
+    draft.port = parseInt((document.getElementById('hnxWizDvrPort2')||{}).value,10) || 554;
+    draft.username = (document.getElementById('hnxWizDvrUser2')||{}).value || 'admin';
+    draft.password = (document.getElementById('hnxWizDvrPass2')||{}).value || '';
+    draft.channels = parseInt((document.getElementById('hnxWizDvrCh2')||{}).value,10) || 1;
+    draft.streamPrefix = (document.getElementById('hnxWizDvrPrefix2')||{}).value || 'cam';
+    draft.enabled = true;
+    try{ if(typeof HNX_RTSP_TEMPLATES !== 'undefined') draft.rtspTemplate = HNX_RTSP_TEMPLATES[draft.manufacturer] || ''; }catch(e){}
+    if(!draft.ip){ alert('DVR IP is required'); return; }
+    if(!draft.password){ if(!confirm('Password is empty · stream URLs will not work without it. Continue anyway?')) return; }
+    const c = _hnxWizLoadCfg();
+    if(!draft.id) draft.id = 'dvr_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+    const idx = c.devices.findIndex(x => x.id === draft.id);
+    if(idx >= 0) c.devices[idx] = draft; else c.devices.push(draft);
+    if(!_hnxWizSaveCfg(c)){ alert('Save failed · check browser console'); return; }
+    if(typeof toast === 'function') toast('✓ DVR saved · ' + draft.name);
+    _hnxWizGotoV2(3);
+  };
+
+  // ===== STEP 3 · MAPPING (simplified · just preview, full mapping in UI) =====
+  function _hnxWizPaintStep3(body, foot, cfg, st){
+    const dvrs = cfg.devices.filter(x => x.enabled);
+    const totalCh = dvrs.reduce((s,d) => s + (parseInt(d.channels,10)||0), 0);
+    body.innerHTML = `
+      <div style="font-family:Orbitron,sans-serif;font-weight:800;color:#80e885;font-size:15px;letter-spacing:.04em;margin-bottom:6px">🎯 Step 3 · Channel-to-Slot Mapping</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5d6e6;line-height:1.7;margin-bottom:14px">Map each DVR channel to a GH/FR slot. You can do this fully later in <b style="color:#80e885">Camera Assignment</b>, but quick auto-fill will do it for you now.</div>
+
+      <div style="background:rgba(2,18,28,.45);border:1px solid rgba(77,208,225,.20);border-radius:5px;padding:12px 14px;margin-bottom:14px">
+        <div style="font-family:Orbitron,sans-serif;font-weight:700;color:#84fff9;font-size:13px;margin-bottom:8px">📊 Your setup:</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5d6e6;line-height:1.9">
+          ▸ <b style="color:#80e885">${dvrs.length}</b> DVR(s) enabled<br>
+          ▸ <b style="color:#80e885">${totalCh}</b> channel(s) total<br>
+          ▸ Up to <b style="color:#80e885">${10*9 + 6*9}</b> slots available across GH1-10 + FR1-FR10 (9 slots each)
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <button class="hnx-btn hnx-btn-g" onclick="window._hnxWizAutoFill2 && window._hnxWizAutoFill2()" style="padding:10px 16px;font-size:12px">⚡ Auto-fill all channels into empty slots starting at GH1</button>
+        <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxWizGotoV2(4)" style="padding:10px 16px;font-size:12px">Skip · I will map manually later →</button>
+      </div>
+
+      <div id="hnxWizMapResult2" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#6a8ea3;padding:10px;background:rgba(2,18,28,.4);border-radius:5px">▸ Click Auto-fill or Skip to continue</div>
+    `;
+    foot.innerHTML = `
+      <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxWizGotoV2(2)" style="padding:9px 14px;font-size:12px">← Back</button>
+      <div style="flex:1;color:#6a8ea3;font-family:'JetBrains Mono',monospace;font-size:10.5px;text-align:center">Step 3 of 5 · Mapping</div>
+      <button class="hnx-btn hnx-btn-g" onclick="window._hnxWizGotoV2(4)" style="padding:9px 18px;font-size:12px">Next →</button>
+    `;
+  }
+  window._hnxWizAutoFill2 = function(){
+    const result = document.getElementById('hnxWizMapResult2');
+    if(typeof window._hnxCamAssignAutoFill === 'function'){
+      try{
+        window._hnxCamAssignAutoFill(true); // pass true to suppress confirm
+        if(result) result.innerHTML = '<span style="color:#80e885">✓ Channels auto-filled into empty slots · check Camera Assignment to review</span>';
+      }catch(e){
+        if(result) result.innerHTML = '<span style="color:#ff7a78">✗ Auto-fill failed: ' + _hnxWizEsc(e.message||e) + '</span>';
+      }
+    } else {
+      if(result) result.innerHTML = '<span style="color:#ffca52">⚠ Auto-fill helper not loaded · go to Camera Assignment tab manually</span>';
+    }
+  };
+
+  // ===== STEP 4 · PUSH =====
+  function _hnxWizPaintStep4(body, foot, cfg, st){
+    const dvrs = cfg.devices.filter(x => x.enabled && x.ip);
+    const totalCh = dvrs.reduce((s,d) => s + (parseInt(d.channels,10)||0), 0);
+    const bridgeBase = cfg.bridgeIp ? ((cfg.bridgeProtocol||'http')+'://'+cfg.bridgeIp+':'+(cfg.bridgePort||1984)) : '(not set)';
+    body.innerHTML = `
+      <div style="font-family:Orbitron,sans-serif;font-weight:800;color:#80e885;font-size:15px;letter-spacing:.04em;margin-bottom:6px">⚡ Step 4 · Push streams to go2rtc bridge</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5d6e6;line-height:1.7;margin-bottom:14px">Now push each DVR channel to your go2rtc bridge as a stream. This calls the bridge's <code style="color:#84fff9">PUT /api/streams</code> API live · no yaml editing, no restart.</div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+        <div style="padding:12px 14px;background:rgba(2,18,28,.5);border:1px solid rgba(77,208,225,.20);border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5d6e6;line-height:1.8">
+          <b style="color:#80e885">Bridge:</b> <span style="color:#84fff9">${_hnxWizEsc(bridgeBase)}</span><br>
+          <b style="color:#80e885">DVRs:</b> ${dvrs.length}<br>
+          <b style="color:#80e885">Channels to push:</b> ${totalCh}
+        </div>
+        <div style="padding:12px 14px;background:rgba(2,18,28,.5);border:1px solid rgba(77,208,225,.20);border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#ffca52;line-height:1.6">
+          ⚠ This requires go2rtc to be running and reachable.<br>
+          If push fails, download the yaml manually and replace your go2rtc.yaml then restart.
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <button class="hnx-btn hnx-btn-g" onclick="window._hnxWizPush2 && window._hnxWizPush2()" style="padding:11px 22px;font-size:13px;font-family:Orbitron,sans-serif;font-weight:800">⚡ PUSH ALL STREAMS NOW</button>
+        <button class="hnx-btn hnx-btn-c" onclick="window._hnxFixDownloadYaml && window._hnxFixDownloadYaml()" style="padding:9px 16px;font-size:11px">⬇ Or download yaml manually</button>
+      </div>
+
+      <div id="hnxWizPushResult2" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#6a8ea3;padding:10px;background:rgba(2,18,28,.4);border-radius:5px;max-height:200px;overflow:auto">▸ Click Push to send streams to bridge</div>
+    `;
+    foot.innerHTML = `
+      <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxWizGotoV2(3)" style="padding:9px 14px;font-size:12px">← Back</button>
+      <div style="flex:1;color:#6a8ea3;font-family:'JetBrains Mono',monospace;font-size:10.5px;text-align:center">Step 4 of 5 · Push</div>
+      <button class="hnx-btn hnx-btn-g" onclick="window._hnxWizGotoV2(5)" style="padding:9px 18px;font-size:12px">Verify →</button>
+    `;
+  }
+  window._hnxWizPush2 = async function(){
+    const result = document.getElementById('hnxWizPushResult2');
+    if(result) result.innerHTML = '<span style="color:#80deea">○ pushing streams to bridge…</span>';
+    if(typeof window._hnxBridgePush === 'function'){
+      try{
+        await window._hnxBridgePush({ silent:true });
+        if(result) result.innerHTML = '<span style="color:#80e885">✓ Push completed · check bridge admin UI for streams</span>';
+      }catch(e){
+        if(result) result.innerHTML = '<span style="color:#ff7a78">✗ Push failed: ' + _hnxWizEsc(e.message||e) + '</span>';
+      }
+    } else {
+      if(result) result.innerHTML = '<span style="color:#ffca52">⚠ Push helper not available · download yaml manually instead</span>';
+    }
+  };
+
+  // ===== STEP 5 · VERIFY =====
+  function _hnxWizPaintStep5(body, foot, cfg, st){
+    const bridgeBase = cfg.bridgeIp ? ((cfg.bridgeProtocol||'http')+'://'+cfg.bridgeIp+':'+(cfg.bridgePort||1984)) : null;
+    body.innerHTML = `
+      <div style="font-family:Orbitron,sans-serif;font-weight:800;color:#80e885;font-size:15px;letter-spacing:.04em;margin-bottom:6px">✓ Step 5 · Verify everything is flowing</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5d6e6;line-height:1.7;margin-bottom:14px">Final check · we will ping the bridge and confirm streams are registered.</div>
+      <div id="hnxWizVerifyBody2" style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#a5d6e6;padding:14px;background:rgba(2,18,28,.5);border:1px solid rgba(77,208,225,.20);border-radius:5px;line-height:1.9;min-height:120px">▸ Click Verify to run checks…</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
+        <button class="hnx-btn hnx-btn-c" onclick="window._hnxWizRunVerify2 && window._hnxWizRunVerify2()" style="padding:10px 18px;font-size:12px">▶ Run verification</button>
+        <button class="hnx-btn hnx-btn-c" onclick="if(typeof window.switchView==='function'){try{window.switchView('gh_command')}catch(e){}}document.getElementById('hnxWizDlg').remove();delete window._hnxWizState" style="padding:10px 18px;font-size:12px">🏭 Open Command Center</button>
+      </div>
+    `;
+    foot.innerHTML = `
+      <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxWizGotoV2(4)" style="padding:9px 14px;font-size:12px">← Back</button>
+      <div style="flex:1;color:#6a8ea3;font-family:'JetBrains Mono',monospace;font-size:10.5px;text-align:center">Step 5 of 5 · Verify · done!</div>
+      <button class="hnx-btn hnx-btn-g" onclick="document.getElementById('hnxWizDlg').remove();delete window._hnxWizState;if(typeof toast==='function')toast('✓ Setup wizard complete')" style="padding:9px 18px;font-size:12px">✓ Finish</button>
+    `;
+    // Auto-run verify
+    setTimeout(() => { if(typeof window._hnxWizRunVerify2 === 'function') window._hnxWizRunVerify2(); }, 300);
+  }
+  window._hnxWizRunVerify2 = async function(){
+    const out = document.getElementById('hnxWizVerifyBody2');
+    if(!out) return;
+    const cfg = _hnxWizLoadCfg();
+    const bridgeBase = cfg.bridgeIp ? ((cfg.bridgeProtocol||'http')+'://'+cfg.bridgeIp+':'+(cfg.bridgePort||1984)) : null;
+    const dvrs = cfg.devices.filter(x => x.enabled);
+    let html = '<div style="color:#80deea">○ running checks…</div>';
+    out.innerHTML = html;
+    html = '';
+    // Check 1: bridge configured
+    html += cfg.bridgeIp ? `<div style="color:#80e885">✓ Bridge IP configured: ${_hnxWizEsc(bridgeBase)}</div>` : `<div style="color:#ff7a78">✗ Bridge IP not set</div>`;
+    // Check 2: DVRs
+    html += dvrs.length > 0 ? `<div style="color:#80e885">✓ ${dvrs.length} DVR(s) configured</div>` : `<div style="color:#ff7a78">✗ No DVRs configured</div>`;
+    // Check 3: bridge reachable + streams
+    if(bridgeBase){
+      out.innerHTML = html + '<div style="color:#80deea">○ pinging bridge…</div>';
+      try{
+        const r = await fetch(bridgeBase + '/api/streams', { method:'GET', signal: AbortSignal.timeout(5000) });
+        if(r.ok){
+          const data = await r.json();
+          const ids = Object.keys(data||{});
+          html += `<div style="color:#80e885">✓ Bridge reachable · ${ids.length} stream(s) on bridge</div>`;
+          if(ids.length > 0){
+            html += `<div style="color:#a5d6e6;font-size:10px;padding-left:14px">${ids.slice(0,10).map(_hnxWizEsc).join(', ')}${ids.length>10?', …':''}</div>`;
+          }
+        } else {
+          html += `<div style="color:#ff7a78">✗ Bridge returned HTTP ${r.status}</div>`;
+        }
+      }catch(e){
+        html += `<div style="color:#ff7a78">✗ Bridge unreachable: ${_hnxWizEsc(e.message||e)}</div>`;
+      }
+    }
+    // Final verdict
+    if(html.indexOf('✗') === -1){
+      html += `<div style="margin-top:10px;padding:10px;background:rgba(102,187,106,.15);border:1px solid #80e885;border-radius:4px;color:#80e885;font-family:Orbitron,sans-serif;font-weight:800;letter-spacing:.04em;text-align:center">✓ ALL CHECKS PASSED · open Command Center to see your cameras</div>`;
+    } else {
+      html += `<div style="margin-top:10px;padding:10px;background:rgba(255,202,82,.15);border:1px solid #ffca52;border-radius:4px;color:#ffca52">⚠ Some checks failed · re-run wizard or click 🚨 FIX CCTV for diagnosis</div>`;
+    }
+    out.innerHTML = html;
+  };
+
   // ============== MAIN RENDER ==============
   function renderFrCommandView(){
     // Force FR mode then delegate to the shared renderer using the fr_command body
@@ -106912,7 +107346,7 @@ service cloud.firestore {
     const port = cfg.bridgePort || 1984;
     const lines = [
       '# ====================================================',
-      '# go2rtc.yaml · auto-generated by HydroNexis-AI v2.45',
+      '# go2rtc.yaml · auto-generated by HydroNexis-AI v2.46',
       '# ====================================================',
       '# This file enables HTTPS + CORS so the Netlify dashboard',
       '# can reach the bridge without mixed-content blocks.',
@@ -110446,8 +110880,8 @@ service cloud.firestore {
           <!-- Status marquee strip -->
           <div class="hnx-marquee-wrap" style="margin:8px 14px 14px;border-radius:6px;padding:6px 0;position:relative;z-index:2;background:rgba(0,131,143,.10)">
             <div class="hnx-marquee" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#a5d6e6;letter-spacing:.10em;padding:0 30px">
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.45</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.45</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.46</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.46</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
             </div>
           </div>
           <!-- Pair selector -->
@@ -111945,7 +112379,7 @@ service cloud.firestore {
 .hnx-param-unit{font-size:11px;color:#6a8ea3;font-weight:500;margin-left:3px}
 .hnx-param-target{font-family:'JetBrains Mono',monospace;font-size:9px;color:#6a8ea3;letter-spacing:.10em;margin-top:3px}
 .hnx-param-dev{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;margin-top:1px}
-/* === HNX-EXT v2.45 · MACHINES GRID === */
+/* === HNX-EXT v2.46 · MACHINES GRID === */
 .hnx-machines-cube { position: relative; }
 .hnx-machines-grid {
   display: grid;
@@ -112061,7 +112495,7 @@ service cloud.firestore {
   color: #ff3030;
 }
 
-/* === HNX-EXT v2.45 · DRONE FLEET DETAIL PANEL === */
+/* === HNX-EXT v2.46 · DRONE FLEET DETAIL PANEL === */
 .hnx-drone-detail {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1.2fr;
@@ -112191,7 +112625,7 @@ service cloud.firestore {
 .hnx-drone-hist-stat.crit { background: rgba(255,48,48,.15); color: #ff7a78; border:1px solid rgba(255,48,48,.35); }
 .hnx-drone-hist-stat.live { background: rgba(132,255,249,.18); color: #84fff9; border:1px solid rgba(132,255,249,.45); animation: hnxBlink 1.2s steps(2) infinite; }
 
-/* === HNX-EXT v2.45 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
+/* === HNX-EXT v2.46 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
 .hnx-rotate-ctrl {
   display: inline-flex;
   align-items: center;
@@ -112274,7 +112708,7 @@ service cloud.firestore {
 .hnx-app.hnx-fs-active .hnx-crit-btn { font-size: 13px !important; padding: 7px 14px !important; }
 .hnx-app.hnx-fs-active .hnx-rotate-critcount { font-size: 13px; padding: 6px 14px; }
 
-/* === HNX-EXT v2.45 · URL-DRIVEN MONITOR PRESETS === */
+/* === HNX-EXT v2.46 · URL-DRIVEN MONITOR PRESETS === */
 .hnx-url-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-prof-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-app.hnx-fs-active .hnx-url-btn { font-size: 13px !important; padding: 7px 14px !important; }
@@ -113432,7 +113866,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 .hnx-fs-tap-s { font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #84fff9; letter-spacing: .06em; margin-bottom: 14px; animation: hnxBlink 1.5s steps(2) infinite; }
 .hnx-fs-tap-hint { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6a8ea3; letter-spacing: .06em; }
 
-/* === HNX-EXT v2.45 · DRUM CAPACITY EDITOR === */
+/* === HNX-EXT v2.46 · DRUM CAPACITY EDITOR === */
 .hnx-drum-settings {
   background: linear-gradient(180deg, rgba(2,30,40,.8), rgba(2,18,28,.95));
   border: 1px solid rgba(102,187,106,.45);
@@ -113459,7 +113893,7 @@ body.hnx-mobile-locked { overflow: hidden; }
   box-shadow: 0 0 8px rgba(128,232,133,.4);
 }
 
-/* === HNX-EXT v2.45 · FULLSCREEN TRULY FILLS MONITOR === */
+/* === HNX-EXT v2.46 · FULLSCREEN TRULY FILLS MONITOR === */
 .hnx-app:fullscreen,
 .hnx-app:-webkit-full-screen {
   background: radial-gradient(ellipse at center, #02101a 0%, #02080f 70%, #000 100%) !important;
@@ -113548,7 +113982,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 /* Open items at bottom */
 .hnx-app.hnx-fs-active .hnx-ghc-bottom { margin-top: 14px; }
 
-/* === HNX-EXT v2.45 · FR MODE TOGGLE === */
+/* === HNX-EXT v2.46 · FR MODE TOGGLE === */
 .hnx-mode-btn {
   background: linear-gradient(135deg, rgba(77,208,225,.22), rgba(132,255,249,.18)) !important;
   border: 1px solid rgba(77,208,225,.55) !important;
@@ -113574,7 +114008,7 @@ body.hnx-mobile-locked { overflow: hidden; }
   box-shadow: 0 0 14px rgba(132,255,249,.35);
 }
 
-/* === HNX-EXT v2.45 · FULLSCREEN MONITOR MODE === */
+/* === HNX-EXT v2.46 · FULLSCREEN MONITOR MODE === */
 .hnx-fs-btn { 
   background: linear-gradient(135deg, rgba(102,187,106,.22), rgba(77,208,225,.22)) !important;
   border: 1px solid rgba(102,187,106,.55) !important;
@@ -113618,7 +114052,7 @@ body.hnx-mobile-locked { overflow: hidden; }
   100% { transform: translateX(50px); opacity: 0; }
 }
 
-/* === HNX-EXT v2.45 · VERTICAL FILLING DRUMS === */
+/* === HNX-EXT v2.46 · VERTICAL FILLING DRUMS === */
 .hnx-drum-cube { padding-bottom: 10px; }
 .hnx-drum-grid {
   display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;
@@ -113725,7 +114159,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 .hnx-drum-value.warn { color: #ffca52; }
 .hnx-drum-value.crit { color: #ff7a78; }
 
-/* === HNX-EXT v2.45 · BOLD VISIBLE THEMATIC IMAGERY === */
+/* === HNX-EXT v2.46 · BOLD VISIBLE THEMATIC IMAGERY === */
 .hnx-cube-imagery { position: relative; overflow: hidden; min-height: 180px; }
 .hnx-cube-imagery > .hnx-cube-bg {
   position: absolute; inset: 0;
@@ -113749,7 +114183,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 .hnx-cube-imagery > .hnx-ghbars,
 .hnx-cube-imagery > div:not(.hnx-cube-bg) { position: relative; z-index: 2; }
 .hnx-cube-imagery .hnx-w-h { position: relative; z-index: 2; }
-/* === HNX-EXT v2.45 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
+/* === HNX-EXT v2.46 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
 /* Production: Lettuce leaves sway */
 @keyframes hnxLettuceSway {
   0%, 100% { transform: rotate(-3deg); }
@@ -113807,7 +114241,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 .hnx-svg-act-dot:nth-child(3) { animation-delay: .8s; }
 .hnx-svg-act-dot:nth-child(4) { animation-delay: 1.2s; }
 
-/* === HNX-EXT v2.45 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
+/* === HNX-EXT v2.46 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
 /* CCTV cell motion enhancements — corner brackets, double scan, breathing border */
 .hnx-cctv-motion { animation: hnxCellPulse 4s ease-in-out infinite; }
 @keyframes hnxCellPulse {
