@@ -94068,7 +94068,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 
 </script>
 
-<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.39 (Channel-to-location mapping inside DVR form · auto-distribute · per-DVR mapping summary) -->
+<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.40 (Bridge automation · setup wizard · push streams via go2rtc API · no copy-paste needed) -->
 <script>
 /* ============================================================================
  * HYDRONEXIS-AI · EXTENSIONS PACK v1.0
@@ -94661,7 +94661,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.39 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.40 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -94670,7 +94670,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.39';
+        vEl.textContent = orig + ' · HNX v2.40';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -94685,7 +94685,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.39 Diagnostics:\n\n' +
+        'HNX-EXT v2.40 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
@@ -94731,7 +94731,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const style = document.createElement('style');
     style.id = 'hnx-ext-styles';
     style.textContent = HNX_CSS + `
-/* === HNX-EXT v2.39 · MOTION & ANIMATION PACK === */
+/* === HNX-EXT v2.40 · MOTION & ANIMATION PACK === */
 @keyframes hnxPulseGlow {
   0%, 100% { box-shadow: 0 0 30px rgba(102,187,106,.18), inset 0 0 40px rgba(102,187,106,.05); }
   50%      { box-shadow: 0 0 60px rgba(102,187,106,.45), inset 0 0 70px rgba(102,187,106,.12); }
@@ -102292,6 +102292,644 @@ var qrcode = function() {
     }, 250);
   };
 
+  // ==================================================================
+  // v2.40 · BRIDGE AUTOMATION + SETUP WIZARD
+  // Eliminates copy-paste yaml workflow · pushes streams directly to
+  // go2rtc via its HTTP API · live, no restart needed
+  // ==================================================================
+
+  // Bridge live status cache (refreshed by ping)
+  window._hnxBridgeStatus = window._hnxBridgeStatus || { reachable:null, lastCheck:0, streams:[], error:null };
+
+  function _hnxBridgeBaseUrl(){
+    const cfg = (typeof hnxLoadDvrConfig === 'function') ? hnxLoadDvrConfig() : null;
+    if(!cfg || !cfg.bridgeIp) return null;
+    return (cfg.bridgeProtocol||'http') + '://' + cfg.bridgeIp + ':' + (cfg.bridgePort||1984);
+  }
+  function _hnxIsMixedBlocked(url){
+    return (window.location.protocol === 'https:' && /^http:\/\//i.test(url||''));
+  }
+
+  // Build list of streams the dashboard "wants" the bridge to have
+  function _hnxBuildDesiredStreams(){
+    const c = (typeof hnxLoadDvrConfig === 'function') ? hnxLoadDvrConfig() : null;
+    if(!c || !c.devices) return [];
+    const out = [];
+    c.devices.forEach(d => {
+      if(!d.enabled || !d.ip) return;
+      const channels = parseInt(d.channels,10) || 0;
+      const slug = (d.streamPrefix||'cam').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+      for(let ch=1; ch<=channels; ch++){
+        const id = slug + '-ch' + ch;
+        const rtsp = (typeof _hnxResolveRtspUrl === 'function') ? _hnxResolveRtspUrl(d, ch) : '';
+        out.push({ id, rtsp, dvr: d.name });
+      }
+    });
+    return out;
+  }
+
+  // Ping the bridge · updates status cache · returns true if reachable
+  window._hnxBridgePing = async function(silent){
+    const base = _hnxBridgeBaseUrl();
+    if(!base){
+      window._hnxBridgeStatus = { reachable:false, lastCheck:Date.now(), error:'No bridge IP configured', streams:[] };
+      _hnxRefreshBridgeIndicator();
+      return false;
+    }
+    if(_hnxIsMixedBlocked(base)){
+      window._hnxBridgeStatus = { reachable:false, lastCheck:Date.now(), error:'mixed-content', streams:[] };
+      if(!silent && typeof toast === 'function') toast('⚠ Mixed content blocked · click bridge status for fix', 'crit');
+      _hnxRefreshBridgeIndicator();
+      return false;
+    }
+    try{
+      const r = await fetch(base + '/api/streams', { method:'GET', signal: AbortSignal.timeout(5000) });
+      if(!r.ok){
+        window._hnxBridgeStatus = { reachable:false, lastCheck:Date.now(), error:'HTTP '+r.status, streams:[] };
+        _hnxRefreshBridgeIndicator();
+        return false;
+      }
+      const data = await r.json();
+      const ids = Object.keys(data||{});
+      window._hnxBridgeStatus = { reachable:true, lastCheck:Date.now(), error:null, streams:ids, raw:data };
+      _hnxRefreshBridgeIndicator();
+      return true;
+    }catch(e){
+      window._hnxBridgeStatus = { reachable:false, lastCheck:Date.now(), error:(e.message||String(e)), streams:[] };
+      _hnxRefreshBridgeIndicator();
+      return false;
+    }
+  };
+
+  function _hnxRefreshBridgeIndicator(){
+    document.querySelectorAll('.hnx-bridge-status-ind').forEach(el => {
+      const s = window._hnxBridgeStatus;
+      if(s.reachable === null) el.innerHTML = '<span style="color:#6a8ea3">○ checking…</span>';
+      else if(s.reachable) el.innerHTML = '<span style="color:#80e885">● bridge online · ' + s.streams.length + ' stream' + (s.streams.length===1?'':'s') + '</span>';
+      else if(s.error === 'mixed-content') el.innerHTML = '<span style="color:#ff7a78;cursor:pointer;text-decoration:underline" onclick="window._hnxOpenMixedContentHelp&&window._hnxOpenMixedContentHelp()">🔒 mixed-content blocked · click for fix</span>';
+      else el.innerHTML = '<span style="color:#ff7a78" title="' + escAttr(s.error||'') + '">✗ unreachable · ' + escHtml((s.error||'').slice(0,40)) + '</span>';
+    });
+  }
+
+  // ========== ⚡ PUSH streams to bridge via PUT /api/streams ==========
+  window._hnxBridgePush = async function(opts){
+    opts = opts || {};
+    const base = _hnxBridgeBaseUrl();
+    if(!base){ alert('Configure bridge IP first (top of DVR Setup tab)'); return { pushed:0, failed:0 }; }
+    if(_hnxIsMixedBlocked(base)){
+      window._hnxOpenMixedContentHelp && window._hnxOpenMixedContentHelp();
+      return { pushed:0, failed:0, mixedContent:true };
+    }
+    const streams = _hnxBuildDesiredStreams();
+    if(streams.length === 0){
+      if(!opts.silent) alert('No enabled DVR streams to push. Add a DVR first.');
+      return { pushed:0, failed:0 };
+    }
+    if(!opts.silent){
+      const summary = streams.slice(0,5).map(s => '• '+s.id+' → '+s.dvr).join('\n');
+      const more = streams.length > 5 ? '\n... +'+(streams.length-5)+' more' : '';
+      if(!confirm('Push ' + streams.length + ' stream(s) to bridge at ' + base + '?\n\n' + summary + more + '\n\ngo2rtc will add each stream LIVE — no yaml edit, no restart.\n\nRequires go2rtc.yaml to have:\n  api:\n    origin: "*"\n  (CORS enabled)')) return { pushed:0, failed:0 };
+    }
+
+    // Progress dialog
+    let dlg = null;
+    if(!opts.silent){
+      dlg = document.createElement('div');
+      dlg.id = 'hnxPushDlg';
+      dlg.className = 'hnx-url-modal';
+      dlg.innerHTML = `
+        <div class="hnx-url-modal-inner" style="max-width:680px">
+          <div class="hnx-url-modal-h"><span>⚡ Pushing streams to bridge…</span><div style="flex:1"></div><button class="hnx-btn hnx-btn-ghost" onclick="document.getElementById('hnxPushDlg').remove()" style="padding:4px 8px;font-size:11px">✕</button></div>
+          <div id="hnxPushBody" style="padding:14px 4px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5d6e6;line-height:1.7;max-height:60vh;overflow:auto"></div>
+        </div>
+        <div class="hnx-url-modal-bg"></div>
+      `;
+      document.body.appendChild(dlg);
+    }
+    const log = (msg, color) => {
+      if(opts.silent) return;
+      const b = document.getElementById('hnxPushBody');
+      if(b) b.innerHTML += '<div style="color:' + (color||'#a5d6e6') + '">' + msg + '</div>';
+    };
+
+    let pushed = 0, failed = 0;
+    const errors = [];
+    for(const s of streams){
+      try{
+        const url = base + '/api/streams?name=' + encodeURIComponent(s.id) + '&src=' + encodeURIComponent(s.rtsp);
+        const r = await fetch(url, { method:'PUT', signal: AbortSignal.timeout(10000) });
+        if(r.ok){ pushed++; log('✓ ' + s.id + ' added', '#80e885'); }
+        else { failed++; errors.push(s.id + ': HTTP ' + r.status); log('✗ ' + s.id + ' · HTTP ' + r.status, '#ff7a78'); }
+      }catch(e){
+        failed++; errors.push(s.id + ': ' + (e.message||e)); log('✗ ' + s.id + ' · ' + (e.message||e), '#ff7a78');
+      }
+    }
+    log('───', '#3b5d72');
+    if(pushed > 0){
+      log('✓ Done · ' + pushed + ' stream(s) pushed' + (failed ? ' · ' + failed + ' failed' : ''), failed ? '#ffca52' : '#80e885');
+      if(typeof toast === 'function' && !opts.silent) toast('⚡ Pushed '+pushed+' stream(s)'+(failed?' · '+failed+' failed':''));
+    } else if(!opts.silent){
+      log('Failed to push any streams.', '#ff7a78');
+      log('Common causes:', '#ffca52');
+      log('  • go2rtc.yaml missing CORS · add api: { origin: "*" }', '#a5d6e6');
+      log('  • Bridge offline · check go2rtc.exe is running', '#a5d6e6');
+      log('  • Mixed content · enable TLS on go2rtc', '#a5d6e6');
+    }
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('bridge_push', 'Pushed '+pushed+'/'+streams.length+' streams'+(failed?' · '+failed+' failed':''));
+    setTimeout(() => window._hnxBridgePing(true), 800);
+    return { pushed, failed, errors };
+  };
+
+  // ========== 🔄 SYNC · push desired + remove streams not in desired ==========
+  window._hnxBridgeSync = async function(){
+    const base = _hnxBridgeBaseUrl();
+    if(!base){ alert('Configure bridge IP first'); return; }
+    if(_hnxIsMixedBlocked(base)){ window._hnxOpenMixedContentHelp && window._hnxOpenMixedContentHelp(); return; }
+    const desired = _hnxBuildDesiredStreams();
+    const desiredIds = new Set(desired.map(s => s.id));
+    let current = [];
+    try{
+      const r = await fetch(base + '/api/streams', { signal: AbortSignal.timeout(5000) });
+      current = Object.keys(await r.json()||{});
+    }catch(e){ alert('Cannot reach bridge: '+(e.message||e)); return; }
+    const toDelete = current.filter(id => !desiredIds.has(id));
+    if(!confirm('SYNC bridge with dashboard config:\n\n• Push/update: ' + desired.length + '\n• Delete from bridge: ' + toDelete.length + (toDelete.length?' ('+toDelete.slice(0,5).join(', ')+(toDelete.length>5?'…':'')+')':'') + '\n\nProceed?')) return;
+    // Delete stale
+    for(const id of toDelete){
+      try{ await fetch(base + '/api/streams?src=' + encodeURIComponent(id), { method:'DELETE' }); }catch(e){}
+    }
+    // Push desired
+    const result = await window._hnxBridgePush({ silent: true });
+    if(typeof toast === 'function') toast('🔄 Sync done · pushed '+result.pushed+' · removed '+toDelete.length);
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('bridge_sync', 'Sync · pushed '+result.pushed+' · removed '+toDelete.length);
+    setTimeout(() => window._hnxBridgePing(true), 500);
+  };
+
+  // ========== 🔄 RESTART bridge ==========
+  window._hnxBridgeRestart = async function(){
+    if(!confirm('Restart go2rtc bridge?\n\nThis briefly interrupts all live streams (~3 seconds).')) return;
+    const base = _hnxBridgeBaseUrl();
+    if(!base){ alert('Configure bridge IP first'); return; }
+    try{
+      await fetch(base + '/api/restart', { method:'POST', signal: AbortSignal.timeout(5000) });
+      if(typeof toast === 'function') toast('🔄 Restart sent · waiting 3s…');
+      setTimeout(() => window._hnxBridgePing(false), 3500);
+    }catch(e){
+      if(typeof toast === 'function') toast('✗ Restart failed: '+(e.message||e), 'crit');
+    }
+  };
+
+  // ========== 🗑 CLEAR all bridge streams ==========
+  window._hnxBridgeClearAll = async function(){
+    const base = _hnxBridgeBaseUrl();
+    if(!base){ alert('Configure bridge IP first'); return; }
+    if(!confirm('DELETE all streams currently on the bridge?\n\nThis does NOT affect dashboard config · re-push afterward to restore.')) return;
+    try{
+      const r = await fetch(base + '/api/streams');
+      const current = Object.keys(await r.json()||{});
+      for(const id of current){
+        await fetch(base + '/api/streams?src=' + encodeURIComponent(id), { method:'DELETE' });
+      }
+      if(typeof toast === 'function') toast('🗑 Bridge cleared · '+current.length+' stream(s) deleted');
+      setTimeout(() => window._hnxBridgePing(true), 500);
+    }catch(e){
+      if(typeof toast === 'function') toast('✗ Clear failed: '+(e.message||e), 'crit');
+    }
+  };
+
+  // ==================================================================
+  // 🧙 SETUP WIZARD · end-to-end guided setup
+  // ==================================================================
+  window._hnxOpenWizard = function(){
+    const prior = document.getElementById('hnxWizDlg'); if(prior) prior.remove();
+    if(!window._hnxWizState) window._hnxWizState = { step:1 };
+    const dlg = document.createElement('div');
+    dlg.id = 'hnxWizDlg';
+    dlg.className = 'hnx-url-modal';
+    dlg.innerHTML = `
+      <div class="hnx-url-modal-inner" style="max-width:820px;max-height:90vh;display:flex;flex-direction:column">
+        <div class="hnx-url-modal-h" style="flex-shrink:0">
+          <span style="font-family:Orbitron,sans-serif;font-weight:800;letter-spacing:.06em">🧙 CAMERA SYSTEM SETUP WIZARD</span>
+          <div style="flex:1"></div>
+          <button class="hnx-btn hnx-btn-ghost" onclick="document.getElementById('hnxWizDlg').remove()" style="padding:4px 10px;font-size:11px">✕ Close</button>
+        </div>
+        <div id="hnxWizSteps" style="display:flex;gap:0;padding:14px 16px 0;flex-shrink:0;border-bottom:1px solid rgba(77,208,225,.15)"></div>
+        <div id="hnxWizBody" style="padding:18px 22px;overflow:auto;flex:1"></div>
+        <div id="hnxWizFoot" style="padding:12px 16px;border-top:1px solid rgba(77,208,225,.15);display:flex;gap:8px;align-items:center;flex-shrink:0"></div>
+      </div>
+      <div class="hnx-url-modal-bg" onclick="document.getElementById('hnxWizDlg').remove()"></div>
+    `;
+    document.body.appendChild(dlg);
+    _hnxWizRender();
+  };
+  function _hnxWizRender(){
+    const st = window._hnxWizState || (window._hnxWizState = { step:1 });
+    const steps = [
+      { n:1, label:'Bridge', icon:'🌉' },
+      { n:2, label:'DVR', icon:'📹' },
+      { n:3, label:'Mapping', icon:'🎯' },
+      { n:4, label:'Push', icon:'⚡' },
+      { n:5, label:'Verify', icon:'✓' }
+    ];
+    const nav = document.getElementById('hnxWizSteps');
+    if(nav) nav.innerHTML = steps.map(s => {
+      const on = s.n === st.step;
+      const done = s.n < st.step;
+      return `<div style="flex:1;padding:8px 10px;text-align:center;border-bottom:3px solid ${on?'#80e885':(done?'rgba(102,187,106,.40)':'rgba(77,208,225,.20)')};font-family:'JetBrains Mono',monospace;font-size:11px;color:${on?'#80e885':(done?'#80deea':'#6a8ea3')};font-weight:${on?700:400};letter-spacing:.06em">${done?'✓':s.icon} ${s.n}. ${s.label}</div>`;
+    }).join('');
+
+    const body = document.getElementById('hnxWizBody');
+    const foot = document.getElementById('hnxWizFoot');
+    if(!body || !foot) return;
+
+    if(st.step === 1) _hnxWizStep1(body, foot);
+    else if(st.step === 2) _hnxWizStep2(body, foot);
+    else if(st.step === 3) _hnxWizStep3(body, foot);
+    else if(st.step === 4) _hnxWizStep4(body, foot);
+    else if(st.step === 5) _hnxWizStep5(body, foot);
+  }
+  function _hnxWizFoot(foot, html){ foot.innerHTML = html; }
+  function _hnxWizGoto(n){ window._hnxWizState.step = n; _hnxWizRender(); }
+  window._hnxWizGoto = _hnxWizGoto;
+
+  // STEP 1 · BRIDGE
+  function _hnxWizStep1(body, foot){
+    const cfg = hnxLoadDvrConfig();
+    body.innerHTML = `
+      <h2 style="font-family:Orbitron,sans-serif;font-weight:800;color:#80e885;font-size:16px;letter-spacing:.06em;margin:0 0 8px">🌉 Step 1 · go2rtc Bridge Server</h2>
+      <p style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5d6e6;line-height:1.7;margin:0 0 14px">First, where is your go2rtc bridge running? It's the small program on a Windows/Pi/Linux box in your LAN that translates DVR RTSP streams to HLS for the dashboard.</p>
+
+      <div style="background:rgba(255,202,82,.10);border:1px solid rgba(255,202,82,.30);border-radius:5px;padding:10px 12px;margin-bottom:14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#ffca52;line-height:1.6">
+        <b>⚠ Bridge IP is NOT <code style="color:#fff">localhost</code></b><br>
+        <code style="color:#fff">localhost</code> only works when viewing the dashboard from the same machine that runs go2rtc. For your phone, tablet, or other PCs to view CCTV, use the <b>actual LAN IP</b> of the bridge machine.<br>
+        <span style="color:#a5d6e6;font-size:10px">▸ On Windows: open Command Prompt → type <code style="color:#80deea">ipconfig</code> → look for "IPv4 Address" under your active network adapter (usually <code style="color:#80deea">192.168.x.x</code>)</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;align-items:end;margin-bottom:14px">
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Bridge IP (LAN address of go2rtc machine)</span><input type="text" id="hnxWizIp" class="hnx-cell" value="${escHtml(cfg.bridgeIp||'')}" placeholder="192.168.1.50" style="padding:8px;font-size:13px;font-family:'JetBrains Mono',monospace"></label>
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Port</span><input type="number" id="hnxWizPort" class="hnx-cell" value="${cfg.bridgePort||1984}" style="padding:8px;font-size:13px;font-family:'JetBrains Mono',monospace"></label>
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Protocol</span><select id="hnxWizProto" class="hnx-cell" style="padding:8px;font-size:11px"><option value="http" ${cfg.bridgeProtocol!=='https'?'selected':''}>http</option><option value="https" ${cfg.bridgeProtocol==='https'?'selected':''}>https (TLS)</option></select></label>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+        <button class="hnx-btn hnx-btn-c" onclick="window._hnxWizTestBridge && window._hnxWizTestBridge()" style="padding:8px 16px;font-size:12px">🔌 Test connection</button>
+        <span id="hnxWizBridgeResult" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#6a8ea3">▸ Click Test to verify connectivity</span>
+      </div>
+
+      <details style="margin-top:14px"><summary style="cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:11px;color:#80deea">❔ go2rtc not installed yet?</summary>
+      <div style="padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#a5d6e6;line-height:1.7">
+        <b>Windows:</b> Download <a href="https://github.com/AlexxIT/go2rtc/releases" target="_blank" style="color:#80deea">go2rtc_win64.zip</a> → extract → run <code style="color:#84fff9">go2rtc.exe</code> → it serves the web UI at <code style="color:#84fff9">http://localhost:1984</code>. Then find the machine's LAN IP with <code style="color:#84fff9">ipconfig</code>.<br>
+        <b>Raspberry Pi / Linux:</b> <code style="color:#84fff9">curl -L go2rtc.io | bash</code> → <code style="color:#84fff9">go2rtc</code><br>
+        <b>Important:</b> add this to <code style="color:#84fff9">go2rtc.yaml</code> for the dashboard to push streams: <pre style="color:#84fff9;background:rgba(0,0,0,.4);padding:8px;border-radius:3px">api:
+  origin: "*"</pre>
+      </div></details>
+    `;
+    _hnxWizFoot(foot, `
+      <div style="flex:1;color:#6a8ea3;font-family:'JetBrains Mono',monospace;font-size:10.5px">Step 1 of 5 · Bridge connection</div>
+      <button class="hnx-btn hnx-btn-g" onclick="window._hnxWizSaveBridgeNext && window._hnxWizSaveBridgeNext()" style="padding:8px 18px;font-size:12px">Save & Next →</button>
+    `);
+  }
+  window._hnxWizTestBridge = async function(){
+    const ip = (document.getElementById('hnxWizIp')||{}).value.trim();
+    const port = (document.getElementById('hnxWizPort')||{}).value || 1984;
+    const proto = (document.getElementById('hnxWizProto')||{}).value || 'http';
+    const result = document.getElementById('hnxWizBridgeResult');
+    if(!ip){ if(result) result.innerHTML = '<span style="color:#ff7a78">Enter the IP first</span>'; return; }
+    const base = proto+'://'+ip+':'+port;
+    if(result) result.innerHTML = '<span style="color:#80deea">○ pinging ' + base + ' …</span>';
+    if(_hnxIsMixedBlocked(base)){
+      if(result) result.innerHTML = '<span style="color:#ff7a78;cursor:pointer;text-decoration:underline" onclick="window._hnxOpenMixedContentHelp&&window._hnxOpenMixedContentHelp()">🔒 mixed-content blocked · dashboard is HTTPS but bridge is HTTP · click for 4 fixes</span>';
+      return;
+    }
+    try{
+      const r = await fetch(base + '/api/streams', { method:'GET', signal: AbortSignal.timeout(5000) });
+      if(!r.ok){ if(result) result.innerHTML = '<span style="color:#ff7a78">✗ HTTP ' + r.status + '</span>'; return; }
+      const data = await r.json();
+      const ids = Object.keys(data||{});
+      if(result) result.innerHTML = '<span style="color:#80e885">✓ Bridge online · ' + ids.length + ' stream(s) currently configured</span>';
+    }catch(e){
+      if(result) result.innerHTML = '<span style="color:#ff7a78">✗ Unreachable: ' + escHtml(e.message||String(e)) + '</span>';
+    }
+  };
+  window._hnxWizSaveBridgeNext = function(){
+    const c = hnxLoadDvrConfig();
+    c.bridgeIp = (document.getElementById('hnxWizIp')||{}).value.trim();
+    c.bridgePort = parseInt((document.getElementById('hnxWizPort')||{}).value, 10) || 1984;
+    c.bridgeProtocol = (document.getElementById('hnxWizProto')||{}).value || 'http';
+    if(!c.bridgeIp){ alert('Enter the bridge IP first'); return; }
+    hnxSaveDvrConfig(c);
+    if(typeof toast === 'function') toast('💾 Bridge saved · '+c.bridgeProtocol+'://'+c.bridgeIp+':'+c.bridgePort);
+    _hnxWizGoto(2);
+  };
+
+  // STEP 2 · DVR
+  function _hnxWizStep2(body, foot){
+    const cfg = hnxLoadDvrConfig();
+    const st = window._hnxWizState;
+    // Default to a draft DVR for editing
+    if(!st.dvrDraft){
+      st.dvrDraft = cfg.devices[0] ? {...cfg.devices[0]} : { name:'Main NVR', manufacturer:'hikvision', ip:'192.168.1.108', port:554, username:'admin', password:'', channels:16, streamPrefix:'cam', enabled:true };
+    }
+    const d = st.dvrDraft;
+    body.innerHTML = `
+      <h2 style="font-family:Orbitron,sans-serif;font-weight:800;color:#80e885;font-size:16px;letter-spacing:.06em;margin:0 0 8px">📹 Step 2 · DVR/NVR Details</h2>
+      <p style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5d6e6;line-height:1.7;margin:0 0 14px">Enter the physical specs of your DVR/NVR. ${cfg.devices.length>0?'Existing DVRs: '+cfg.devices.length+' configured.':'This is the only step I cannot do for you — I need your actual DVR IP and credentials.'}</p>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px">
+        <label style="display:flex;flex-direction:column;gap:4px;grid-column:span 2"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Name</span><input type="text" id="hnxWizDvrName" class="hnx-cell" value="${escHtml(d.name||'')}" placeholder="Main NVR · GH1+GH2" style="padding:8px;font-size:12px"></label>
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Brand</span><select id="hnxWizDvrMfg" class="hnx-cell" style="padding:8px;font-size:11px">${(typeof HNX_MANUFACTURERS!=='undefined'?HNX_MANUFACTURERS:[]).map(m => `<option value="${m.id}" ${d.manufacturer===m.id?'selected':''}>${escHtml(m.name)}</option>`).join('')}</select></label>
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Channels</span><input type="number" id="hnxWizDvrCh" class="hnx-cell" value="${d.channels||16}" min="1" max="64" style="padding:8px;font-size:12px"></label>
+        <label style="display:flex;flex-direction:column;gap:4px;grid-column:span 2"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">IP address *</span><input type="text" id="hnxWizDvrIp" class="hnx-cell" value="${escHtml(d.ip||'')}" placeholder="192.168.1.108" style="padding:8px;font-size:13px;font-family:'JetBrains Mono',monospace"></label>
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">RTSP port</span><input type="number" id="hnxWizDvrPort" class="hnx-cell" value="${d.port||554}" style="padding:8px;font-size:12px"></label>
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Stream prefix</span><input type="text" id="hnxWizDvrPrefix" class="hnx-cell" value="${escHtml(d.streamPrefix||'cam')}" style="padding:8px;font-size:11px;font-family:'JetBrains Mono',monospace"></label>
+        <label style="display:flex;flex-direction:column;gap:4px;grid-column:span 2"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Username</span><input type="text" id="hnxWizDvrUser" class="hnx-cell" value="${escHtml(d.username||'admin')}" style="padding:8px;font-size:12px"></label>
+        <label style="display:flex;flex-direction:column;gap:4px;grid-column:span 2"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em">Password 🔒 <span style="color:#ffca52">(local only · never synced)</span></span><input type="password" id="hnxWizDvrPass" class="hnx-cell" value="${escHtml(d.password||'')}" autocomplete="new-password" style="padding:8px;font-size:12px"></label>
+      </div>
+
+      <div style="background:rgba(2,18,28,.5);border:1px solid rgba(77,208,225,.18);border-radius:5px;padding:9px 11px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.04em;line-height:1.5"><b style="color:#80e885">Preview ch 1 RTSP URL:</b> <span id="hnxWizPreviewUrl" style="color:#84fff9;word-break:break-all">${escHtml((typeof _hnxResolveRtspUrl==='function')?_hnxResolveRtspUrl(d, 1):'')}</span></div>
+    `;
+    _hnxWizFoot(foot, `
+      <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxWizGoto && window._hnxWizGoto(1)" style="padding:8px 14px;font-size:12px">← Back</button>
+      <div style="flex:1;color:#6a8ea3;font-family:'JetBrains Mono',monospace;font-size:10.5px;text-align:center">Step 2 of 5 · DVR details</div>
+      <button class="hnx-btn hnx-btn-g" onclick="window._hnxWizSaveDvrNext && window._hnxWizSaveDvrNext()" style="padding:8px 18px;font-size:12px">Save DVR & Next →</button>
+    `);
+  }
+  window._hnxWizSaveDvrNext = function(){
+    const st = window._hnxWizState;
+    const draft = st.dvrDraft;
+    draft.name = (document.getElementById('hnxWizDvrName')||{}).value || 'Unnamed DVR';
+    draft.manufacturer = (document.getElementById('hnxWizDvrMfg')||{}).value || 'hikvision';
+    draft.ip = (document.getElementById('hnxWizDvrIp')||{}).value.trim();
+    draft.port = parseInt((document.getElementById('hnxWizDvrPort')||{}).value, 10) || 554;
+    draft.username = (document.getElementById('hnxWizDvrUser')||{}).value || 'admin';
+    draft.password = (document.getElementById('hnxWizDvrPass')||{}).value || '';
+    draft.channels = parseInt((document.getElementById('hnxWizDvrCh')||{}).value, 10) || 16;
+    draft.streamPrefix = (document.getElementById('hnxWizDvrPrefix')||{}).value || 'cam';
+    draft.enabled = true;
+    draft.rtspTemplate = (typeof HNX_RTSP_TEMPLATES!=='undefined') ? HNX_RTSP_TEMPLATES[draft.manufacturer] : '';
+    if(!draft.ip){ alert('IP required'); return; }
+    // Save it
+    const c = hnxLoadDvrConfig();
+    if(!draft.id) draft.id = 'dvr_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+    const idx = c.devices.findIndex(x => x.id === draft.id);
+    if(idx >= 0) c.devices[idx] = draft; else c.devices.push(draft);
+    hnxSaveDvrConfig(c);
+    if(typeof toast === 'function') toast('✓ DVR saved · '+draft.name);
+    _hnxWizGoto(3);
+  };
+
+  // STEP 3 · MAPPING
+  function _hnxWizStep3(body, foot){
+    const st = window._hnxWizState;
+    const d = st.dvrDraft;
+    if(!st.channelMap) st.channelMap = {};
+    const channels = parseInt(d.channels,10) || 0;
+    body.innerHTML = `
+      <h2 style="font-family:Orbitron,sans-serif;font-weight:800;color:#80e885;font-size:16px;letter-spacing:.06em;margin:0 0 8px">🎯 Step 3 · Channel → Greenhouse Mapping</h2>
+      <p style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5d6e6;line-height:1.7;margin:0 0 14px">Tell the system where each of <b style="color:#80e885">${d.name}'s ${channels} channel(s)</b> physically is. Use Auto-distribute for the common case, then fine-tune any non-sequential ones.</p>
+
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:rgba(2,18,28,.5);border:1px solid rgba(255,202,82,.25);border-radius:5px;padding:10px 12px;margin-bottom:14px">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#ffca52;letter-spacing:.08em">⚡ AUTO-DISTRIBUTE</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#a5d6e6">starting at</span>
+        <select id="hnxWizAutoArea" class="hnx-cell" style="padding:6px 8px;font-size:11px;font-family:'JetBrains Mono',monospace">
+          ${(typeof HNX_AREAS!=='undefined'?HNX_AREAS:[]).map(a => `<option value="${a.id}">${escHtml(a.id)}</option>`).join('')}
+        </select>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#a5d6e6">slot</span>
+        <select id="hnxWizAutoSlot" class="hnx-cell" style="padding:6px 8px;font-size:11px;font-family:'JetBrains Mono',monospace">${[1,2,3,4,5,6,7,8,9].map(n => `<option value="${n}">${n}</option>`).join('')}</select>
+        <button type="button" class="hnx-btn hnx-btn-c" onclick="window._hnxWizAutoFill && window._hnxWizAutoFill()" style="padding:6px 12px;font-size:11px">⚡ Fill ${channels} channels</button>
+      </div>
+
+      <div id="hnxWizChRows" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;max-height:340px;overflow:auto;padding:4px">
+        ${(() => {
+          const rows = [];
+          for(let ch=1; ch<=channels; ch++){
+            const m = st.channelMap[ch] || {};
+            rows.push(`<div style="display:flex;gap:6px;align-items:center;padding:6px 8px;background:rgba(2,18,28,.45);border:1px solid ${m.area?'rgba(102,187,106,.30)':'rgba(77,208,225,.18)'};border-radius:4px">
+              <span style="font-family:Orbitron,sans-serif;font-weight:800;font-size:11px;color:${m.area?'#80e885':'#80deea'};letter-spacing:.04em;min-width:40px">CH ${ch}</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#6a8ea3">→</span>
+              <select class="hnx-cell hnx-wiz-ch-area" data-ch="${ch}" style="padding:5px 7px;font-size:10.5px;font-family:'JetBrains Mono',monospace;flex:1">
+                <option value="">— Unassigned —</option>
+                ${(typeof HNX_AREAS!=='undefined'?HNX_AREAS:[]).map(a => `<option value="${a.id}" ${m.area===a.id?'selected':''}>${escHtml(a.id)}</option>`).join('')}
+              </select>
+              <select class="hnx-cell hnx-wiz-ch-slot" data-ch="${ch}" style="padding:5px 7px;font-size:10.5px;font-family:'JetBrains Mono',monospace;width:80px">
+                ${[1,2,3,4,5,6,7,8,9].map(n => `<option value="${n}" ${m.slot===n?'selected':''}>slot ${n}</option>`).join('')}
+              </select>
+            </div>`);
+          }
+          return rows.join('');
+        })()}
+      </div>
+      <div id="hnxWizMapSum" style="margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.04em"></div>
+    `;
+    _hnxWizFoot(foot, `
+      <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxWizGoto && window._hnxWizGoto(2)" style="padding:8px 14px;font-size:12px">← Back</button>
+      <div style="flex:1;color:#6a8ea3;font-family:'JetBrains Mono',monospace;font-size:10.5px;text-align:center">Step 3 of 5 · Channel mapping</div>
+      <button class="hnx-btn hnx-btn-g" onclick="window._hnxWizSaveMappingNext && window._hnxWizSaveMappingNext()" style="padding:8px 18px;font-size:12px">Save mapping & Next →</button>
+    `);
+    setTimeout(_hnxWizUpdateMapSum, 50);
+    document.addEventListener('change', _hnxWizUpdateMapSum);
+  }
+  function _hnxWizUpdateMapSum(){
+    const sums = {};
+    document.querySelectorAll('.hnx-wiz-ch-area').forEach(sel => { if(sel.value){ sums[sel.value] = (sums[sel.value]||0) + 1; } });
+    const total = Object.values(sums).reduce((a,b)=>a+b,0);
+    const el = document.getElementById('hnxWizMapSum');
+    if(el){
+      const parts = Object.entries(sums).map(([a,n]) => '<span style="color:#80e885">'+a+'</span> ('+n+')').join(' · ');
+      el.innerHTML = total === 0 ? '<span style="color:#ffca52">⚠ No channels mapped · pick areas or use Auto-distribute above</span>' : '▸ ' + total + ' channel(s) → ' + parts;
+    }
+  }
+  window._hnxWizAutoFill = function(){
+    const st = window._hnxWizState;
+    const startArea = (document.getElementById('hnxWizAutoArea')||{}).value;
+    const startSlot = parseInt((document.getElementById('hnxWizAutoSlot')||{}).value, 10) || 1;
+    if(typeof HNX_AREAS === 'undefined') return;
+    const startIdx = HNX_AREAS.findIndex(a => a.id === startArea);
+    if(startIdx === -1) return;
+    const channels = parseInt(st.dvrDraft.channels, 10) || 0;
+    const positions = [];
+    for(let ai = startIdx; ai < HNX_AREAS.length && positions.length < channels; ai++){
+      const aId = HNX_AREAS[ai].id;
+      const slotStart = (ai === startIdx) ? startSlot : 1;
+      for(let s = slotStart; s <= 9 && positions.length < channels; s++) positions.push({ area: aId, slot: s });
+    }
+    document.querySelectorAll('.hnx-wiz-ch-area').forEach((sel, i) => {
+      const slotSel = document.querySelector('.hnx-wiz-ch-slot[data-ch="'+sel.dataset.ch+'"]');
+      const pos = positions[i];
+      if(pos){ sel.value = pos.area; if(slotSel) slotSel.value = String(pos.slot); sel.parentElement.style.borderColor = 'rgba(102,187,106,.50)'; }
+    });
+    _hnxWizUpdateMapSum();
+    if(typeof toast === 'function') toast('⚡ Auto-distributed '+positions.length+' channel(s)');
+  };
+  window._hnxWizSaveMappingNext = function(){
+    const st = window._hnxWizState;
+    st.channelMap = {};
+    document.querySelectorAll('.hnx-wiz-ch-area').forEach(sel => {
+      const ch = parseInt(sel.dataset.ch, 10);
+      const area = sel.value;
+      const slotSel = document.querySelector('.hnx-wiz-ch-slot[data-ch="'+ch+'"]');
+      const slot = slotSel ? parseInt(slotSel.value,10) : 1;
+      if(area) st.channelMap[ch] = { area, slot };
+    });
+    // Apply mapping to the camera grid + camera_streams + dvr.channelMap
+    const c = hnxLoadDvrConfig();
+    const dvrIdx = c.devices.findIndex(x => x.id === st.dvrDraft.id);
+    if(dvrIdx >= 0) c.devices[dvrIdx].channelMap = st.channelMap;
+    hnxSaveDvrConfig(c);
+    const slug = (st.dvrDraft.streamPrefix||'cam').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+    const cams = _hnxLoad('hydroPro_camera_streams', {}) || {};
+    const grid = (typeof hnxLoadCctvGrid === 'function') ? hnxLoadCctvGrid() : {};
+    let applied = 0;
+    Object.entries(st.channelMap).forEach(([ch, m]) => {
+      const sid = slug + '-ch' + ch;
+      if(typeof hnxBridgeStreamUrl === 'function') cams[sid] = hnxBridgeStreamUrl(sid);
+      if(!grid[m.area]) grid[m.area] = { slot1:null, slot2:null, slot3:null, slot4:null, slot5:null, slot6:null, slot7:null, slot8:null, slot9:null };
+      grid[m.area]['slot'+m.slot] = sid;
+      applied++;
+    });
+    if(typeof hnxSaveCctvGrid === 'function') hnxSaveCctvGrid(grid);
+    _hnxSave('hydroPro_camera_streams', cams);
+    if(typeof toast === 'function') toast('✓ Mapping saved · '+applied+' camera(s) placed');
+    _hnxWizGoto(4);
+  };
+
+  // STEP 4 · PUSH
+  function _hnxWizStep4(body, foot){
+    body.innerHTML = `
+      <h2 style="font-family:Orbitron,sans-serif;font-weight:800;color:#80e885;font-size:16px;letter-spacing:.06em;margin:0 0 8px">⚡ Step 4 · Push streams to bridge</h2>
+      <p style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5d6e6;line-height:1.7;margin:0 0 14px">This sends each stream's RTSP URL directly to go2rtc via its HTTP API. <b style="color:#80e885">No yaml editing. No restart. No Notepad.</b> Streams go live instantly.</p>
+
+      <div style="background:rgba(255,202,82,.10);border:1px solid rgba(255,202,82,.30);border-radius:5px;padding:10px 12px;margin-bottom:14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#ffca52;line-height:1.6">
+        <b>⚠ Prerequisite:</b> your <code style="color:#fff">go2rtc.yaml</code> must have CORS enabled, otherwise the browser can't push:<br>
+        <pre style="color:#84fff9;background:rgba(0,0,0,.4);padding:8px;border-radius:3px;margin:6px 0">api:
+  origin: "*"</pre>
+        <span style="color:#a5d6e6;font-size:10px">If you set this, restart go2rtc once. After that, all future pushes are live-applied automatically.</span>
+      </div>
+
+      <div style="background:rgba(2,18,28,.55);border:1px solid rgba(77,208,225,.20);border-radius:5px;padding:14px;margin-bottom:14px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#80deea;letter-spacing:.08em;margin-bottom:8px">READY TO PUSH</div>
+        <div id="hnxWizReady" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#e6f7fb;line-height:1.7"></div>
+      </div>
+
+      <div id="hnxWizPushLog" style="display:none;background:rgba(2,8,18,.7);border:1px solid rgba(77,208,225,.20);border-radius:5px;padding:14px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#a5d6e6;line-height:1.6;max-height:280px;overflow:auto"></div>
+    `;
+    _hnxWizFoot(foot, `
+      <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxWizGoto && window._hnxWizGoto(3)" style="padding:8px 14px;font-size:12px">← Back</button>
+      <div style="flex:1;color:#6a8ea3;font-family:'JetBrains Mono',monospace;font-size:10.5px;text-align:center">Step 4 of 5 · Push to bridge</div>
+      <button class="hnx-btn hnx-btn-g" onclick="window._hnxWizDoPush && window._hnxWizDoPush()" style="padding:8px 18px;font-size:12px">⚡ Push now →</button>
+    `);
+    // Populate ready summary
+    const streams = _hnxBuildDesiredStreams();
+    const ready = document.getElementById('hnxWizReady');
+    if(ready){
+      const base = _hnxBridgeBaseUrl();
+      const blockedFlag = _hnxIsMixedBlocked(base) ? '<div style="color:#ff7a78;margin-top:8px"><b>🔒 WARNING:</b> Mixed content detected · bridge is HTTP but dashboard is HTTPS · push will fail unless you enable TLS on go2rtc (Bridge config in Step 1) or use Tailscale.</div>' : '';
+      ready.innerHTML = `
+        ▸ Target bridge: <span style="color:#84fff9">${base}</span><br>
+        ▸ Streams to push: <span style="color:#80e885">${streams.length}</span><br>
+        ▸ Method: PUT /api/streams (live add · no restart)
+        ${blockedFlag}
+      `;
+    }
+  }
+  window._hnxWizDoPush = async function(){
+    const logEl = document.getElementById('hnxWizPushLog');
+    if(logEl){ logEl.style.display = 'block'; logEl.innerHTML = '<div style="color:#80deea">▸ Pushing…</div>'; }
+    const result = await window._hnxBridgePush({ silent: true });
+    if(logEl){
+      let html = '<div style="color:'+(result.pushed > 0 ? '#80e885' : '#ff7a78')+'">'+(result.pushed > 0 ? '✓' : '✗') + ' Pushed ' + result.pushed + ' stream(s)' + (result.failed ? ' · ' + result.failed + ' failed' : '') + '</div>';
+      if(result.errors && result.errors.length){
+        html += '<div style="color:#ffca52;margin-top:8px"><b>Errors:</b></div>';
+        result.errors.slice(0,8).forEach(e => { html += '<div style="color:#ff7a78">  ' + escHtml(e) + '</div>'; });
+      }
+      if(result.mixedContent) html += '<div style="color:#ff7a78;margin-top:8px"><b>Mixed content blocked.</b> Click the bridge status indicator to see the 4 fixes.</div>';
+      logEl.innerHTML = html;
+    }
+    if(result.pushed > 0){
+      setTimeout(() => _hnxWizGoto(5), 1200);
+    }
+  };
+
+  // STEP 5 · VERIFY
+  function _hnxWizStep5(body, foot){
+    body.innerHTML = `
+      <h2 style="font-family:Orbitron,sans-serif;font-weight:800;color:#80e885;font-size:16px;letter-spacing:.06em;margin:0 0 8px">✓ Step 5 · Verify & view live</h2>
+      <p style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5d6e6;line-height:1.7;margin:0 0 14px">Final check — confirming streams are flowing from DVR → bridge → dashboard.</p>
+      <div id="hnxWizVerify" style="background:rgba(2,8,18,.7);border:1px solid rgba(77,208,225,.20);border-radius:5px;padding:14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5d6e6;line-height:1.7;max-height:50vh;overflow:auto"></div>
+    `;
+    _hnxWizFoot(foot, `
+      <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxWizGoto && window._hnxWizGoto(4)" style="padding:8px 14px;font-size:12px">← Back</button>
+      <button class="hnx-btn hnx-btn-c" onclick="window._hnxWizVerifyRun && window._hnxWizVerifyRun()" style="padding:8px 14px;font-size:12px">↻ Re-verify</button>
+      <div style="flex:1;color:#6a8ea3;font-family:'JetBrains Mono',monospace;font-size:10.5px;text-align:center">Step 5 of 5 · Verification</div>
+      <button class="hnx-btn hnx-btn-c" onclick="if(typeof window.switchView==='function'){window.switchView('gh_command');}document.getElementById('hnxWizDlg').remove()" style="padding:8px 14px;font-size:12px">🏭 Open Command Center</button>
+      <button class="hnx-btn hnx-btn-g" onclick="document.getElementById('hnxWizDlg').remove()" style="padding:8px 18px;font-size:12px">✓ Done</button>
+    `);
+    setTimeout(window._hnxWizVerifyRun, 150);
+  }
+  window._hnxWizVerifyRun = async function(){
+    const el = document.getElementById('hnxWizVerify');
+    if(!el) return;
+    el.innerHTML = '<div style="color:#80deea">▸ Verifying…</div>';
+    const log = (msg, color) => { el.innerHTML += '<div style="color:'+(color||'#a5d6e6')+'">'+msg+'</div>'; };
+    el.innerHTML = '';
+    const base = _hnxBridgeBaseUrl();
+    log('▸ Bridge: <span style="color:#84fff9">'+base+'</span>');
+    // 1. Bridge reachable?
+    let bridgeStreams = [];
+    try{
+      const r = await fetch(base + '/api/streams', { signal: AbortSignal.timeout(5000) });
+      if(!r.ok){ log('✗ Bridge HTTP ' + r.status, '#ff7a78'); return; }
+      bridgeStreams = Object.keys(await r.json()||{});
+      log('✓ Bridge reachable · '+bridgeStreams.length+' stream(s) configured', '#80e885');
+    }catch(e){
+      log('✗ Bridge unreachable: '+(e.message||e), '#ff7a78');
+      log('  → Check go2rtc.exe is running, CORS is enabled, and IP is correct', '#ffca52');
+      return;
+    }
+    // 2. All desired streams present?
+    const desired = _hnxBuildDesiredStreams();
+    const bridgeSet = new Set(bridgeStreams);
+    const missing = desired.filter(d => !bridgeSet.has(d.id));
+    if(missing.length === 0){
+      log('✓ All ' + desired.length + ' desired stream(s) present on bridge', '#80e885');
+    } else {
+      log('⚠ Missing on bridge: ' + missing.length + ' stream(s)', '#ffca52');
+      missing.slice(0,5).forEach(m => log('  ✗ ' + m.id, '#ff7a78'));
+      if(missing.length > 5) log('  ... +'+(missing.length-5)+' more', '#ff7a78');
+    }
+    // 3. Sample test fetch first stream
+    if(bridgeStreams.length > 0){
+      const sample = bridgeStreams[0];
+      log('▸ Sampling first stream: <span style="color:#84fff9">'+sample+'</span>');
+      try{
+        const r = await fetch(base + '/api/stream.m3u8?src=' + encodeURIComponent(sample), { signal: AbortSignal.timeout(7000) });
+        if(r.ok){
+          const txt = await r.text();
+          if(txt.indexOf('#EXTM3U') === 0){
+            log('✓ HLS playlist returned · sample stream is alive', '#80e885');
+            log('  → If you do not see video in dashboard, check the DVR RTSP URL/credentials', '#a5d6e6');
+          } else {
+            log('⚠ Got response but not a valid HLS playlist', '#ffca52');
+          }
+        } else {
+          log('✗ Sample fetch HTTP ' + r.status, '#ff7a78');
+          log('  → DVR might be unreachable from the bridge · verify RTSP credentials', '#ffca52');
+        }
+      }catch(e){
+        log('⚠ Sample fetch error: ' + (e.message||e), '#ffca52');
+      }
+    }
+    log('───', '#3b5d72');
+    log('Setup complete. Open Command Center to see live feeds.', '#80e885');
+  };
+
+  // Auto-ping bridge once every 30 sec while DVR tab is visible
+  setInterval(() => {
+    if(document.querySelector('.hnx-it-tab.on[data-tab="dvr"]') || document.getElementById('hnxBridgeStatusInd')){
+      window._hnxBridgePing(true);
+    }
+  }, 30000);
+
   // ============== MAIN RENDER ==============
   function renderFrCommandView(){
     // Force FR mode then delegate to the shared renderer using the fr_command body
@@ -104931,7 +105569,6 @@ service cloud.firestore {
   window._hnxDvrRefresh = function(){
     const tab = document.querySelector('.hnx-it-tab[data-tab="dvr"]');
     if(tab){
-      // Re-click the tab to force a fresh render
       tab.click();
     } else if(typeof window.switchView === 'function'){
       try{ window.switchView('it_cctv_setup'); }catch(e){}
@@ -104940,6 +105577,8 @@ service cloud.firestore {
         if(t) t.click();
       }, 200);
     }
+    // v2.40 · also ping bridge when refresh happens
+    setTimeout(() => { if(window._hnxBridgePing) window._hnxBridgePing(true); }, 300);
   };
   window._hnxDvrNew = function(){
     window._hnxDvrState.editingId = 'new';
@@ -105168,7 +105807,11 @@ service cloud.firestore {
         <div class="hnx-banner-i">📹</div>
         <div>
           <div class="hnx-banner-t">DVR / NVR DEVICES · ${cfg.devices.length} device${cfg.devices.length===1?'':'s'} · ${activeStreams} stream${activeStreams===1?'':'s'} configured</div>
-          <div class="hnx-banner-s">Add your DVR/NVR units here · enter IP, channels, credentials · this generates the <b>go2rtc YAML</b> below · paste that into your local bridge install · the dashboard pulls HLS streams from the bridge.</div>
+          <div class="hnx-banner-s">Add your DVR/NVR units here · enter IP, channels, credentials · the dashboard <b>pushes streams directly to go2rtc via API</b> · no yaml editing, no restart, live updates. <b style="color:#80e885">First time? Use the wizard.</b></div>
+        </div>
+        <div style="margin-left:auto;display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+          <button class="hnx-btn hnx-btn-g" onclick="window._hnxOpenWizard && window._hnxOpenWizard()" style="padding:10px 18px;font-size:13px;background:linear-gradient(135deg,rgba(102,187,106,.55),rgba(2,30,20,.50));border-color:#80e885;color:#80e885;font-family:Orbitron,sans-serif;font-weight:800;letter-spacing:.06em">🧙 SETUP WIZARD</button>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#80deea;letter-spacing:.04em">end-to-end · 5 guided steps</span>
         </div>
       </div>
 
@@ -105196,7 +105839,7 @@ service cloud.firestore {
         <div style="padding:0 14px 12px;font-family:JetBrains Mono,monospace;font-size:10px;color:#6a8ea3;letter-spacing:.04em;line-height:1.6">
           ▸ go2rtc must be installed and running on a machine in your LAN (Raspberry Pi, mini PC, or always-on server)<br>
           ▸ Download from <a href="https://github.com/AlexxIT/go2rtc" target="_blank" style="color:#84fff9">github.com/AlexxIT/go2rtc</a> · run as service · default web UI port is 1984<br>
-          ▸ Dashboard test URL: <code style="color:#84fff9">${(cfg.bridgeProtocol||'http')}://${cfg.bridgeIp||'<ip>'}:${cfg.bridgePort||1984}</code>
+          ▸ Dashboard test URL: <code style="color:#84fff9">${(cfg.bridgeProtocol||'http')}://${cfg.bridgeIp||'<ip>'}:${cfg.bridgePort||1984}</code><br><br>▸ <b style="color:#80e885">Live status:</b> <span class="hnx-bridge-status-ind" id="hnxBridgeStatusInd"><span style="color:#6a8ea3">○ checking…</span></span> <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxBridgePing && window._hnxBridgePing(false)" style="padding:3px 8px;font-size:9.5px;margin-left:8px">↻ Recheck</button>
         </div>
       </div>
 
@@ -105385,14 +106028,18 @@ service cloud.firestore {
 
       <!-- Generated YAML -->
       <div class="hnx-w">
-        <div class="hnx-w-h" style="display:flex;align-items:center;gap:10px">
+        <div class="hnx-w-h" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <span>📄 Generated go2rtc.yaml</span>
-          <div style="flex:1"></div>
-          <button class="hnx-btn hnx-btn-c" onclick="window._hnxDvrCopyYaml && window._hnxDvrCopyYaml()" style="padding:6px 12px;font-size:11px">📋 Copy</button>
-          <button class="hnx-btn hnx-btn-c" onclick="window._hnxDvrDownloadYaml && window._hnxDvrDownloadYaml()" style="padding:6px 12px;font-size:11px">⬇ Download</button>
-          <button class="hnx-btn hnx-btn-g" onclick="window._hnxDvrAutoAssign && window._hnxDvrAutoAssign()" style="padding:6px 12px;font-size:11px" title="Auto-fill empty camera slots in the grid using the configured streams">⚡ Auto-assign to slots</button>
-          <button class="hnx-btn hnx-btn-c" onclick="window._hnxRunBridgeDiagnostics&&window._hnxRunBridgeDiagnostics()" style="padding:6px 12px;font-size:11px" title="Test bridge connectivity, list streams, check mixed content">🔍 Diagnose</button>
-          <button class="hnx-btn hnx-btn-c" onclick="window._hnxTestHlsPlayback&&window._hnxTestHlsPlayback()" style="padding:6px 12px;font-size:11px" title="Verify HLS playback works using a public demo stream">📺 Test playback</button>
+          <div style="flex:1;min-width:20px"></div>
+          <button class="hnx-btn hnx-btn-g" onclick="window._hnxBridgePush && window._hnxBridgePush()" style="padding:6px 12px;font-size:11px;background:linear-gradient(135deg,rgba(102,187,106,.55),rgba(2,30,20,.50));border-color:#80e885;color:#80e885" title="Push streams to bridge via go2rtc API · live · no yaml edit · no restart">⚡ Push to bridge</button>
+          <button class="hnx-btn hnx-btn-c" onclick="window._hnxBridgeSync && window._hnxBridgeSync()" style="padding:6px 12px;font-size:11px" title="Sync · push desired + delete extras on bridge">🔄 Sync</button>
+          <button class="hnx-btn hnx-btn-c" onclick="window._hnxBridgeRestart && window._hnxBridgeRestart()" style="padding:6px 12px;font-size:11px" title="Restart go2rtc service · brief interruption">🔄 Restart</button>
+          <button class="hnx-btn hnx-btn-danger" onclick="window._hnxBridgeClearAll && window._hnxBridgeClearAll()" style="padding:6px 12px;font-size:11px" title="Delete all streams on bridge · does not affect dashboard config">🗑 Clear bridge</button>
+          <span style="width:1px;height:22px;background:rgba(77,208,225,.20);margin:0 4px"></span>
+          <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxDvrCopyYaml && window._hnxDvrCopyYaml()" style="padding:6px 10px;font-size:10.5px" title="Fallback · copy yaml for manual paste">📋 Copy yaml</button>
+          <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxDvrDownloadYaml && window._hnxDvrDownloadYaml()" style="padding:6px 10px;font-size:10.5px" title="Fallback · download yaml">⬇ Download</button>
+          <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxRunBridgeDiagnostics&&window._hnxRunBridgeDiagnostics()" style="padding:6px 10px;font-size:10.5px" title="Test bridge connectivity">🔍 Diagnose</button>
+          <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxTestHlsPlayback&&window._hnxTestHlsPlayback()" style="padding:6px 10px;font-size:10.5px" title="Verify HLS playback with public demo stream">📺 HLS test</button>
         </div>
         <pre id="hnxDvrYaml" style="margin:0;padding:14px;background:rgba(2,8,18,.85);border-top:1px solid rgba(77,208,225,.20);color:#84fff9;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.55;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-word">${escHtml(hnxGenerateGo2rtcYaml())}</pre>
       </div>
@@ -108375,8 +109022,8 @@ service cloud.firestore {
           <!-- Status marquee strip -->
           <div class="hnx-marquee-wrap" style="margin:8px 14px 14px;border-radius:6px;padding:6px 0;position:relative;z-index:2;background:rgba(0,131,143,.10)">
             <div class="hnx-marquee" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#a5d6e6;letter-spacing:.10em;padding:0 30px">
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.39</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.39</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.40</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.40</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
             </div>
           </div>
           <!-- Pair selector -->
@@ -109874,7 +110521,7 @@ service cloud.firestore {
 .hnx-param-unit{font-size:11px;color:#6a8ea3;font-weight:500;margin-left:3px}
 .hnx-param-target{font-family:'JetBrains Mono',monospace;font-size:9px;color:#6a8ea3;letter-spacing:.10em;margin-top:3px}
 .hnx-param-dev{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;margin-top:1px}
-/* === HNX-EXT v2.39 · MACHINES GRID === */
+/* === HNX-EXT v2.40 · MACHINES GRID === */
 .hnx-machines-cube { position: relative; }
 .hnx-machines-grid {
   display: grid;
@@ -109990,7 +110637,7 @@ service cloud.firestore {
   color: #ff3030;
 }
 
-/* === HNX-EXT v2.39 · DRONE FLEET DETAIL PANEL === */
+/* === HNX-EXT v2.40 · DRONE FLEET DETAIL PANEL === */
 .hnx-drone-detail {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1.2fr;
@@ -110120,7 +110767,7 @@ service cloud.firestore {
 .hnx-drone-hist-stat.crit { background: rgba(255,48,48,.15); color: #ff7a78; border:1px solid rgba(255,48,48,.35); }
 .hnx-drone-hist-stat.live { background: rgba(132,255,249,.18); color: #84fff9; border:1px solid rgba(132,255,249,.45); animation: hnxBlink 1.2s steps(2) infinite; }
 
-/* === HNX-EXT v2.39 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
+/* === HNX-EXT v2.40 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
 .hnx-rotate-ctrl {
   display: inline-flex;
   align-items: center;
@@ -110203,7 +110850,7 @@ service cloud.firestore {
 .hnx-app.hnx-fs-active .hnx-crit-btn { font-size: 13px !important; padding: 7px 14px !important; }
 .hnx-app.hnx-fs-active .hnx-rotate-critcount { font-size: 13px; padding: 6px 14px; }
 
-/* === HNX-EXT v2.39 · URL-DRIVEN MONITOR PRESETS === */
+/* === HNX-EXT v2.40 · URL-DRIVEN MONITOR PRESETS === */
 .hnx-url-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-prof-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-app.hnx-fs-active .hnx-url-btn { font-size: 13px !important; padding: 7px 14px !important; }
@@ -110727,7 +111374,7 @@ service cloud.firestore {
 .hnx-fs-tap-s { font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #84fff9; letter-spacing: .06em; margin-bottom: 14px; animation: hnxBlink 1.5s steps(2) infinite; }
 .hnx-fs-tap-hint { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6a8ea3; letter-spacing: .06em; }
 
-/* === HNX-EXT v2.39 · DRUM CAPACITY EDITOR === */
+/* === HNX-EXT v2.40 · DRUM CAPACITY EDITOR === */
 .hnx-drum-settings {
   background: linear-gradient(180deg, rgba(2,30,40,.8), rgba(2,18,28,.95));
   border: 1px solid rgba(102,187,106,.45);
@@ -110754,7 +111401,7 @@ service cloud.firestore {
   box-shadow: 0 0 8px rgba(128,232,133,.4);
 }
 
-/* === HNX-EXT v2.39 · FULLSCREEN TRULY FILLS MONITOR === */
+/* === HNX-EXT v2.40 · FULLSCREEN TRULY FILLS MONITOR === */
 .hnx-app:fullscreen,
 .hnx-app:-webkit-full-screen {
   background: radial-gradient(ellipse at center, #02101a 0%, #02080f 70%, #000 100%) !important;
@@ -110843,7 +111490,7 @@ service cloud.firestore {
 /* Open items at bottom */
 .hnx-app.hnx-fs-active .hnx-ghc-bottom { margin-top: 14px; }
 
-/* === HNX-EXT v2.39 · FR MODE TOGGLE === */
+/* === HNX-EXT v2.40 · FR MODE TOGGLE === */
 .hnx-mode-btn {
   background: linear-gradient(135deg, rgba(77,208,225,.22), rgba(132,255,249,.18)) !important;
   border: 1px solid rgba(77,208,225,.55) !important;
@@ -110869,7 +111516,7 @@ service cloud.firestore {
   box-shadow: 0 0 14px rgba(132,255,249,.35);
 }
 
-/* === HNX-EXT v2.39 · FULLSCREEN MONITOR MODE === */
+/* === HNX-EXT v2.40 · FULLSCREEN MONITOR MODE === */
 .hnx-fs-btn { 
   background: linear-gradient(135deg, rgba(102,187,106,.22), rgba(77,208,225,.22)) !important;
   border: 1px solid rgba(102,187,106,.55) !important;
@@ -110913,7 +111560,7 @@ service cloud.firestore {
   100% { transform: translateX(50px); opacity: 0; }
 }
 
-/* === HNX-EXT v2.39 · VERTICAL FILLING DRUMS === */
+/* === HNX-EXT v2.40 · VERTICAL FILLING DRUMS === */
 .hnx-drum-cube { padding-bottom: 10px; }
 .hnx-drum-grid {
   display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;
@@ -111020,7 +111667,7 @@ service cloud.firestore {
 .hnx-drum-value.warn { color: #ffca52; }
 .hnx-drum-value.crit { color: #ff7a78; }
 
-/* === HNX-EXT v2.39 · BOLD VISIBLE THEMATIC IMAGERY === */
+/* === HNX-EXT v2.40 · BOLD VISIBLE THEMATIC IMAGERY === */
 .hnx-cube-imagery { position: relative; overflow: hidden; min-height: 180px; }
 .hnx-cube-imagery > .hnx-cube-bg {
   position: absolute; inset: 0;
@@ -111044,7 +111691,7 @@ service cloud.firestore {
 .hnx-cube-imagery > .hnx-ghbars,
 .hnx-cube-imagery > div:not(.hnx-cube-bg) { position: relative; z-index: 2; }
 .hnx-cube-imagery .hnx-w-h { position: relative; z-index: 2; }
-/* === HNX-EXT v2.39 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
+/* === HNX-EXT v2.40 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
 /* Production: Lettuce leaves sway */
 @keyframes hnxLettuceSway {
   0%, 100% { transform: rotate(-3deg); }
@@ -111102,7 +111749,7 @@ service cloud.firestore {
 .hnx-svg-act-dot:nth-child(3) { animation-delay: .8s; }
 .hnx-svg-act-dot:nth-child(4) { animation-delay: 1.2s; }
 
-/* === HNX-EXT v2.39 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
+/* === HNX-EXT v2.40 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
 /* CCTV cell motion enhancements — corner brackets, double scan, breathing border */
 .hnx-cctv-motion { animation: hnxCellPulse 4s ease-in-out infinite; }
 @keyframes hnxCellPulse {
