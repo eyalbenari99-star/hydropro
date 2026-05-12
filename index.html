@@ -94068,7 +94068,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 
 </script>
 
-<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.35 (Hot-fix: inline onclick handlers for DVR tab - + Add device now works) -->
+<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.36 (Daily Operations Report · printable PDF + CSV/JSON exports) -->
 <script>
 /* ============================================================================
  * HYDRONEXIS-AI · EXTENSIONS PACK v1.0
@@ -94661,7 +94661,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.35 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.36 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -94670,7 +94670,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.35';
+        vEl.textContent = orig + ' · HNX v2.36';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -94685,7 +94685,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.35 Diagnostics:\n\n' +
+        'HNX-EXT v2.36 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
@@ -94731,7 +94731,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const style = document.createElement('style');
     style.id = 'hnx-ext-styles';
     style.textContent = HNX_CSS + `
-/* === HNX-EXT v2.35 · MOTION & ANIMATION PACK === */
+/* === HNX-EXT v2.36 · MOTION & ANIMATION PACK === */
 @keyframes hnxPulseGlow {
   0%, 100% { box-shadow: 0 0 30px rgba(102,187,106,.18), inset 0 0 40px rgba(102,187,106,.05); }
   50%      { box-shadow: 0 0 60px rgba(102,187,106,.45), inset 0 0 70px rgba(102,187,106,.12); }
@@ -94938,7 +94938,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
   // 2. ENSURE VIEW CONTAINER DIVS EXIST
   // ==================================================================
   function ensureViewContainers(){
-    const ids = ['modules_rollup','plant_census','water_daily','irr_command','wall_launcher','gh_command','fr_command','crates_mgr','it_cctv_setup','dept_setup','energy_daily','maint_brain','prod_brain','hr_brain','payroll_brain','inv_brain','pack_brain','log_brain','crm_brain','qc_brain','fleet_brain','lic_brain','prj_brain','sec_brain','daily_metrics'];
+    const ids = ['modules_rollup','plant_census','water_daily','irr_command','wall_launcher','gh_command','fr_command','crates_mgr','daily_report','it_cctv_setup','dept_setup','energy_daily','maint_brain','prod_brain','hr_brain','payroll_brain','inv_brain','pack_brain','log_brain','crm_brain','qc_brain','fleet_brain','lic_brain','prj_brain','sec_brain','daily_metrics'];
     // Find a sibling view to append next to — use any .view we can find
     const anchor = document.querySelector('.view') || document.body;
     const parent = anchor.parentNode || document.body;
@@ -95042,6 +95042,13 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       perm: null,
       title: '35-metric daily tracker · autonomy foundation · 100% baseline · drives AI learning'
     });
+    // v2.36 · Daily Operations Report
+    add('overview', {
+      id: 'daily_report',
+      label: '📋 Daily Report',
+      perm: null,
+      title: 'Daily operations report · harvest · deliveries · returns · activity · alerts · printable PDF + CSV/JSON exports'
+    });
     // Per-module AI Brain views — DISABLED per user decision Q1
     // The existing 🧠 HydroNexis Brain (auto-injected by master app) is the canonical brain.
     // We enhance it via enhanceExistingHydroBrain() instead of registering parallel tabs.
@@ -95104,6 +95111,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
         if(v === 'gh_command') renderGhCommandView();
         if(v === 'fr_command') renderFrCommandView();
         if(v === 'crates_mgr') renderCratesMgrView();
+        if(v === 'daily_report') renderDailyReportView();
         if(v === 'it_cctv_setup') renderCctvSetupView();
         if(v === 'dept_setup') renderDeptSetupView();
       }catch(e){ console.error('[HNX-Ext] Render error for', v, e); }
@@ -101366,6 +101374,497 @@ var qrcode = function() {
     return '';
   };
 
+  // ==================================================================
+  // v2.36 · DAILY OPERATIONS REPORT
+  // Aggregates harvest, deliveries, returns, issues, machine events,
+  // crew activity for any given date · print/PDF/CSV/JSON exports
+  // ==================================================================
+
+  // Aggregate everything that happened on a given calendar date
+  function _hnxBuildDailyReport(dateStr){
+    // dateStr in YYYY-MM-DD format · default to today
+    const day = dateStr ? new Date(dateStr + 'T00:00:00') : new Date();
+    day.setHours(0,0,0,0);
+    const dayStart = day.getTime();
+    const dayEnd = dayStart + 86400000;
+
+    const report = {
+      dateStr: dateStr || day.toISOString().slice(0,10),
+      dateLabel: day.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' }),
+      generatedAt: new Date().toISOString()
+    };
+
+    // === Harvest section ===
+    let crates = [];
+    try{ crates = (typeof hnxLoadCrates === 'function') ? hnxLoadCrates() : []; }catch(e){}
+    const types = (typeof hnxLoadCrateTypes === 'function') ? hnxLoadCrateTypes() : [];
+    const typeById = {}; types.forEach(t => typeById[t.id] = t);
+    const harvestedToday = crates.filter(c => {
+      const h = (c.contents||{}).harvestDate;
+      return h && h >= dayStart && h < dayEnd;
+    });
+    const harvestByType = {};
+    const harvestByGh   = {};
+    const harvestByCrop = {};
+    let harvestTotalKg = 0;
+    harvestedToday.forEach(c => {
+      const t = typeById[c.typeId] || { name:'?', volumeL:0 };
+      harvestByType[t.name] = (harvestByType[t.name]||0) + 1;
+      const gh = (c.contents||{}).gh || '?';
+      harvestByGh[gh] = (harvestByGh[gh]||0) + 1;
+      const crop = (c.contents||{}).crop || 'unspecified';
+      harvestByCrop[crop] = (harvestByCrop[crop]||0) + 1;
+      harvestTotalKg += ((c.contents||{}).weightKg || 0);
+    });
+    report.harvest = {
+      cratesLogged: harvestedToday.length,
+      totalKg: +harvestTotalKg.toFixed(1),
+      byType: harvestByType,
+      byGh: harvestByGh,
+      byCrop: harvestByCrop,
+      cratesList: harvestedToday.map(c => ({
+        id: c.id,
+        type: (typeById[c.typeId]||{}).name || '?',
+        crop: (c.contents||{}).crop || '',
+        gh:   (c.contents||{}).gh   || '',
+        weightKg: (c.contents||{}).weightKg || 0,
+        time: (c.contents||{}).harvestDate ? new Date((c.contents||{}).harvestDate).toLocaleTimeString() : '—'
+      }))
+    };
+
+    // === Deliveries section ===
+    let deliveries = [];
+    try{ deliveries = (typeof hnxLoadDeliveries === 'function') ? hnxLoadDeliveries() : []; }catch(e){}
+    const dispatchedToday = deliveries.filter(d => d.dispatchTime && d.dispatchTime >= dayStart && d.dispatchTime < dayEnd);
+    const returnedToday   = deliveries.filter(d => d.returnedTime && d.returnedTime >= dayStart && d.returnedTime < dayEnd);
+    report.deliveries = {
+      dispatched: dispatchedToday.length,
+      cratesOut: dispatchedToday.reduce((s,d) => s + (d.totalCrates||0), 0),
+      returned: returnedToday.length,
+      cratesIn: returnedToday.reduce((s,d) => s + (d.returnedCrates||0), 0),
+      cratesMissing: returnedToday.reduce((s,d) => s + ((d.totalCrates||0) - (d.returnedCrates||0)), 0),
+      dispatchList: dispatchedToday.map(d => ({
+        time: new Date(d.dispatchTime).toLocaleTimeString(),
+        customer: d.customerName || '?',
+        truck: d.truckPlate || '?',
+        driver: d.driverName || '?',
+        crates: d.totalCrates || 0,
+        status: d.status || '?'
+      })),
+      returnList: returnedToday.map(d => ({
+        time: new Date(d.returnedTime).toLocaleTimeString(),
+        customer: d.customerName || '?',
+        sent: d.totalCrates || 0,
+        back: d.returnedCrates || 0,
+        missing: (d.totalCrates||0) - (d.returnedCrates||0),
+        lossPct: d.totalCrates ? +(((d.totalCrates - (d.returnedCrates||0))/d.totalCrates)*100).toFixed(1) : 0
+      }))
+    };
+
+    // === Activity log section (all events that day) ===
+    let log = [];
+    try{ log = (typeof window._hnxLoadLog === 'function') ? window._hnxLoadLog() : []; }catch(e){}
+    const eventsToday = log.filter(e => e.ts && e.ts >= dayStart && e.ts < dayEnd);
+    const eventsByUser = {};
+    const eventsByAction = {};
+    const eventsByArea = {};
+    eventsToday.forEach(e => {
+      const u = e.user || 'local';
+      eventsByUser[u] = (eventsByUser[u]||0) + 1;
+      eventsByAction[e.action||'?'] = (eventsByAction[e.action||'?']||0) + 1;
+      if(e.area){ eventsByArea[e.area] = (eventsByArea[e.area]||0) + 1; }
+    });
+    report.activity = {
+      totalEvents: eventsToday.length,
+      byUser: eventsByUser,
+      byAction: eventsByAction,
+      byArea: eventsByArea,
+      machineToggles: eventsToday.filter(e => e.action === 'machine_toggle').length,
+      drumChanges: eventsToday.filter(e => (e.action||'').indexOf('drum_capacity') === 0).length,
+      events: eventsToday.slice(0, 100).map(e => ({
+        time: new Date(e.ts).toLocaleTimeString(),
+        user: e.user || 'local',
+        area: e.area || '',
+        action: e.action || '',
+        details: e.details || ''
+      }))
+    };
+
+    // === Cold storage snapshot ===
+    try{
+      if(typeof hnxColdStorageStats === 'function'){
+        const stats = hnxColdStorageStats();
+        report.coldStorage = {
+          totalCrates: stats.totalCrates,
+          inStorage: stats.inStorageCount,
+          inTransit: stats.inTransitCount,
+          damaged: stats.damagedCount,
+          missing: stats.missingCount,
+          fillPct: stats.fillPct,
+          usedM3: stats.usedM3,
+          capacityM3: stats.capacityM3,
+          freeM3: stats.freeM3
+        };
+      }
+    }catch(e){}
+
+    // === Active alerts at report time ===
+    try{
+      if(typeof hnxLoadAlerts === 'function'){
+        const alerts = hnxLoadAlerts().filter(a => !a.dismissedAt && !a.resolvedAt);
+        report.alerts = {
+          total: alerts.length,
+          critical: alerts.filter(a => a.severity === 'critical').length,
+          warning: alerts.filter(a => a.severity === 'warning').length,
+          byArea: alerts.reduce((acc, a) => { const k = a.area||'?'; acc[k] = (acc[k]||0)+1; return acc; }, {}),
+          list: alerts.slice(0,20).map(a => ({
+            severity: a.severity, area: a.area||'?', title: a.title||'', message: a.message||''
+          }))
+        };
+      }
+    }catch(e){}
+
+    return report;
+  }
+
+  // Main view renderer
+  function renderDailyReportView(){
+    const body = document.querySelector('#hnx-daily_report-body');
+    if(!body) return;
+    if(!window._hnxRptState) window._hnxRptState = { dateStr: new Date().toISOString().slice(0,10) };
+    const st = window._hnxRptState;
+    const today = new Date().toISOString().slice(0,10);
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0,10);
+
+    let r;
+    try{ r = _hnxBuildDailyReport(st.dateStr); }catch(e){ console.warn('[Report]', e); r = null; }
+
+    body.innerHTML = `
+      <div class="hnx-app hnx-rpt-app">
+        <div class="hnx-tbar">
+          <div class="hnx-tbmark hnx-tbmark-cy" style="background:linear-gradient(135deg, rgba(102,187,106,.35), rgba(2,30,40,.55))">📋</div>
+          <div>
+            <div class="hnx-tbtitle">Daily Operations Report <span>· <span style="color:#80deea">${r ? r.dateLabel : 'no data'}</span></span></div>
+            <div class="hnx-tbsub">Harvest · Deliveries · Returns · Activity · Cold Storage · Alerts</div>
+          </div>
+          <div style="flex:1"></div>
+        </div>
+
+        <!-- Date selector -->
+        <div class="hnx-w" style="margin-bottom:14px;padding:12px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80deea;letter-spacing:.08em">REPORT DATE</span>
+          <input type="date" id="hnxRptDate" value="${st.dateStr}" max="${today}" class="hnx-cell" style="padding:7px 10px;font-size:12px;font-family:JetBrains Mono,monospace" onchange="window._hnxRptSetDate && window._hnxRptSetDate(this.value)">
+          <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxRptSetDate && window._hnxRptSetDate('${today}')" style="padding:7px 12px;font-size:11px">Today</button>
+          <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxRptSetDate && window._hnxRptSetDate('${yesterday}')" style="padding:7px 12px;font-size:11px">Yesterday</button>
+          <div style="flex:1"></div>
+          <button class="hnx-btn hnx-btn-c" onclick="window._hnxRptPrint && window._hnxRptPrint()" style="padding:7px 14px;font-size:11px">🖨 Print / Save PDF</button>
+          <button class="hnx-btn hnx-btn-c" onclick="window._hnxRptExportCsv && window._hnxRptExportCsv()" style="padding:7px 14px;font-size:11px">⬇ CSV</button>
+          <button class="hnx-btn hnx-btn-c" onclick="window._hnxRptExportJson && window._hnxRptExportJson()" style="padding:7px 14px;font-size:11px">⬇ JSON</button>
+        </div>
+
+        ${r ? _hnxRptRenderContent(r) : '<div style="padding:30px;color:#6a8ea3;font-family:JetBrains Mono,monospace;font-size:11px;text-align:center">⚠ Could not load report data</div>'}
+      </div>
+    `;
+  }
+  window._hnxRptRefresh = renderDailyReportView;
+  window._hnxRptSetDate = function(d){
+    window._hnxRptState = window._hnxRptState || {};
+    window._hnxRptState.dateStr = d;
+    renderDailyReportView();
+  };
+
+  function _hnxRptRenderContent(r){
+    return `
+      <!-- KPI tiles -->
+      <div class="hnx-crates-kpis" style="margin-bottom:14px">
+        <div class="hnx-w hnx-kpi-card"><div class="hnx-kpi-l">Crates harvested</div><div class="hnx-kpi-v" style="color:#80e885">${r.harvest.cratesLogged}</div><div class="hnx-kpi-s">${r.harvest.totalKg} kg total</div></div>
+        <div class="hnx-w hnx-kpi-card"><div class="hnx-kpi-l">Delivered out</div><div class="hnx-kpi-v" style="color:#80deea">${r.deliveries.cratesOut}</div><div class="hnx-kpi-s">${r.deliveries.dispatched} trip${r.deliveries.dispatched===1?'':'s'}</div></div>
+        <div class="hnx-w hnx-kpi-card"><div class="hnx-kpi-l">Returned in</div><div class="hnx-kpi-v" style="color:#84fff9">${r.deliveries.cratesIn}</div><div class="hnx-kpi-s">${r.deliveries.returned} return${r.deliveries.returned===1?'':'s'}</div></div>
+        <div class="hnx-w hnx-kpi-card"><div class="hnx-kpi-l">Missing today</div><div class="hnx-kpi-v" style="color:${r.deliveries.cratesMissing>0?'#ff7a78':'#80e885'}">${r.deliveries.cratesMissing}</div><div class="hnx-kpi-s">never returned</div></div>
+        <div class="hnx-w hnx-kpi-card"><div class="hnx-kpi-l">Crew events</div><div class="hnx-kpi-v" style="color:#ffca52">${r.activity.totalEvents}</div><div class="hnx-kpi-s">activity log entries</div></div>
+        <div class="hnx-w hnx-kpi-card"><div class="hnx-kpi-l">Storage now</div><div class="hnx-kpi-v" style="color:${r.coldStorage&&r.coldStorage.fillPct>=90?'#ff7a78':r.coldStorage&&r.coldStorage.fillPct>=70?'#ffca52':'#80e885'}">${r.coldStorage?r.coldStorage.fillPct:'—'}%</div><div class="hnx-kpi-s">${r.coldStorage?r.coldStorage.usedM3+' / '+r.coldStorage.capacityM3+' m³':'—'}</div></div>
+      </div>
+
+      <!-- Harvest detail -->
+      <div class="hnx-w" style="margin-bottom:14px">
+        <div class="hnx-w-h">🌾 Harvest · ${r.harvest.cratesLogged} crate${r.harvest.cratesLogged===1?'':'s'} · ${r.harvest.totalKg} kg</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;padding:12px">
+          ${_hnxRptBreakdownBox('By Type', r.harvest.byType)}
+          ${_hnxRptBreakdownBox('By Greenhouse', r.harvest.byGh)}
+          ${_hnxRptBreakdownBox('By Crop', r.harvest.byCrop)}
+        </div>
+        ${r.harvest.cratesList.length === 0 ? '<div style="padding:18px;text-align:center;color:#6a8ea3;font-family:JetBrains Mono,monospace;font-size:11px">No crates logged this day</div>' : `
+          <div class="hnx-log-thead" style="margin-top:6px">
+            <div style="width:90px">Time</div>
+            <div style="width:140px">Crate ID</div>
+            <div style="width:90px">Type</div>
+            <div style="width:100px">GH</div>
+            <div style="width:130px">Crop</div>
+            <div style="width:80px;text-align:right">Weight</div>
+          </div>
+          ${r.harvest.cratesList.slice(0,50).map(c => `<div class="hnx-log-row">
+            <div style="width:90px;font-family:JetBrains Mono,monospace;font-size:10px;color:#a5d6e6">${escHtml(c.time)}</div>
+            <div style="width:140px;font-family:JetBrains Mono,monospace;font-size:10.5px;color:#84fff9;font-weight:700">${escHtml(c.id)}</div>
+            <div style="width:90px;font-family:Orbitron,sans-serif;font-size:10px;color:#80e885;font-weight:700">${escHtml(c.type)}</div>
+            <div style="width:100px;font-family:JetBrains Mono,monospace;font-size:11px;color:#80deea">${escHtml(c.gh)}</div>
+            <div style="width:130px;font-family:JetBrains Mono,monospace;font-size:11px;color:#e6f7fb">${escHtml(c.crop)}</div>
+            <div style="width:80px;text-align:right;font-family:JetBrains Mono,monospace;font-size:11px;color:#a5d6e6">${c.weightKg ? c.weightKg + ' kg' : '—'}</div>
+          </div>`).join('')}
+          ${r.harvest.cratesList.length > 50 ? `<div style="padding:10px;text-align:center;color:#ffca52;font-family:JetBrains Mono,monospace;font-size:10.5px">Showing first 50 of ${r.harvest.cratesList.length} · export CSV for full list</div>` : ''}
+        `}
+      </div>
+
+      <!-- Deliveries -->
+      <div class="hnx-w" style="margin-bottom:14px">
+        <div class="hnx-w-h">🚚 Deliveries Out · ${r.deliveries.dispatched} trip${r.deliveries.dispatched===1?'':'s'} · ${r.deliveries.cratesOut} crate${r.deliveries.cratesOut===1?'':'s'}</div>
+        ${r.deliveries.dispatchList.length === 0 ? '<div style="padding:18px;text-align:center;color:#6a8ea3;font-family:JetBrains Mono,monospace;font-size:11px">No deliveries dispatched this day</div>' : `
+          ${r.deliveries.dispatchList.map(d => `<div class="hnx-deliv-row">
+            <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#a5d6e6;min-width:80px">${escHtml(d.time)}</div>
+            <div style="flex:1;font-family:Orbitron,sans-serif;font-weight:700;color:#80e885;font-size:12px">${escHtml(d.customer)}</div>
+            <div style="font-family:JetBrains Mono,monospace;font-size:10.5px;color:#a5d6e6;min-width:160px">🚛 ${escHtml(d.truck)} · 👤 ${escHtml(d.driver)}</div>
+            <div style="font-family:JetBrains Mono,monospace;font-size:11px;color:#84fff9;min-width:80px;text-align:right">${d.crates} crates</div>
+            <div style="font-family:Orbitron,sans-serif;font-size:9.5px;font-weight:800;color:${d.status==='returned_full'?'#80e885':d.status==='in_transit'?'#ffca52':'#80deea'};min-width:120px;text-align:right">${(d.status||'').toUpperCase().replace(/_/g,' ')}</div>
+          </div>`).join('')}
+        `}
+      </div>
+
+      <!-- Returns -->
+      <div class="hnx-w" style="margin-bottom:14px">
+        <div class="hnx-w-h">↩️ Returns Processed · ${r.deliveries.returned} · ${r.deliveries.cratesIn} crates back · ${r.deliveries.cratesMissing} missing</div>
+        ${r.deliveries.returnList.length === 0 ? '<div style="padding:18px;text-align:center;color:#6a8ea3;font-family:JetBrains Mono,monospace;font-size:11px">No returns processed this day</div>' : `
+          ${r.deliveries.returnList.map(d => `<div class="hnx-deliv-row">
+            <div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#a5d6e6;min-width:80px">${escHtml(d.time)}</div>
+            <div style="flex:1;font-family:Orbitron,sans-serif;font-weight:700;color:#80e885;font-size:12px">${escHtml(d.customer)}</div>
+            <div style="font-family:JetBrains Mono,monospace;font-size:11px;color:#a5d6e6;min-width:100px">${d.back}/${d.sent} returned</div>
+            <div style="font-family:JetBrains Mono,monospace;font-size:11px;color:${d.missing>0?'#ff7a78':'#80e885'};min-width:80px;text-align:right">${d.missing>0?d.missing+' lost':'✓ full'}</div>
+            <div style="font-family:Orbitron,sans-serif;font-weight:800;font-size:12px;color:${d.lossPct>=10?'#ff7a78':d.lossPct>=3?'#ffca52':'#80e885'};min-width:70px;text-align:right">${d.lossPct}%</div>
+          </div>`).join('')}
+        `}
+      </div>
+
+      <!-- Crew Activity -->
+      <div class="hnx-w" style="margin-bottom:14px">
+        <div class="hnx-w-h">👥 Crew Activity · ${r.activity.totalEvents} event${r.activity.totalEvents===1?'':'s'}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;padding:12px">
+          ${_hnxRptBreakdownBox('By User', r.activity.byUser)}
+          ${_hnxRptBreakdownBox('By Action', r.activity.byAction)}
+          ${_hnxRptBreakdownBox('By Area', r.activity.byArea)}
+        </div>
+      </div>
+
+      <!-- Alerts snapshot -->
+      ${r.alerts ? `
+        <div class="hnx-w" style="margin-bottom:14px;border-color:${r.alerts.critical>0?'rgba(255,122,120,.50)':r.alerts.warning>0?'rgba(255,202,82,.40)':'rgba(102,187,106,.45)'}">
+          <div class="hnx-w-h" style="color:${r.alerts.critical>0?'#ff7a78':r.alerts.warning>0?'#ffca52':'#80e885'}">🔔 Active Alerts at report time · ${r.alerts.total} total · ${r.alerts.critical} critical · ${r.alerts.warning} warning</div>
+          ${r.alerts.list.length === 0 ? '<div style="padding:18px;text-align:center;color:#80e885;font-family:JetBrains Mono,monospace;font-size:11px">✓ All Clear · no active alerts</div>' : r.alerts.list.map(a => `<div class="hnx-deliv-row">
+            <div style="font-size:14px;min-width:24px">${a.severity==='critical'?'🔴':'⚠'}</div>
+            <div style="flex:1;font-family:Orbitron,sans-serif;font-weight:700;color:#e6f7fb;font-size:11.5px">${escHtml(a.title)}</div>
+            <div style="font-family:JetBrains Mono,monospace;font-size:10.5px;color:#a5d6e6;min-width:200px">${escHtml(a.message)}</div>
+            <div style="font-family:Orbitron,sans-serif;font-size:10px;font-weight:700;color:${a.severity==='critical'?'#ff7a78':'#ffca52'};min-width:60px;text-align:right">${escHtml(a.area)}</div>
+          </div>`).join('')}
+        </div>
+      ` : ''}
+
+      <!-- Detailed activity log -->
+      <div class="hnx-w">
+        <div class="hnx-w-h">📜 Activity Log · last ${Math.min(r.activity.events.length, 100)} event${r.activity.events.length===1?'':'s'}</div>
+        ${r.activity.events.length === 0 ? '<div style="padding:18px;text-align:center;color:#6a8ea3;font-family:JetBrains Mono,monospace;font-size:11px">No logged events this day</div>' : `
+          <div class="hnx-log-thead">
+            <div style="width:90px">Time</div>
+            <div style="width:110px">User</div>
+            <div style="width:70px">Area</div>
+            <div style="width:140px">Action</div>
+            <div style="flex:1">Details</div>
+          </div>
+          ${r.activity.events.map(e => `<div class="hnx-log-row">
+            <div style="width:90px;font-family:JetBrains Mono,monospace;font-size:10px;color:#a5d6e6">${escHtml(e.time)}</div>
+            <div style="width:110px;font-family:JetBrains Mono,monospace;font-size:10.5px;color:#84fff9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.user)}</div>
+            <div style="width:70px;font-family:Orbitron,sans-serif;font-size:11px;font-weight:700;color:${e.area?'#80e885':'#6a8ea3'}">${escHtml(e.area||'—')}</div>
+            <div style="width:140px;font-family:JetBrains Mono,monospace;font-size:10px;color:#ffca52;font-weight:700">${escHtml(e.action)}</div>
+            <div style="flex:1;font-family:JetBrains Mono,monospace;font-size:10.5px;color:#e6f7fb">${escHtml(e.details)}</div>
+          </div>`).join('')}
+        `}
+      </div>
+    `;
+  }
+
+  function _hnxRptBreakdownBox(title, obj){
+    const entries = Object.entries(obj||{}).sort((a,b) => b[1] - a[1]);
+    return `<div style="background:rgba(2,18,28,.5);border:1px solid rgba(77,208,225,.18);border-radius:5px;padding:10px 12px">
+      <div style="font-family:Orbitron,sans-serif;font-weight:800;font-size:10px;color:#80deea;letter-spacing:.10em;margin-bottom:8px;text-transform:uppercase">${escHtml(title)}</div>
+      ${entries.length === 0 ? '<div style="font-family:JetBrains Mono,monospace;font-size:10px;color:#6a8ea3">—</div>' :
+        entries.map(([k,v]) => `<div style="display:flex;justify-content:space-between;font-family:JetBrains Mono,monospace;font-size:10.5px;color:#e6f7fb;padding:2px 0"><span style="color:#a5d6e6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:8px">${escHtml(k)}</span><span style="color:#84fff9;font-weight:700">${v}</span></div>`).join('')}
+    </div>`;
+  }
+
+  // ---- Export: Print / Save as PDF (opens dedicated print window) ----
+  window._hnxRptPrint = function(){
+    const st = window._hnxRptState || {};
+    const r = _hnxBuildDailyReport(st.dateStr);
+    const w = window.open('', '_blank', 'width=900,height=1100');
+    if(!w){ alert('Pop-up blocked · allow pop-ups to print/save PDF'); return; }
+    const css = `
+      @page { size: A4; margin: 12mm; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 0; font-family: 'Helvetica', 'Arial', sans-serif; color: #000; background: #fff; font-size: 11px; line-height: 1.4; }
+      .hdr { border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 14px; display: flex; align-items: center; gap: 12px; }
+      .hdr h1 { margin: 0; font-size: 18px; }
+      .hdr .meta { margin-left: auto; font-size: 10px; color: #555; text-align: right; }
+      h2 { font-size: 13px; margin: 18px 0 6px; border-bottom: 1px solid #999; padding-bottom: 3px; }
+      .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 14px; }
+      .kpi { border: 1px solid #aaa; padding: 6px 8px; border-radius: 3px; }
+      .kpi .l { font-size: 8px; color: #555; text-transform: uppercase; letter-spacing: .06em; }
+      .kpi .v { font-size: 18px; font-weight: 800; margin-top: 2px; }
+      .kpi .s { font-size: 9px; color: #555; }
+      table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 4px; }
+      th, td { border: 1px solid #bbb; padding: 4px 6px; text-align: left; vertical-align: top; }
+      th { background: #eee; font-weight: 700; font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
+      .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 6px 0; }
+      .box { border: 1px solid #aaa; padding: 8px; border-radius: 3px; }
+      .box h3 { font-size: 10px; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .05em; color: #333; }
+      .box .row { display: flex; justify-content: space-between; font-size: 10px; padding: 2px 0; border-bottom: 1px dotted #ddd; }
+      .ftr { margin-top: 20px; padding-top: 8px; border-top: 1px solid #999; font-size: 9px; color: #555; text-align: center; }
+      .alert-row { border: 1px solid #aaa; padding: 5px 8px; margin: 2px 0; border-radius: 3px; }
+      .alert-row.critical { border-color: #c33; background: #fee; }
+      .alert-row.warning { border-color: #ca5; background: #ffd; }
+      @media print { .noprint { display: none !important; } }
+    `;
+    const rptHtml = _hnxRptBuildPrintBody(r);
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>HydroNexis · Daily Report · ${r.dateStr}</title><style>${css}<\/style></head><body>
+      <div class="noprint" style="position:sticky;top:0;background:#222;color:#fff;padding:10px 14px;text-align:center;font-size:13px;z-index:99">
+        Daily Operations Report · ${r.dateLabel}
+        <button onclick="window.print()" style="margin-left:14px;padding:7px 16px;background:#80e885;color:#000;border:none;border-radius:4px;font-weight:700;cursor:pointer">🖨 Print / Save as PDF</button>
+        <button onclick="window.close()" style="margin-left:8px;padding:7px 16px;background:#444;color:#fff;border:none;border-radius:4px;cursor:pointer">Close</button>
+      </div>
+      ${rptHtml}
+      <script>setTimeout(()=>window.focus(),200);<\/script>
+      </body></html>`);
+    w.document.close();
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('report_print', 'Printed daily report for ' + r.dateStr);
+    if(typeof toast === 'function') toast('🖨 Report window opened · click Print to save PDF');
+  };
+
+  function _hnxRptBuildPrintBody(r){
+    const safe = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const breakdown = (title, obj) => {
+      const e = Object.entries(obj||{}).sort((a,b)=>b[1]-a[1]);
+      if(e.length === 0) return `<div class="box"><h3>${safe(title)}</h3><div class="row"><span>—</span><span></span></div></div>`;
+      return `<div class="box"><h3>${safe(title)}</h3>${e.map(([k,v])=>`<div class="row"><span>${safe(k)}</span><span><strong>${v}</strong></span></div>`).join('')}</div>`;
+    };
+    return `
+      <div class="hdr">
+        <div style="width:42px;height:42px;border:2px solid #000;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800">🌱</div>
+        <div>
+          <h1>ABA PARDES · Daily Operations Report</h1>
+          <div style="font-size:11px;color:#555">${safe(r.dateLabel)}</div>
+        </div>
+        <div class="meta">Generated ${new Date(r.generatedAt).toLocaleString()}<br>HydroNexis v2.36</div>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi"><div class="l">Harvested</div><div class="v">${r.harvest.cratesLogged}</div><div class="s">crates · ${r.harvest.totalKg} kg</div></div>
+        <div class="kpi"><div class="l">Delivered</div><div class="v">${r.deliveries.cratesOut}</div><div class="s">${r.deliveries.dispatched} trip(s)</div></div>
+        <div class="kpi"><div class="l">Returned</div><div class="v">${r.deliveries.cratesIn}</div><div class="s">${r.deliveries.returned} return(s)</div></div>
+        <div class="kpi"><div class="l">Missing</div><div class="v">${r.deliveries.cratesMissing}</div><div class="s">never returned</div></div>
+        <div class="kpi"><div class="l">Crew events</div><div class="v">${r.activity.totalEvents}</div><div class="s">total</div></div>
+        <div class="kpi"><div class="l">Storage</div><div class="v">${r.coldStorage?r.coldStorage.fillPct+'%':'—'}</div><div class="s">${r.coldStorage?r.coldStorage.usedM3+'/'+r.coldStorage.capacityM3+' m³':'—'}</div></div>
+      </div>
+
+      <h2>🌾 Harvest</h2>
+      <div class="grid3">
+        ${breakdown('By Crate Type', r.harvest.byType)}
+        ${breakdown('By Greenhouse', r.harvest.byGh)}
+        ${breakdown('By Crop', r.harvest.byCrop)}
+      </div>
+      ${r.harvest.cratesList.length > 0 ? `<table><thead><tr><th>Time</th><th>Crate ID</th><th>Type</th><th>GH</th><th>Crop</th><th style="text-align:right">Weight</th></tr></thead><tbody>${r.harvest.cratesList.map(c => `<tr><td>${safe(c.time)}</td><td><strong>${safe(c.id)}</strong></td><td>${safe(c.type)}</td><td>${safe(c.gh)}</td><td>${safe(c.crop)}</td><td style="text-align:right">${c.weightKg?c.weightKg+' kg':'—'}</td></tr>`).join('')}</tbody></table>` : '<div style="color:#888;font-style:italic">No crates logged.</div>'}
+
+      <h2>🚚 Deliveries Dispatched</h2>
+      ${r.deliveries.dispatchList.length > 0 ? `<table><thead><tr><th>Time</th><th>Customer</th><th>Truck</th><th>Driver</th><th>Crates</th><th>Status</th></tr></thead><tbody>${r.deliveries.dispatchList.map(d=>`<tr><td>${safe(d.time)}</td><td><strong>${safe(d.customer)}</strong></td><td>${safe(d.truck)}</td><td>${safe(d.driver)}</td><td>${d.crates}</td><td>${safe((d.status||'').replace(/_/g,' '))}</td></tr>`).join('')}</tbody></table>` : '<div style="color:#888;font-style:italic">No deliveries dispatched.</div>'}
+
+      <h2>↩️ Returns Processed</h2>
+      ${r.deliveries.returnList.length > 0 ? `<table><thead><tr><th>Time</th><th>Customer</th><th>Sent</th><th>Returned</th><th>Missing</th><th>Loss %</th></tr></thead><tbody>${r.deliveries.returnList.map(d=>`<tr><td>${safe(d.time)}</td><td><strong>${safe(d.customer)}</strong></td><td>${d.sent}</td><td>${d.back}</td><td>${d.missing}</td><td>${d.lossPct}%</td></tr>`).join('')}</tbody></table>` : '<div style="color:#888;font-style:italic">No returns processed.</div>'}
+
+      <h2>👥 Crew Activity Breakdown</h2>
+      <div class="grid3">
+        ${breakdown('By User', r.activity.byUser)}
+        ${breakdown('By Action', r.activity.byAction)}
+        ${breakdown('By Area', r.activity.byArea)}
+      </div>
+
+      ${r.alerts ? `<h2>🔔 Active Alerts at Report Time (${r.alerts.total})</h2>${r.alerts.list.length>0 ? r.alerts.list.map(a => `<div class="alert-row ${safe(a.severity)}"><strong>${a.severity==='critical'?'🔴 CRITICAL':'⚠ WARNING'}</strong> · ${safe(a.area)} · <strong>${safe(a.title)}</strong><br>${safe(a.message)}</div>`).join('') : '<div style="color:#080;font-style:italic">✓ All Clear · no active alerts.</div>'}` : ''}
+
+      <h2>📜 Activity Log (latest ${Math.min(r.activity.events.length, 100)})</h2>
+      ${r.activity.events.length > 0 ? `<table><thead><tr><th>Time</th><th>User</th><th>Area</th><th>Action</th><th>Details</th></tr></thead><tbody>${r.activity.events.map(e=>`<tr><td>${safe(e.time)}</td><td>${safe(e.user)}</td><td>${safe(e.area)}</td><td><code>${safe(e.action)}</code></td><td>${safe(e.details)}</td></tr>`).join('')}</tbody></table>` : '<div style="color:#888;font-style:italic">No events logged this day.</div>'}
+
+      <div class="ftr">ABA Pardes Agritech Corp · Daily Operations Report · ${safe(r.dateLabel)} · auto-generated by HydroNexis-AI</div>
+    `;
+  }
+
+  // ---- Export CSV ----
+  window._hnxRptExportCsv = function(){
+    const st = window._hnxRptState || {};
+    const r = _hnxBuildDailyReport(st.dateStr);
+    const esc = (s) => '"' + String(s == null ? '' : s).replace(/"/g,'""') + '"';
+    const lines = [];
+    lines.push('HydroNexis · Daily Operations Report');
+    lines.push('Date,'+esc(r.dateLabel));
+    lines.push('Generated,'+esc(new Date(r.generatedAt).toLocaleString()));
+    lines.push('');
+    lines.push('===,SUMMARY,===');
+    lines.push('Metric,Value');
+    lines.push('Crates harvested,'+r.harvest.cratesLogged);
+    lines.push('Total weight kg,'+r.harvest.totalKg);
+    lines.push('Deliveries dispatched,'+r.deliveries.dispatched);
+    lines.push('Crates out,'+r.deliveries.cratesOut);
+    lines.push('Returns processed,'+r.deliveries.returned);
+    lines.push('Crates back,'+r.deliveries.cratesIn);
+    lines.push('Crates missing,'+r.deliveries.cratesMissing);
+    lines.push('Activity events,'+r.activity.totalEvents);
+    if(r.coldStorage){
+      lines.push('Cold storage fill %,'+r.coldStorage.fillPct);
+      lines.push('Cold storage used m3,'+r.coldStorage.usedM3);
+      lines.push('Cold storage capacity m3,'+r.coldStorage.capacityM3);
+    }
+    lines.push('');
+    lines.push('===,HARVEST,===');
+    lines.push('Time,CrateID,Type,GH,Crop,WeightKg');
+    r.harvest.cratesList.forEach(c => lines.push([esc(c.time),esc(c.id),esc(c.type),esc(c.gh),esc(c.crop),c.weightKg].join(',')));
+    lines.push('');
+    lines.push('===,DELIVERIES DISPATCHED,===');
+    lines.push('Time,Customer,Truck,Driver,Crates,Status');
+    r.deliveries.dispatchList.forEach(d => lines.push([esc(d.time),esc(d.customer),esc(d.truck),esc(d.driver),d.crates,esc(d.status)].join(',')));
+    lines.push('');
+    lines.push('===,RETURNS,===');
+    lines.push('Time,Customer,Sent,Returned,Missing,LossPct');
+    r.deliveries.returnList.forEach(d => lines.push([esc(d.time),esc(d.customer),d.sent,d.back,d.missing,d.lossPct].join(',')));
+    lines.push('');
+    lines.push('===,ACTIVITY LOG,===');
+    lines.push('Time,User,Area,Action,Details');
+    r.activity.events.forEach(e => lines.push([esc(e.time),esc(e.user),esc(e.area),esc(e.action),esc(e.details)].join(',')));
+    const blob = new Blob(['\ufeff'+lines.join('\r\n')], { type:'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'hydronexis-daily-' + r.dateStr + '.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('report_csv', 'Exported daily report CSV for ' + r.dateStr);
+    if(typeof toast === 'function') toast('⬇ CSV downloaded · ' + r.dateStr);
+  };
+
+  // ---- Export JSON ----
+  window._hnxRptExportJson = function(){
+    const st = window._hnxRptState || {};
+    const r = _hnxBuildDailyReport(st.dateStr);
+    const blob = new Blob([JSON.stringify(r, null, 2)], { type:'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'hydronexis-daily-' + r.dateStr + '.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('report_json', 'Exported daily report JSON for ' + r.dateStr);
+    if(typeof toast === 'function') toast('⬇ JSON downloaded · ' + r.dateStr);
+  };
+
   // ============== MAIN RENDER ==============
   function renderFrCommandView(){
     // Force FR mode then delegate to the shared renderer using the fr_command body
@@ -107254,8 +107753,8 @@ service cloud.firestore {
           <!-- Status marquee strip -->
           <div class="hnx-marquee-wrap" style="margin:8px 14px 14px;border-radius:6px;padding:6px 0;position:relative;z-index:2;background:rgba(0,131,143,.10)">
             <div class="hnx-marquee" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#a5d6e6;letter-spacing:.10em;padding:0 30px">
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.35</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.35</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.36</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.36</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
             </div>
           </div>
           <!-- Pair selector -->
@@ -108753,7 +109252,7 @@ service cloud.firestore {
 .hnx-param-unit{font-size:11px;color:#6a8ea3;font-weight:500;margin-left:3px}
 .hnx-param-target{font-family:'JetBrains Mono',monospace;font-size:9px;color:#6a8ea3;letter-spacing:.10em;margin-top:3px}
 .hnx-param-dev{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;margin-top:1px}
-/* === HNX-EXT v2.35 · MACHINES GRID === */
+/* === HNX-EXT v2.36 · MACHINES GRID === */
 .hnx-machines-cube { position: relative; }
 .hnx-machines-grid {
   display: grid;
@@ -108869,7 +109368,7 @@ service cloud.firestore {
   color: #ff3030;
 }
 
-/* === HNX-EXT v2.35 · DRONE FLEET DETAIL PANEL === */
+/* === HNX-EXT v2.36 · DRONE FLEET DETAIL PANEL === */
 .hnx-drone-detail {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1.2fr;
@@ -108999,7 +109498,7 @@ service cloud.firestore {
 .hnx-drone-hist-stat.crit { background: rgba(255,48,48,.15); color: #ff7a78; border:1px solid rgba(255,48,48,.35); }
 .hnx-drone-hist-stat.live { background: rgba(132,255,249,.18); color: #84fff9; border:1px solid rgba(132,255,249,.45); animation: hnxBlink 1.2s steps(2) infinite; }
 
-/* === HNX-EXT v2.35 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
+/* === HNX-EXT v2.36 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
 .hnx-rotate-ctrl {
   display: inline-flex;
   align-items: center;
@@ -109082,7 +109581,7 @@ service cloud.firestore {
 .hnx-app.hnx-fs-active .hnx-crit-btn { font-size: 13px !important; padding: 7px 14px !important; }
 .hnx-app.hnx-fs-active .hnx-rotate-critcount { font-size: 13px; padding: 6px 14px; }
 
-/* === HNX-EXT v2.35 · URL-DRIVEN MONITOR PRESETS === */
+/* === HNX-EXT v2.36 · URL-DRIVEN MONITOR PRESETS === */
 .hnx-url-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-prof-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-app.hnx-fs-active .hnx-url-btn { font-size: 13px !important; padding: 7px 14px !important; }
@@ -109537,7 +110036,7 @@ service cloud.firestore {
 .hnx-fs-tap-s { font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #84fff9; letter-spacing: .06em; margin-bottom: 14px; animation: hnxBlink 1.5s steps(2) infinite; }
 .hnx-fs-tap-hint { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6a8ea3; letter-spacing: .06em; }
 
-/* === HNX-EXT v2.35 · DRUM CAPACITY EDITOR === */
+/* === HNX-EXT v2.36 · DRUM CAPACITY EDITOR === */
 .hnx-drum-settings {
   background: linear-gradient(180deg, rgba(2,30,40,.8), rgba(2,18,28,.95));
   border: 1px solid rgba(102,187,106,.45);
@@ -109564,7 +110063,7 @@ service cloud.firestore {
   box-shadow: 0 0 8px rgba(128,232,133,.4);
 }
 
-/* === HNX-EXT v2.35 · FULLSCREEN TRULY FILLS MONITOR === */
+/* === HNX-EXT v2.36 · FULLSCREEN TRULY FILLS MONITOR === */
 .hnx-app:fullscreen,
 .hnx-app:-webkit-full-screen {
   background: radial-gradient(ellipse at center, #02101a 0%, #02080f 70%, #000 100%) !important;
@@ -109653,7 +110152,7 @@ service cloud.firestore {
 /* Open items at bottom */
 .hnx-app.hnx-fs-active .hnx-ghc-bottom { margin-top: 14px; }
 
-/* === HNX-EXT v2.35 · FR MODE TOGGLE === */
+/* === HNX-EXT v2.36 · FR MODE TOGGLE === */
 .hnx-mode-btn {
   background: linear-gradient(135deg, rgba(77,208,225,.22), rgba(132,255,249,.18)) !important;
   border: 1px solid rgba(77,208,225,.55) !important;
@@ -109679,7 +110178,7 @@ service cloud.firestore {
   box-shadow: 0 0 14px rgba(132,255,249,.35);
 }
 
-/* === HNX-EXT v2.35 · FULLSCREEN MONITOR MODE === */
+/* === HNX-EXT v2.36 · FULLSCREEN MONITOR MODE === */
 .hnx-fs-btn { 
   background: linear-gradient(135deg, rgba(102,187,106,.22), rgba(77,208,225,.22)) !important;
   border: 1px solid rgba(102,187,106,.55) !important;
@@ -109723,7 +110222,7 @@ service cloud.firestore {
   100% { transform: translateX(50px); opacity: 0; }
 }
 
-/* === HNX-EXT v2.35 · VERTICAL FILLING DRUMS === */
+/* === HNX-EXT v2.36 · VERTICAL FILLING DRUMS === */
 .hnx-drum-cube { padding-bottom: 10px; }
 .hnx-drum-grid {
   display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;
@@ -109830,7 +110329,7 @@ service cloud.firestore {
 .hnx-drum-value.warn { color: #ffca52; }
 .hnx-drum-value.crit { color: #ff7a78; }
 
-/* === HNX-EXT v2.35 · BOLD VISIBLE THEMATIC IMAGERY === */
+/* === HNX-EXT v2.36 · BOLD VISIBLE THEMATIC IMAGERY === */
 .hnx-cube-imagery { position: relative; overflow: hidden; min-height: 180px; }
 .hnx-cube-imagery > .hnx-cube-bg {
   position: absolute; inset: 0;
@@ -109854,7 +110353,7 @@ service cloud.firestore {
 .hnx-cube-imagery > .hnx-ghbars,
 .hnx-cube-imagery > div:not(.hnx-cube-bg) { position: relative; z-index: 2; }
 .hnx-cube-imagery .hnx-w-h { position: relative; z-index: 2; }
-/* === HNX-EXT v2.35 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
+/* === HNX-EXT v2.36 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
 /* Production: Lettuce leaves sway */
 @keyframes hnxLettuceSway {
   0%, 100% { transform: rotate(-3deg); }
@@ -109912,7 +110411,7 @@ service cloud.firestore {
 .hnx-svg-act-dot:nth-child(3) { animation-delay: .8s; }
 .hnx-svg-act-dot:nth-child(4) { animation-delay: 1.2s; }
 
-/* === HNX-EXT v2.35 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
+/* === HNX-EXT v2.36 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
 /* CCTV cell motion enhancements — corner brackets, double scan, breathing border */
 .hnx-cctv-motion { animation: hnxCellPulse 4s ease-in-out infinite; }
 @keyframes hnxCellPulse {
