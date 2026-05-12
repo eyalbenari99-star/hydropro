@@ -94068,7 +94068,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
 
 </script>
 
-<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.34 (CCTV streaming actually works · HLS.js embedded · mixed-content detection · bridge diagnostics) -->
+<!-- HYDRONEXIS-AI EXTENSIONS PACK v2.35 (Hot-fix: inline onclick handlers for DVR tab - + Add device now works) -->
 <script>
 /* ============================================================================
  * HYDRONEXIS-AI · EXTENSIONS PACK v1.0
@@ -94661,7 +94661,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.34 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.35 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -94670,7 +94670,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.34';
+        vEl.textContent = orig + ' · HNX v2.35';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -94685,7 +94685,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.34 Diagnostics:\n\n' +
+        'HNX-EXT v2.35 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
@@ -94731,7 +94731,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const style = document.createElement('style');
     style.id = 'hnx-ext-styles';
     style.textContent = HNX_CSS + `
-/* === HNX-EXT v2.34 · MOTION & ANIMATION PACK === */
+/* === HNX-EXT v2.35 · MOTION & ANIMATION PACK === */
 @keyframes hnxPulseGlow {
   0%, 100% { box-shadow: 0 0 30px rgba(102,187,106,.18), inset 0 0 40px rgba(102,187,106,.05); }
   50%      { box-shadow: 0 0 60px rgba(102,187,106,.45), inset 0 0 70px rgba(102,187,106,.12); }
@@ -104004,10 +104004,127 @@ service cloud.firestore {
   window._hnxBridgeStreamUrl = hnxBridgeStreamUrl;
   window._hnxGenerateGo2rtcYaml = hnxGenerateGo2rtcYaml;
 
+  // v2.35 · Global DVR handlers (used by inline onclick · avoids closure/timing issues)
+  window._hnxDvrState = window._hnxDvrState || { editingId: null };
+  window._hnxDvrRefresh = function(){
+    const tab = document.querySelector('.hnx-it-tab[data-tab="dvr"]');
+    if(tab){
+      // Re-click the tab to force a fresh render
+      tab.click();
+    } else if(typeof window.switchView === 'function'){
+      try{ window.switchView('it_cctv_setup'); }catch(e){}
+      setTimeout(() => {
+        const t = document.querySelector('.hnx-it-tab[data-tab="dvr"]');
+        if(t) t.click();
+      }, 200);
+    }
+  };
+  window._hnxDvrNew = function(){
+    window._hnxDvrState.editingId = 'new';
+    window._hnxDvrRefresh();
+  };
+  window._hnxDvrEdit = function(id){
+    window._hnxDvrState.editingId = id;
+    window._hnxDvrRefresh();
+  };
+  window._hnxDvrCancelEdit = function(){
+    window._hnxDvrState.editingId = null;
+    window._hnxDvrRefresh();
+  };
+  window._hnxDvrSave = function(id){
+    const isNew = id === 'new';
+    const c = hnxLoadDvrConfig();
+    const dvr = {
+      id: isNew ? ('dvr_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)) : id,
+      name: (document.getElementById('hnxDvrName')||{}).value || 'Unnamed DVR',
+      manufacturer: (document.getElementById('hnxDvrMfg')||{}).value || 'hikvision',
+      ip: (document.getElementById('hnxDvrIp')||{}).value || '',
+      port: parseInt((document.getElementById('hnxDvrPort')||{}).value, 10) || 554,
+      username: (document.getElementById('hnxDvrUser')||{}).value || 'admin',
+      password: (document.getElementById('hnxDvrPass')||{}).value || '',
+      channels: parseInt((document.getElementById('hnxDvrChannels')||{}).value, 10) || 4,
+      streamPrefix: (document.getElementById('hnxDvrPrefix')||{}).value || 'cam',
+      rtspTemplate: (document.getElementById('hnxDvrTpl')||{}).value || '',
+      enabled: ((document.getElementById('hnxDvrEnabled')||{}).value === '1')
+    };
+    if(!dvr.name) dvr.name = 'Unnamed DVR';
+    if(!dvr.ip){ alert('IP address required'); return; }
+    if(isNew) c.devices.push(dvr);
+    else { const idx = c.devices.findIndex(x => x.id === id); if(idx >= 0) c.devices[idx] = dvr; else c.devices.push(dvr); }
+    hnxSaveDvrConfig(c);
+    if(typeof toast === 'function') toast('✓ Saved · ' + dvr.name);
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('dvr_save', (isNew?'Added':'Updated')+' DVR "'+dvr.name+'" · '+dvr.ip+':'+dvr.port+' · '+dvr.channels+'ch');
+    window._hnxDvrState.editingId = null;
+    window._hnxDvrRefresh();
+  };
+  window._hnxDvrDel = function(id){
+    const c = hnxLoadDvrConfig();
+    const d = c.devices.find(x => x.id === id); if(!d) return;
+    if(!confirm('Delete "'+d.name+'" and remove all its streams from go2rtc YAML?')) return;
+    c.devices = c.devices.filter(x => x.id !== id);
+    hnxSaveDvrConfig(c);
+    if(typeof toast === 'function') toast('🗑 ' + d.name + ' deleted');
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('dvr_delete', 'Deleted DVR "'+d.name+'"');
+    window._hnxDvrRefresh();
+  };
+  window._hnxDvrSaveBridge = function(){
+    const c = hnxLoadDvrConfig();
+    c.bridgeIp = (document.getElementById('hnxDvrBridgeIp')||{}).value || '';
+    c.bridgePort = parseInt((document.getElementById('hnxDvrBridgePort')||{}).value, 10) || 1984;
+    c.bridgeProtocol = (document.getElementById('hnxDvrBridgeProto')||{}).value || 'http';
+    hnxSaveDvrConfig(c);
+    if(typeof toast === 'function') toast('💾 Bridge saved · ' + c.bridgeProtocol + '://' + c.bridgeIp + ':' + c.bridgePort);
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('dvr_bridge_save', 'Bridge: '+c.bridgeProtocol+'://'+c.bridgeIp+':'+c.bridgePort);
+    window._hnxDvrRefresh();
+  };
+  window._hnxDvrCopyYaml = function(){
+    const yaml = hnxGenerateGo2rtcYaml();
+    try{ navigator.clipboard.writeText(yaml).then(() => { if(typeof toast === 'function') toast('📋 YAML copied to clipboard'); }); }
+    catch(e){ prompt('Copy this YAML:', yaml); }
+  };
+  window._hnxDvrDownloadYaml = function(){
+    const yaml = hnxGenerateGo2rtcYaml();
+    const blob = new Blob([yaml], { type:'text/yaml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'go2rtc.yaml'; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    if(typeof toast === 'function') toast('⬇ go2rtc.yaml downloaded');
+  };
+  window._hnxDvrAutoAssign = function(){
+    const c = hnxLoadDvrConfig();
+    if(!c.bridgeIp){ alert('Configure the bridge IP first'); return; }
+    const streams = [];
+    c.devices.forEach(d => {
+      if(!d.enabled) return;
+      const channels = parseInt(d.channels,10) || 0;
+      for(let ch=1; ch<=channels; ch++){
+        const slug = (d.streamPrefix||'cam').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+        streams.push({ id: slug+'-ch'+ch, label: d.name+' ch'+ch, url: hnxBridgeStreamUrl(slug+'-ch'+ch) });
+      }
+    });
+    if(streams.length === 0){ alert('No enabled streams to assign'); return; }
+    const camStreams = _hnxLoad('hydroPro_camera_streams', {});
+    streams.forEach((s,i) => { camStreams[s.id] = s.url; });
+    _hnxSave('hydroPro_camera_streams', camStreams);
+    if(typeof toast === 'function') toast('⚡ Auto-assigned ' + streams.length + ' stream URLs');
+    if(typeof window._hnxLogActivity === 'function') window._hnxLogActivity('dvr_auto_assign', 'Auto-assigned '+streams.length+' streams');
+  };
+  window._hnxDvrTest = function(id){
+    const c = hnxLoadDvrConfig();
+    const d = c.devices.find(x => x.id === id); if(!d) return;
+    if(!c.bridgeIp){ alert('Configure the bridge IP first'); return; }
+    const url = (c.bridgeProtocol||'http') + '://' + c.bridgeIp + ':' + (c.bridgePort||1984) + '/api/streams?src=' + (d.streamPrefix||'cam')+'-ch1';
+    if(typeof toast === 'function') toast('🔌 Testing bridge → ' + (d.streamPrefix||'cam') + '-ch1 …');
+    fetch(url, { method:'GET', mode:'no-cors' })
+      .then(() => { if(typeof toast==='function') toast('✓ Bridge reachable · check go2rtc UI for stream details'); })
+      .catch(err => { if(typeof toast==='function') toast('⚠ Bridge unreachable · ' + (err.message||''), 'crit'); });
+  };
+
+
   // ============== DVR/NVR TAB RENDERER ==============
   function drawDvrTab(){
     const cfg = hnxLoadDvrConfig();
-    const editId = state.dvrEditingId || null;
+    const editId = (window._hnxDvrState && window._hnxDvrState.editingId) || state.dvrEditingId || null;
     const isNew = editId === 'new';
     const editing = isNew
       ? { id:'', name:'', manufacturer:'hikvision', ip:'', port:554, username:'admin', password:'', channels:4, streamPrefix:'cam', rtspTemplate:'', enabled:true }
@@ -104044,7 +104161,7 @@ service cloud.firestore {
               <option value="https" ${cfg.bridgeProtocol==='https'?'selected':''}>https</option>
             </select>
           </label>
-          <button class="hnx-btn hnx-btn-g" data-action="save-bridge">💾 Save bridge</button>
+          <button class="hnx-btn hnx-btn-g" onclick="window._hnxDvrSaveBridge && window._hnxDvrSaveBridge()">💾 Save bridge</button>
         </div>
         <div style="padding:0 14px 12px;font-family:JetBrains Mono,monospace;font-size:10px;color:#6a8ea3;letter-spacing:.04em;line-height:1.6">
           ▸ go2rtc must be installed and running on a machine in your LAN (Raspberry Pi, mini PC, or always-on server)<br>
@@ -104058,7 +104175,7 @@ service cloud.firestore {
         <div class="hnx-w-h" style="display:flex;align-items:center;gap:10px">
           <span>📹 DVR/NVR Devices</span>
           <div style="flex:1"></div>
-          <button class="hnx-btn hnx-btn-g" data-action="new-dvr" style="padding:6px 12px;font-size:11px">+ Add device</button>
+          <button class="hnx-btn hnx-btn-g" onclick="window._hnxDvrNew && window._hnxDvrNew()" style="padding:6px 12px;font-size:11px">+ Add device</button>
         </div>
         <div style="padding:0">
           ${cfg.devices.length === 0 ? '<div style="padding:24px;text-align:center;color:#6a8ea3;font-family:JetBrains Mono,monospace;font-size:11px">No DVRs/NVRs configured yet · click <b style="color:#80e885">+ Add device</b> to start</div>' :
@@ -104073,9 +104190,9 @@ service cloud.firestore {
                   </div>
                 </div>
                 <div style="display:flex;gap:5px">
-                  <button class="hnx-btn hnx-btn-c" data-action="test-dvr" data-id="${escHtml(d.id)}" title="Test connection" style="padding:5px 10px;font-size:11px">🔌 Test</button>
-                  <button class="hnx-btn hnx-btn-c" data-action="edit-dvr" data-id="${escHtml(d.id)}" style="padding:5px 10px;font-size:11px">✎ Edit</button>
-                  <button class="hnx-btn hnx-btn-danger" data-action="del-dvr" data-id="${escHtml(d.id)}" style="padding:5px 10px;font-size:11px">🗑</button>
+                  <button class="hnx-btn hnx-btn-c" onclick="window._hnxDvrTest && window._hnxDvrTest('${escHtml(d.id)}')" title="Test connection" style="padding:5px 10px;font-size:11px">🔌 Test</button>
+                  <button class="hnx-btn hnx-btn-c" onclick="window._hnxDvrEdit && window._hnxDvrEdit('${escHtml(d.id)}')" style="padding:5px 10px;font-size:11px">✎ Edit</button>
+                  <button class="hnx-btn hnx-btn-danger" onclick="window._hnxDvrDel && window._hnxDvrDel('${escHtml(d.id)}')" style="padding:5px 10px;font-size:11px">🗑</button>
                 </div>
               </div>`;
             }).join('')}
@@ -104137,9 +104254,9 @@ service cloud.firestore {
               <span id="hnxDvrPreviewUrl" style="color:#84fff9;word-break:break-all">${escHtml(_hnxResolveRtspUrl({...editing, rtspTemplate: editing.rtspTemplate || HNX_RTSP_TEMPLATES[editing.manufacturer]}, 1))}</span>
             </div>
             <div style="grid-column:span 4;display:flex;gap:8px;padding-top:6px;border-top:1px dashed rgba(77,208,225,.25)">
-              <button class="hnx-btn hnx-btn-ghost" data-action="cancel-dvr-edit">✕ Cancel</button>
+              <button class="hnx-btn hnx-btn-ghost" onclick="window._hnxDvrCancelEdit && window._hnxDvrCancelEdit()">✕ Cancel</button>
               <div style="flex:1"></div>
-              <button class="hnx-btn hnx-btn-g" data-action="save-dvr" data-id="${escHtml(isNew?'new':editing.id)}">💾 Save device</button>
+              <button class="hnx-btn hnx-btn-g" onclick="window._hnxDvrSave && window._hnxDvrSave('${escHtml(isNew?'new':editing.id)}')">💾 Save device</button>
             </div>
           </div>
         </div>
@@ -104150,9 +104267,9 @@ service cloud.firestore {
         <div class="hnx-w-h" style="display:flex;align-items:center;gap:10px">
           <span>📄 Generated go2rtc.yaml</span>
           <div style="flex:1"></div>
-          <button class="hnx-btn hnx-btn-c" data-action="copy-yaml" style="padding:6px 12px;font-size:11px">📋 Copy</button>
-          <button class="hnx-btn hnx-btn-c" data-action="download-yaml" style="padding:6px 12px;font-size:11px">⬇ Download</button>
-          <button class="hnx-btn hnx-btn-g" data-action="auto-assign-streams" style="padding:6px 12px;font-size:11px" title="Auto-fill empty camera slots in the grid using the configured streams">⚡ Auto-assign to slots</button>
+          <button class="hnx-btn hnx-btn-c" onclick="window._hnxDvrCopyYaml && window._hnxDvrCopyYaml()" style="padding:6px 12px;font-size:11px">📋 Copy</button>
+          <button class="hnx-btn hnx-btn-c" onclick="window._hnxDvrDownloadYaml && window._hnxDvrDownloadYaml()" style="padding:6px 12px;font-size:11px">⬇ Download</button>
+          <button class="hnx-btn hnx-btn-g" onclick="window._hnxDvrAutoAssign && window._hnxDvrAutoAssign()" style="padding:6px 12px;font-size:11px" title="Auto-fill empty camera slots in the grid using the configured streams">⚡ Auto-assign to slots</button>
           <button class="hnx-btn hnx-btn-c" onclick="window._hnxRunBridgeDiagnostics&&window._hnxRunBridgeDiagnostics()" style="padding:6px 12px;font-size:11px" title="Test bridge connectivity, list streams, check mixed content">🔍 Diagnose</button>
           <button class="hnx-btn hnx-btn-c" onclick="window._hnxTestHlsPlayback&&window._hnxTestHlsPlayback()" style="padding:6px 12px;font-size:11px" title="Verify HLS playback works using a public demo stream">📺 Test playback</button>
         </div>
@@ -107137,8 +107254,8 @@ service cloud.firestore {
           <!-- Status marquee strip -->
           <div class="hnx-marquee-wrap" style="margin:8px 14px 14px;border-radius:6px;padding:6px 0;position:relative;z-index:2;background:rgba(0,131,143,.10)">
             <div class="hnx-marquee" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#a5d6e6;letter-spacing:.10em;padding:0 30px">
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.34</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
-              <span style="color:#80deea">⬢ HydroNexis-AI v2.34</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.35</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
+              <span style="color:#80deea">⬢ HydroNexis-AI v2.35</span> <span style="color:#80e885">▸ ALL 10 GH+FR LIVE</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span> <span style="color:#80e885">▸ DRONE FLEET 12/12</span> <span style="color:#ffca52">▸ HARVEST WINDOW 06:00–09:00</span> <span style="color:#80deea">▸ PREDICTIVE MODELS RUNNING</span> <span style="color:#80e885">▸ BED-LEVEL SENSORS 218/218</span> <span style="color:#80deea">▸ AI VISION ACTIVE</span>
             </div>
           </div>
           <!-- Pair selector -->
@@ -108636,7 +108753,7 @@ service cloud.firestore {
 .hnx-param-unit{font-size:11px;color:#6a8ea3;font-weight:500;margin-left:3px}
 .hnx-param-target{font-family:'JetBrains Mono',monospace;font-size:9px;color:#6a8ea3;letter-spacing:.10em;margin-top:3px}
 .hnx-param-dev{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;margin-top:1px}
-/* === HNX-EXT v2.34 · MACHINES GRID === */
+/* === HNX-EXT v2.35 · MACHINES GRID === */
 .hnx-machines-cube { position: relative; }
 .hnx-machines-grid {
   display: grid;
@@ -108752,7 +108869,7 @@ service cloud.firestore {
   color: #ff3030;
 }
 
-/* === HNX-EXT v2.34 · DRONE FLEET DETAIL PANEL === */
+/* === HNX-EXT v2.35 · DRONE FLEET DETAIL PANEL === */
 .hnx-drone-detail {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1.2fr;
@@ -108882,7 +108999,7 @@ service cloud.firestore {
 .hnx-drone-hist-stat.crit { background: rgba(255,48,48,.15); color: #ff7a78; border:1px solid rgba(255,48,48,.35); }
 .hnx-drone-hist-stat.live { background: rgba(132,255,249,.18); color: #84fff9; border:1px solid rgba(132,255,249,.45); animation: hnxBlink 1.2s steps(2) infinite; }
 
-/* === HNX-EXT v2.34 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
+/* === HNX-EXT v2.35 · AUTO-ROTATE FOR MONITOR DISPLAYS === */
 .hnx-rotate-ctrl {
   display: inline-flex;
   align-items: center;
@@ -108965,7 +109082,7 @@ service cloud.firestore {
 .hnx-app.hnx-fs-active .hnx-crit-btn { font-size: 13px !important; padding: 7px 14px !important; }
 .hnx-app.hnx-fs-active .hnx-rotate-critcount { font-size: 13px; padding: 6px 14px; }
 
-/* === HNX-EXT v2.34 · URL-DRIVEN MONITOR PRESETS === */
+/* === HNX-EXT v2.35 · URL-DRIVEN MONITOR PRESETS === */
 .hnx-url-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-prof-btn { font-size: 11px !important; padding: 5px 10px !important; letter-spacing: .04em; font-weight: 700 !important; }
 .hnx-app.hnx-fs-active .hnx-url-btn { font-size: 13px !important; padding: 7px 14px !important; }
@@ -109420,7 +109537,7 @@ service cloud.firestore {
 .hnx-fs-tap-s { font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #84fff9; letter-spacing: .06em; margin-bottom: 14px; animation: hnxBlink 1.5s steps(2) infinite; }
 .hnx-fs-tap-hint { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6a8ea3; letter-spacing: .06em; }
 
-/* === HNX-EXT v2.34 · DRUM CAPACITY EDITOR === */
+/* === HNX-EXT v2.35 · DRUM CAPACITY EDITOR === */
 .hnx-drum-settings {
   background: linear-gradient(180deg, rgba(2,30,40,.8), rgba(2,18,28,.95));
   border: 1px solid rgba(102,187,106,.45);
@@ -109447,7 +109564,7 @@ service cloud.firestore {
   box-shadow: 0 0 8px rgba(128,232,133,.4);
 }
 
-/* === HNX-EXT v2.34 · FULLSCREEN TRULY FILLS MONITOR === */
+/* === HNX-EXT v2.35 · FULLSCREEN TRULY FILLS MONITOR === */
 .hnx-app:fullscreen,
 .hnx-app:-webkit-full-screen {
   background: radial-gradient(ellipse at center, #02101a 0%, #02080f 70%, #000 100%) !important;
@@ -109536,7 +109653,7 @@ service cloud.firestore {
 /* Open items at bottom */
 .hnx-app.hnx-fs-active .hnx-ghc-bottom { margin-top: 14px; }
 
-/* === HNX-EXT v2.34 · FR MODE TOGGLE === */
+/* === HNX-EXT v2.35 · FR MODE TOGGLE === */
 .hnx-mode-btn {
   background: linear-gradient(135deg, rgba(77,208,225,.22), rgba(132,255,249,.18)) !important;
   border: 1px solid rgba(77,208,225,.55) !important;
@@ -109562,7 +109679,7 @@ service cloud.firestore {
   box-shadow: 0 0 14px rgba(132,255,249,.35);
 }
 
-/* === HNX-EXT v2.34 · FULLSCREEN MONITOR MODE === */
+/* === HNX-EXT v2.35 · FULLSCREEN MONITOR MODE === */
 .hnx-fs-btn { 
   background: linear-gradient(135deg, rgba(102,187,106,.22), rgba(77,208,225,.22)) !important;
   border: 1px solid rgba(102,187,106,.55) !important;
@@ -109606,7 +109723,7 @@ service cloud.firestore {
   100% { transform: translateX(50px); opacity: 0; }
 }
 
-/* === HNX-EXT v2.34 · VERTICAL FILLING DRUMS === */
+/* === HNX-EXT v2.35 · VERTICAL FILLING DRUMS === */
 .hnx-drum-cube { padding-bottom: 10px; }
 .hnx-drum-grid {
   display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;
@@ -109713,7 +109830,7 @@ service cloud.firestore {
 .hnx-drum-value.warn { color: #ffca52; }
 .hnx-drum-value.crit { color: #ff7a78; }
 
-/* === HNX-EXT v2.34 · BOLD VISIBLE THEMATIC IMAGERY === */
+/* === HNX-EXT v2.35 · BOLD VISIBLE THEMATIC IMAGERY === */
 .hnx-cube-imagery { position: relative; overflow: hidden; min-height: 180px; }
 .hnx-cube-imagery > .hnx-cube-bg {
   position: absolute; inset: 0;
@@ -109737,7 +109854,7 @@ service cloud.firestore {
 .hnx-cube-imagery > .hnx-ghbars,
 .hnx-cube-imagery > div:not(.hnx-cube-bg) { position: relative; z-index: 2; }
 .hnx-cube-imagery .hnx-w-h { position: relative; z-index: 2; }
-/* === HNX-EXT v2.34 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
+/* === HNX-EXT v2.35 · ANIMATED THEMATIC IMAGERY INSIDE CUBES === */
 /* Production: Lettuce leaves sway */
 @keyframes hnxLettuceSway {
   0%, 100% { transform: rotate(-3deg); }
@@ -109795,7 +109912,7 @@ service cloud.firestore {
 .hnx-svg-act-dot:nth-child(3) { animation-delay: .8s; }
 .hnx-svg-act-dot:nth-child(4) { animation-delay: 1.2s; }
 
-/* === HNX-EXT v2.34 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
+/* === HNX-EXT v2.35 · CCTV MOTION + CUBE MOTION + DRONE FLEET === */
 /* CCTV cell motion enhancements — corner brackets, double scan, breathing border */
 .hnx-cctv-motion { animation: hnxCellPulse 4s ease-in-out infinite; }
 @keyframes hnxCellPulse {
