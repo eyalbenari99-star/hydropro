@@ -5726,6 +5726,22 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 </div>
 
 
+<!-- SOP VAULT — admin-only secure repository for all Standard Operating Procedures -->
+<div class="view" id="view-sop_vault_admin">
+  <div class="rt-ai-banner" style="margin-bottom:14px;">
+    <div class="rt-ai-orb"><div class="rt-ai-pulse"></div><span>🔒</span></div>
+    <div class="rt-ai-info">
+      <div class="rt-ai-eyebrow"><span>──</span><strong>HYDRONEXIS-AI BRAIN</strong><span>·</span><span>SOP VAULT · ADMIN-ONLY</span><span class="rt-ai-live"><span class="rt-ai-live-dot"></span>VAULT SECURED</span></div>
+      <div class="rt-ai-headline">Master repository for every Standard Operating Procedure · auto-syncs to relevant modules · audit trail per change</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+      <button class="hnx-mb-cta" onclick="window._sopVaultExport&&window._sopVaultExport()">⬇ Export JSON</button>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;color:rgba(165,214,230,.7);" id="sopVaultCount">— SOPs · — modules</span>
+    </div>
+  </div>
+  <div id="sopVaultBody"></div>
+</div>
+
 <!-- USERS (admin only) -->
 <div class="view" id="view-users">
   <div class="section-title">User Management</div>
@@ -15556,6 +15572,82 @@ function renderRecurringHub(){
   `;
 }
 // Today tab — same cards as dashboard but full width
+/* === v2.56 · SOP Vault (admin-only) — renders SOP_LIBRARY grouped by module
+   Pulls from window.SOP_LIBRARY (defined in the IIFE at line ~115061).
+   Admin-only gate is enforced via MODULES.admin.adminOnly + moduleHasAccess.
+*/
+function renderSopVaultAdmin(){
+  /* Defensive: confirm admin */
+  if(typeof isAdmin==='function'&&!isAdmin()){
+    const b=document.getElementById('sopVaultBody');
+    if(b)b.innerHTML='<div style="padding:40px;text-align:center;color:#ff7a78;font-family:\'JetBrains Mono\',monospace;font-size:13px;letter-spacing:.1em;text-transform:uppercase;">🔒 ACCESS DENIED · ADMINISTRATORS ONLY</div>';
+    return;
+  }
+  const lib=window.SOP_LIBRARY||[];
+  const body=document.getElementById('sopVaultBody');
+  const countEl=document.getElementById('sopVaultCount');
+  if(!body)return;
+  if(!lib.length){body.innerHTML='<div style="padding:40px;text-align:center;color:rgba(165,214,230,.6);">No SOPs loaded yet.</div>';return;}
+
+  /* Group by primary module */
+  const byMod={};
+  lib.forEach(s=>{const k=s.module||'general';(byMod[k]=byMod[k]||[]).push(s);});
+  const modCount=Object.keys(byMod).length;
+  if(countEl)countEl.textContent=lib.length+' SOPs · '+modCount+' modules';
+
+  /* Module label helper */
+  const modName=k=>{try{return((window.MODULES||{})[k]||{}).name||k.toUpperCase();}catch(e){return k.toUpperCase();}};
+  const modIcon=k=>{try{return((window.MODULES||{})[k]||{}).icon||'📋';}catch(e){return '📋';}};
+
+  /* Criticality color */
+  const critColor=c=>c==='critical'?'#ff7a78':c==='high'?'#ffca52':c==='medium'?'#80deea':'#80e885';
+
+  const sections=Object.keys(byMod).sort().map(k=>{
+    const sops=byMod[k];
+    const cards=sops.map(s=>{
+      const cc=critColor(s.criticality);
+      return `<div class="sop-vault-card" onclick="window._sopVaultOpen&&window._sopVaultOpen('${s.id}')" style="position:relative;padding:12px 14px;border:1px solid rgba(102,187,106,.18);border-left:3px solid ${cc};border-radius:9px;background:linear-gradient(160deg,rgba(8,18,16,.92),rgba(4,12,10,.96));cursor:pointer;transition:all .2s;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <span style="font-size:20px;">${s.icon||'📋'}</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.12em;color:${cc};font-weight:800;text-transform:uppercase;">${s.code||''}</span>
+          <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.1em;padding:2px 6px;border-radius:4px;background:rgba(102,187,106,.1);color:#80e885;font-weight:700;text-transform:uppercase;">${s.criticality||''}</span>
+        </div>
+        <div style="font-size:13px;font-weight:700;color:#e8f5e9;letter-spacing:-.01em;line-height:1.3;">${s.title}</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:rgba(165,214,230,.65);letter-spacing:.08em;margin-top:5px;text-transform:uppercase;">${s.frequencyLabel||s.frequency||''} · ${s.owner||''}</div>
+        <div style="font-size:11px;color:rgba(232,245,233,.7);margin-top:6px;line-height:1.4;">${(s.purpose||'').slice(0,110)}${(s.purpose||'').length>110?'…':''}</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;">${(s.modules||[]).map(m=>`<span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;padding:2px 6px;border:1px solid rgba(77,208,225,.3);border-radius:4px;color:#80deea;text-transform:uppercase;">${modIcon(m)} ${modName(m).slice(0,12)}</span>`).join('')}</div>
+      </div>`;
+    }).join('');
+    return `<div style="margin-bottom:18px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(102,187,106,.16);">
+        <span style="font-size:22px;">${modIcon(k)}</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.18em;color:#80e885;font-weight:800;text-transform:uppercase;">${modName(k)}</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:rgba(165,214,230,.6);letter-spacing:.1em;">· ${sops.length} SOP${sops.length===1?'':'s'}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:10px;">${cards}</div>
+    </div>`;
+  }).join('');
+
+  body.innerHTML=sections;
+}
+
+window._sopVaultOpen=function(id){
+  try{
+    if(typeof window.sopById==='function'){const s=window.sopById(id);if(s)alert('SOP · '+s.code+' · '+s.title+'\n\nPurpose: '+s.purpose+'\n\nSteps:\n'+(s.steps||[]).map((t,i)=>(i+1)+'. '+t).join('\n'));return;}
+    const s=(window.SOP_LIBRARY||[]).find(x=>x.id===id);
+    if(s)alert('SOP · '+s.code+' · '+s.title+'\n\nPurpose: '+s.purpose);
+  }catch(e){}
+};
+
+window._sopVaultExport=function(){
+  try{
+    const data=JSON.stringify(window.SOP_LIBRARY||[],null,2);
+    const blob=new Blob([data],{type:'application/json'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='hydronexis-sop-vault-'+new Date().toISOString().slice(0,10)+'.json';a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  }catch(e){alert('Export failed: '+e.message);}
+};
+
 /* === v2.55 · COCKPIT REDESIGN · grouped by task, drill-down per GH ===
    Old version showed N×GH cards in flat grid (confusing). New version:
    - 1 master card per task (icon, name, AI status, progress ring, owner, freq)
@@ -18460,7 +18552,9 @@ const MODULES={
   admin:{
     icon:'⚙️',
     name:'ADMINISTRATION',
+    adminOnly:true,
     views:[
+      {id:'sop_vault_admin',label:'🔒 SOP Vault',perm:'manageSecurity',title:'Secure SOP master vault — admin-only. Houses all Standard Operating Procedures; auto-syncs to relevant modules.'},
       {id:'users',label:'Users',perm:'viewUsers'},
       {id:'geo_setup',label:'🌍 Geographic Setup',perm:'manageGeo',title:'Countries, clusters, sites'},
       {id:'pool_setup',label:'🏊 Pool Setup',perm:'manageGeo',title:'Edit pool dimensions, target levels, and assignments'},
@@ -18509,6 +18603,10 @@ function getVisibleViews(modId){
 function moduleHasAccess(modId){
   const mod=MODULES[modId];
   if(!mod||mod.disabled)return false;
+  // v2.56 · admin-only modules (e.g. Setup / SOP Vault)
+  if(mod.adminOnly){
+    if(typeof isAdmin!=='function'||!isAdmin())return false;
+  }
   // NEW: per-user module-level override
   if(typeof canView==='function'){
     if(!canView(modId))return false;
@@ -18758,6 +18856,7 @@ function switchView(v,skipModuleCheck){
   if(v==='history')renderHistory();
   if(v==='prod_pool_cleaning')renderPoolCleaning();
   if(v==='prod_recurring')renderRecurringHub();
+  if(v==='sop_vault_admin')renderSopVaultAdmin();
   if(v==='prod_seeds')renderSeedStudy();
   if(v==='users')renderUsers();
   if(v==='audit')renderAuditLog();
@@ -95035,7 +95134,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.55 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.56 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -95044,7 +95143,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.55';
+        vEl.textContent = orig + ' · HNX v2.56';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -95059,7 +95158,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.55 Diagnostics:\n\n' +
+        'HNX-EXT v2.56 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
