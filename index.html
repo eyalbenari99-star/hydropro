@@ -18557,7 +18557,6 @@ const MODULES={
       {id:'sop_vault_admin',label:'🔒 SOP Vault',perm:'manageSecurity',title:'Secure SOP master vault — admin-only. Houses all Standard Operating Procedures; auto-syncs to relevant modules.'},
       {id:'users',label:'Users',perm:'viewUsers'},
       {id:'geo_setup',label:'🌍 Geographic Setup',perm:'manageGeo',title:'Countries, clusters, sites'},
-      {id:'pool_setup',label:'🏊 Pool Setup',perm:'manageGeo',title:'Edit pool dimensions, target levels, and assignments'},
       {id:'email_routing',label:'📧 Email Routing',perm:'manageSecurity',title:'Per-module email addresses'},
       {id:'report_scheduler',label:'📨 Report Scheduler',perm:'manageSecurity',title:'Schedule custom recurring reports to @abapardes.com.ph recipients'},
       {id:'security_center',label:'🔐 Security Center',perm:'manageSecurity',title:'Access control, device management'},
@@ -18576,6 +18575,13 @@ const MODULES={
 };
 // Map each view to its module
 function findModuleForView(viewId){
+  // v2.57 · bugfix: if the view exists in the CURRENT module, prefer that
+  // (prevents jumping to a different module when a view ID is duplicated).
+  try{
+    if(typeof currentModule==='string'&&MODULES[currentModule]){
+      if(MODULES[currentModule].views.some(v=>v.id===viewId))return currentModule;
+    }
+  }catch(e){}
   for(const [modId,mod] of Object.entries(MODULES)){
     if(mod.views.some(v=>v.id===viewId))return modId;
   }
@@ -95134,7 +95140,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.56 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.57 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -95143,7 +95149,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.56';
+        vEl.textContent = orig + ' · HNX v2.57';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -95158,7 +95164,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.56 Diagnostics:\n\n' +
+        'HNX-EXT v2.57 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
