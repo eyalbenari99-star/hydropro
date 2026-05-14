@@ -16908,6 +16908,7 @@ function renderSup(){
       </div>
       <div class="sup-tags">${tagHTML}</div>
       <textarea class="sup-textarea" placeholder="Supervisor remarks…" onchange="setSupNote('${gh}',this.value)">${s.supNote||''}</textarea>
+      <textarea class="sup-textarea" style="min-height:96px;margin-top:6px;" placeholder="🥬 Lettuce Issues List — per-GH observations: roots, leaves, leaks, harvest, pipes, growth…" onchange="setSupNarrative('${gh}',this.value)">${s.supNarrative||''}</textarea>
     </div>`;
   }).join('');
 }
@@ -17504,6 +17505,7 @@ function setSupTag(gh,tag,el){
   showToast('Tag updated','ok');
 }
 function setSupNote(gh,v){if(!can('setSupervisorFields'))return;state[gh].supNote=v;saveState();audit('sup_note',`Updated supervisor remarks${v?' ('+v.length+' chars)':' (cleared)'}`,{gh});}
+function setSupNarrative(gh,v){if(!can('setSupervisorFields'))return;if(!state[gh])state[gh]={};state[gh].supNarrative=v;saveState();audit('sup_narrative',`Updated GH observations${v?' ('+v.length+' chars)':' (cleared)'}`,{gh});}
 function setSuperField(gh,field,val,card){
   if(!requirePerm('setSupervisorFields','Supervisor changes'))return;
   state[gh][field]=val;
@@ -17680,7 +17682,7 @@ function buildReportHTML(st,dateStr,isPast,opts){
   // Default = compact print-friendly mode
   opts=opts||{};
   const compact=opts.compact!==false;
-  const includeMatrix=!!opts.includeMatrix;
+  const includeMatrix=opts.includeMatrix!==false;
   const includePhotos=!!opts.includePhotos;
   const showEmpty=!!opts.emptyFacilities;
   // Helpers that read from st instead of global state
@@ -17799,6 +17801,18 @@ function buildReportHTML(st,dateStr,isPast,opts){
       h+=`<tr><td style="padding:4px 6px;border:1px solid #ccc;font-weight:700;">${fi.gh}</td><td style="padding:4px 6px;border:1px solid #ccc;">${lines}</td></tr>`;
     });
     h+=`</tbody></table>`;
+  }
+
+  // ================= PER-GH OBSERVATIONS (Lettuce Issues List) =================
+  const ghNarr=GREENHOUSES.filter(g=>st[g]&&st[g].supNarrative&&String(st[g].supNarrative).trim());
+  if(ghNarr.length){
+    h+=`<h3 style="margin:14px 0 4px;font-size:11px;">🥬 Per-Greenhouse Observations — Lettuce Issues List</h3>`;
+    h+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">`;
+    ghNarr.forEach(g=>{
+      const nt=String(st[g].supNarrative||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>');
+      h+=`<div style="border:1px solid #ccc;border-radius:4px;padding:6px 9px;font-size:10px;break-inside:avoid;"><div style="font-weight:700;margin-bottom:3px;">${g}</div><div style="color:#333;line-height:1.5;">${nt}</div></div>`;
+    });
+    h+=`</div>`;
   }
 
   // ================= FULL MATRIX — ONLY IF REQUESTED =================
@@ -118825,13 +118839,11 @@ body.hnx-mobile-locked { overflow: hidden; }
   var SEVMAP={alert:'u',recommend:'r',predict:'p',observe:'o'};
   var SEVLBL={u:'URGENT',r:'RECOMMEND',p:'PREDICT',o:'OBSERVE'};
   var ISSUE={
-    tipburn:['Tip burn','🔥'],roots:['Root zone','🌱'],leak:['Leaks / gutters','💧'],algae:['Sanitation','🧫'],
-    overcrowd:['Overcrowding','🪴'],spray:['Chemical / spray','🧴'],seedling:['Seedlings / transplant','🌾'],
-    harvest:['Harvest / bolting','✂️'],yellowleaf:['Nutrient deficiency','🍂'],curlleaf:['Leaf deformity','🌀'],
-    ecph:['EC / pH drift','⚗️'],pump:['Pump','🔧'],tank:['Water tank / pressure','🛢️'],fan:['Fans / airflow','🌬️'],
-    corrosion:['Corrosion','🟤'],coolingpad:['Cooling pad','❄️'],attendance:['Attendance','⏰'],payroll:['Payroll','💰'],
-    finance:['Finance','📊'],security:['Security','🛡️'],inventory:['Inventory / stock','📦'],logistics:['Logistics','🚛'],
-    climate:['Climate','🌡️'],generic:['Other signal','🔎']
+    leaf:['Leaf & Canopy','🥬'],growth:['Growth & Development','🌱'],root:['Root Zone','🌊'],
+    disease:['Disease & Pests','🦠'],climate:['Climate & Ventilation','🌬️'],water:['Water Flow & Tables','💧'],
+    infra:['Infrastructure & Sanitation','🔧'],sanitation:['Sanitation & Hygiene','🧹'],
+    structure:['Structure, Screens & Plastics','🏗️'],materials:['Production Materials','📦'],
+    safety:['Safety & Housekeeping','⛑️'],generic:['Other signal','🔎']
   };
   var SOP_REF={
     'SOP-PROD-001':'Cleaning of Nursery Pipes','SOP-PROD-002':'Inspection & Maintenance of Drain Net Covers',
@@ -118846,23 +118858,17 @@ body.hnx-mobile-locked { overflow: hidden; }
     'SOP-LOG-002':'E-Bike Harvest Transport (Megabox)'
   };
   var FIXMAP={
-    algae:{tasks:['clean_black_hose','clean_pad_filters','clean_waterline'],sops:['SOP-PROD-001','SOP-PROD-004']},
-    leak:{tasks:['clean_drain_cover'],sops:['SOP-PROD-002','SOP-PROD-004']},
-    roots:{tasks:['clean_pool_gutter'],sops:['SOP-PROD-001','SOP-PROD-003']},
-    overcrowd:{tasks:[],sops:['SOP-PROD-003']},
-    spray:{tasks:[],sops:['SOP-PROD-006','SOP-PROD-007','SOP-QC-001']},
-    seedling:{tasks:[],sops:['SOP-PROD-005','SOP-PROD-003']},
-    tipburn:{tasks:['clean_pad_filters','clean_cooling_pad'],sops:['SOP-MNT-003']},
-    yellowleaf:{tasks:['clean_overhead_tank'],sops:['SOP-IRR-001']},
-    curlleaf:{tasks:['clean_side_plastic','clean_side_screens'],sops:['SOP-MNT-004']},
-    ecph:{tasks:['clean_overhead_tank','clean_10k_drum'],sops:['SOP-IRR-001','SOP-IRR-002']},
-    pump:{tasks:[],sops:['SOP-MNT-MASTER']},
-    tank:{tasks:['clean_overhead_tank','clean_10k_drum'],sops:['SOP-IRR-001','SOP-IRR-002']},
-    fan:{tasks:[],sops:['SOP-MNT-001','SOP-MNT-002']},
-    corrosion:{tasks:[],sops:['SOP-MNT-005']},
-    coolingpad:{tasks:['clean_pad_filters','clean_cooling_pad','clean_pad_screens','clean_pad_waterline'],sops:['SOP-MNT-003','SOP-MNT-006']},
-    logistics:{tasks:[],sops:['SOP-LOG-001','SOP-LOG-002']},
-    climate:{tasks:['clean_side_plastic','clean_side_screens'],sops:['SOP-MNT-004']}
+    leaf:{tasks:['clean_pad_filters','clean_cooling_pad'],sops:['SOP-MNT-003','SOP-PROD-006']},
+    growth:{tasks:[],sops:['SOP-PROD-003','SOP-PROD-005']},
+    root:{tasks:['clean_pool_gutter','clean_black_hose'],sops:['SOP-PROD-001','SOP-PROD-003']},
+    disease:{tasks:[],sops:['SOP-PROD-006','SOP-PROD-007','SOP-QC-001']},
+    climate:{tasks:['clean_pad_filters','clean_cooling_pad','clean_pad_screens','clean_pad_waterline','clean_side_plastic'],sops:['SOP-MNT-001','SOP-MNT-002','SOP-MNT-003','SOP-MNT-004','SOP-MNT-006']},
+    water:{tasks:['clean_waterline','clean_black_hose','clean_overhead_tank','clean_10k_drum'],sops:['SOP-PROD-004','SOP-IRR-001','SOP-IRR-002']},
+    infra:{tasks:['clean_drain_cover','clean_black_hose','clean_waterline'],sops:['SOP-PROD-001','SOP-PROD-002','SOP-PROD-004','SOP-MNT-005']},
+    sanitation:{tasks:['clean_drain_cover'],sops:['SOP-PROD-002']},
+    structure:{tasks:['clean_side_plastic','clean_side_screens'],sops:['SOP-MNT-004','SOP-MNT-005']},
+    materials:{tasks:[],sops:['SOP-PROD-005']},
+    safety:{tasks:[],sops:['SOP-QC-001','SOP-PROD-006']}
   };
   function taskById(id){
     var L=window.RECURRING_TASKS||[];
@@ -118887,29 +118893,17 @@ body.hnx-mobile-locked { overflow: hidden; }
   }
   function classify(txt){
     txt=(txt||'').toLowerCase();
-    if(/tip ?burn|burn(ed|t) tip|leaf burn/.test(txt))return 'tipburn';
-    if(/\broot/.test(txt))return 'roots';
-    if(/leak|gutter|end ?cap|splash/.test(txt))return 'leak';
-    if(/algae|biofilm|sanitation|not clean|dirty pipe/.test(txt))return 'algae';
-    if(/overcrowd|crowd|spacing|too dense/.test(txt))return 'overcrowd';
-    if(/spray|pesticide|chemical|nozzle|fungicide/.test(txt))return 'spray';
-    if(/seedling|transplant|nursery|stunted|zigzag|propagat/.test(txt))return 'seedling';
-    if(/bolt|harvest|elongation/.test(txt))return 'harvest';
-    if(/yellow|chloros|nitrogen|n[- ]deficien|nutrient defic/.test(txt))return 'yellowleaf';
-    if(/curl|curly|deform|twisted/.test(txt))return 'curlleaf';
-    if(/\bec\b|ec drift|\bph\b|dosing|recipe|mix tank/.test(txt))return 'ecph';
-    if(/pump|bearing|impeller|cycle time/.test(txt))return 'pump';
-    if(/tank|overhead|pressure|reservoir level/.test(txt))return 'tank';
-    if(/\bfan|vibration|airflow|ventilation|exhaust/.test(txt))return 'fan';
-    if(/corros|rust|metal fatigue/.test(txt))return 'corrosion';
-    if(/cooling ?pad|citric|evaporative/.test(txt))return 'coolingpad';
-    if(/attendance|time clock|roster|shift|absent|fingerprint/.test(txt))return 'attendance';
-    if(/payroll|salary|wage|payslip|overtime pay/.test(txt))return 'payroll';
-    if(/cash|ledger|\bgl\b|ar aging|invoice|variance|spend|budget|revenue|expense/.test(txt))return 'finance';
-    if(/camera|access|patrol|security|lockout|intrus|checkpoint/.test(txt))return 'security';
-    if(/stock|inventory|consumption|supplier|material|warehouse|reorder/.test(txt))return 'inventory';
-    if(/delivery|truck|dispatch|logistics|route|shipment/.test(txt))return 'logistics';
-    if(/temperature|\bheat\b|climate|humidity/.test(txt))return 'climate';
+    if(/fungus|mildew|soft rot|aphid|thrip|whitefl|gnat|leaf miner|\bpest|pythium|\bmould|\bmold/.test(txt))return 'disease';
+    if(/tip ?burn|leaf burn|spray burn|burned by.{0,8}spray|\bcurl|yellow|chloros|leaf spot|leaf deform|soft.{0,8}leaf|watery leaf|\bwilt/.test(txt))return 'leaf';
+    if(/\broot|brown root|slimy root|root rot|oxygenation/.test(txt))return 'root';
+    if(/slow growth|stunted|uneven growth|head formation|\bbolt|overcrowd|seedling|transplant|zigzag|\bgrowth/.test(txt))return 'growth';
+    if(/\bfan\b|big fan|roof fan|side window|internal screen|cooling ?pad|air circulation|ventilation|lighting|exhaust|vibration|climate|humidity|\bheat\b|temperature/.test(txt))return 'climate';
+    if(/water flow|low flow|no flow|black hose|dripper|emitter|pressure|return flow|gravity feed|\bec\b|\bph\b|dosing|recipe|mix tank|\btank\b|overhead|\bdrum\b/.test(txt))return 'water';
+    if(/visible hole|side plastic|pulley|wiggle wire|corros|\brust\b/.test(txt))return 'structure';
+    if(/foot ?bath|gutter cover|drains? are clean|drain net/.test(txt))return 'sanitation';
+    if(/rockwool|materials? request|materials? available|material prep/.test(txt))return 'materials';
+    if(/clean and safe|tools returned|chemical.{0,10}(label|stor|handl)|hazard|spray equipment|application protocol|nozzle|\bppe\b|hygiene/.test(txt))return 'safety';
+    if(/leak|gutter|end ?cap|channel block|pipe.{0,14}clean|not clean|biofilm|algae|sanitation|power interrupt|floor clean|\bpump/.test(txt))return 'infra';
     return 'generic';
   }
   function parseTiming(txt){
