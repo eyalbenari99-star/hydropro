@@ -15261,6 +15261,7 @@ function _renderDbOpenCalls(){
 
 // ---- 🔥 Today's Recurring Cleaning Tasks (interactive) ----
 function _renderDbRecurringToday(){
+  if(typeof window._hnxRenderRecurringMatrix==='function'){return window._hnxRenderRecurringMatrix();}
   const target=document.getElementById('dbRecurringToday');if(!target)return;
   const due=getTodayRecurringTasks();
   const stats=_recurringStats();
@@ -118289,5 +118290,218 @@ body.hnx-mobile-locked { overflow: hidden; }
   });
 })();
 </script>
+<style id="hnx-recurmatrix-css">
+.hnx-rm-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:4px 0 12px;}
+.hnx-rm-title{font-size:15px;font-weight:800;color:#e8f5e9;letter-spacing:.3px;}
+.hnx-rm-date{font-size:11px;color:#7a9b80;font-family:var(--mono,monospace);}
+.hnx-rm-stat{display:flex;gap:7px;flex-wrap:wrap;margin-left:auto;}
+.hnx-rm-pill{font-size:10.5px;font-weight:800;padding:3px 9px;border-radius:11px;font-family:var(--mono,monospace);}
+.hnx-rm-pill.d{background:rgba(95,224,122,0.16);color:#7ff09a;}
+.hnx-rm-pill.p{background:rgba(239,159,39,0.18);color:#f0b455;}
+.hnx-rm-pill.n{background:rgba(255,90,74,0.16);color:#ff8a7a;}
+.hnx-rm-pill.t{background:rgba(150,170,155,0.13);color:#aebfb1;}
+.hnx-rm-wrap{overflow-x:auto;border:1px solid rgba(76,175,80,0.2);border-radius:13px;background:linear-gradient(160deg,#0d1711,#080f0a);box-shadow:inset 0 2px 14px rgba(0,0,0,0.5);margin-bottom:14px;}
+.hnx-rm-tbl{border-collapse:separate;border-spacing:0;width:100%;}
+.hnx-rm-tbl th,.hnx-rm-tbl td{padding:0;}
+.hnx-rm-corner{position:sticky;left:0;z-index:3;background:#0c1610;text-align:left;padding:9px 12px;font-size:9.5px;letter-spacing:.6px;text-transform:uppercase;color:#6f8a74;font-family:var(--mono,monospace);border-bottom:1px solid rgba(76,175,80,0.25);min-width:178px;}
+.hnx-rm-gh{padding:8px 0;font-size:10px;font-weight:700;color:#9fd4a4;font-family:var(--mono,monospace);border-bottom:1px solid rgba(76,175,80,0.25);min-width:34px;}
+.hnx-rm-task{position:sticky;left:0;z-index:2;background:#0b140e;padding:6px 12px;border-bottom:1px solid rgba(76,175,80,0.08);white-space:nowrap;min-width:178px;}
+.hnx-rm-tbl tr:hover .hnx-rm-task{background:#101c13;}
+.hnx-rm-ic{font-size:13px;margin-right:6px;}
+.hnx-rm-nm{font-size:12px;font-weight:600;color:#d6ecd8;}
+.hnx-rm-fq{display:block;font-size:8.5px;color:#5f7a64;font-family:var(--mono,monospace);text-transform:uppercase;letter-spacing:.4px;margin-top:1px;margin-left:19px;}
+.hnx-rm-cell{border-bottom:1px solid rgba(76,175,80,0.08);text-align:center;padding:3px 2px;}
+.hnx-rm-c{position:relative;width:26px;height:26px;margin:auto;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;}
+.hnx-rm-c.done{background:linear-gradient(180deg,#6ae585,#2f9d4a);color:#06250f;cursor:pointer;box-shadow:0 0 7px rgba(95,224,122,0.5);}
+.hnx-rm-c.partly{background:linear-gradient(180deg,#f4be5e,#c5871f);color:#3a2705;cursor:pointer;box-shadow:0 0 7px rgba(239,159,39,0.5);}
+.hnx-rm-c.not{background:linear-gradient(180deg,#ff7a6a,#c43122);color:#fff;cursor:pointer;box-shadow:0 0 7px rgba(255,90,74,0.45);}
+.hnx-rm-c.na{background:transparent;border:1px dashed rgba(76,175,80,0.18);width:24px;height:24px;}
+.hnx-rm-c.done:hover,.hnx-rm-c.partly:hover,.hnx-rm-c.not:hover{filter:brightness(1.15);transform:scale(1.08);}
+.hnx-rm-c.site{width:auto;height:24px;padding:0 12px;font-size:10px;letter-spacing:.5px;font-family:var(--mono,monospace);}
+.hnx-rm-dot{position:absolute;top:-3px;right:-3px;width:7px;height:7px;border-radius:50%;background:#84fff9;box-shadow:0 0 5px #84fff9;border:1px solid #0d1711;}
+.hnx-rm-na-row{padding:7px;text-align:center;font-size:10px;color:#4e6353;font-family:var(--mono,monospace);font-style:italic;}
+.hnx-rm-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:10.5px;color:#8aa890;font-family:var(--mono,monospace);margin:-6px 0 4px;}
+.hnx-rm-legend i{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin-right:5px;}
+.hnx-rm-ov{position:fixed;inset:0;z-index:10001;background:rgba(2,6,4,0.82);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:22px;}
+.hnx-rm-modal{width:min(460px,95vw);background:linear-gradient(160deg,#0f1c13,#070d09);border:1px solid rgba(76,175,80,0.4);border-radius:16px;box-shadow:0 26px 70px rgba(0,0,0,0.7),0 0 50px rgba(76,175,80,0.12);overflow:hidden;}
+.hnx-rm-mh{padding:15px 18px;background:linear-gradient(180deg,rgba(76,175,80,0.14),rgba(76,175,80,0.02));border-bottom:1px solid rgba(76,175,80,0.28);}
+.hnx-rm-mh-t{font-size:15px;font-weight:800;color:#e8f5e9;display:flex;align-items:center;gap:8px;}
+.hnx-rm-mh-s{font-size:10.5px;color:#7a9b80;font-family:var(--mono,monospace);text-transform:uppercase;letter-spacing:.5px;margin-top:4px;}
+.hnx-rm-mb{padding:16px 18px 18px;}
+.hnx-rm-prev{background:#0c1610;border:1px solid rgba(76,175,80,0.2);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:11.5px;color:#a6b8a8;line-height:1.5;}
+.hnx-rm-prev b{color:#9fd4a4;}
+.hnx-rm-seg{display:flex;gap:7px;margin-bottom:13px;}
+.hnx-rm-sb{flex:1;padding:11px 6px;border-radius:9px;font-size:11.5px;font-weight:800;cursor:pointer;border:1.5px solid transparent;background:#0c1610;color:#8aa890;transition:all .12s;font-family:inherit;}
+.hnx-rm-sb.done.on{background:linear-gradient(180deg,#2f9d4a,#1d6b32);border-color:#6ae585;color:#eafff0;}
+.hnx-rm-sb.partly.on{background:linear-gradient(180deg,#c5871f,#8a5d12);border-color:#f4be5e;color:#fff3df;}
+.hnx-rm-sb.not.on{background:linear-gradient(180deg,#c43122,#8a2117);border-color:#ff7a6a;color:#fff;}
+.hnx-rm-lbl{font-size:9.5px;color:#6f8a74;text-transform:uppercase;letter-spacing:.5px;font-family:var(--mono,monospace);margin-bottom:5px;display:block;}
+.hnx-rm-ta{width:100%;background:#0c1610;border:1px solid rgba(76,175,80,0.25);border-radius:8px;color:#e8f5e9;font-size:13px;padding:9px 11px;font-family:inherit;resize:vertical;min-height:58px;outline:none;box-sizing:border-box;}
+.hnx-rm-ta:focus{border-color:#5fe07a;}
+.hnx-rm-req{color:#ff8a7a;font-size:10px;margin-left:6px;}
+.hnx-rm-foot{display:flex;gap:8px;justify-content:flex-end;margin-top:14px;}
+.hnx-rm-btn{padding:9px 16px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;border:1px solid;}
+.hnx-rm-btn.cancel{background:#0c1610;border-color:rgba(150,170,155,0.3);color:#9fb3a3;}
+.hnx-rm-btn.save{background:linear-gradient(180deg,#1f8a3e,#14632c);border-color:rgba(95,224,122,0.5);color:#eafff0;box-shadow:0 4px 14px rgba(31,138,62,0.4);}
+.hnx-rm-btn.save:hover{filter:brightness(1.12);}
+</style>
+<div class="hnx-rm-ov" id="hnxRmOv" style="display:none;" onclick="if(event.target===this)hnxRmCloseModal()"><div class="hnx-rm-modal" id="hnxRmModal"></div></div>
+<script>
+(function(){
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  var GHS_FALLBACK=['GH1','GH2','GH3','GH4','GH5','GH6','GH7','GH8','GH9','GH10','PRJ11','PRJ12','GH15','GH16'];
+  function ghs(){return (window.GREENHOUSES&&window.GREENHOUSES.length)?window.GREENHOUSES:GHS_FALLBACK;}
+  function getC(id,gh){try{return window.getRecurringCompletion?window.getRecurringCompletion(id,gh):null;}catch(e){return null;}}
+  function stateOf(id,gh){
+    var c=getC(id,gh);
+    if(c&&c.status==='done')return['done',c];
+    if(c&&c.status==='partly')return['partly',c];
+    return['not',c||null];
+  }
+  window._hnxRenderRecurringMatrix=function(){
+    var target=document.getElementById('dbRecurringToday'); if(!target)return;
+    var TASKS=window.RECURRING_TASKS||[];
+    var GHS=ghs();
+    var FREQ=window.FREQ_LABELS||{};
+    var due=(typeof window.getTodayRecurringTasks==='function')?window.getTodayRecurringTasks():[];
+    var dueMap={};
+    due.forEach(function(d){
+      var id=d.task.id; if(!dueMap[id])dueMap[id]={ghs:{},site:false};
+      if(d.gh)dueMap[id].ghs[d.gh]=1; else dueMap[id].site=true;
+    });
+    var today=new Date();
+    var dowFull=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][today.getDay()];
+    var nD=0,nP=0,nN=0;
+    var rows='';
+    TASKS.forEach(function(t){
+      var dm=dueMap[t.id];
+      var nm=String(t.name).replace(/^Cleaning of /i,'');
+      var label='<td class="hnx-rm-task" title="'+esc(t.name)+'"><span class="hnx-rm-ic">'+(t.icon||'•')+'</span>'
+        +'<span class="hnx-rm-nm">'+esc(nm)+'</span><span class="hnx-rm-fq">'+esc(FREQ[t.freq]||t.freq)+' · '+esc(t.owner)+'</span></td>';
+      var cells='';
+      if(!dm){
+        cells='<td class="hnx-rm-cell" colspan="'+GHS.length+'"><div class="hnx-rm-na-row">not scheduled today</div></td>';
+      }else if(dm.site){
+        var st=stateOf(t.id,'');
+        if(st[0]==='done')nD++; else if(st[0]==='partly')nP++; else nN++;
+        var dot=(st[1]&&st[1].note)?'<span class="hnx-rm-dot"></span>':'';
+        var lbl=st[0]==='done'?'SITE-WIDE · DONE':st[0]==='partly'?'SITE-WIDE · PARTLY':'SITE-WIDE · NOT DONE';
+        cells='<td class="hnx-rm-cell" colspan="'+GHS.length+'"><div class="hnx-rm-c '+st[0]+' site" onclick="_openRecurringCellModal(\''+t.id+'\',\'\')">'+lbl+dot+'</div></td>';
+      }else{
+        GHS.forEach(function(g){
+          if(dm.ghs[g]){
+            var st=stateOf(t.id,g);
+            if(st[0]==='done')nD++; else if(st[0]==='partly')nP++; else nN++;
+            var dot=(st[1]&&st[1].note)?'<span class="hnx-rm-dot"></span>':'';
+            var sym=st[0]==='done'?'✓':st[0]==='partly'?'–':'✗';
+            cells+='<td class="hnx-rm-cell"><div class="hnx-rm-c '+st[0]+'" title="'+esc(g)+' — '+esc(t.name)+'" onclick="_openRecurringCellModal(\''+t.id+'\',\''+g+'\')">'+sym+dot+'</div></td>';
+          }else{
+            cells+='<td class="hnx-rm-cell"><div class="hnx-rm-c na"></div></td>';
+          }
+        });
+      }
+      rows+='<tr>'+label+cells+'</tr>';
+    });
+    var nDue=nD+nP+nN;
+    var ghHead=GHS.map(function(g){return '<th class="hnx-rm-gh" title="'+esc(g)+'">'+esc(g.replace('PRJ','P').replace('GH',''))+'</th>';}).join('');
+    target.innerHTML=
+      '<div class="hnx-rm-head"><span class="hnx-rm-title">🔥 Today’s Recurring Tasks</span>'
+      +'<span class="hnx-rm-date">'+dowFull+', '+today.toLocaleDateString()+'</span>'
+      +'<span class="hnx-rm-stat">'
+      +'<span class="hnx-rm-pill d">✓ '+nD+' done</span>'
+      +'<span class="hnx-rm-pill p">– '+nP+' partly</span>'
+      +'<span class="hnx-rm-pill n">✗ '+nN+' not done</span>'
+      +'<span class="hnx-rm-pill t">'+nDue+' due</span></span></div>'
+      +'<div class="hnx-rm-legend"><span><i style="background:linear-gradient(180deg,#6ae585,#2f9d4a)"></i>Done</span>'
+      +'<span><i style="background:linear-gradient(180deg,#f4be5e,#c5871f)"></i>Partly (reason logged)</span>'
+      +'<span><i style="background:linear-gradient(180deg,#ff7a6a,#c43122)"></i>Not done</span>'
+      +'<span><i style="border:1px dashed rgba(76,175,80,0.4);background:transparent"></i>Not scheduled today</span>'
+      +'<span style="color:#5f7a64">· tap a cell to log · ● = has a note</span></div>'
+      +'<div class="hnx-rm-wrap"><table class="hnx-rm-tbl"><thead><tr><th class="hnx-rm-corner">Task \\ Greenhouse</th>'+ghHead+'</tr></thead><tbody>'+rows+'</tbody></table></div>';
+  };
+
+  window._stagedRmPhoto=null;
+  var _rmCur={taskId:null,gh:null,status:null,existingPhoto:null};
+  window._openRecurringCellModal=function(taskId,gh){
+    var TASKS=window.RECURRING_TASKS||[];
+    var t=null; for(var i=0;i<TASKS.length;i++){if(TASKS[i].id===taskId){t=TASKS[i];break;}}
+    if(!t)return;
+    var FREQ=window.FREQ_LABELS||{};
+    var c=getC(taskId,gh);
+    _rmCur={taskId:taskId,gh:gh,status:(c&&c.status)||null,existingPhoto:(c&&c.photo)||null};
+    window._stagedRmPhoto=null;
+    var prev='';
+    if(c){
+      var when=c.at?new Date(c.at).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+      var stLbl=c.status==='done'?'Done':c.status==='partly'?'Partly':'Not done';
+      prev='<div class="hnx-rm-prev">Last logged: <b>'+esc(stLbl)+'</b> by <b>'+esc(c.by||'—')+'</b> · '+esc(when)
+        +(c.note?'<br>Note: “'+esc(c.note)+'”':'')
+        +(c.photo?'<br><img src="'+c.photo+'" style="margin-top:6px;max-width:150px;max-height:100px;border-radius:6px;border:1px solid rgba(76,175,80,0.3)">':'')
+        +'</div>';
+    }
+    var modal=document.getElementById('hnxRmModal');
+    modal.innerHTML=
+      '<div class="hnx-rm-mh"><div class="hnx-rm-mh-t">'+(t.icon||'📋')+' '+esc(String(t.name).replace(/^Cleaning of /i,''))+'</div>'
+      +'<div class="hnx-rm-mh-s">'+esc(gh||'Site-wide')+' · '+esc(FREQ[t.freq]||t.freq)+' · '+esc(t.owner)+'</div></div>'
+      +'<div class="hnx-rm-mb">'+prev
+      +'<span class="hnx-rm-lbl">Status</span>'
+      +'<div class="hnx-rm-seg">'
+      +'<button type="button" class="hnx-rm-sb done'+(_rmCur.status==='done'?' on':'')+'" data-st="done" onclick="hnxRmPickStatus(this)">✓ Done</button>'
+      +'<button type="button" class="hnx-rm-sb partly'+(_rmCur.status==='partly'?' on':'')+'" data-st="partly" onclick="hnxRmPickStatus(this)">– Partly</button>'
+      +'<button type="button" class="hnx-rm-sb not'+(_rmCur.status==='not_done'?' on':'')+'" data-st="not_done" onclick="hnxRmPickStatus(this)">✗ Not done</button>'
+      +'</div>'
+      +'<span class="hnx-rm-lbl">Note <span class="hnx-rm-req" id="hnxRmReq" style="display:none">— required for “Partly”</span></span>'
+      +'<textarea class="hnx-rm-ta" id="hnxRmNote" placeholder="What was done, what was left, why…">'+esc(c&&c.note?c.note:'')+'</textarea>'
+      +'<span class="hnx-rm-lbl" style="margin-top:11px">Photo (optional)</span>'
+      +'<input type="file" accept="image/*" capture="environment" onchange="hnxRmPhoto(this)" style="font-size:11px;color:#9fb3a3;">'
+      +'<div id="hnxRmPhotoPrev"></div>'
+      +'<div class="hnx-rm-foot"><button class="hnx-rm-btn cancel" onclick="hnxRmCloseModal()">Cancel</button>'
+      +'<button class="hnx-rm-btn save" onclick="hnxRmSave()">Save</button></div></div>';
+    if(_rmCur.status==='partly')document.getElementById('hnxRmReq').style.display='inline';
+    document.getElementById('hnxRmOv').style.display='flex';
+  };
+  window.hnxRmPickStatus=function(btn){
+    _rmCur.status=btn.getAttribute('data-st');
+    var seg=btn.parentNode.querySelectorAll('.hnx-rm-sb');
+    for(var i=0;i<seg.length;i++)seg[i].classList.remove('on');
+    btn.classList.add('on');
+    var req=document.getElementById('hnxRmReq');
+    if(req)req.style.display=(_rmCur.status==='partly')?'inline':'none';
+  };
+  window.hnxRmPhoto=function(input){
+    var f=input.files&&input.files[0]; if(!f)return;
+    var r=new FileReader();
+    r.onload=function(e){
+      window._stagedRmPhoto=e.target.result;
+      var p=document.getElementById('hnxRmPhotoPrev');
+      if(p)p.innerHTML='<img src="'+e.target.result+'" style="margin-top:7px;max-width:150px;max-height:100px;border-radius:6px;border:1px solid rgba(76,175,80,0.3)">';
+    };
+    r.readAsDataURL(f);
+  };
+  window.hnxRmCloseModal=function(){
+    document.getElementById('hnxRmOv').style.display='none';
+    window._stagedRmPhoto=null;
+  };
+  window.hnxRmSave=function(){
+    if(!_rmCur.status){alert('Pick a status: Done, Partly, or Not done.');return;}
+    var note=((document.getElementById('hnxRmNote')||{}).value||'').trim();
+    if(_rmCur.status==='partly'&&!note){alert('“Partly” needs a short reason — please add a note.');return;}
+    var photo=window._stagedRmPhoto||_rmCur.existingPhoto||null;
+    try{
+      window.markRecurringDone(_rmCur.taskId,_rmCur.gh,{status:_rmCur.status,note:note,photo:photo});
+    }catch(e){console.error('[recurring matrix] save failed',e);alert('Could not save: '+((e&&e.message)||e));return;}
+    if(typeof window.showToast==='function'){
+      var lbl=_rmCur.status==='done'?'Done':_rmCur.status==='partly'?'Partly':'Not done';
+      window.showToast('Logged: '+lbl+(_rmCur.gh?' · '+_rmCur.gh:''),'ok',2500);
+    }
+    hnxRmCloseModal();
+    window._hnxRenderRecurringMatrix();
+  };
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'){var ov=document.getElementById('hnxRmOv');if(ov&&ov.style.display!=='none')hnxRmCloseModal();}
+  });
+})();
+</script>
+
 </body>
 </html>
