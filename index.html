@@ -5046,6 +5046,31 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 /* ===================== END MOBILE CRM ===================== */
 
 </style>
+<style id="hnx-modpicker-css">
+/* ===== HNX Modules Dropdown — replaces the long left sidebar ===== */
+.module-sidebar{display:none!important;}
+.app-main{margin-left:0!important;padding-left:0!important;}
+.hnx-mod-picker{position:relative;flex-shrink:0;}
+.hnx-mod-trigger{display:flex;align-items:center;gap:10px;background:var(--surface2,#16221a);border:1.5px solid var(--border2,#2c3f30);color:var(--text,#e8f0e8);padding:10px 14px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;transition:all .14s;min-width:230px;font-family:inherit;}
+.hnx-mod-trigger:hover{border-color:var(--accent,#4CAF50);background:var(--surface,#101a12);}
+.hnx-mod-trigger .hnx-cur-icon{font-size:18px;}
+.hnx-mod-trigger .hnx-cur-name{flex:1;text-align:left;letter-spacing:.3px;}
+.hnx-mod-trigger .hnx-chev{color:var(--text3,#6f8272);font-size:11px;transition:transform .18s;}
+.hnx-mod-picker.open .hnx-chev{transform:rotate(180deg);}
+.hnx-mod-panel{position:absolute;top:calc(100% + 8px);left:0;width:340px;max-height:68vh;overflow-y:auto;background:#0a0f0c;border:1px solid var(--border2,#2c3f30);border-radius:12px;box-shadow:0 14px 40px rgba(0,0,0,0.6);padding:8px;display:none;z-index:9999;}
+.hnx-mod-picker.open .hnx-mod-panel{display:block;}
+.hnx-mod-search{width:100%;background:var(--surface,#101a12);border:1px solid var(--border,#1f2e22);color:var(--text,#e8f0e8);padding:9px 12px;border-radius:8px;font-size:13px;margin-bottom:6px;outline:none;font-family:inherit;box-sizing:border-box;}
+.hnx-mod-search:focus{border-color:var(--accent,#4CAF50);}
+.hnx-mod-group{font-family:var(--mono,monospace);font-size:9.5px;font-weight:700;letter-spacing:.8px;color:var(--text3,#6f8272);text-transform:uppercase;padding:9px 10px 4px;}
+.hnx-mod-item{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;cursor:pointer;border:1.5px solid transparent;transition:all .12s;}
+.hnx-mod-item:hover{background:var(--surface,#101a12);}
+.hnx-mod-item.active{background:var(--accent-dim,rgba(76,175,80,0.16));border-color:var(--accent,#4CAF50);}
+.hnx-mod-item .hnx-ic{font-size:18px;width:24px;text-align:center;}
+.hnx-mod-item .hnx-nm{font-size:13.5px;font-weight:600;flex:1;}
+.hnx-mod-item.active .hnx-nm{color:var(--accent2,#7bd97f);}
+.hnx-mod-item .hnx-badge{font-family:var(--mono,monospace);font-size:8.5px;font-weight:700;background:var(--gold,#d4af37);color:#000;padding:1px 6px;border-radius:7px;}
+.hnx-mod-empty{padding:18px 12px;text-align:center;color:var(--text3,#6f8272);font-size:12.5px;}
+</style>
 </head>
 <body>
 
@@ -5077,6 +5102,20 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 
 <div class="topbar" id="topbar" style="display:none;">
   <div class="logo" style="display:flex;align-items:center;gap:14px;"><img data-hn-logo="full" alt="ABA Pardes · HydroNexis-AI" style="height:130px;width:auto;object-fit:contain;" title="ABA Pardes · HydroNexis-AI"></div>
+
+  <!-- HNX MODULES DROPDOWN (replaces the long left sidebar) -->
+  <div class="hnx-mod-picker" id="hnxModPicker">
+    <button type="button" class="hnx-mod-trigger" id="hnxModTrigger" onclick="hnxToggleModulePicker(event)" title="Switch module">
+      <span class="hnx-cur-icon" id="hnxCurIcon">🌍</span>
+      <span class="hnx-cur-name" id="hnxCurName">Overview</span>
+      <span class="hnx-chev">▼</span>
+    </button>
+    <div class="hnx-mod-panel" id="hnxModPanel">
+      <input type="text" class="hnx-mod-search" id="hnxModSearch" placeholder="Search modules…" oninput="hnxFilterModules()" onclick="event.stopPropagation()">
+      <div id="hnxModList"></div>
+      <div class="hnx-mod-empty" id="hnxModEmpty" style="display:none;">No module matches.</div>
+    </div>
+  </div>
 
   <!-- Site Picker -->
   <div id="sitePickerWrap" class="site-picker-wrap" title="Current site" style="display:none;">
@@ -18814,6 +18853,7 @@ function switchModule(modId){
   if(views.length){
     switchView(views[0].id,true);
   }
+  try{hnxSyncModulePicker(modId);}catch(e){}
 }
 
 function renderModuleHeader(modId){
@@ -106175,6 +106215,7 @@ streams:
               <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em">${badge(ghCount)}</span>
               <div style="flex:1"></div>
               <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#80deea;letter-spacing:.15em;text-transform:uppercase">▸ click any to toggle</span>
+              <button class="hnx-btn hnx-btn-ghost" style="padding:3px 7px;font-size:10px" onclick="window._hnxOpenMachineReport && window._hnxOpenMachineReport('${state.selected}')" title="Uptime log &amp; report for ${state.selected}">📊 log &amp; report</button>
               <button class="hnx-btn hnx-btn-ghost" style="padding:3px 7px;font-size:10px" onclick="window._hnxResetMachineScope && window._hnxResetMachineScope('${state.selected}')" title="Reset all overrides for ${state.selected}">↺ reset</button>
             </div>
             <div class="hnx-machines-grid">
@@ -106187,6 +106228,7 @@ streams:
               <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em">${badge(frCount)}</span>
               <div style="flex:1"></div>
               <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#80deea;letter-spacing:.15em;text-transform:uppercase">▸ click any to toggle</span>
+              <button class="hnx-btn hnx-btn-ghost" style="padding:3px 7px;font-size:10px" onclick="window._hnxOpenMachineReport && window._hnxOpenMachineReport('${frId}')" title="Uptime log &amp; report for ${frId}">📊 log &amp; report</button>
               <button class="hnx-btn hnx-btn-ghost" style="padding:3px 7px;font-size:10px" onclick="window._hnxResetMachineScope && window._hnxResetMachineScope('${frId}')" title="Reset all overrides for ${frId}">↺ reset</button>
             </div>
             <div class="hnx-machines-grid hnx-machines-grid-2col">
@@ -117970,6 +118012,270 @@ body.hnx-mobile-locked { overflow: hidden; }
   console.log('[HNX] AI Scan (CCTV review + KPI check) loaded');
 })();
 
+</script>
+<script>
+/* ===== HNX Modules Dropdown logic — replaces the long left sidebar ===== */
+(function(){
+  var GROUPS=[
+    {label:'Executive',keys:['overview']},
+    {label:'Operations',keys:['production','hr','payroll','maintenance','it','irrigation','inventory','packaging','logistics','security','quality','fleet']},
+    {label:'Customer',keys:['crm']},
+    {label:'Admin',keys:['licenses','projects','admin']}
+  ];
+  function titleCase(s){s=String(s||'');return s.charAt(0)+s.slice(1).toLowerCase();}
+  window.hnxRenderModulePicker=function(){
+    var list=document.getElementById('hnxModList'),empty=document.getElementById('hnxModEmpty');
+    if(!list||typeof MODULES==='undefined')return;
+    var sEl=document.getElementById('hnxModSearch');
+    var f=((sEl&&sEl.value)||'').trim().toLowerCase();
+    var cur=(typeof currentModule!=='undefined')?currentModule:'overview';
+    var html='',shown=0;
+    GROUPS.forEach(function(g){
+      var rows='';
+      g.keys.forEach(function(k){
+        var mod=MODULES[k];if(!mod)return;
+        if(typeof canView==='function'){try{if(!canView(k))return;}catch(e){}}
+        if(f && (mod.name||'').toLowerCase().indexOf(f)<0 && k.indexOf(f)<0)return;
+        shown++;
+        rows+='<div class="hnx-mod-item'+(k===cur?' active':'')+'" onclick="hnxPickModule(\''+k+'\')">'
+          +'<span class="hnx-ic">'+(mod.icon||'•')+'</span>'
+          +'<span class="hnx-nm">'+(mod.name||k)+'</span>'
+          +(k===cur?'<span class="hnx-badge">CURRENT</span>':'')+'</div>';
+      });
+      if(rows)html+='<div class="hnx-mod-group">'+g.label+'</div>'+rows;
+    });
+    list.innerHTML=html;
+    if(empty)empty.style.display=shown?'none':'block';
+  };
+  window.hnxPickModule=function(k){
+    hnxCloseModulePicker();
+    if(typeof switchModule==='function')switchModule(k);
+  };
+  window.hnxSyncModulePicker=function(modId){
+    if(typeof MODULES==='undefined')return;
+    var mod=MODULES[modId];if(!mod)return;
+    var i=document.getElementById('hnxCurIcon'),n=document.getElementById('hnxCurName');
+    if(i)i.textContent=mod.icon||'•';
+    if(n)n.textContent=titleCase(mod.name);
+  };
+  window.hnxToggleModulePicker=function(e){
+    if(e)e.stopPropagation();
+    var p=document.getElementById('hnxModPicker');if(!p)return;
+    p.classList.toggle('open');
+    if(p.classList.contains('open')){
+      var s=document.getElementById('hnxModSearch');if(s)s.value='';
+      hnxRenderModulePicker();
+      setTimeout(function(){if(s)s.focus();},40);
+    }
+  };
+  window.hnxCloseModulePicker=function(){
+    var p=document.getElementById('hnxModPicker');if(p)p.classList.remove('open');
+  };
+  window.hnxFilterModules=function(){hnxRenderModulePicker();};
+  document.addEventListener('click',function(e){
+    var p=document.getElementById('hnxModPicker');
+    if(p&&!p.contains(e.target))hnxCloseModulePicker();
+  });
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')hnxCloseModulePicker();});
+  window.addEventListener('load',function(){
+    try{hnxSyncModulePicker((typeof currentModule!=='undefined')?currentModule:'overview');}catch(e){}
+  });
+})();
+</script>
+<style id="hnx-machinereport-css">
+.hnx-mr-overlay{position:fixed;inset:0;z-index:10000;background:rgba(2,6,4,0.82);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:24px;}
+.hnx-mr-modal{width:min(1080px,96vw);max-height:92vh;display:flex;flex-direction:column;background:linear-gradient(160deg,#0f1c13 0%,#070d09 100%);border:1px solid rgba(76,175,80,0.4);border-radius:18px;box-shadow:0 28px 80px rgba(0,0,0,0.7),0 0 60px rgba(76,175,80,0.12),inset 0 1px 0 rgba(255,255,255,0.04);overflow:hidden;}
+.hnx-mr-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:16px 20px;background:linear-gradient(180deg,rgba(76,175,80,0.14),rgba(76,175,80,0.02));border-bottom:1px solid rgba(76,175,80,0.28);}
+.hnx-mr-title{font-size:16px;font-weight:800;letter-spacing:.4px;color:#e8f5e9;display:flex;align-items:center;gap:9px;}
+.hnx-mr-title .hnx-mr-dot{width:9px;height:9px;border-radius:50%;background:#5fe07a;box-shadow:0 0 10px #5fe07a;}
+.hnx-mr-sel{background:#0c1610;border:1px solid rgba(76,175,80,0.35);color:#d6f0d8;border-radius:9px;padding:7px 11px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;outline:none;}
+.hnx-mr-sel:hover{border-color:#5fe07a;}
+.hnx-mr-x{margin-left:auto;background:rgba(255,90,74,0.12);border:1px solid rgba(255,90,74,0.4);color:#ff8a7a;width:34px;height:34px;border-radius:9px;font-size:16px;cursor:pointer;line-height:1;}
+.hnx-mr-x:hover{background:rgba(255,90,74,0.25);}
+.hnx-mr-csv{background:linear-gradient(180deg,#1f8a3e,#14632c);border:1px solid rgba(95,224,122,0.5);color:#eafff0;border-radius:9px;padding:7px 13px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(31,138,62,0.4);font-family:inherit;}
+.hnx-mr-csv:hover{filter:brightness(1.12);}
+.hnx-mr-body{padding:18px 20px 22px;overflow-y:auto;}
+.hnx-mr-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;}
+.hnx-mr-card{position:relative;border-radius:13px;padding:13px 15px;background:linear-gradient(155deg,#15281a,#0b140e);border:1px solid rgba(76,175,80,0.22);box-shadow:0 8px 22px rgba(0,0,0,0.45),inset 0 1px 0 rgba(255,255,255,0.05);overflow:hidden;}
+.hnx-mr-card::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--hnx-mr-accent,#5fe07a);box-shadow:0 0 14px var(--hnx-mr-accent,#5fe07a);}
+.hnx-mr-card .hnx-mr-cl{font-size:10.5px;letter-spacing:.7px;text-transform:uppercase;color:#7a9b80;font-family:var(--mono,monospace);}
+.hnx-mr-card .hnx-mr-cv{font-size:27px;font-weight:800;margin-top:5px;color:#eafff0;line-height:1;}
+.hnx-mr-card .hnx-mr-cs{font-size:11px;color:#6f8a74;margin-top:4px;}
+.hnx-mr-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:#8aa890;margin-bottom:9px;font-family:var(--mono,monospace);}
+.hnx-mr-legend i{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin-right:5px;}
+.hnx-mr-section{font-size:12px;font-weight:800;letter-spacing:.5px;color:#9fd4a4;text-transform:uppercase;margin:6px 0 10px;font-family:var(--mono,monospace);}
+.hnx-mr-tl{background:linear-gradient(160deg,#0d1711,#080f0a);border:1px solid rgba(76,175,80,0.18);border-radius:13px;padding:14px 16px;margin-bottom:20px;box-shadow:inset 0 2px 12px rgba(0,0,0,0.5);}
+.hnx-mr-tl-hours{display:flex;font-size:10px;color:#5f7a64;font-family:var(--mono,monospace);padding-left:150px;margin-bottom:7px;}
+.hnx-mr-tl-row{display:flex;align-items:center;margin-bottom:8px;}
+.hnx-mr-tl-name{width:142px;flex-shrink:0;font-size:12.5px;font-weight:600;color:#d6ecd8;padding-right:8px;}
+.hnx-mr-tl-bar{flex:1;display:flex;height:24px;border-radius:7px;overflow:hidden;background:#0a120c;box-shadow:inset 0 2px 6px rgba(0,0,0,0.6);}
+.hnx-mr-seg{height:100%;transition:opacity .12s;}
+.hnx-mr-seg.up{background:linear-gradient(180deg,#6ae585,#2f9d4a);box-shadow:0 0 9px rgba(95,224,122,0.55),inset 0 1px 0 rgba(255,255,255,0.25);}
+.hnx-mr-seg.down{background:linear-gradient(180deg,#3a4a3e,#222c25);}
+.hnx-mr-seg.crit{background:linear-gradient(180deg,#ff7a6a,#c43122);box-shadow:0 0 11px rgba(255,90,74,0.6);}
+.hnx-mr-seg.nodata{background:repeating-linear-gradient(45deg,#10180f,#10180f 4px,#0b110a 4px,#0b110a 8px);}
+.hnx-mr-seg:hover{opacity:0.82;}
+.hnx-mr-tbl{width:100%;border-collapse:collapse;}
+.hnx-mr-tbl th{font-size:9.5px;letter-spacing:.6px;text-transform:uppercase;color:#6f8a74;text-align:left;padding:6px 9px;font-family:var(--mono,monospace);border-bottom:1px solid rgba(76,175,80,0.2);}
+.hnx-mr-tbl td{font-size:12.5px;color:#d2e6d4;padding:9px;border-bottom:1px solid rgba(76,175,80,0.08);}
+.hnx-mr-tbl tr:hover td{background:rgba(76,175,80,0.05);}
+.hnx-mr-pill{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;font-family:var(--mono,monospace);}
+.hnx-mr-pill.up{background:rgba(95,224,122,0.16);color:#7ff09a;border:1px solid rgba(95,224,122,0.4);}
+.hnx-mr-pill.down{background:rgba(150,170,155,0.12);color:#9fb3a3;border:1px solid rgba(150,170,155,0.3);}
+.hnx-mr-pill.crit{background:rgba(255,90,74,0.16);color:#ff8a7a;border:1px solid rgba(255,90,74,0.45);}
+.hnx-mr-empty{padding:50px 20px;text-align:center;color:#6f8a74;font-size:13px;}
+.hnx-mr-empty .hnx-mr-ei{font-size:38px;opacity:.4;display:block;margin-bottom:10px;}
+</style>
+<div class="hnx-mr-overlay" id="hnxMrOverlay" style="display:none;">
+  <div class="hnx-mr-modal">
+    <div class="hnx-mr-head">
+      <span class="hnx-mr-title"><span class="hnx-mr-dot"></span>Machine Uptime — Log &amp; Report</span>
+      <select class="hnx-mr-sel" id="hnxMrScope" onchange="hnxMrRender()"></select>
+      <select class="hnx-mr-sel" id="hnxMrPeriod" onchange="hnxMrRender()">
+        <option value="today">Today</option>
+        <option value="yesterday">Yesterday</option>
+        <option value="week">Last 7 days</option>
+      </select>
+      <button class="hnx-mr-csv" onclick="hnxMrExportCsv()">⬇ Export CSV</button>
+      <button class="hnx-mr-x" onclick="hnxMrClose()" title="Close">✕</button>
+    </div>
+    <div class="hnx-mr-body" id="hnxMrBody"></div>
+  </div>
+</div>
+<script>
+/* ===== HNX Machine Uptime · Log & Report — reads the existing hydroPro_activity_log_v1 ===== */
+(function(){
+  var LOG_KEY='hydroPro_activity_log_v1';
+  var UP={active:1,open:1,on:1}, CRIT={critical:1};
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function loadLog(){try{var s=localStorage.getItem(LOG_KEY);var a=s?JSON.parse(s):[];return Array.isArray(a)?a:[];}catch(e){return[];}}
+  function fmtDur(ms){if(!ms||ms<0||isNaN(ms))return'0h 00m';var m=Math.round(ms/60000),h=Math.floor(m/60);m=m%60;return h+'h '+(m<10?'0':'')+m+'m';}
+  function fmtTime(ts){if(!ts)return'—';var d=new Date(ts);return d.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});}
+  function periodBounds(which){
+    var now=new Date(), d=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+    if(which==='yesterday'){var s=new Date(d);s.setDate(s.getDate()-1);return{start:s.getTime(),end:d.getTime(),label:'Yesterday',hours24:true};}
+    if(which==='week'){var s=new Date(d);s.setDate(s.getDate()-6);return{start:s.getTime(),end:now.getTime(),label:'Last 7 days',hours24:false};}
+    return{start:d.getTime(),end:now.getTime(),label:'Today',hours24:false};
+  }
+  function stateClass(st){if(!st)return'nodata';if(UP[st])return'up';if(CRIT[st])return'crit';return'down';}
+  function compute(scopeId,which){
+    var b=periodBounds(which), endClip=Math.min(b.end,Date.now());
+    var log=loadLog().filter(function(e){return e&&e.action==='machine_toggle'&&e.area===scopeId&&e.meta&&e.meta.machine;});
+    var byM={};
+    log.forEach(function(e){(byM[e.meta.machine]=byM[e.meta.machine]||[]).push(e);});
+    var out=[];
+    Object.keys(byM).forEach(function(name){
+      var evs=byM[name].slice().sort(function(a,b2){return a.ts-b2.ts;});
+      var carry=null;
+      evs.forEach(function(e){if(e.ts<b.start)carry=e.meta.next;});
+      var dayEvs=evs.filter(function(e){return e.ts>=b.start&&e.ts<=endClip;});
+      var segs=[], cursor=b.start, state=carry;
+      dayEvs.forEach(function(e){segs.push({from:cursor,to:e.ts,state:state});cursor=e.ts;state=e.meta.next;});
+      segs.push({from:cursor,to:endClip,state:state});
+      var upMs=0,total=endClip-b.start;
+      segs.forEach(function(s){if(s.state&&UP[s.state])upMs+=(s.to-s.from);});
+      var last=evs[evs.length-1];
+      out.push({machine:name,segs:segs,upMs:upMs,pct:total>0?Math.round(upMs/total*100):0,
+        toggles:dayEvs.length,curState:state,lastTs:last?last.ts:null,lastUser:last?last.user:null});
+    });
+    out.sort(function(a,b2){return a.machine.localeCompare(b2.machine);});
+    return{bounds:b,endClip:endClip,machines:out,rawCount:log.length};
+  }
+  function scopeList(currentId){
+    var set={}; loadLog().forEach(function(e){if(e&&e.action==='machine_toggle'&&e.area)set[e.area]=1;});
+    if(currentId)set[currentId]=1;
+    return Object.keys(set).sort();
+  }
+  var _last={scope:null,which:'today'};
+  window._hnxOpenMachineReport=function(scopeId){
+    try{
+      _last.scope=scopeId||_last.scope;
+      var ov=document.getElementById('hnxMrOverlay'); if(!ov)return;
+      var scopes=scopeList(scopeId);
+      var sel=document.getElementById('hnxMrScope');
+      sel.innerHTML=scopes.map(function(s){return'<option value="'+esc(s)+'"'+(s===_last.scope?' selected':'')+'>'+esc(s)+'</option>';}).join('')||'<option>'+esc(scopeId||'—')+'</option>';
+      if(scopes.indexOf(_last.scope)<0&&scopes.length)_last.scope=scopes[0];
+      sel.value=_last.scope;
+      document.getElementById('hnxMrPeriod').value=_last.which;
+      ov.style.display='flex';
+      hnxMrRender();
+    }catch(e){console.warn('[HNX] machine report open failed',e);}
+  };
+  window.hnxMrClose=function(){var ov=document.getElementById('hnxMrOverlay');if(ov)ov.style.display='none';};
+  window.hnxMrRender=function(){
+    var scope=document.getElementById('hnxMrScope').value;
+    var which=document.getElementById('hnxMrPeriod').value;
+    _last.scope=scope; _last.which=which;
+    var data=compute(scope,which), body=document.getElementById('hnxMrBody');
+    if(!data.machines.length){
+      body.innerHTML='<div class="hnx-mr-empty"><span class="hnx-mr-ei">📭</span>No machine toggles logged for <b>'+esc(scope)+'</b> in this period.<br><span style="font-size:11.5px;color:#5f7a64">Toggle a machine in the GH panel — every change is logged automatically and will show here.</span></div>';
+      return;
+    }
+    var activeNow=data.machines.filter(function(m){return m.curState&&UP[m.curState];}).length;
+    var critNow=data.machines.filter(function(m){return m.curState&&CRIT[m.curState];}).length;
+    var totalToggles=data.machines.reduce(function(a,m){return a+m.toggles;},0);
+    var avgPct=Math.round(data.machines.reduce(function(a,m){return a+m.pct;},0)/data.machines.length);
+    var cards=''
+      +'<div class="hnx-mr-card" style="--hnx-mr-accent:#5fe07a"><div class="hnx-mr-cl">Machines tracked</div><div class="hnx-mr-cv">'+data.machines.length+'</div><div class="hnx-mr-cs">in '+esc(scope)+'</div></div>'
+      +'<div class="hnx-mr-card" style="--hnx-mr-accent:#6ae585"><div class="hnx-mr-cl">Active now</div><div class="hnx-mr-cv" style="color:#7ff09a">'+activeNow+'</div><div class="hnx-mr-cs">of '+data.machines.length+' machines</div></div>'
+      +'<div class="hnx-mr-card" style="--hnx-mr-accent:#ff7a6a"><div class="hnx-mr-cl">Calls raised now</div><div class="hnx-mr-cv" style="color:#ff8a7a">'+critNow+'</div><div class="hnx-mr-cs">critical state</div></div>'
+      +'<div class="hnx-mr-card" style="--hnx-mr-accent:#84fff9"><div class="hnx-mr-cl">Avg uptime · '+esc(data.bounds.label)+'</div><div class="hnx-mr-cv" style="color:#9ff5f1">'+avgPct+'%</div><div class="hnx-mr-cs">'+totalToggles+' toggles logged</div></div>';
+    var hours=data.bounds.hours24
+      ?'<span style="flex:1">00:00</span><span style="flex:1;text-align:center">06:00</span><span style="flex:1;text-align:center">12:00</span><span style="flex:1;text-align:center">18:00</span><span style="text-align:right">24:00</span>'
+      :'<span style="flex:1">'+new Date(data.bounds.start).toLocaleDateString([], {month:'short',day:'numeric'})+'</span><span style="text-align:right">now</span>';
+    var span=data.endClip-data.bounds.start;
+    var rows=data.machines.map(function(m){
+      var bar=m.segs.map(function(s){
+        var w=span>0?((s.to-s.from)/span*100):0;
+        if(w<=0)return'';
+        var cls=stateClass(s.state);
+        var tt=(s.state||'no data')+' · '+fmtTime(s.from)+' → '+fmtTime(s.to);
+        return'<div class="hnx-mr-seg '+cls+'" style="width:'+w+'%" title="'+esc(tt)+'"></div>';
+      }).join('');
+      return'<div class="hnx-mr-tl-row"><span class="hnx-mr-tl-name">'+esc(m.machine)+'</span><div class="hnx-mr-tl-bar">'+bar+'</div></div>';
+    }).join('');
+    var tbody=data.machines.map(function(m){
+      var cls=stateClass(m.curState);
+      var label=m.curState?String(m.curState).toUpperCase():'NO DATA';
+      return'<tr><td style="font-weight:600">'+esc(m.machine)+'</td>'
+        +'<td><span class="hnx-mr-pill '+cls+'">'+esc(label)+'</span></td>'
+        +'<td style="font-weight:700;color:#eafff0">'+fmtDur(m.upMs)+'</td>'
+        +'<td>'+m.pct+'%</td>'
+        +'<td style="text-align:center">'+m.toggles+'</td>'
+        +'<td style="color:#9fb3a3">'+fmtTime(m.lastTs)+'</td>'
+        +'<td style="color:#7a9b80;font-size:11px">'+esc(m.lastUser||'—')+'</td></tr>';
+    }).join('');
+    body.innerHTML=''
+      +'<div class="hnx-mr-cards">'+cards+'</div>'
+      +'<div class="hnx-mr-section">⏱ Timeline · '+esc(data.bounds.label)+'</div>'
+      +'<div class="hnx-mr-legend"><span><i style="background:linear-gradient(180deg,#6ae585,#2f9d4a)"></i>Active / open</span><span><i style="background:linear-gradient(180deg,#3a4a3e,#222c25)"></i>Off / closed</span><span><i style="background:linear-gradient(180deg,#ff7a6a,#c43122)"></i>Call raised</span><span><i style="background:repeating-linear-gradient(45deg,#10180f,#10180f 3px,#0b110a 3px,#0b110a 6px)"></i>No data</span></div>'
+      +'<div class="hnx-mr-tl"><div class="hnx-mr-tl-hours">'+hours+'</div>'+rows+'</div>'
+      +'<div class="hnx-mr-section">📊 Totals · '+esc(data.bounds.label)+'</div>'
+      +'<table class="hnx-mr-tbl"><thead><tr><th>Machine</th><th>State now</th><th>Active time</th><th>Uptime %</th><th style="text-align:center">Toggles</th><th>Last changed</th><th>By</th></tr></thead><tbody>'+tbody+'</tbody></table>';
+  };
+  window.hnxMrExportCsv=function(){
+    var scope=document.getElementById('hnxMrScope').value, which=document.getElementById('hnxMrPeriod').value;
+    var data=compute(scope,which);
+    var lines=['Greenhouse,Machine,State now,Active time,Uptime %,Toggles,Last changed,Changed by'];
+    data.machines.forEach(function(m){
+      lines.push([scope,m.machine,(m.curState||'no data'),fmtDur(m.upMs),m.pct+'%',m.toggles,
+        (m.lastTs?new Date(m.lastTs).toLocaleString():'—'),(m.lastUser||'')].map(function(v){
+        v=String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
+      }).join(','));
+    });
+    var blob=new Blob([lines.join('\n')],{type:'text/csv'});
+    var a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='machine-uptime_'+scope+'_'+which+'_'+new Date().toISOString().slice(0,10)+'.csv';
+    a.click(); setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
+  };
+  document.addEventListener('click',function(e){
+    if(e.target&&e.target.id==='hnxMrOverlay')hnxMrClose();
+  });
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'){var ov=document.getElementById('hnxMrOverlay');if(ov&&ov.style.display!=='none')hnxMrClose();}
+  });
+})();
 </script>
 </body>
 </html>
