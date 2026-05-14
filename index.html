@@ -118511,6 +118511,7 @@ body.hnx-mobile-locked { overflow: hidden; }
       +'<button class="hnx-rm-navbtn" onclick="hnxRmShiftDate(1)" title="Next day">›</button>'
       +(isToday?'':'<button class="hnx-rm-today" onclick="hnxRmSetDate(\''+todayISO()+'\')">↺ Today</button>')
       +'<span style="font-size:11px;color:#7a9b80;font-family:var(--mono,monospace)">'+dowFull+'</span>'
+      +'<button class="hnx-rm-edit" onclick="hnxRmGhReport()" style="background:linear-gradient(180deg,#2f9d4a,#1d6b32);border-color:rgba(95,224,122,0.5);color:#eafff0;">📄 GH Report</button>'
       +'<button class="hnx-rm-edit" onclick="_hnxOpenScheduleEditor()">⚙ Schedules</button>'
       +statHtml+'</div>'
       +'<div class="hnx-rm-legend"><span><i style="background:#eef3ee"></i>To do (scheduled)</span>'
@@ -118549,23 +118550,19 @@ body.hnx-mobile-locked { overflow: hidden; }
     var body='<div class="hnx-rm-mh"><div><div class="hnx-rm-mh-t">'+(t.icon||'📋')+' '+esc(String(t.name).replace(/^Cleaning of /i,''))+'</div>'
       +'<div class="hnx-rm-mh-s">'+esc(gh||'Site-wide')+' · '+esc(FREQ[t.freq]||t.freq)+(tm?' · '+esc(tm):'')+' · '+esc(t.owner||'')+'</div></div>'
       +'<button class="hnx-rm-x" onclick="hnxRmCloseModal()">✕</button></div><div class="hnx-rm-mb">'+prev;
-    if(!isToday){
-      body+='<div class="hnx-rm-prev" style="color:#84e0d8;border-color:rgba(132,255,249,0.3)">📅 Viewing <b>'+esc(viewDate)+'</b>. Logging is only available for <b>today</b> — switch to Today to mark this task.</div>'
-        +'<div class="hnx-rm-foot"><button class="hnx-rm-btn cancel" onclick="hnxRmCloseModal()">Close</button></div></div>';
-    }else{
-      body+='<span class="hnx-rm-lbl">Status</span><div class="hnx-rm-seg">'
-        +'<button type="button" class="hnx-rm-sb done'+(_rmCur.status==='done'?' on':'')+'" data-st="done" onclick="hnxRmPickStatus(this)">✓ Done</button>'
-        +'<button type="button" class="hnx-rm-sb partly'+(_rmCur.status==='partly'?' on':'')+'" data-st="partly" onclick="hnxRmPickStatus(this)">– Partly</button>'
-        +'<button type="button" class="hnx-rm-sb not'+(_rmCur.status==='not_done'?' on':'')+'" data-st="not_done" onclick="hnxRmPickStatus(this)">✗ Not done</button></div>'
-        +'<span class="hnx-rm-lbl">Note <span class="hnx-rm-req" id="hnxRmReq" style="display:none">— required for “Partly”</span></span>'
-        +'<textarea class="hnx-rm-ta" id="hnxRmNote" placeholder="What was done, what was left, why…">'+esc(c&&c.note?c.note:'')+'</textarea>'
-        +'<span class="hnx-rm-lbl" style="margin-top:11px">Photo (optional)</span>'
-        +'<input type="file" accept="image/*" capture="environment" onchange="hnxRmPhoto(this)" style="font-size:11px;color:#9fb3a3;"><div id="hnxRmPhotoPrev"></div>'
-        +'<div class="hnx-rm-foot"><button class="hnx-rm-btn cancel" onclick="hnxRmCloseModal()">Cancel</button>'
-        +'<button class="hnx-rm-btn save" onclick="hnxRmSave()">Save</button></div></div>';
-    }
+    body+=(isToday?'':'<div class="hnx-rm-prev" style="color:#84e0d8;border-color:rgba(132,255,249,0.3)">📅 Logging for <b>'+esc(viewDate)+'</b> (not today)</div>')
+      +'<span class="hnx-rm-lbl">Status</span><div class="hnx-rm-seg">'
+      +'<button type="button" class="hnx-rm-sb done'+(_rmCur.status==='done'?' on':'')+'" data-st="done" onclick="hnxRmPickStatus(this)">✓ Done</button>'
+      +'<button type="button" class="hnx-rm-sb partly'+(_rmCur.status==='partly'?' on':'')+'" data-st="partly" onclick="hnxRmPickStatus(this)">– Partly</button>'
+      +'<button type="button" class="hnx-rm-sb not'+(_rmCur.status==='not_done'?' on':'')+'" data-st="not_done" onclick="hnxRmPickStatus(this)">✗ Not done</button></div>'
+      +'<span class="hnx-rm-lbl">Note <span class="hnx-rm-req" id="hnxRmReq" style="display:none">— required for “Partly”</span></span>'
+      +'<textarea class="hnx-rm-ta" id="hnxRmNote" placeholder="What was done, what was left, why…">'+esc(c&&c.note?c.note:'')+'</textarea>'
+      +'<span class="hnx-rm-lbl" style="margin-top:11px">Photo (optional)</span>'
+      +'<input type="file" accept="image/*" capture="environment" onchange="hnxRmPhoto(this)" style="font-size:11px;color:#9fb3a3;"><div id="hnxRmPhotoPrev"></div>'
+      +'<div class="hnx-rm-foot"><button class="hnx-rm-btn cancel" onclick="hnxRmCloseModal()">Cancel</button>'
+      +'<button class="hnx-rm-btn save" onclick="hnxRmSave()">Save</button></div></div>';
     modal.innerHTML=body;
-    if(isToday&&_rmCur.status==='partly'){var rq=document.getElementById('hnxRmReq');if(rq)rq.style.display='inline';}
+    if(_rmCur.status==='partly'){var rq=document.getElementById('hnxRmReq');if(rq)rq.style.display='inline';}
     document.getElementById('hnxRmOv').style.display='flex';
   };
   window.hnxRmPickStatus=function(btn){
@@ -118587,9 +118584,16 @@ body.hnx-mobile-locked { overflow: hidden; }
     var note=((document.getElementById('hnxRmNote')||{}).value||'').trim();
     if(_rmCur.status==='partly'&&!note){alert('“Partly” needs a short reason — please add a note.');return;}
     var photo=window._stagedRmPhoto||_rmCur.existingPhoto||null;
-    try{window.markRecurringDone(_rmCur.taskId,_rmCur.gh,{status:_rmCur.status,note:note,photo:photo});}
-    catch(e){console.error('[recurring matrix] save failed',e);alert('Could not save: '+((e&&e.message)||e));return;}
-    if(typeof window.showToast==='function'){var lbl=_rmCur.status==='done'?'Done':_rmCur.status==='partly'?'Partly':'Not done';window.showToast('Logged: '+lbl+(_rmCur.gh?' · '+_rmCur.gh:''),'ok',2500);}
+    try{
+      var KEY='hydroPro_recurring_completions_v1';
+      var all={};try{all=JSON.parse(localStorage.getItem(KEY)||'{}')||{};}catch(e){all={};}
+      var dt=_rmCur.date||todayISO();
+      var k=dt+'__'+_rmCur.taskId+'__'+(_rmCur.gh||'all');
+      var by='system';try{if(typeof window.curUser==='function')by=window.curUser();}catch(e){}
+      all[k]={taskId:_rmCur.taskId,gh:_rmCur.gh||'all',date:dt,by:by,at:Date.now(),note:note,photo:photo,status:_rmCur.status};
+      localStorage.setItem(KEY,JSON.stringify(all));
+    }catch(e){console.error('[recurring matrix] save failed',e);alert('Could not save: '+((e&&e.message)||e));return;}
+    if(typeof window.showToast==='function'){var lbl=_rmCur.status==='done'?'Done':_rmCur.status==='partly'?'Partly':'Not done';window.showToast('Logged: '+lbl+(_rmCur.gh?' · '+_rmCur.gh:'')+' · '+(_rmCur.date||''),'ok',2600);}
     hnxRmCloseModal();window._hnxRenderRecurringMatrix();
   };
 
@@ -118691,6 +118695,72 @@ body.hnx-mobile-locked { overflow: hidden; }
       else if(b&&b.style.display!=='none')hnxRmEdClose();
     }
   });
+  window.hnxRmGhReport=function(){
+    var dObj=new Date(_rmDate+'T12:00:00');
+    var dowFull=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][dObj.getDay()];
+    var due=recurringForDate(dObj);
+    // group due tasks by GH
+    var byGh={}, GHS=ghs();
+    function pushGh(g,task){ (byGh[g]=byGh[g]||[]).push(task); }
+    due.forEach(function(d){
+      if(d.gh){ pushGh(d.gh,d.task); }
+      else { GHS.forEach(function(g){ pushGh(g,d.task); }); pushGh('SITE',d.task); }
+    });
+    var order=GHS.slice(); if(byGh['SITE'])order.push('SITE');
+    var STC={done:'#6ae585',partly:'#f4be5e',not:'#ff7a6a',todo:'#cfe0d2'};
+    var STSYM={done:'✓',partly:'–',not:'✗',todo:'○'};
+    var totDone=0,totDue=0;
+    var sections=order.map(function(g){
+      var tasks=byGh[g]; if(!tasks||!tasks.length)return '';
+      var rows=tasks.map(function(t){
+        var c=getC(t.id,(g==='SITE'?'':g),_rmDate);
+        var st=c&&c.status==='done'?'done':c&&c.status==='partly'?'partly':c&&c.status==='not_done'?'not':'todo';
+        totDue++; if(st==='done')totDone++;
+        var nm=String(t.name).replace(/^Cleaning of /i,'');
+        return '<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid rgba(76,175,80,0.07);font-size:12px;">'
+          +'<span style="color:'+STC[st]+';font-weight:800;width:16px;">'+STSYM[st]+'</span>'
+          +'<span style="flex:1;color:#d6ecd8;">'+(t.icon||'•')+' '+esc(nm)+'</span>'
+          +(c&&c.note?'<span style="color:#7a9b80;font-style:italic;font-size:10.5px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">"'+esc(c.note)+'"</span>':'')
+          +(c&&c.by?'<span style="color:#5f7a64;font-family:var(--mono,monospace);font-size:9.5px;">'+esc(c.by)+'</span>':'')
+          +'</div>';
+      }).join('');
+      var gd=tasks.filter(function(t){var c=getC(t.id,(g==='SITE'?'':g),_rmDate);return c&&c.status==='done';}).length;
+      return '<div style="background:linear-gradient(155deg,#13241a,#0b140e);border:1px solid rgba(76,175,80,0.2);border-radius:11px;padding:11px 13px;margin-bottom:10px;break-inside:avoid;">'
+        +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:13px;font-weight:800;color:#e8f5e9;">'+(g==='SITE'?'🏭 Site-wide':'🏡 '+esc(g))+'</span>'
+        +'<span style="margin-left:auto;font-size:10.5px;font-family:var(--mono,monospace);color:#9fd4a4;">'+gd+'/'+tasks.length+' done</span></div>'+rows+'</div>';
+    }).join('');
+    if(!sections)sections='<div style="padding:40px;text-align:center;color:#6f8a74;font-size:12.5px;">No recurring tasks scheduled for this day.</div>';
+    var ov=document.createElement('div');
+    ov.className='hnx-rm-ov'; ov.id='hnxRmRptOv';
+    ov.onclick=function(e){if(e.target===ov)ov.remove();};
+    ov.innerHTML='<div class="hnx-rm-edmodal">'
+      +'<div class="hnx-rm-mh"><div class="hnx-rm-mh-t">📄 Recurring Tasks — Per-Greenhouse Report</div>'
+      +'<button class="hnx-rm-btn add" onclick="hnxRmRptCsv()" style="margin-left:8px">⬇ CSV</button>'
+      +'<button class="hnx-rm-x" onclick="document.getElementById(\'hnxRmRptOv\').remove()">✕</button>'
+      +'<div class="hnx-rm-mh-s">'+esc(dowFull)+', '+esc(_rmDate)+' · '+totDone+'/'+totDue+' tasks done across all greenhouses</div></div>'
+      +'<div class="hnx-rm-mb">'+sections+'</div></div>';
+    document.body.appendChild(ov);
+  };
+  window.hnxRmRptCsv=function(){
+    var dObj=new Date(_rmDate+'T12:00:00'), due=recurringForDate(dObj), GHS=ghs();
+    var lines=['Date,Greenhouse,Task,Frequency,Status,Note,Logged by'];
+    function row(g,t){
+      var c=getC(t.id,(g==='SITE'?'':g),_rmDate);
+      var st=c&&c.status==='done'?'done':c&&c.status==='partly'?'partly':c&&c.status==='not_done'?'not done':'to do';
+      var F=window.FREQ_LABELS||{};
+      [_rmDate,g,String(t.name),(F[t.freq]||t.freq),st,(c&&c.note)||'',(c&&c.by)||''].forEach;
+      var vals=[_rmDate,g,String(t.name),(F[t.freq]||t.freq),st,(c&&c.note)||'',(c&&c.by)||''];
+      lines.push(vals.map(function(v){v=String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}).join(','));
+    }
+    due.forEach(function(d){
+      if(d.gh)row(d.gh,d.task);
+      else { GHS.forEach(function(g){row(g,d.task);}); row('SITE',d.task); }
+    });
+    var blob=new Blob([lines.join('\n')],{type:'text/csv'});
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download='recurring-tasks_'+_rmDate+'.csv';a.click();
+    setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
+  };
 })();
 </script>
 
@@ -119223,6 +119293,106 @@ body.hnx-mobile-locked { overflow: hidden; }
   };
   window.hnxPsopClose=function(){var o=document.getElementById('hnxPsopOv');if(o)o.style.display='none';};
   document.addEventListener('keydown',function(e){if(e.key==='Escape'){var o=document.getElementById('hnxPsopOv');if(o&&o.style.display!=='none')hnxPsopClose();}});
+})();
+</script>
+
+<style id="hnx-aimotion-css">
+@keyframes hnxAiUp{from{opacity:0;transform:translateY(18px) scale(.96);}to{opacity:1;transform:none;}}
+@keyframes hnxAiDraw{to{stroke-dashoffset:0;}}
+@keyframes hnxAiValGlow{0%,100%{text-shadow:0 0 4px rgba(128,232,133,.25);}50%{text-shadow:0 0 14px rgba(128,232,133,.7);}}
+@keyframes hnxAiCritGlow{0%,100%{box-shadow:0 0 0 1px rgba(255,122,120,.25);}50%{box-shadow:0 0 20px rgba(255,122,120,.5),0 0 0 1px rgba(255,122,120,.6);}}
+@keyframes hnxAiSheen{0%{transform:translateX(-160%) skewX(-18deg);}60%,100%{transform:translateX(360%) skewX(-18deg);}}
+@keyframes hnxAiBob{0%,100%{transform:translateY(0);}50%{transform:translateY(-2.5px);}}
+@keyframes hnxAiSpin{to{transform:rotate(360deg);}}
+@keyframes hnxAiRipple{0%{transform:scale(.7);opacity:.65;}100%{transform:scale(2.6);opacity:0;}}
+/* staggered card + spark entrance */
+.hnx-ai-row .hnx-ai-box{animation:hnxAiUp .55s cubic-bezier(.2,.75,.3,1) backwards;animation-delay:calc(var(--hnxi,0)*.05s);position:relative;overflow:hidden;}
+.hnx-ai-sparkrow .hnx-ai-spark{animation:hnxAiUp .6s cubic-bezier(.2,.75,.3,1) backwards;animation-delay:calc(.55s + var(--hnxi,0)*.09s);position:relative;overflow:hidden;}
+/* heavy: sheen sweep across each card, once after entrance */
+.hnx-ai-row .hnx-ai-box::after,.hnx-ai-sparkrow .hnx-ai-spark::after{content:"";position:absolute;top:0;left:0;width:38%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.10),transparent);animation:hnxAiSheen 2.4s ease-in-out backwards;animation-delay:calc(.4s + var(--hnxi,0)*.07s);pointer-events:none;}
+/* value text breathes continuously */
+.hnx-ai-v{animation:hnxAiValGlow 3.4s ease-in-out infinite;}
+/* critical boxes glow-pulse continuously (heavy) */
+.hnx-ai-box.crit{animation:hnxAiUp .55s cubic-bezier(.2,.75,.3,1) backwards,hnxAiCritGlow 1.9s ease-in-out infinite;animation-delay:calc(var(--hnxi,0)*.05s),.6s;}
+/* icons gently bob */
+.hnx-ai-icn{display:inline-block;animation:hnxAiBob 3.2s ease-in-out infinite;animation-delay:calc(var(--hnxi,0)*.13s);}
+/* live ripple behind pulse dots */
+.hnx-ai-pulse{position:relative;}
+.hnx-ai-pulse::before{content:"";position:absolute;inset:-3px;border-radius:50%;background:currentColor;animation:hnxAiRipple 1.8s ease-out infinite;}
+/* chart line draws itself in */
+.hnx-spark-draw{animation:hnxAiDraw 1.5s cubic-bezier(.3,.7,.3,1) forwards;animation-delay:.7s;}
+/* hero health % counts + the live dot ripple */
+.hnx-aih-health-pct .pct{animation:hnxAiValGlow 3s ease-in-out infinite;}
+.live-dot{position:relative;}
+.live-dot::after{content:"";position:absolute;inset:-2px;border-radius:50%;background:currentColor;animation:hnxAiRipple 1.6s ease-out infinite;}
+</style>
+<script>
+(function(){
+  function ease(t){return 1-Math.pow(1-t,3);}
+  function countUp(el){
+    if(!el||el.dataset.hnxCu)return;
+    var raw=(el.textContent||'').trim();
+    var m=raw.match(/-?[\d,]*\.?\d+/);
+    if(!m){el.dataset.hnxCu='1';return;}
+    var token=m[0];
+    var hadComma=token.indexOf(',')>=0;
+    var clean=token.replace(/,/g,'');
+    var target=parseFloat(clean);
+    if(isNaN(target)){el.dataset.hnxCu='1';return;}
+    var decimals=(clean.split('.')[1]||'').length;
+    var before=raw.slice(0,m.index), after=raw.slice(m.index+token.length);
+    el.dataset.hnxCu='1';
+    var dur=950+Math.random()*350, t0=null;
+    function fmt(v){
+      var s=v.toFixed(decimals);
+      if(hadComma)s=s.replace(/\B(?=(\d{3})+(?!\d))/g,',');
+      return s;
+    }
+    function step(ts){
+      if(t0===null)t0=ts;
+      var p=Math.min(1,(ts-t0)/dur), v=target*ease(p);
+      el.textContent=before+fmt(v)+after;
+      if(p<1)requestAnimationFrame(step);
+      else el.textContent=before+token+after;
+    }
+    requestAnimationFrame(step);
+  }
+  function drawSparks(scope){
+    (scope||document).querySelectorAll('.hnx-ai-spark svg path').forEach(function(p){
+      if(p.dataset.hnxDraw)return;
+      var hasStroke=p.getAttribute('stroke')&&p.getAttribute('stroke')!=='none';
+      if(!hasStroke)return; // skip the area fill path
+      p.dataset.hnxDraw='1';
+      try{
+        var len=p.getTotalLength();
+        p.style.strokeDasharray=len;
+        p.style.strokeDashoffset=len;
+        p.classList.add('hnx-spark-draw');
+      }catch(e){}
+    });
+  }
+  function animateDash(){
+    var rows=document.querySelectorAll('.hnx-ai-row:not([data-hnx-anim]), .hnx-ai-sparkrow:not([data-hnx-anim])');
+    if(!rows.length)return;
+    rows.forEach(function(row){
+      row.dataset.hnxAnim='1';
+      var kids=row.children, i=0;
+      for(i=0;i<kids.length;i++)kids[i].style.setProperty('--hnxi',i);
+    });
+    document.querySelectorAll('.hnx-ai-v:not([data-hnx-cu]), .hnx-ai-spark-v:not([data-hnx-cu]), .hnx-aih-health-pct .pct:not([data-hnx-cu])').forEach(countUp);
+    drawSparks(document);
+  }
+  var _t=null;
+  var obs=new MutationObserver(function(){
+    clearTimeout(_t);
+    _t=setTimeout(animateDash,60);
+  });
+  function start(){
+    try{obs.observe(document.body,{childList:true,subtree:true});}catch(e){}
+    animateDash();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);
+  else start();
 })();
 </script>
 
