@@ -105068,12 +105068,24 @@ streams:
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
   function _hnxWizLoadCfg(){
-    try{ return hnxLoadDvrConfig() || { devices:[], bridgeIp:'', bridgePort:1984, bridgeProtocol:'http' }; }
-    catch(e){ return { devices:[], bridgeIp:'', bridgePort:1984, bridgeProtocol:'http' }; }
+    try{
+      var s=localStorage.getItem('hydroPro_dvr_devices_v1');
+      var c=s?JSON.parse(s):null;
+      if(c&&typeof c==='object'){ if(!Array.isArray(c.devices))c.devices=[]; return c; }
+    }catch(e){ console.warn('[wizard] load cfg failed:', e); }
+    return { devices:[], bridgeIp:'', bridgePort:1984, bridgeProtocol:'http' };
   }
   function _hnxWizSaveCfg(c){
-    try{ hnxSaveDvrConfig(c); return true; }
-    catch(e){ console.error('Save cfg failed:', e); return false; }
+    try{
+      localStorage.setItem('hydroPro_dvr_devices_v1', JSON.stringify(c));
+      return true;
+    }catch(e){
+      console.error('[wizard] save cfg failed:', e);
+      if(e&&e.name==='QuotaExceededError'){
+        alert('Could not save \u2014 browser storage is full. Use Export to back up your data, clear old entries, then try again.');
+      }
+      return false;
+    }
   }
 
   function _hnxWizRenderV2(){
