@@ -18548,7 +18548,6 @@ const MODULES={
       {id:'wall',label:'🖥 Wall View',perm:null,title:'Full-screen big-monitor dashboard'},
       {id:'checklist',label:'Checklist',perm:null},
       {id:'supervisor',label:'Supervisor',perm:'viewSupervisor'},
-      {id:'prod_pool_cleaning',label:'📅 Pool Cleaning',perm:null,title:'Scheduled pool cleaning rotation (3 GHs/week) with SOP checklist, materials, crew assignment'},
       {id:'prod_recurring',label:'🔥 Recurring Tasks',perm:null,title:'Full management view of all 16 recurring cleaning tasks — today, week, history, missed-task report, stats, task drill-down'},
       {id:'training',label:'🎓 Training',perm:null,title:'5-level proficiency certification — supervisor sign-off, level-based pay rates, 16 tasks across all GHs'},
       {id:'prod_seeds',label:'🌾 Seed Studies',perm:null,title:'Hydroponic seed trials — track germination, growth, yield, commercial viability per variety/batch'},
@@ -118514,6 +118513,7 @@ body.hnx-mobile-locked { overflow: hidden; }
   window._stagedRmPhoto=null;
   var _rmCur={taskId:null,gh:null,status:null,existingPhoto:null,date:null};
   window._openRecurringCellModal=function(taskId,gh){
+    if(taskId==='clean_pool_gutter'&&typeof window.hnxOpenPoolSOP==='function'){return window.hnxOpenPoolSOP(gh);}
     var t=null,L=mergedTasks();
     for(var i=0;i<L.length;i++){if(L[i].id===taskId){t=L[i];break;}}
     if(!t)return;
@@ -119054,6 +119054,181 @@ body.hnx-mobile-locked { overflow: hidden; }
   };
   window.hnxImxClose=function(){var o=document.getElementById('hnxImxOv');if(o)o.style.display='none';};
   document.addEventListener('keydown',function(e){if(e.key==='Escape'){var o=document.getElementById('hnxImxOv');if(o&&o.style.display!=='none')hnxImxClose();}});
+})();
+</script>
+
+<style id="hnx-poolsop-css">
+.hnx-psop-ov{position:fixed;inset:0;z-index:10003;background:rgba(2,6,4,0.85);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:20px;}
+.hnx-psop-modal{width:min(620px,96vw);max-height:92vh;display:flex;flex-direction:column;background:linear-gradient(160deg,#0f1c13,#070d09);border:1px solid rgba(76,175,80,0.4);border-radius:16px;box-shadow:0 26px 70px rgba(0,0,0,0.7),0 0 50px rgba(76,175,80,0.12);overflow:hidden;}
+.hnx-psop-h{padding:15px 18px;background:linear-gradient(180deg,rgba(76,175,80,0.16),rgba(76,175,80,0.02));border-bottom:1px solid rgba(76,175,80,0.3);display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.hnx-psop-h-t{font-size:15px;font-weight:800;color:#e8f5e9;}
+.hnx-psop-h-s{font-size:10.5px;color:#7a9b80;font-family:var(--mono,monospace);text-transform:uppercase;letter-spacing:.4px;width:100%;margin-top:3px;}
+.hnx-psop-x{margin-left:auto;background:rgba(255,90,74,0.12);border:1px solid rgba(255,90,74,0.4);color:#ff8a7a;width:30px;height:30px;border-radius:8px;font-size:15px;cursor:pointer;}
+.hnx-psop-prog{padding:11px 18px;background:#0a120c;border-bottom:1px solid rgba(76,175,80,0.15);display:flex;align-items:center;gap:12px;}
+.hnx-psop-bar{flex:1;height:9px;background:#16221a;border-radius:6px;overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,0.6);}
+.hnx-psop-fill{height:100%;background:linear-gradient(90deg,#2f9d4a,#6ae585);box-shadow:0 0 8px rgba(95,224,122,0.6);transition:width .25s;}
+.hnx-psop-pct{font-size:12px;font-weight:800;color:#9fd4a4;font-family:var(--mono,monospace);min-width:74px;text-align:right;}
+.hnx-psop-body{padding:8px 14px 14px;overflow-y:auto;}
+.hnx-psop-sec{margin-top:12px;background:linear-gradient(155deg,#13241a,#0b140e);border:1px solid rgba(76,175,80,0.2);border-radius:11px;overflow:hidden;}
+.hnx-psop-sec-h{padding:9px 13px;background:rgba(76,175,80,0.08);border-bottom:1px solid rgba(76,175,80,0.15);display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+.hnx-psop-letter{width:24px;height:24px;border-radius:7px;background:linear-gradient(180deg,#2f9d4a,#1d6b32);color:#eafff0;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.hnx-psop-sec-t{font-size:13px;font-weight:700;color:#e8f5e9;}
+.hnx-psop-sec-m{margin-left:auto;font-size:9.5px;color:#7a9b80;font-family:var(--mono,monospace);text-align:right;}
+.hnx-psop-step{display:flex;gap:10px;padding:8px 13px;border-bottom:1px solid rgba(76,175,80,0.06);cursor:pointer;align-items:flex-start;}
+.hnx-psop-step:last-child{border-bottom:none;}
+.hnx-psop-step:hover{background:rgba(76,175,80,0.05);}
+.hnx-psop-cb{width:19px;height:19px;border-radius:5px;border:1.5px solid rgba(76,175,80,0.45);flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;font-size:12px;color:transparent;}
+.hnx-psop-step.on .hnx-psop-cb{background:linear-gradient(180deg,#6ae585,#2f9d4a);border-color:#6ae585;color:#06250f;}
+.hnx-psop-step.on .hnx-psop-d{color:#7a9b80;text-decoration:line-through;}
+.hnx-psop-d{font-size:12.5px;color:#d6ecd8;line-height:1.45;}
+.hnx-psop-n{font-size:10.5px;color:#6f8a74;font-style:italic;margin-top:2px;}
+.hnx-psop-r{font-size:8.5px;font-weight:700;font-family:var(--mono,monospace);color:#84e0d8;background:rgba(132,255,249,0.1);border:1px solid rgba(132,255,249,0.25);padding:1px 6px;border-radius:7px;margin-left:6px;white-space:nowrap;}
+.hnx-psop-foot{padding:12px 18px;border-top:1px solid rgba(76,175,80,0.2);display:flex;align-items:center;gap:10px;background:#0a120c;}
+.hnx-psop-foot-s{font-size:11px;color:#9fb3a3;font-family:var(--mono,monospace);}
+.hnx-psop-btn{margin-left:auto;padding:9px 18px;border-radius:9px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;border:1px solid rgba(95,224,122,0.5);background:linear-gradient(180deg,#1f8a3e,#14632c);color:#eafff0;box-shadow:0 4px 14px rgba(31,138,62,0.4);}
+.hnx-psop-btn:hover{filter:brightness(1.12);}
+.hnx-psop-btn.cancel{background:#0c1610;border-color:rgba(150,170,155,0.3);color:#9fb3a3;box-shadow:none;margin-left:0;}
+</style>
+<div class="hnx-psop-ov" id="hnxPsopOv" style="display:none;" onclick="if(event.target===this)hnxPsopClose()"><div class="hnx-psop-modal" id="hnxPsopModal"></div></div>
+<script>
+(function(){
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  var STEP_KEY='hydroPro_pool_sop_steps_v1';
+  var POOL_SOP=[
+    {s:'A',t:'Preparation of Cleaning Materials',w:'Day Before · 4:45 PM',steps:[
+      {d:'Check inventory of cleaning chemicals and restock if needed',n:'List chemicals & quantities',r:'Lee'},
+      {d:'Inspect brushes and tools for wear or damage',n:'List items & quantities',r:'Lee'},
+      {d:'Label all containers with correct chemical names and hazard levels',n:'List labels/crates & quantities',r:'Eder'},
+      {d:'Ensure PPE (gloves, goggles, etc.) available for all personnel',n:'One set per person',r:'Eder'},
+      {d:'Sanitize all cleaning tools before use',r:'Jomel'},
+      {d:'Calibrate EC and pH meters',r:'Jomel'},
+      {d:'Prepare maintenance pool cleaning items',n:'Vacuum, small pump w/ flexible hose, extension wire, etc.',r:'Jomel'},
+      {d:'Set up equipment staging area near pool',r:'Jomel'},
+      {d:"Brief cleaning staff on today's cleaning protocol",n:'Production Manager 4:45 PM briefing day before',r:'Prod Mgr'},
+      {d:'Log preparation steps in the maintenance record',r:'Maint TL'}
+    ]},
+    {s:'B',t:'Labor Assignment & Gutter Cleaning',w:'Morning 7:00–8:00 AM · ~35 min',steps:[
+      {d:'All greenhouse workers should clean in the designated greenhouse',r:'Team Leader'},
+      {d:'Starting 7 AM inside without delay',r:'Team Leader'},
+      {d:'Team leader should report 7 AM start',r:'Team Leader'},
+      {d:'Maintenance team leader starts pool process in parallel at 7 AM',r:'Maint TL'},
+      {d:'Clean gutters and pipes inside the GH',r:'Team Leader'},
+      {d:'Clean circular plates under the pipes (often missed)',n:'Per observation log',r:'Team Leader'}
+    ]},
+    {s:'C',t:'Water Removal Process',w:'Morning 7:00 AM · ~8 min',steps:[
+      {d:'Ensure electrical safety by inspecting pump cords',r:'Maint TL'},
+      {d:'Open valve to drainage',r:'Maint TL'},
+      {d:'Close valve to GH',r:'Maint TL'},
+      {d:'Use hand signals to coordinate pump startup',r:'Maint TL'},
+      {d:'Check flow rate from pump every 5 minutes',r:'Maint TL'},
+      {d:'Manually remove large debris to prevent pump clogging',r:'Team Leader'},
+      {d:'Monitor water level every second — avoid pump running dry / burning',r:'Maint TL'},
+      {d:'Pause pump when low level reached, use vacuum only',r:'Maint TL'},
+      {d:'Start small pump for remaining water drainage',r:'Jomel'},
+      {d:'Record water removal start and end time',r:'Maint TL'}
+    ]},
+    {s:'D',t:'Pool Cleaning',w:'Morning · ~28 min',steps:[
+      {d:'Two (2) people should be inside the pool',n:'Per observation log',r:'Team Leader'},
+      {d:'Start by skimming all floating debris using a net',r:'Team Leader'},
+      {d:'Use two vacuums alternately (for efficiency)',n:'Per observation log',r:'Maint TL'},
+      {d:'Vacuum the pool floor to remove sediments',r:'Maint TL'},
+      {d:'Use metal scraper for hardened debris',n:'Per observation log',r:'Team Leader'},
+      {d:'Brush pool walls with nylon or wire brush',r:'Team Leader'},
+      {d:'Scrub pool corners where algae typically build up',r:'Team Leader'},
+      {d:'Apply degreaser around waterline',r:'Team Leader'},
+      {d:'Use chlorine or sanitizer per dosage guidelines',r:'Maint TL'},
+      {d:'Check and record pH level after scrubbing',r:'Prod Mgr'},
+      {d:'Rinse surfaces thoroughly with fresh water',r:'Team Leader'},
+      {d:'Collect runoff into floor drainage system',r:'Team Leader'},
+      {d:'Dispose of used cleaning materials per waste protocol',r:'Team Leader'},
+      {d:'Clean the surrounding area after pool cleaning',n:'Per observation log',r:'Team Leader'}
+    ]},
+    {s:'E',t:'Refilling the Pool',w:'Mid-morning · ~15 min',steps:[
+      {d:'Confirm all cleaning chemicals have been neutralized',r:'Prod Mgr'},
+      {d:'Inspect inlet valves for rust or blockage',r:'Maint TL'},
+      {d:'Flush main line FIRST before flushing entire system',n:'Per observation log',r:'Maint TL'},
+      {d:'Flush waterline 10 min (pool to 100 cm, pump cycle fresh water, drain again)',r:'Maint TL'},
+      {d:'Always close the pipe before refilling',n:'Per observation log',r:'Maint TL'},
+      {d:'Open main water valve slowly to prevent pressure surge',r:'Maint TL'},
+      {d:'Assign worker to monitor water level at all times',r:'Team Leader'},
+      {d:'Check temperature and clarity of incoming water',r:'Prod Mgr'},
+      {d:'Adjust water flow using inline valve',r:'Maint TL'},
+      {d:'Document refill start time in logbook',r:'Maint TL'},
+      {d:'Alert greenhouse team when nearing final water level',r:'Maint TL'},
+      {d:'Close valves gradually once level is reached',r:'Maint TL'}
+    ]},
+    {s:'F',t:'Balancing Pool EC and pH',w:'After Refill · ~10 min',steps:[
+      {d:'When pool reaches 100 cm — balance A, B, C to EC 2.2 · Production Manager balances pH to 6.0 with acid',r:'Prod Mgr'},
+      {d:'Start pump to GH',r:'Maint TL'},
+      {d:'Check EC and pH after 30 min — record in pool report, get instructions from Production Manager',r:'Prod Mgr'}
+    ]}
+  ];
+  var TOTAL=0; POOL_SOP.forEach(function(sec){TOTAL+=sec.steps.length;});
+  function loadSteps(){try{var v=JSON.parse(localStorage.getItem(STEP_KEY)||'{}');return (v&&typeof v==='object')?v:{};}catch(e){return {};}}
+  function saveSteps(o){try{localStorage.setItem(STEP_KEY,JSON.stringify(o));}catch(e){}}
+  function todayISO(){var d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);}
+  var _psGh=null,_psKey=null;
+  function doneCount(){
+    var all=loadSteps(),s=all[_psKey]||{},c=0;
+    for(var k in s){if(s[k])c++;}
+    return c;
+  }
+  function updateProgress(){
+    var c=doneCount(),pct=TOTAL?Math.round(c/TOTAL*100):0;
+    var f=document.getElementById('hnxPsopFill'),p=document.getElementById('hnxPsopPct'),fs=document.getElementById('hnxPsopFootS');
+    if(f)f.style.width=pct+'%';
+    if(p)p.textContent=c+' / '+TOTAL+' ('+pct+'%)';
+    if(fs)fs.textContent=c+' of '+TOTAL+' steps done';
+  }
+  window.hnxOpenPoolSOP=function(gh){
+    _psGh=gh||''; _psKey=todayISO()+'|'+(_psGh||'all');
+    var all=loadSteps(),sess=all[_psKey]||{};
+    var secHtml=POOL_SOP.map(function(sec){
+      var steps=sec.steps.map(function(st,i){
+        var id=sec.s+(i+1), on=!!sess[id];
+        return '<div class="hnx-psop-step'+(on?' on':'')+'" onclick="hnxPsopToggle(\''+id+'\',this)">'
+          +'<div class="hnx-psop-cb">✓</div>'
+          +'<div style="flex:1"><span class="hnx-psop-d">'+esc(st.d)+'</span>'+(st.r?'<span class="hnx-psop-r">'+esc(st.r)+'</span>':'')
+          +(st.n?'<div class="hnx-psop-n">'+esc(st.n)+'</div>':'')+'</div></div>';
+      }).join('');
+      return '<div class="hnx-psop-sec"><div class="hnx-psop-sec-h"><span class="hnx-psop-letter">'+sec.s+'</span>'
+        +'<span class="hnx-psop-sec-t">'+esc(sec.t)+'</span><span class="hnx-psop-sec-m">'+esc(sec.w)+'</span></div>'+steps+'</div>';
+    }).join('');
+    document.getElementById('hnxPsopModal').innerHTML=
+      '<div class="hnx-psop-h"><div><div class="hnx-psop-h-t">🏊 Pool Cleaning &amp; NFT Gutter Flush</div>'
+      +'<div class="hnx-psop-h-s">'+esc(_psGh||'Site')+' · '+esc(todayISO())+' · full A→F process · target under 1 hour</div></div>'
+      +'<button class="hnx-psop-x" onclick="hnxPsopClose()">✕</button></div>'
+      +'<div class="hnx-psop-prog"><div class="hnx-psop-bar"><div class="hnx-psop-fill" id="hnxPsopFill" style="width:0%"></div></div>'
+      +'<span class="hnx-psop-pct" id="hnxPsopPct">0 / '+TOTAL+'</span></div>'
+      +'<div class="hnx-psop-body">'+secHtml+'</div>'
+      +'<div class="hnx-psop-foot"><button class="hnx-psop-btn cancel" onclick="hnxPsopClose()">Close</button>'
+      +'<span class="hnx-psop-foot-s" id="hnxPsopFootS"></span>'
+      +'<button class="hnx-psop-btn" onclick="hnxPsopSave()">Save progress</button></div>';
+    document.getElementById('hnxPsopOv').style.display='flex';
+    updateProgress();
+  };
+  window.hnxPsopToggle=function(id,el){
+    var all=loadSteps(); if(!all[_psKey])all[_psKey]={};
+    all[_psKey][id]=!all[_psKey][id];
+    if(!all[_psKey][id])delete all[_psKey][id];
+    saveSteps(all);
+    if(el)el.classList.toggle('on');
+    updateProgress();
+  };
+  window.hnxPsopSave=function(){
+    var c=doneCount();
+    var status=c>=TOTAL?'done':(c>0?'partly':'not_done');
+    try{
+      if(typeof window.markRecurringDone==='function')
+        window.markRecurringDone('clean_pool_gutter',_psGh,{status:status,note:'Pool cleaning SOP — '+c+'/'+TOTAL+' steps complete'});
+    }catch(e){console.error('[pool sop] save failed',e);}
+    if(typeof window.showToast==='function')
+      window.showToast('Pool cleaning saved · '+c+'/'+TOTAL+' steps'+(_psGh?' · '+_psGh:''),'ok',2800);
+    hnxPsopClose();
+    if(typeof window._hnxRenderRecurringMatrix==='function')window._hnxRenderRecurringMatrix();
+  };
+  window.hnxPsopClose=function(){var o=document.getElementById('hnxPsopOv');if(o)o.style.display='none';};
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'){var o=document.getElementById('hnxPsopOv');if(o&&o.style.display!=='none')hnxPsopClose();}});
 })();
 </script>
 
