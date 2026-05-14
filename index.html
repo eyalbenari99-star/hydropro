@@ -118809,6 +118809,14 @@ body.hnx-mobile-locked { overflow: hidden; }
 .hnx-imx-act-b.primary{background:linear-gradient(180deg,#2f9d4a,#1d6b32);border-color:#6ae585;color:#eafff0;}
 .hnx-imx-act-when{font-size:11px;color:#f4be5e;font-family:var(--mono,monospace);margin-top:7px;display:flex;align-items:center;gap:5px;}
 .hnx-imx-empty{padding:36px 18px;text-align:center;color:#6f8a74;font-size:12.5px;}
+.hnx-imx-fix{margin-top:10px;background:rgba(132,255,249,0.05);border:1px solid rgba(132,255,249,0.25);border-radius:9px;padding:9px 11px;}
+.hnx-imx-fix-h{font-size:9px;font-weight:800;color:#84e0d8;font-family:var(--mono,monospace);letter-spacing:.6px;text-transform:uppercase;margin-bottom:7px;}
+.hnx-imx-fix-row{display:flex;gap:7px;flex-wrap:wrap;}
+.hnx-imx-fix-chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:5px 10px;border-radius:7px;cursor:pointer;font-family:inherit;border:1px solid rgba(132,255,249,0.35);background:#0c1610;color:#cfeef0;}
+.hnx-imx-fix-chip:hover{border-color:#84fff9;background:#10201f;}
+.hnx-imx-fix-chip.sop{border-color:rgba(176,140,240,0.4);color:#d8cbf5;}
+.hnx-imx-fix-chip.sop:hover{border-color:#b08cf0;}
+.hnx-imx-fix-none{font-size:11px;color:#5f7a64;font-style:italic;}
 </style>
 <div class="hnx-imx-ov" id="hnxImxOv" style="display:none;" onclick="if(event.target===this)hnxImxClose()"><div class="hnx-imx-modal" id="hnxImxModal"></div></div>
 <script>
@@ -118825,6 +118833,58 @@ body.hnx-mobile-locked { overflow: hidden; }
     finance:['Finance','📊'],security:['Security','🛡️'],inventory:['Inventory / stock','📦'],logistics:['Logistics','🚛'],
     climate:['Climate','🌡️'],generic:['Other signal','🔎']
   };
+  var SOP_REF={
+    'SOP-PROD-001':'Cleaning of Nursery Pipes','SOP-PROD-002':'Inspection & Maintenance of Drain Net Covers',
+    'SOP-PROD-003':'Movement of Pipes & Plant Progression','SOP-PROD-004':'Weekly Water Line Cleaning — Hydroponic Tables',
+    'SOP-PROD-005':'Rockwool Cube Preparation','SOP-PROD-006':'Spray Equipment Cleaning & Maintenance',
+    'SOP-PROD-007':'Preventive Pesticide Spraying Program','SOP-MNT-001':'Big Industrial Fans — Inspection & Maintenance',
+    'SOP-MNT-002':'Roof Mechanical Exhaust Fans — Inspection & Maintenance','SOP-MNT-003':'Cooling Pads — Citric Acid Cleaning (Complete)',
+    'SOP-MNT-004':'Side Plastics & Pulley System — Operation/Maintenance','SOP-MNT-005':'Metal Corrosion — Inspection & Maintenance',
+    'SOP-MNT-006':'Cooling Pads — Operational Procedure','SOP-MNT-MASTER':'Master Preventive Maintenance Manual (FSMS)',
+    'SOP-IRR-001':'Daily Overhead Tank Flushing & Filter Cleaning','SOP-IRR-002':'Quarterly Cleaning of All Water Tanks',
+    'SOP-QC-001':'Chemical Handling & Storage','SOP-LOG-001':'Delivery Truck Inspection, Cleaning & Maintenance',
+    'SOP-LOG-002':'E-Bike Harvest Transport (Megabox)'
+  };
+  var FIXMAP={
+    algae:{tasks:['clean_black_hose','clean_pad_filters','clean_waterline'],sops:['SOP-PROD-001','SOP-PROD-004']},
+    leak:{tasks:['clean_drain_cover'],sops:['SOP-PROD-002','SOP-PROD-004']},
+    roots:{tasks:['clean_pool_gutter'],sops:['SOP-PROD-001','SOP-PROD-003']},
+    overcrowd:{tasks:[],sops:['SOP-PROD-003']},
+    spray:{tasks:[],sops:['SOP-PROD-006','SOP-PROD-007','SOP-QC-001']},
+    seedling:{tasks:[],sops:['SOP-PROD-005','SOP-PROD-003']},
+    tipburn:{tasks:['clean_pad_filters','clean_cooling_pad'],sops:['SOP-MNT-003']},
+    yellowleaf:{tasks:['clean_overhead_tank'],sops:['SOP-IRR-001']},
+    curlleaf:{tasks:['clean_side_plastic','clean_side_screens'],sops:['SOP-MNT-004']},
+    ecph:{tasks:['clean_overhead_tank','clean_10k_drum'],sops:['SOP-IRR-001','SOP-IRR-002']},
+    pump:{tasks:[],sops:['SOP-MNT-MASTER']},
+    tank:{tasks:['clean_overhead_tank','clean_10k_drum'],sops:['SOP-IRR-001','SOP-IRR-002']},
+    fan:{tasks:[],sops:['SOP-MNT-001','SOP-MNT-002']},
+    corrosion:{tasks:[],sops:['SOP-MNT-005']},
+    coolingpad:{tasks:['clean_pad_filters','clean_cooling_pad','clean_pad_screens','clean_pad_waterline'],sops:['SOP-MNT-003','SOP-MNT-006']},
+    logistics:{tasks:[],sops:['SOP-LOG-001','SOP-LOG-002']},
+    climate:{tasks:['clean_side_plastic','clean_side_screens'],sops:['SOP-MNT-004']}
+  };
+  function taskById(id){
+    var L=window.RECURRING_TASKS||[];
+    for(var i=0;i<L.length;i++){if(L[i].id===id)return L[i];}
+    return null;
+  }
+  function fixBlockHTML(issueKey,gh){
+    var fm=FIXMAP[issueKey];
+    if(!fm)return '';
+    var taskGh=/^(GH|PRJ)\d+$/i.test(gh||'')?gh:'';
+    var chips=[];
+    (fm.tasks||[]).forEach(function(tid){
+      var t=taskById(tid); if(!t)return;
+      chips.push('<span class="hnx-imx-fix-chip" onclick="hnxImxClose();if(window._openRecurringCellModal)window._openRecurringCellModal(\''+tid+'\',\''+taskGh+'\');" title="Open this recurring task'+(taskGh?' for '+taskGh:'')+'">'+(t.icon||'\ud83e\uddf9')+' '+esc(String(t.name).replace(/^Cleaning of /i,''))+'</span>');
+    });
+    (fm.sops||[]).forEach(function(code){
+      var nm=SOP_REF[code]||code;
+      chips.push('<span class="hnx-imx-fix-chip sop" onclick="if(window.showToast)window.showToast(\''+code+' \u2014 in the SOP Library (Administration)\',\'ok\',2600);" title="'+esc(nm)+'">\ud83d\udccb '+esc(code)+'</span>');
+    });
+    if(!chips.length)return '';
+    return '<div class="hnx-imx-fix"><div class="hnx-imx-fix-h">\ud83d\udd17 Fix it with \u2014 recurring task / SOP</div><div class="hnx-imx-fix-row">'+chips.join('')+'</div></div>';
+  }
   function classify(txt){
     txt=(txt||'').toLowerCase();
     if(/tip ?burn|burn(ed|t) tip|leaf burn/.test(txt))return 'tipburn';
@@ -118983,7 +119043,7 @@ body.hnx-mobile-locked { overflow: hidden; }
         +'<div class="hnx-imx-ins-t">'+esc(r.title||'')+'</div>'
         +'<div class="hnx-imx-ins-d">'+esc(r.detail||'')+'</div>'
         +(art?'<div class="hnx-imx-ins-art">'+art+'</div>':'')
-        +actBlock+'</div>';
+        +actBlock+fixBlockHTML(issueKey,gh)+'</div>';
     }).join('');
     document.getElementById('hnxImxModal').innerHTML=
       '<div class="hnx-imx-mh"><div><div class="hnx-imx-mh-t">'+meta[1]+' '+esc(meta[0])+' · '+esc(gh)+'</div>'
