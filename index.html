@@ -119396,5 +119396,110 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 
+<style id="hnx-viewpicker-css">
+#modSubTabs{display:none!important;}
+.hnx-vp{position:relative;flex-shrink:0;margin:6px 0;}
+.hnx-vp-trigger{display:flex;align-items:center;gap:9px;background:var(--surface2,#16221a);border:1.5px solid rgba(132,255,249,0.4);color:var(--text,#e8f5e9);padding:9px 14px;border-radius:10px;font-size:13.5px;font-weight:700;cursor:pointer;transition:all .14s;min-width:240px;font-family:inherit;}
+.hnx-vp-trigger:hover{border-color:#84fff9;background:var(--surface,#101a12);}
+.hnx-vp-trigger .hnx-vp-cur{flex:1;text-align:left;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.hnx-vp-trigger .hnx-vp-chev{color:#84e0d8;font-size:11px;transition:transform .18s;}
+.hnx-vp.open .hnx-vp-chev{transform:rotate(180deg);}
+.hnx-vp-count{font-size:9.5px;font-family:var(--mono,monospace);color:#5f8a82;background:rgba(132,255,249,0.1);border:1px solid rgba(132,255,249,0.25);padding:1px 6px;border-radius:8px;}
+.hnx-vp-panel{position:absolute;top:calc(100% + 7px);left:0;width:320px;max-height:66vh;overflow-y:auto;background:#0a0f0c;border:1px solid rgba(132,255,249,0.3);border-radius:12px;box-shadow:0 14px 40px rgba(0,0,0,0.6);padding:7px;display:none;z-index:9998;}
+.hnx-vp.open .hnx-vp-panel{display:block;}
+.hnx-vp-search{width:100%;background:var(--surface,#101a12);border:1px solid var(--border,#1f2e22);color:var(--text,#e8f5e9);padding:8px 11px;border-radius:8px;font-size:12.5px;margin-bottom:5px;outline:none;font-family:inherit;box-sizing:border-box;}
+.hnx-vp-search:focus{border-color:#84fff9;}
+.hnx-vp-item{display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:8px;cursor:pointer;border:1.5px solid transparent;transition:all .12s;font-size:13px;font-weight:600;color:var(--text2,#a6b8a8);}
+.hnx-vp-item:hover{background:var(--surface,#101a12);color:var(--text,#e8f5e9);}
+.hnx-vp-item.active{background:rgba(132,255,249,0.12);border-color:rgba(132,255,249,0.45);color:#9ff5f1;}
+.hnx-vp-item .hnx-vp-badge{margin-left:auto;font-family:var(--mono,monospace);font-size:8.5px;font-weight:700;background:#84e0d8;color:#06250f;padding:1px 6px;border-radius:7px;}
+.hnx-vp-empty{padding:16px 12px;text-align:center;color:var(--text3,#6f8272);font-size:12px;}
+</style>
+<script>
+(function(){
+  function getTabs(){
+    var c=document.getElementById('modSubTabs');
+    if(!c)return [];
+    return Array.prototype.slice.call(c.querySelectorAll('.module-sub-tab'));
+  }
+  function ensurePicker(){
+    var sub=document.getElementById('modSubTabs');
+    if(!sub)return null;
+    var p=document.getElementById('hnxViewPicker');
+    if(p)return p;
+    p=document.createElement('div');
+    p.className='hnx-vp';
+    p.id='hnxViewPicker';
+    p.innerHTML='<button type="button" class="hnx-vp-trigger" id="hnxVpTrigger" onclick="hnxVpToggle(event)">'
+      +'<span class="hnx-vp-cur" id="hnxVpCur">View</span>'
+      +'<span class="hnx-vp-count" id="hnxVpCount"></span>'
+      +'<span class="hnx-vp-chev">▼</span></button>'
+      +'<div class="hnx-vp-panel" id="hnxVpPanel">'
+      +'<input type="text" class="hnx-vp-search" id="hnxVpSearch" placeholder="Search views…" oninput="hnxVpFilter()" onclick="event.stopPropagation()">'
+      +'<div id="hnxVpList"></div>'
+      +'<div class="hnx-vp-empty" id="hnxVpEmpty" style="display:none;">No view matches.</div></div>';
+    sub.parentNode.insertBefore(p,sub);
+    return p;
+  }
+  window.hnxVpRenderList=function(){
+    var list=document.getElementById('hnxVpList'); if(!list)return;
+    var tabs=getTabs();
+    var f=((document.getElementById('hnxVpSearch')||{}).value||'').trim().toLowerCase();
+    var html='',shown=0,activeLabel=null;
+    tabs.forEach(function(btn,i){
+      var label=(btn.textContent||'').trim();
+      var isActive=btn.classList.contains('active');
+      if(isActive)activeLabel=label;
+      if(f&&label.toLowerCase().indexOf(f)<0)return;
+      shown++;
+      html+='<div class="hnx-vp-item'+(isActive?' active':'')+'" onclick="hnxVpPick('+i+')">'
+        +'<span>'+label.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</span>'
+        +(isActive?'<span class="hnx-vp-badge">CURRENT</span>':'')+'</div>';
+    });
+    list.innerHTML=html;
+    var empty=document.getElementById('hnxVpEmpty'); if(empty)empty.style.display=shown?'none':'block';
+    var cur=document.getElementById('hnxVpCur'); if(cur)cur.textContent=activeLabel||(tabs[0]&&tabs[0].textContent.trim())||'View';
+    var cnt=document.getElementById('hnxVpCount'); if(cnt)cnt.textContent=tabs.length?tabs.length+' views':'';
+  };
+  window.hnxVpPick=function(i){
+    var tabs=getTabs();
+    hnxVpClose();
+    if(tabs[i]){ tabs[i].click(); setTimeout(window.hnxVpRenderList,30); }
+  };
+  window.hnxVpToggle=function(e){
+    if(e)e.stopPropagation();
+    var p=document.getElementById('hnxViewPicker'); if(!p)return;
+    p.classList.toggle('open');
+    if(p.classList.contains('open')){
+      var s=document.getElementById('hnxVpSearch'); if(s)s.value='';
+      window.hnxVpRenderList();
+      setTimeout(function(){if(s)s.focus();},40);
+    }
+  };
+  window.hnxVpClose=function(){var p=document.getElementById('hnxViewPicker'); if(p)p.classList.remove('open');};
+  window.hnxVpFilter=function(){window.hnxVpRenderList();};
+  document.addEventListener('click',function(e){
+    var p=document.getElementById('hnxViewPicker');
+    if(p&&!p.contains(e.target))hnxVpClose();
+  });
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')hnxVpClose();});
+  var _t=null,_subObs=null;
+  function refresh(){
+    var p=ensurePicker();
+    if(p)window.hnxVpRenderList();
+    var sub=document.getElementById('modSubTabs');
+    if(sub&&!_subObs){
+      _subObs=new MutationObserver(function(){clearTimeout(_t);_t=setTimeout(window.hnxVpRenderList,50);});
+      _subObs.observe(sub,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+    }
+  }
+  var bodyObs=new MutationObserver(function(){clearTimeout(_t);_t=setTimeout(refresh,80);});
+  function start(){try{bodyObs.observe(document.body,{childList:true,subtree:true});}catch(e){}refresh();}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);
+  else start();
+})();
+</script>
+
+
 </body>
 </html>
