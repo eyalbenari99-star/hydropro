@@ -118781,8 +118781,9 @@ body.hnx-mobile-locked { overflow: hidden; }
 .hnx-imx-c.o{background:linear-gradient(180deg,#c3a6f5,#7a55c9);box-shadow:0 0 7px rgba(176,140,240,0.5);}
 .hnx-imx-c.na{background:transparent;border:1px dashed rgba(76,175,80,0.18);width:24px;height:24px;}
 .hnx-imx-badge{position:absolute;top:-5px;right:-5px;background:#0d1711;color:#fff;font-size:8px;font-weight:800;width:14px;height:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.25);}
+.hnx-imx-clk{position:absolute;bottom:-4px;right:-4px;background:#f4be5e;color:#3a2705;font-size:8px;width:13px;height:13px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1px solid #0d1711;}
 .hnx-imx-ov{position:fixed;inset:0;z-index:10002;background:rgba(2,6,4,0.84);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:22px;}
-.hnx-imx-modal{width:min(500px,95vw);max-height:90vh;display:flex;flex-direction:column;background:linear-gradient(160deg,#0f1c13,#070d09);border:1px solid rgba(76,175,80,0.4);border-radius:16px;box-shadow:0 26px 70px rgba(0,0,0,0.7);overflow:hidden;}
+.hnx-imx-modal{width:min(520px,95vw);max-height:90vh;display:flex;flex-direction:column;background:linear-gradient(160deg,#0f1c13,#070d09);border:1px solid rgba(76,175,80,0.4);border-radius:16px;box-shadow:0 26px 70px rgba(0,0,0,0.7);overflow:hidden;}
 .hnx-imx-mh{padding:14px 18px;background:linear-gradient(180deg,rgba(76,175,80,0.14),rgba(76,175,80,0.02));border-bottom:1px solid rgba(76,175,80,0.28);display:flex;align-items:center;gap:10px;}
 .hnx-imx-mh-t{font-size:14px;font-weight:800;color:#e8f5e9;}
 .hnx-imx-mh-s{font-size:10.5px;color:#7a9b80;font-family:var(--mono,monospace);text-transform:uppercase;letter-spacing:.4px;margin-top:3px;}
@@ -118795,10 +118796,18 @@ body.hnx-mobile-locked { overflow: hidden; }
 .hnx-imx-sev.r{background:rgba(95,224,122,0.16);color:#7ff09a;}
 .hnx-imx-sev.p{background:rgba(124,199,255,0.18);color:#9fd0ff;}
 .hnx-imx-sev.o{background:rgba(176,140,240,0.18);color:#cbb3f7;}
+.hnx-imx-when{font-size:9px;font-weight:800;padding:2px 7px;border-radius:9px;font-family:var(--mono,monospace);letter-spacing:.4px;background:rgba(244,190,94,0.18);color:#f4be5e;}
+.hnx-imx-when.u3{background:rgba(255,90,74,0.2);color:#ff8a7a;}
 .hnx-imx-conf{margin-left:auto;font-size:11px;font-weight:800;color:#9fd4a4;font-family:var(--mono,monospace);}
 .hnx-imx-ins-t{font-size:13.5px;font-weight:700;color:#e8f5e9;margin-bottom:4px;}
 .hnx-imx-ins-d{font-size:12px;color:#a6b8a8;line-height:1.5;}
 .hnx-imx-ins-art{margin-top:9px;}
+.hnx-imx-act{margin-top:10px;background:rgba(95,224,122,0.07);border:1px solid rgba(95,224,122,0.28);border-radius:9px;padding:9px 11px;}
+.hnx-imx-act-h{font-size:9px;font-weight:800;color:#7ff09a;font-family:var(--mono,monospace);letter-spacing:.6px;text-transform:uppercase;margin-bottom:6px;}
+.hnx-imx-act-row{display:flex;gap:7px;flex-wrap:wrap;}
+.hnx-imx-act-b{font-size:11.5px;font-weight:700;padding:6px 11px;border-radius:7px;cursor:pointer;font-family:inherit;border:1px solid rgba(95,224,122,0.4);background:#0c1610;color:#cfeed3;}
+.hnx-imx-act-b.primary{background:linear-gradient(180deg,#2f9d4a,#1d6b32);border-color:#6ae585;color:#eafff0;}
+.hnx-imx-act-when{font-size:11px;color:#f4be5e;font-family:var(--mono,monospace);margin-top:7px;display:flex;align-items:center;gap:5px;}
 .hnx-imx-empty{padding:36px 18px;text-align:center;color:#6f8a74;font-size:12.5px;}
 </style>
 <div class="hnx-imx-ov" id="hnxImxOv" style="display:none;" onclick="if(event.target===this)hnxImxClose()"><div class="hnx-imx-modal" id="hnxImxModal"></div></div>
@@ -118843,6 +118852,24 @@ body.hnx-mobile-locked { overflow: hidden; }
     if(/temperature|\bheat\b|climate|humidity/.test(txt))return 'climate';
     return 'generic';
   }
+  function parseTiming(txt){
+    txt=(txt||'').toLowerCase();
+    var m=txt.match(/(?:before|by|at)\s*(\d{1,2}:\d{2}|\d{1,2}\s?(?:am|pm))/);
+    if(m)return {label:'By '+m[1].replace(/\s+/g,'').toUpperCase(),urg:2};
+    m=txt.match(/within\s*(\d+)\s*[- ]?h(?:ours?|rs?)?/);
+    if(m){var h=+m[1];return {label:'Within '+h+'h',urg:h<=24?3:2};}
+    m=txt.match(/\b(\d+)\s*[- ]?h(?:ours?|rs?)?\b/);
+    if(m){var h2=+m[1];if(h2<=72)return {label:'Within '+h2+'h',urg:h2<=24?3:2};}
+    m=txt.match(/(?:within|window:?\s*|next)\s*(\d+)\s*days?/);
+    if(m){var d=+m[1];return {label:'Within '+d+'d',urg:d<=2?2:1};}
+    m=txt.match(/\b(\d+)\s*days?\b/);
+    if(m){var d2=+m[1];if(d2<=14)return {label:'Within '+d2+'d',urg:d2<=2?2:1};}
+    if(/immediat|right now|\bnow\b|\basap\b/.test(txt))return {label:'Now',urg:3};
+    if(/today/.test(txt))return {label:'Today',urg:2};
+    if(/tomorrow|tmrw|next morning|am\b/.test(txt))return {label:'Tomorrow',urg:2};
+    if(/this week/.test(txt))return {label:'This week',urg:1};
+    return null;
+  }
   function ghsOf(subj){
     subj=String(subj||'');
     var out=[],m,re=/\b(GH\s?\d+|PRJ\s?\d+)\b/gi;
@@ -118863,7 +118890,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     var m=MB[modKey]||{};
     return (m.insights||[]).map(function(ins,idx){
       var txt=(ins.title||'')+' '+(ins.detail||'')+' '+(ins.subj||ins.subject||'');
-      return {idx:idx,raw:ins,sev:SEVMAP[ins.t||ins.type]||'o',issue:classify(txt),ghs:ghsOf(ins.subj||ins.subject||'')};
+      return {idx:idx,raw:ins,sev:SEVMAP[ins.t||ins.type]||'o',issue:classify(txt),ghs:ghsOf(ins.subj||ins.subject||''),timing:parseTiming((ins.title||'')+' '+(ins.detail||''))};
     });
   }
   function modList(){
@@ -118895,7 +118922,9 @@ body.hnx-mobile-locked { overflow: hidden; }
         if(!arr||!arr.length)return '<td class="hnx-imx-cell"><div class="hnx-imx-c na"></div></td>';
         var top=arr.slice().sort(function(a,b){return sevRank[a.sev]-sevRank[b.sev];})[0];
         var badge=arr.length>1?'<span class="hnx-imx-badge">'+arr.length+'</span>':'';
-        return '<td class="hnx-imx-cell"><div class="hnx-imx-c hit '+top.sev+'" title="'+esc(meta[0]+' — '+g)+'" onclick="hnxImxOpenDetail(\''+iss+'\',\''+g+'\')">'+meta[1]+badge+'</div></td>';
+        var hasTime=arr.some(function(o){return o.timing;});
+        var clk=hasTime?'<span class="hnx-imx-clk">⏱</span>':'';
+        return '<td class="hnx-imx-cell"><div class="hnx-imx-c hit '+top.sev+'" title="'+esc(meta[0]+' — '+g)+'" onclick="hnxImxOpenDetail(\''+iss+'\',\''+g+'\')">'+meta[1]+badge+clk+'</div></td>';
       }).join('');
       return '<tr><td class="hnx-imx-row-l"><span class="ic">'+meta[1]+'</span>'+esc(meta[0])+'</td>'+tds+'</tr>';
     }).join('');
@@ -118911,13 +118940,14 @@ body.hnx-mobile-locked { overflow: hidden; }
       var n=modIns(modKey).length;
       return '<div class="hnx-imx-head"><span class="hnx-imx-title">🧠 AI Insights Matrix</span>'
         +'<select class="hnx-imx-sel" onchange="hnxImxRender(this.value)">'+opts+'</select>'
-        +'<span class="hnx-imx-count" id="hnxImxCount">'+n+' insights · tap a cell for detail</span></div>'
+        +'<span class="hnx-imx-count" id="hnxImxCount">'+n+' insights · tap a cell for action + timing</span></div>'
         +'<div class="hnx-imx-legend">'
         +'<span><i style="background:linear-gradient(180deg,#ff7a6a,#c43122)"></i>Urgent</span>'
         +'<span><i style="background:linear-gradient(180deg,#6ae585,#2f9d4a)"></i>Recommend</span>'
         +'<span><i style="background:linear-gradient(180deg,#7cc7ff,#2f7fc4)"></i>Predict</span>'
         +'<span><i style="background:linear-gradient(180deg,#c3a6f5,#7a55c9)"></i>Observe</span>'
-        +'<span><i style="border:1px dashed rgba(76,175,80,0.4);background:transparent"></i>No insight</span></div>'
+        +'<span><i style="border:1px dashed rgba(76,175,80,0.4);background:transparent"></i>No insight</span>'
+        +'<span style="color:#f4be5e">⏱ = has a deadline</span></div>'
         +'<div id="hnxImxBody">'+buildMatrix(modKey)+'</div>';
     }catch(e){console.error('[AI matrix] build failed',e);return '';}
   };
@@ -118926,7 +118956,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     var body=document.getElementById('hnxImxBody');
     if(body)body.innerHTML=buildMatrix(modKey);
     var c=document.getElementById('hnxImxCount');
-    if(c)c.textContent=modIns(modKey).length+' insights · tap a cell for detail';
+    if(c)c.textContent=modIns(modKey).length+' insights · tap a cell for action + timing';
   };
   window.hnxImxOpenDetail=function(issueKey,gh){
     var ins=modIns(_imxMod).filter(function(o){return o.issue===issueKey&&o.ghs.indexOf(gh)>=0;});
@@ -118936,13 +118966,24 @@ body.hnx-mobile-locked { overflow: hidden; }
       var r=o.raw;
       var art=(typeof window.hnxInsightArt==='function')?window.hnxInsightArt({title:r.title,detail:r.detail,subj:r.subj||r.subject}):'';
       var conf=(r.conf!=null?r.conf:(r.confidence!=null?r.confidence:''));
+      var whenPill=o.timing?'<span class="hnx-imx-when'+(o.timing.urg>=3?' u3':'')+'">⏱ '+esc(o.timing.label)+'</span>':'';
+      var acts=(r.actions||[]).map(function(a){return typeof a==='string'?{label:a,primary:false}:{label:(a&&a.label)||'',primary:!!(a&&a.primary)};}).filter(function(a){return a.label;});
+      var actBlock='';
+      if(acts.length){
+        actBlock='<div class="hnx-imx-act"><div class="hnx-imx-act-h">✅ Recommended action</div><div class="hnx-imx-act-row">'
+          +acts.map(function(a,k){return '<span class="hnx-imx-act-b'+((a.primary||k===0)?' primary':'')+'">'+esc(a.label)+'</span>';}).join('')+'</div>'
+          +(o.timing?'<div class="hnx-imx-act-when">⏱ When: <b>'+esc(o.timing.label)+'</b></div>':'')+'</div>';
+      } else if(o.timing){
+        actBlock='<div class="hnx-imx-act"><div class="hnx-imx-act-when" style="margin-top:0">⏱ When: <b>'+esc(o.timing.label)+'</b></div></div>';
+      }
       return '<div class="hnx-imx-ins"><div class="hnx-imx-ins-h">'
-        +'<span class="hnx-imx-sev '+o.sev+'">'+SEVLBL[o.sev]+'</span>'
+        +'<span class="hnx-imx-sev '+o.sev+'">'+SEVLBL[o.sev]+'</span>'+whenPill
         +'<span style="font-size:10.5px;color:#7a9b80;font-family:var(--mono,monospace)">'+esc(r.subj||r.subject||'')+'</span>'
         +(conf!==''?'<span class="hnx-imx-conf">'+conf+'%</span>':'')+'</div>'
         +'<div class="hnx-imx-ins-t">'+esc(r.title||'')+'</div>'
         +'<div class="hnx-imx-ins-d">'+esc(r.detail||'')+'</div>'
-        +(art?'<div class="hnx-imx-ins-art">'+art+'</div>':'')+'</div>';
+        +(art?'<div class="hnx-imx-ins-art">'+art+'</div>':'')
+        +actBlock+'</div>';
     }).join('');
     document.getElementById('hnxImxModal').innerHTML=
       '<div class="hnx-imx-mh"><div><div class="hnx-imx-mh-t">'+meta[1]+' '+esc(meta[0])+' · '+esc(gh)+'</div>'
