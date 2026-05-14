@@ -66532,8 +66532,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.210-viewpicker-fix';  // ✨ STAGE CARDS — strong motion pass. User noted the motion needed to be more visible. (1) KEN BURNS ZOOM — each poster now has a slow background-size+position drift (16s alternating, 106%→114% scale, slight position pan), so the image itself feels alive even when other animations are subtle. (2) BIGGER AURA — opacity .7→.85, inset -20%→-25%, breathing scale .96-1.04→.92-1.08, gradient inner stop opacity bumped (.45→.7 green, .55→.85 gold, .45→.7 cyan). Now visibly pulsing rather than just shimmering. (3) FASTER SHINE — 5.5s→4s base, 3.5s→2.4s active. Brighter highlight band (.35→.5 opacity, .15→.18 sides; gold .2→.28, .45→.6). Added mid-keyframe so motion feels smoother. (4) MORE PARTICLES — 4-5 → 6-8 per card. Particle size 6px→8px, glow shadows 8/14px→12/22px (much brighter halo). Pulse animation amplitude .4→.3 to 1.2→1.4 (deeper breathing). (5) RING — 1.5px→1.8px, glow inset 16px→22px, color amplitude .4↔.85 (more dramatic), animation 2.4s→2s. (6) NEW: animated rim glow on every card via ::before pseudo-element with hue-rotate filter sweeping every 2.6s active / 4s done / 5s future — gives each card an outer breathing color halo independent of the inner aura. (7) TITLE PULSE — active card title now pulses opacity .85↔1 with text-shadow expanding 10px→18px every 1.6s. (8) Total motion sources per card: Ken Burns zoom + aura breath + shine sweep + ring breath (active) + 6-8 particles + outer rim sweep + title pulse (active) = 7 layered animations. Now clearly visible.
-const APP_BUILD=1779260000;
+const APP_VERSION='2.46.211-viewpicker-click';  // ✨ STAGE CARDS — strong motion pass. User noted the motion needed to be more visible. (1) KEN BURNS ZOOM — each poster now has a slow background-size+position drift (16s alternating, 106%→114% scale, slight position pan), so the image itself feels alive even when other animations are subtle. (2) BIGGER AURA — opacity .7→.85, inset -20%→-25%, breathing scale .96-1.04→.92-1.08, gradient inner stop opacity bumped (.45→.7 green, .55→.85 gold, .45→.7 cyan). Now visibly pulsing rather than just shimmering. (3) FASTER SHINE — 5.5s→4s base, 3.5s→2.4s active. Brighter highlight band (.35→.5 opacity, .15→.18 sides; gold .2→.28, .45→.6). Added mid-keyframe so motion feels smoother. (4) MORE PARTICLES — 4-5 → 6-8 per card. Particle size 6px→8px, glow shadows 8/14px→12/22px (much brighter halo). Pulse animation amplitude .4→.3 to 1.2→1.4 (deeper breathing). (5) RING — 1.5px→1.8px, glow inset 16px→22px, color amplitude .4↔.85 (more dramatic), animation 2.4s→2s. (6) NEW: animated rim glow on every card via ::before pseudo-element with hue-rotate filter sweeping every 2.6s active / 4s done / 5s future — gives each card an outer breathing color halo independent of the inner aura. (7) TITLE PULSE — active card title now pulses opacity .85↔1 with text-shadow expanding 10px→18px every 1.6s. (8) Total motion sources per card: Ken Burns zoom + aura breath + shine sweep + ring breath (active) + 6-8 particles + outer rim sweep + title pulse (active) = 7 layered animations. Now clearly visible.
+const APP_BUILD=1779320000;
 const APP_BUILD_DATE='2026-05-15';
 
 // Store version in localStorage on first run
@@ -95384,7 +95384,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.62';
+        vEl.textContent = orig + ' · HNX v2.63';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -119427,18 +119427,21 @@ body.hnx-mobile-locked { overflow: hidden; }
   function panel(){return document.getElementById(PANEL_ID);}
   function picker(){return document.getElementById(PICKER_ID);}
   function isOpen(){var p=panel();return !!(p&&p.classList.contains('hnx-vp-show'));}
-  function renderList(){
+
+  // force=true => rebuild even while open (search / open). Otherwise skip while
+  // open, so the live-clock body mutations don't destroy the item you're clicking.
+  function renderList(force){
     var p=picker(), pan=panel();
     if(!p||!pan)return;
+    if(isOpen()&&!force){ syncTrigger(); return; }
     var list=pan.querySelector('.hnx-vp-list'); if(!list)return;
     var tabs=getTabs();
     var sb=pan.querySelector('.hnx-vp-search');
     var f=((sb&&sb.value)||'').trim().toLowerCase();
-    var html='',shown=0,activeLabel=null;
+    var html='',shown=0;
     tabs.forEach(function(btn,i){
       var label=(btn.textContent||'').trim();
       var isActive=btn.classList.contains('active');
-      if(isActive)activeLabel=label;
       if(f&&label.toLowerCase().indexOf(f)<0)return;
       shown++;
       html+='<div class="hnx-vp-item'+(isActive?' active':'')+'" data-idx="'+i+'">'
@@ -119447,6 +119450,12 @@ body.hnx-mobile-locked { overflow: hidden; }
     });
     list.innerHTML=html;
     var empty=pan.querySelector('.hnx-vp-empty'); if(empty)empty.style.display=shown?'none':'block';
+    syncTrigger();
+  }
+  function syncTrigger(){
+    var p=picker(); if(!p)return;
+    var tabs=getTabs(), activeLabel=null;
+    tabs.forEach(function(btn){ if(btn.classList.contains('active'))activeLabel=(btn.textContent||'').trim(); });
     var cur=p.querySelector('.hnx-vp-cur'); if(cur)cur.textContent=activeLabel||(tabs[0]&&tabs[0].textContent.trim())||'View';
     var cnt=p.querySelector('.hnx-vp-count'); if(cnt)cnt.textContent=tabs.length?tabs.length+' views':'';
   }
@@ -119465,7 +119474,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     p.classList.add('open');
     pan.classList.add('hnx-vp-show');
     var sb=pan.querySelector('.hnx-vp-search'); if(sb)sb.value='';
-    renderList(); position();
+    renderList(true); position();
     setTimeout(function(){if(sb)sb.focus();},40);
   }
   function closePanel(){
@@ -119475,10 +119484,18 @@ body.hnx-mobile-locked { overflow: hidden; }
   }
   function toggle(){ isOpen()?closePanel():openPanel(); }
   function pick(i){
-    var tabs=getTabs();
+    var tabs=getTabs(), btn=tabs[i];
     closePanel();
-    if(tabs[i]){ tabs[i].click(); setTimeout(renderList,40); }
+    if(!btn)return;
+    var vid=(btn.id||'').replace(/^modTab-/,'');
+    var done=false;
+    if(vid && typeof window.switchView==='function'){
+      try{ window.switchView(vid); done=true; }catch(e){}
+    }
+    if(!done){ try{ btn.click(); }catch(e){} }
+    setTimeout(function(){renderList(true);},60);
   }
+
   function build(){
     var sub=document.getElementById('modSubTabs');
     if(!sub)return false;
@@ -119509,11 +119526,12 @@ body.hnx-mobile-locked { overflow: hidden; }
         if(it){var idx=parseInt(it.getAttribute('data-idx'),10); if(!isNaN(idx))pick(idx);}
       });
       var sb=pan.querySelector('.hnx-vp-search');
-      if(sb)sb.addEventListener('input',renderList);
+      if(sb)sb.addEventListener('input',function(){renderList(true);});
     }
     renderList();
     return true;
   }
+
   document.addEventListener('click',function(e){
     if(!isOpen())return;
     var p=picker(), pan=panel();
@@ -119524,6 +119542,7 @@ body.hnx-mobile-locked { overflow: hidden; }
   document.addEventListener('keydown',function(e){if(e.key==='Escape')closePanel();});
   window.addEventListener('resize',function(){if(isOpen())position();});
   window.addEventListener('scroll',function(){if(isOpen())position();},true);
+
   var _t=null,_subObs=null;
   function refresh(){
     build();
@@ -119533,7 +119552,7 @@ body.hnx-mobile-locked { overflow: hidden; }
       _subObs.observe(sub,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
     }
   }
-  var bodyObs=new MutationObserver(function(){clearTimeout(_t);_t=setTimeout(refresh,90);});
+  var bodyObs=new MutationObserver(function(){clearTimeout(_t);_t=setTimeout(refresh,120);});
   function start(){try{bodyObs.observe(document.body,{childList:true,subtree:true});}catch(e){}refresh();}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);
   else start();
