@@ -67910,7 +67910,7 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.246-overview-section-nav';  // ✨ STAGE CARDS — strong motion pass. User noted the motion needed to be more visible. (1) KEN BURNS ZOOM — each poster now has a slow background-size+position drift (16s alternating, 106%→114% scale, slight position pan), so the image itself feels alive even when other animations are subtle. (2) BIGGER AURA — opacity .7→.85, inset -20%→-25%, breathing scale .96-1.04→.92-1.08, gradient inner stop opacity bumped (.45→.7 green, .55→.85 gold, .45→.7 cyan). Now visibly pulsing rather than just shimmering. (3) FASTER SHINE — 5.5s→4s base, 3.5s→2.4s active. Brighter highlight band (.35→.5 opacity, .15→.18 sides; gold .2→.28, .45→.6). Added mid-keyframe so motion feels smoother. (4) MORE PARTICLES — 4-5 → 6-8 per card. Particle size 6px→8px, glow shadows 8/14px→12/22px (much brighter halo). Pulse animation amplitude .4→.3 to 1.2→1.4 (deeper breathing). (5) RING — 1.5px→1.8px, glow inset 16px→22px, color amplitude .4↔.85 (more dramatic), animation 2.4s→2s. (6) NEW: animated rim glow on every card via ::before pseudo-element with hue-rotate filter sweeping every 2.6s active / 4s done / 5s future — gives each card an outer breathing color halo independent of the inner aura. (7) TITLE PULSE — active card title now pulses opacity .85↔1 with text-shadow expanding 10px→18px every 1.6s. (8) Total motion sources per card: Ken Burns zoom + aura breath + shine sweep + ring breath (active) + 6-8 particles + outer rim sweep + title pulse (active) = 7 layered animations. Now clearly visible.
+const APP_VERSION='2.46.249-task-matrix-colors';  // ✨ STAGE CARDS — strong motion pass. User noted the motion needed to be more visible. (1) KEN BURNS ZOOM — each poster now has a slow background-size+position drift (16s alternating, 106%→114% scale, slight position pan), so the image itself feels alive even when other animations are subtle. (2) BIGGER AURA — opacity .7→.85, inset -20%→-25%, breathing scale .96-1.04→.92-1.08, gradient inner stop opacity bumped (.45→.7 green, .55→.85 gold, .45→.7 cyan). Now visibly pulsing rather than just shimmering. (3) FASTER SHINE — 5.5s→4s base, 3.5s→2.4s active. Brighter highlight band (.35→.5 opacity, .15→.18 sides; gold .2→.28, .45→.6). Added mid-keyframe so motion feels smoother. (4) MORE PARTICLES — 4-5 → 6-8 per card. Particle size 6px→8px, glow shadows 8/14px→12/22px (much brighter halo). Pulse animation amplitude .4→.3 to 1.2→1.4 (deeper breathing). (5) RING — 1.5px→1.8px, glow inset 16px→22px, color amplitude .4↔.85 (more dramatic), animation 2.4s→2s. (6) NEW: animated rim glow on every card via ::before pseudo-element with hue-rotate filter sweeping every 2.6s active / 4s done / 5s future — gives each card an outer breathing color halo independent of the inner aura. (7) TITLE PULSE — active card title now pulses opacity .85↔1 with text-shadow expanding 10px→18px every 1.6s. (8) Total motion sources per card: Ken Burns zoom + aura breath + shine sweep + ring breath (active) + 6-8 particles + outer rim sweep + title pulse (active) = 7 layered animations. Now clearly visible.
 const APP_BUILD=1779820000;
 const APP_BUILD_DATE='2026-05-15';
 
@@ -123021,6 +123021,20 @@ body.hnx-mobile-locked { overflow: hidden; }
     {sel:'#dbRecurringToday, .db-recurring-today', label:()=>'🔥 Recurring Tasks Management'},
     {sel:'#dbGhGrid, .db-gh-grid', label:()=>'🌐 Per-Greenhouse Schedule Grid'},
     {sel:'#statGrid, .stat-grid', label:()=>'📊 Live Production Metrics'},
+    // v2.46.247 — Production module landmarks
+    {sel:'.matrix-switcher, [data-prod-section="switcher"]', label:()=>'🔀 Switch Matrix View'},
+    {sel:'.gh-status-grid, .greenhouse-status-grid, [data-section="gh-status"]', label:()=>'🏠 Greenhouse Status'},
+    {sel:'.status-matrix, [data-section="status-matrix"]', label:()=>'📊 Status Matrix — All Facilities'},
+    {sel:'.module-sections-grid, [data-section="drill-down"]', label:()=>'📋 Module Sections · Drill Down'},
+    {sel:'.recurring-tasks-section, [data-section="recurring-tasks"]', label:()=>'🔥 Recurring Tasks'},
+    {sel:'.open-calls-section, [data-section="open-calls"]', label:()=>'📞 Open Calls from Production'},
+    {sel:'.open-issues-section, [data-section="open-issues"]', label:()=>'⚠️ Open Issues'},
+    {sel:'.section-title, .section-header, .sec-title', label:(el)=>{
+      const t=(el.textContent||'').trim().replace(/^[•·\s—-]+/,'').replace(/[—-]+\s*\d+\s+\w+\s*$/,'').trim();
+      if(t.length<3||t.length>90) return null;
+      // Don't double-up if a more specific pattern would have matched the parent
+      return '📑 '+t;
+    }},
     {sel:'.prod-card-h', label:(el)=>{
       const t=(el.textContent||'').trim().replace(/^[•·\s]+/,'');
       if(t.length<2||t.length>80) return null;
@@ -123107,21 +123121,22 @@ body.hnx-mobile-locked { overflow: hidden; }
 
   function tick(){
     try{
-      // Only on Overview module views
-      const modActive=document.querySelector('.sidebar button.active, [id^="modBtn-"].active, .modBtn.active');
-      let modKey='';
-      try{ modKey=(window.currentModule||'').toLowerCase(); }catch(e){}
-      if(!modKey && modActive){ modKey=(modActive.id||'').replace('modBtn-','').toLowerCase(); }
-      if(modKey && modKey!=='overview') return;
-      // Find active overview view
+      // v2.46.247 — Universal: works on ALL modules' views (Overview, Production, HR, Admin, etc.)
+      // Find every visible view, scan for sections, build bar if 2+ sections detected.
       const views=document.querySelectorAll('.view.active, .view[style*="display: block"], .view[style*="display:block"]');
       views.forEach(v=>{
         if(!v.id||!v.id.startsWith('view-')) return;
-        // Heuristic: must be one of the overview views OR be #view-hydro_brain (always)
-        const OVERVIEW_IDS=['view-hydro_brain','view-geo_dash','view-daily_briefing','view-critical_summary','view-calendar_all','view-issues_board','view-task_tracker','view-task_calendar','view-task_escalation','view-autonomy_status','view-rd_engine','view-clusters_dev','view-vision_map'];
-        if(!OVERVIEW_IDS.includes(v.id)) return;
-        // For hydro_brain, target the body container
-        const target=v.querySelector('#hydroBrainBody')||v;
+        // Skip system/utility views that shouldn't get a section nav
+        const SKIP=['view-login','view-loading','view-error','view-splash'];
+        if(SKIP.includes(v.id)) return;
+        // Prefer a body container inside the view if it exists (consistent across modules)
+        // hydro_brain → #hydroBrainBody, prodDashBody, etc. — fall back to view itself
+        const knownBodyIds=['hydroBrainBody','prodDashBody','dailyBriefingBody','clustersDevBody','rdEngineBody','autonomyStatusBody','issuesBoardBody','criticalSummaryBody'];
+        let target=v;
+        for(const bid of knownBodyIds){
+          const bc=v.querySelector('#'+bid);
+          if(bc){ target=bc; break; }
+        }
         const sections=scanSections(target);
         if(sections.length>=2){
           buildBar(target, sections);
@@ -123138,10 +123153,419 @@ body.hnx-mobile-locked { overflow: hidden; }
     if(!document.body){ setTimeout(boot,300); return; }
     setInterval(tick, 1800);
     setTimeout(tick, 600);
-    console.log('[OVSN] Overview Section Navigator v2.46.246 ready');
+    console.log('[OVSN] Universal Section Navigator v2.46.247 ready (works on all modules)');
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
+})();
+</script>
+
+
+
+
+
+<!-- ============ TASK TRACKER MATRIX OVERLAY (v2.46.249) ============ -->
+<style>
+  .ttm-wrap{margin:0 0 16px 0;padding:14px;background:linear-gradient(180deg,rgba(15,30,22,.92),rgba(8,16,12,.92));border:1px solid rgba(63,217,124,.32);border-radius:12px;box-shadow:0 2px 20px rgba(0,0,0,.25)}
+  .ttm-header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid rgba(63,217,124,.18)}
+  .ttm-title{font-family:'DM Sans',-apple-system,sans-serif;font-size:14px;font-weight:700;color:#cfeede;flex:1;min-width:200px}
+  .ttm-title small{color:#7aa890;font-weight:400;margin-left:8px;font-size:11px;font-family:'Space Mono',monospace;letter-spacing:.06em}
+  .ttm-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .ttm-axis-label{font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.12em;color:#7aa890;text-transform:uppercase}
+  .ttm-axis-sel{background:#0e1d18;color:#cfeede;border:1.5px solid rgba(63,217,124,.45);border-radius:7px;padding:6px 10px;font-family:'DM Sans',sans-serif;font-size:12px;cursor:pointer;outline:none;transition:all .15s}
+  .ttm-axis-sel:hover{border-color:#3fd97c}
+  .ttm-clear{background:rgba(239,83,80,.12);color:#ff8a80;border:1px solid rgba(239,83,80,.35);border-radius:7px;padding:5px 10px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.08em;cursor:pointer;text-transform:uppercase}
+  .ttm-clear:hover{background:rgba(239,83,80,.22);border-color:#ff8a80}
+  .ttm-grid-wrap{overflow-x:auto}
+  .ttm-grid{width:100%;border-collapse:separate;border-spacing:3px;min-width:520px;table-layout:fixed}
+  .ttm-grid th{font-family:'Space Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.08em;color:#7aa890;text-transform:uppercase;padding:6px 4px;border-bottom:1px solid rgba(63,217,124,.18);white-space:nowrap;text-align:center}
+  .ttm-grid th.ttm-row-th{text-align:left;padding-left:10px;color:#cfeede;font-weight:700;text-transform:none;letter-spacing:0;font-family:'DM Sans',sans-serif;font-size:12px;width:140px;background:rgba(63,217,124,.04);border-radius:6px}
+  .ttm-grid th.ttm-total-th{color:#3fd97c}
+  .ttm-grid td{padding:0;text-align:center}
+  .ttm-cell{height:46px;border-radius:7px;cursor:pointer;font-family:'Space Mono',monospace;font-size:14px;font-weight:700;transition:all .18s ease;position:relative;background:rgba(40,55,48,.4);color:#5a7a68;border:1.5px solid transparent;display:flex;align-items:center;justify-content:center}
+  .ttm-cell:hover{transform:translateY(-1px);filter:brightness(1.18) saturate(1.1);box-shadow:0 4px 14px rgba(0,0,0,.5)}
+  .ttm-cell.zero{cursor:default;background:rgba(20,30,24,.5);color:#3a4a40;font-weight:400;font-size:11px;border:1px dashed rgba(63,217,124,.08)}
+  .ttm-cell.zero:hover{transform:none;filter:none;box-shadow:none}
+  .ttm-cell.active{outline:3px solid #3fd97c;outline-offset:2px;box-shadow:0 0 0 3px rgba(63,217,124,.22),0 4px 16px rgba(0,0,0,.4)}
+  .ttm-cat-critical{background:linear-gradient(135deg,#7f1d1d,#dc2626);color:#fee2e2;border-color:rgba(239,68,68,.4)}
+  .ttm-cat-warning{background:linear-gradient(135deg,#92400e,#f59e0b);color:#1a0f00;border-color:rgba(245,158,11,.4)}
+  .ttm-cat-info{background:linear-gradient(135deg,#1e3a8a,#3b82f6);color:#dbeafe;border-color:rgba(59,130,246,.4)}
+  .ttm-cat-other{background:linear-gradient(135deg,#374151,#6b7280);color:#e5e7eb;border-color:rgba(107,114,128,.4)}
+  .ttm-cat-no_checkin{background:linear-gradient(135deg,#9a3412,#f97316);color:#fff7ed;border-color:rgba(249,115,22,.4)}
+  .ttm-cat-working{background:linear-gradient(135deg,#0c4a6e,#0284c7);color:#e0f2fe;border-color:rgba(2,132,199,.4)}
+  .ttm-cat-blocked{background:linear-gradient(135deg,#7f1d1d,#dc2626);color:#fee2e2;border-color:rgba(239,68,68,.4)}
+  .ttm-cat-escalated{background:linear-gradient(135deg,#581c87,#a855f7);color:#f3e8ff;border-color:rgba(168,85,247,.4)}
+  .ttm-cat-fixed_today{background:linear-gradient(135deg,#14532d,#22c55e);color:#dcfce7;border-color:rgba(34,197,94,.4)}
+  .ttm-cell-total{background:rgba(63,217,124,.15)!important;color:#cfeede!important;font-weight:800;border-color:rgba(63,217,124,.3)}
+  .ttm-row-total{font-weight:800!important}
+  .ttm-legend{margin-top:14px;padding-top:12px;border-top:1px solid rgba(63,217,124,.12);display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .ttm-legend-title{font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.14em;color:#7aa890;text-transform:uppercase;margin-right:4px}
+  .ttm-leg-item{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:14px;background:rgba(20,30,24,.45);border:1px solid rgba(63,217,124,.1);font-family:'DM Sans',sans-serif;font-size:11px;color:#cfeede}
+  .ttm-leg-swatch{display:inline-block;width:14px;height:14px;border-radius:4px;flex-shrink:0;border:1px solid rgba(255,255,255,.08)}
+  .ttm-leg-meaning{color:#7aa890;font-size:10px;margin-left:4px;font-family:'Space Mono',monospace}
+  .ttm-step-wrap{margin-top:14px;padding-top:14px;border-top:1.5px dashed rgba(63,217,124,.3)}
+  .ttm-step-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;background:rgba(20,30,24,.5);padding:9px 12px;border-radius:8px;border:1px solid rgba(63,217,124,.18)}
+  .ttm-step-info{font-family:'DM Sans',sans-serif;font-size:13px;color:#cfeede;flex:1;min-width:200px}
+  .ttm-step-info b{color:#3fd97c}
+  .ttm-step-pos{font-family:'Space Mono',monospace;font-size:11px;color:#7aa890;letter-spacing:.06em}
+  .ttm-step-nav{display:flex;gap:6px;align-items:center}
+  .ttm-step-btn{background:#0e1d18;color:#cfeede;border:1.5px solid rgba(63,217,124,.4);border-radius:7px;padding:6px 12px;font-family:'Space Mono',monospace;font-size:11px;letter-spacing:.06em;cursor:pointer;transition:all .15s}
+  .ttm-step-btn:hover:not(:disabled){background:#15302a;border-color:#3fd97c;transform:translateY(-1px)}
+  .ttm-step-btn:disabled{opacity:.35;cursor:not-allowed}
+  .ttm-step-close{background:rgba(239,83,80,.12);color:#ff8a80;border:1px solid rgba(239,83,80,.35);border-radius:6px;padding:5px 9px;font-size:10px;font-family:'Space Mono',monospace;cursor:pointer;letter-spacing:.08em;text-transform:uppercase}
+  .ttm-step-close:hover{background:rgba(239,83,80,.22)}
+  .ttm-step-card{background:linear-gradient(180deg,rgba(20,30,24,.7),rgba(15,25,20,.7));border-left:4px solid #3fd97c;border-radius:9px;padding:14px 16px;animation:ttmFade .25s ease-out}
+  @keyframes ttmFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  .ttm-step-card.crit{border-left-color:#dc2626}
+  .ttm-step-card.warn{border-left-color:#f59e0b}
+  .ttm-step-card.info{border-left-color:#3b82f6}
+  .ttm-step-badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+  .ttm-step-badge{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border-radius:9px;border:1px solid currentColor}
+  .ttm-step-badge.b-crit{color:#fca5a5;background:rgba(220,38,38,.15)}
+  .ttm-step-badge.b-warn{color:#fcd34d;background:rgba(245,158,11,.15)}
+  .ttm-step-badge.b-info{color:#93c5fd;background:rgba(59,130,246,.15)}
+  .ttm-step-badge.b-esc{color:#d8b4fe;background:rgba(168,85,247,.15)}
+  .ttm-step-badge.b-mod{color:#86efac;background:rgba(34,197,94,.15)}
+  .ttm-step-title{font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;color:#f1f5f9;margin-bottom:5px}
+  .ttm-step-desc{font-size:12.5px;color:#cbd5e1;line-height:1.5;margin-bottom:8px}
+  .ttm-step-meta{display:flex;gap:14px;flex-wrap:wrap;font-family:'Space Mono',monospace;font-size:10.5px;color:#7aa890}
+  .ttm-step-meta b{color:#cfeede;font-weight:600}
+  .ttm-step-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .ttm-step-action{background:rgba(63,217,124,.13);color:#86efac;border:1px solid rgba(63,217,124,.35);border-radius:6px;padding:5px 11px;font-family:'Space Mono',monospace;font-size:10.5px;letter-spacing:.06em;cursor:pointer;text-transform:uppercase;transition:all .15s}
+  .ttm-step-action:hover{background:rgba(63,217,124,.22);border-color:#3fd97c}
+  .ttm-empty{padding:36px 16px;text-align:center;color:#7aa890;font-family:'DM Sans',sans-serif;font-size:13px}
+  .ttm-empty-icon{font-size:36px;margin-bottom:10px;opacity:.6}
+</style>
+<script>
+(function(){
+  const VIEW_ID='view-task_tracker';
+  const BODY_ID='taskTrackerBody';
+  const STATE={axis:'priority', activeCell:null, stepIdx:0};
+
+  const AXES={
+    priority:{label:'Priority',
+      cols:[
+        {key:'critical', label:'🔥 Critical', meaning:'Highest urgency — immediate action'},
+        {key:'warning',  label:'⚠️ Warning',  meaning:'Needs attention soon'},
+        {key:'info',     label:'ℹ️ Info',     meaning:'Informational — monitor trends'},
+        {key:'other',    label:'Other',       meaning:'Uncategorized priority'}
+      ],
+      pick:i=>{
+        const p=(i.priority||'').toLowerCase();
+        if(['critical','warning','info'].includes(p))return p;
+        if(['high','urgent'].includes(p))return 'critical';
+        if(['medium','med','warn'].includes(p))return 'warning';
+        if(['low'].includes(p))return 'info';
+        return 'other';
+      }
+    },
+    status:{label:'Check-in Status',
+      cols:[
+        {key:'no_checkin',  label:'⏰ No Check-in',  meaning:'Awaiting first answer today'},
+        {key:'working',     label:'🔧 Working',     meaning:'Actively being worked on'},
+        {key:'blocked',     label:'🛑 Blocked',     meaning:'Waiting on external dependency'},
+        {key:'escalated',   label:'🚨 Escalated',   meaning:'Past SLA — alerted to mgmt'},
+        {key:'fixed_today', label:'✓ Fixed Today',  meaning:'Resolved today'}
+      ],
+      pick:i=>{
+        try{
+          const today=new Date().toISOString().slice(0,10);
+          const c=(typeof window._tt_getTodayCheckin==='function')?window._tt_getTodayCheckin(i.id):null;
+          if(c&&c.fixed&&c.date===today)return 'fixed_today';
+          if(c&&c.status==='blocked')return 'blocked';
+          if(c&&c.status==='working')return 'working';
+          const isEsc=(typeof window._tt_needsEscalation==='function')?window._tt_needsEscalation(i):false;
+          if(isEsc)return 'escalated';
+          if(!c)return 'no_checkin';
+        }catch(e){}
+        return 'no_checkin';
+      }
+    }
+  };
+
+  const MODULE_LABELS={
+    production:'🌱 Production', hr:'👥 HR', payroll:'💰 Payroll', maintenance:'🔧 Maintenance',
+    it:'💻 IT', irrigation:'💧 Irrigation', inventory:'📊 Inventory', packaging:'📦 Packaging',
+    logistics:'🚛 Logistics', crm:'🤝 CRM', quality:'✅ Quality', fleet:'🚚 Fleet',
+    licenses:'📄 Licenses', projects:'🗂️ Projects', security:'🛡️ Security', admin:'⚙️ Admin'
+  };
+  const labelFor=k=>MODULE_LABELS[k]||('📋 '+((k||'Other').charAt(0).toUpperCase()+(k||'other').slice(1)));
+  const esc=t=>String(t==null?'':t).replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+
+  function getItems(){
+    try{
+      if(typeof window._tt_getTrackedIssues==='function')return window._tt_getTrackedIssues()||[];
+      if(typeof window._tt_collectAll==='function')return window._tt_collectAll()||[];
+    }catch(e){console.warn('[TTM] data fetch error',e);}
+    return [];
+  }
+
+  function buildMatrix(items){
+    const axis=AXES[STATE.axis];
+    const groups={};
+    items.forEach(i=>{
+      const m=(i.module||'unknown').toLowerCase();
+      const col=axis.pick(i);
+      groups[m]=groups[m]||{};
+      (groups[m][col]=groups[m][col]||[]).push(i);
+    });
+    const moduleKeys=Object.keys(groups).sort((a,b)=>{
+      const ta=Object.values(groups[a]).reduce((s,v)=>s+v.length,0);
+      const tb=Object.values(groups[b]).reduce((s,v)=>s+v.length,0);
+      return tb-ta;
+    });
+    return {axis, groups, moduleKeys};
+  }
+
+  function intensityStyle(n, max){
+    if(!n) return '';
+    const pct=Math.max(.55, Math.min(1, .55 + (n/Math.max(1,max))*.45));
+    return `opacity:${pct.toFixed(2)};`;
+  }
+
+  function daysOpen(i){
+    if(typeof window._tt_daysOpen==='function')try{return window._tt_daysOpen(i);}catch(e){}
+    if(i.createdAt){const d=Math.floor((Date.now()-new Date(i.createdAt))/86400000);return Math.max(0,d);}
+    return 0;
+  }
+
+  function getCellItems(){
+    if(!STATE.activeCell) return [];
+    const items=getItems();
+    const axis=AXES[STATE.axis];
+    const {module:mod, col}=STATE.activeCell;
+    return items.filter(i=>{
+      const m=(i.module||'unknown').toLowerCase();
+      if(mod!=='__all' && m!==mod) return false;
+      if(col==='__total') return true;
+      return axis.pick(i)===col;
+    });
+  }
+
+  function priorityBadge(p){
+    const k=(p||'').toLowerCase();
+    if(['critical','high','urgent'].includes(k))return {cls:'b-crit', txt:'CRITICAL'};
+    if(['warning','medium','med','warn'].includes(k))return {cls:'b-warn', txt:'WARNING'};
+    if(['info','low'].includes(k))return {cls:'b-info', txt:'INFO'};
+    return {cls:'b-info', txt:(p||'OPEN').toUpperCase()};
+  }
+  function cardLeftClass(p){
+    const k=(p||'').toLowerCase();
+    if(['critical','high','urgent'].includes(k))return 'crit';
+    if(['warning','medium','med','warn'].includes(k))return 'warn';
+    return 'info';
+  }
+  function checkinLabel(s){
+    const m={working:'🔧 working on it', blocked:'🛑 blocked', open:'⏳ still open'};
+    return m[s]||s||'logged';
+  }
+
+  function renderStepperCard(item){
+    if(!item) return '<div class="ttm-empty">No tasks in this cell.</div>';
+    const pb=priorityBadge(item.priority);
+    const cl=cardLeftClass(item.priority);
+    const days=daysOpen(item);
+    const escFlag=(typeof window._tt_needsEscalation==='function')?window._tt_needsEscalation(item):false;
+    const c=(typeof window._tt_getTodayCheckin==='function')?window._tt_getTodayCheckin(item.id):null;
+    const lastCheckin=c?`<b>${esc(checkinLabel(c.status))}</b> today`:'<i>no check-in yet</i>';
+    const modLbl=labelFor((item.module||'').toLowerCase());
+    return `<div class="ttm-step-card ${cl}">
+      <div class="ttm-step-badges">
+        <span class="ttm-step-badge ${pb.cls}">${pb.txt}</span>
+        <span class="ttm-step-badge b-mod">${esc(modLbl)}</span>
+        ${escFlag?'<span class="ttm-step-badge b-esc">🚨 ESCALATED</span>':''}
+        ${item.location?`<span class="ttm-step-badge b-info">📍 ${esc(item.location)}</span>`:''}
+      </div>
+      <div class="ttm-step-title">${esc(item.title||'Untitled task')}</div>
+      ${item.description?`<div class="ttm-step-desc">${esc(item.description).slice(0,400)}${item.description.length>400?'…':''}</div>`:''}
+      <div class="ttm-step-meta">
+        <span>⏱ <b>${days}d</b> open</span>
+        <span>📍 last check-in: ${lastCheckin}</span>
+        ${item.assignedTo?`<span>👤 ${esc(item.assignedTo)}</span>`:''}
+        ${item.id?`<span>🔖 <b>${esc(String(item.id).slice(0,18))}</b></span>`:''}
+      </div>
+      <div class="ttm-step-actions">
+        <button class="ttm-step-action" data-act="checkin" data-id="${esc(item.id)}">📝 Check-in</button>
+        <button class="ttm-step-action" data-act="openissue" data-id="${esc(item.id)}">🔗 Open Issue</button>
+      </div>
+    </div>`;
+  }
+
+  function render(){
+    const view=document.getElementById(VIEW_ID);
+    if(!view||!view.classList.contains('active'))return;
+    const body=document.getElementById(BODY_ID);
+    if(!body)return;
+    let wrap=body.querySelector(':scope > .ttm-wrap');
+    if(!wrap){
+      wrap=document.createElement('div');
+      wrap.className='ttm-wrap';
+      body.insertBefore(wrap, body.firstChild);
+    }
+    const items=getItems();
+    if(!items.length){
+      wrap.innerHTML='<div class="ttm-empty"><div class="ttm-empty-icon">📊</div>Task matrix appears here once issues are loaded.</div>';
+      return;
+    }
+    const {axis,groups,moduleKeys}=buildMatrix(items);
+    let max=0;
+    moduleKeys.forEach(m=>axis.cols.forEach(c=>{const v=(groups[m][c.key]||[]).length; if(v>max)max=v;}));
+
+    let html=`<div class="ttm-header">
+      <div class="ttm-title">📊 Task Matrix · By Department<small>${items.length} open · grouped by ${axis.label.toLowerCase()}</small></div>
+      <div class="ttm-controls">
+        <span class="ttm-axis-label">Group by:</span>
+        <select class="ttm-axis-sel">
+          <option value="priority" ${STATE.axis==='priority'?'selected':''}>🎚 Priority</option>
+          <option value="status" ${STATE.axis==='status'?'selected':''}>📍 Check-in Status</option>
+        </select>
+        ${STATE.activeCell?'<button class="ttm-clear" type="button">✕ Clear Filter</button>':''}
+      </div>
+    </div>
+    <div class="ttm-grid-wrap"><table class="ttm-grid"><thead><tr>
+      <th class="ttm-row-th">Department</th>
+      ${axis.cols.map(c=>`<th>${c.label}</th>`).join('')}
+      <th class="ttm-total-th">Total</th>
+    </tr></thead><tbody>`;
+
+    const colTotals={}; let grandTotal=0;
+    moduleKeys.forEach(m=>{
+      let rowTotal=0;
+      const cells=axis.cols.map(c=>{
+        const arr=groups[m][c.key]||[]; const n=arr.length;
+        colTotals[c.key]=(colTotals[c.key]||0)+n;
+        rowTotal+=n;
+        const catCls=n?`ttm-cat-${c.key}`:'zero';
+        const isActive=STATE.activeCell && STATE.activeCell.module===m && STATE.activeCell.col===c.key;
+        const style=n?intensityStyle(n, max):'';
+        return `<td><div class="ttm-cell ${catCls}${isActive?' active':''}" style="${style}" data-mod="${esc(m)}" data-col="${esc(c.key)}" ${n?`title="${esc(labelFor(m))} · ${esc(c.label)} · ${n} task${n!==1?'s':''} — click to step through"`:''}>${n||'·'}</div></td>`;
+      }).join('');
+      grandTotal+=rowTotal;
+      const totalActive=STATE.activeCell && STATE.activeCell.module===m && STATE.activeCell.col==='__total';
+      html+=`<tr><th class="ttm-row-th">${esc(labelFor(m))}</th>${cells}<td><div class="ttm-cell ttm-cell-total ttm-row-total${totalActive?' active':''}" data-mod="${esc(m)}" data-col="__total" title="${esc(labelFor(m))} — all ${rowTotal} tasks">${rowTotal}</div></td></tr>`;
+    });
+    html+=`<tr><th class="ttm-row-th" style="color:#3fd97c;">Σ Total</th>
+      ${axis.cols.map(c=>{const t=colTotals[c.key]||0;const colTotActive=STATE.activeCell && STATE.activeCell.module==='__all' && STATE.activeCell.col===c.key;return `<td><div class="ttm-cell ttm-cell-total${colTotActive?' active':''}" data-mod="__all" data-col="${esc(c.key)}" title="All departments · ${esc(c.label)} · ${t}">${t}</div></td>`;}).join('')}
+      <td><div class="ttm-cell ttm-cell-total" style="background:rgba(63,217,124,.32)!important;">${grandTotal}</div></td>
+    </tr></tbody></table></div>`;
+
+    html+=`<div class="ttm-legend">
+      <span class="ttm-legend-title">🎨 Color key:</span>
+      ${axis.cols.map(c=>`<span class="ttm-leg-item"><span class="ttm-leg-swatch ttm-cat-${c.key}"></span>${esc(c.label)}<span class="ttm-leg-meaning">${esc(c.meaning)}</span></span>`).join('')}
+      <span class="ttm-leg-item"><span class="ttm-leg-swatch" style="background:rgba(20,30,24,.5);border:1px dashed rgba(63,217,124,.18)"></span>None<span class="ttm-leg-meaning">No tasks</span></span>
+    </div>`;
+
+    if(STATE.activeCell){
+      const cellItems=getCellItems();
+      const total=cellItems.length;
+      if(STATE.stepIdx>=total)STATE.stepIdx=Math.max(0,total-1);
+      const item=cellItems[STATE.stepIdx];
+      const axisCol=axis.cols.find(c=>c.key===STATE.activeCell.col);
+      const cellLabel=STATE.activeCell.col==='__total'?'All tasks'
+                     :STATE.activeCell.module==='__all'?(axisCol?axisCol.label:STATE.activeCell.col)
+                     :`${labelFor(STATE.activeCell.module)} × ${axisCol?axisCol.label:STATE.activeCell.col}`;
+      html+=`<div class="ttm-step-wrap">
+        <div class="ttm-step-bar">
+          <div class="ttm-step-info">📂 Stepping through <b>${esc(cellLabel)}</b></div>
+          <span class="ttm-step-pos">Task ${total?STATE.stepIdx+1:0} of ${total}</span>
+          <div class="ttm-step-nav">
+            <button class="ttm-step-btn ttm-prev" ${STATE.stepIdx<=0?'disabled':''}>← Prev</button>
+            <button class="ttm-step-btn ttm-next" ${STATE.stepIdx>=total-1?'disabled':''}>Next →</button>
+            <button class="ttm-step-close">✕ Close</button>
+          </div>
+        </div>
+        ${renderStepperCard(item)}
+      </div>`;
+    }
+
+    wrap.innerHTML=html;
+
+    const sel=wrap.querySelector('.ttm-axis-sel');
+    if(sel) sel.onchange=()=>{STATE.axis=sel.value; STATE.activeCell=null; STATE.stepIdx=0; render();};
+    const clearBtn=wrap.querySelector('.ttm-clear');
+    if(clearBtn) clearBtn.onclick=()=>{
+      STATE.activeCell=null; STATE.stepIdx=0;
+      try{
+        if(typeof window._tt_moduleFilter!=='undefined')window._tt_moduleFilter='all';
+        if(typeof window._tt_priorityFilter!=='undefined')window._tt_priorityFilter='all';
+        if(typeof window._tt_filter!=='undefined')window._tt_filter='all';
+        if(typeof window.renderTaskTracker==='function')window.renderTaskTracker();
+      }catch(e){}
+    };
+    wrap.querySelectorAll('.ttm-cell:not(.zero)').forEach(cell=>{
+      cell.addEventListener('click',()=>{
+        const mod=cell.dataset.mod, col=cell.dataset.col;
+        if(!mod||!col)return;
+        STATE.activeCell={module:mod, col};
+        STATE.stepIdx=0;
+        try{
+          if(mod==='__all'){if(typeof window._tt_moduleFilter!=='undefined')window._tt_moduleFilter='all';}
+          else {if(typeof window._tt_moduleFilter!=='undefined')window._tt_moduleFilter=mod;}
+          if(col==='__total'){
+            if(typeof window._tt_filter!=='undefined')window._tt_filter='all';
+            if(typeof window._tt_priorityFilter!=='undefined')window._tt_priorityFilter='all';
+          } else if(STATE.axis==='priority'){
+            if(typeof window._tt_priorityFilter!=='undefined')window._tt_priorityFilter=col;
+            if(typeof window._tt_filter!=='undefined')window._tt_filter='all';
+          } else {
+            if(typeof window._tt_priorityFilter!=='undefined')window._tt_priorityFilter='all';
+            const map={no_checkin:'no_checkin',working:'working',blocked:'blocked',escalated:'escalated',fixed_today:'all'};
+            if(typeof window._tt_filter!=='undefined')window._tt_filter=map[col]||'all';
+          }
+          if(typeof window.renderTaskTracker==='function')window.renderTaskTracker();
+        }catch(e){}
+        render();
+      });
+    });
+    const prevBtn=wrap.querySelector('.ttm-prev'); if(prevBtn) prevBtn.onclick=()=>{STATE.stepIdx=Math.max(0,STATE.stepIdx-1); render();};
+    const nextBtn=wrap.querySelector('.ttm-next'); if(nextBtn) nextBtn.onclick=()=>{STATE.stepIdx=STATE.stepIdx+1; render();};
+    const closeBtn=wrap.querySelector('.ttm-step-close'); if(closeBtn) closeBtn.onclick=()=>{STATE.activeCell=null; STATE.stepIdx=0; if(clearBtn) clearBtn.click(); else render();};
+    wrap.querySelectorAll('.ttm-step-action').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const id=btn.dataset.id, act=btn.dataset.act;
+        if(!id) return;
+        try{
+          if(act==='checkin'){
+            if(typeof window._tt_openCheckinModal==='function') window._tt_openCheckinModal(id);
+            else if(typeof window.openCheckinModal==='function') window.openCheckinModal(id);
+            else alert('Open the Task Tracker list below and use its Check-in button for this task.');
+          } else if(act==='openissue'){
+            if(typeof window.openIssue==='function') window.openIssue(id);
+            else if(typeof window._tt_openIssue==='function') window._tt_openIssue(id);
+            else alert('Issue viewer not available in this build.');
+          }
+        }catch(err){console.warn('[TTM] action error',err);}
+      });
+    });
+  }
+
+  let _ticker=null;
+  function startWatching(){
+    if(_ticker)return;
+    _ticker=setInterval(()=>{
+      try{
+        const v=document.getElementById(VIEW_ID);
+        if(v && v.classList.contains('active')){
+          const body=document.getElementById(BODY_ID);
+          if(body && !body.querySelector(':scope > .ttm-wrap')) render();
+        }
+      }catch(e){}
+    }, 2000);
+    try{
+      if(typeof window.renderTaskTracker==='function' && !window.__ttmHook){
+        const orig=window.renderTaskTracker;
+        window.renderTaskTracker=function(){
+          const r=orig.apply(this, arguments);
+          setTimeout(render, 30);
+          return r;
+        };
+        window.__ttmHook=true;
+      }
+    }catch(e){}
+    console.log('[TTM] Task Matrix v2.46.249 ready (category colors + stepper)');
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded', startWatching);
+  else startWatching();
 })();
 </script>
 
