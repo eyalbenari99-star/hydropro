@@ -25094,6 +25094,593 @@ function previewReport(){
 <!-- END COMPANY POLICIES & PROCESSES MODULE -->
 
 
+
+<!-- ═════════════════════════════════════════════════════════════════════
+     v2.46.241 · SEED STUDIES ENHANCEMENT LAYER
+     Non-invasive: hooks into existing renderSeedStudy() and adds:
+       1. Sunday weekly-report banner (variety x dept reminder)
+       2. Marketability score (auto-blend + manual rating + traffic light verdict)
+       3. Commercial Considerations section (matches template Section 3)
+       4. Photos via Drive URL OR direct upload (toggleable)
+       5. Previous-trial history check for repeated varieties
+     ═════════════════════════════════════════════════════════════════════ -->
+<style>
+  /* Sunday banner */
+  .ss-sunday-banner{background:linear-gradient(135deg,#1d6b32,#0f3d1d);border:1px solid #5fe07a;border-radius:12px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+  .ss-sunday-icon{font-size:32px;line-height:1;animation:ss-pulse 2s ease-in-out infinite;}
+  @keyframes ss-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.1);}}
+  .ss-sunday-title{font-family:var(--mono);font-size:14px;font-weight:800;color:#eafff0;letter-spacing:1.2px;text-transform:uppercase;}
+  .ss-sunday-sub{font-size:12px;color:#a5d6a7;margin-top:3px;}
+  .ss-sunday-list{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+  .ss-sunday-tag{padding:4px 10px;background:rgba(0,0,0,.3);border:1px solid rgba(95,224,122,.4);border-radius:14px;font-size:11px;color:#eafff0;cursor:pointer;font-family:var(--mono);}
+  .ss-sunday-tag:hover{background:rgba(95,224,122,.2);}
+  .ss-sunday-tag.done{opacity:.45;text-decoration:line-through;}
+
+  /* Marketability widget */
+  .ss-mkt{background:linear-gradient(135deg,rgba(20,40,30,.5),rgba(8,20,14,.7));border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:14px;}
+  .ss-mkt-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;}
+  .ss-mkt-score{flex-shrink:0;text-align:center;min-width:90px;padding:8px 14px;border-radius:10px;background:rgba(0,0,0,.3);border:1px solid var(--border);}
+  .ss-mkt-num{font-family:var(--mono);font-size:32px;font-weight:800;line-height:1;letter-spacing:-1px;}
+  .ss-mkt-num-suffix{font-size:14px;color:var(--text3);}
+  .ss-mkt-num.green{color:#5fe07a;}
+  .ss-mkt-num.yellow{color:#ffd54f;}
+  .ss-mkt-num.orange{color:#ffa726;}
+  .ss-mkt-num.red{color:#ef5350;}
+  .ss-mkt-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1.2px;margin-top:4px;font-family:var(--mono);}
+  .ss-mkt-verdict{flex:1;min-width:200px;}
+  .ss-mkt-verdict-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:18px;font-size:12px;font-weight:700;font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;}
+  .ss-mkt-verdict-pill.green{background:rgba(95,224,122,.18);color:#5fe07a;border:1px solid rgba(95,224,122,.4);}
+  .ss-mkt-verdict-pill.yellow{background:rgba(255,213,79,.18);color:#ffd54f;border:1px solid rgba(255,213,79,.4);}
+  .ss-mkt-verdict-pill.orange{background:rgba(255,167,38,.18);color:#ffa726;border:1px solid rgba(255,167,38,.4);}
+  .ss-mkt-verdict-pill.red{background:rgba(239,83,80,.18);color:#ef5350;border:1px solid rgba(239,83,80,.4);}
+  .ss-mkt-breakdown{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-top:12px;}
+  .ss-mkt-comp{padding:8px 10px;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.04);border-radius:7px;}
+  .ss-mkt-comp-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;font-family:var(--mono);}
+  .ss-mkt-comp-val{font-size:14px;color:#e8f5e9;font-weight:700;font-family:var(--mono);margin-top:2px;}
+  .ss-mkt-comp-bar{height:4px;background:rgba(255,255,255,.06);border-radius:2px;margin-top:4px;overflow:hidden;}
+  .ss-mkt-comp-bar-fill{height:100%;background:linear-gradient(90deg,#5fe07a,#a5d6a7);border-radius:2px;transition:width .4s;}
+  .ss-mkt-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center;}
+  .ss-mkt-rate{display:flex;align-items:center;gap:6px;}
+  .ss-mkt-rate label{font-size:11px;color:var(--text3);font-family:var(--mono);text-transform:uppercase;letter-spacing:1px;}
+  .ss-mkt-rate input{width:70px;padding:6px 8px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);text-align:center;}
+  .ss-mkt-verdict-select{padding:6px 10px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;font-family:var(--mono);}
+
+  /* Card marketability badge */
+  .ss-card-mkt{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:12px;font-size:10.5px;font-weight:700;font-family:var(--mono);}
+  .ss-card-mkt.green{background:rgba(95,224,122,.18);color:#5fe07a;}
+  .ss-card-mkt.yellow{background:rgba(255,213,79,.18);color:#ffd54f;}
+  .ss-card-mkt.orange{background:rgba(255,167,38,.18);color:#ffa726;}
+  .ss-card-mkt.red{background:rgba(239,83,80,.18);color:#ef5350;}
+  .ss-card-mkt.none{background:rgba(255,255,255,.06);color:var(--text3);}
+
+  /* Commercial section */
+  .ss-commercial-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;}
+  .ss-commercial-field{display:flex;flex-direction:column;gap:4px;}
+  .ss-commercial-field label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);}
+  .ss-commercial-field input,.ss-commercial-field select,.ss-commercial-field textarea{padding:8px 10px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;width:100%;box-sizing:border-box;}
+
+  /* Drive photo URL input */
+  .ss-photo-controls{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+  .ss-photo-url-input{padding:6px 10px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;font-family:var(--mono);min-width:240px;}
+  .ss-drive-thumb{position:relative;width:80px;height:80px;border-radius:6px;overflow:hidden;background:rgba(100,181,246,.1);border:1px solid rgba(100,181,246,.4);display:flex;flex-direction:column;align-items:center;justify-content:center;}
+  .ss-drive-thumb-icon{font-size:22px;}
+  .ss-drive-thumb-label{font-size:8.5px;color:#64b5f6;font-family:var(--mono);margin-top:4px;text-transform:uppercase;letter-spacing:.8px;}
+</style>
+
+<script>
+(function(){
+  'use strict';
+  if (window.__SEED_ENHANCEMENTS_LOADED__) return;
+  window.__SEED_ENHANCEMENTS_LOADED__ = true;
+
+  // ───────── Marketability Score Computation ─────────
+  // Auto-blend weighted score from latest measurements + commercial fields.
+  // Weights match what we proposed:
+  //   Germination: 15% | Yield (head weight + growth duration): 25% | Quality (tipburn, bolting, wilting, uniformity): 20%
+  //   Post-harvest loss + shelf-life proxy: 15% | Seed cost / yield per $1: 10% | Market appeal & feedback: 15%
+  function getLatestParam(study, paramId) {
+    var arr = (study.parameters || []).filter(function(p){ return p.paramId === paramId; });
+    if (!arr.length) return null;
+    arr.sort(function(a,b){ return (b.recordedAt||0) - (a.recordedAt||0); });
+    return arr[0];
+  }
+  function toNum(v) {
+    if (v == null || v === '') return null;
+    var n = parseFloat(String(v).replace(/[^\d.\-]/g,''));
+    return isNaN(n) ? null : n;
+  }
+  function scoreFromText(txt) {
+    // Heuristic: positive words score higher
+    if (!txt) return null;
+    var s = String(txt).toLowerCase();
+    if (/excellent|great|perfect|none|no |zero|absent/.test(s)) return 95;
+    if (/good|healthy|uniform|consistent|firm|crisp/.test(s)) return 80;
+    if (/ok|acceptable|fair|moderate|slight/.test(s)) return 60;
+    if (/poor|stressed|wilting|tipburn|bolting|fungus|yellow|brown/.test(s)) return 30;
+    if (/severe|critical|failed|dead|loss/.test(s)) return 10;
+    return null; // unknown — exclude from average
+  }
+
+  function computeMarketability(study) {
+    var components = {};
+
+    // 1. Germination component (15%)
+    var germ = getLatestParam(study, 'germ_rate');
+    var germN = germ ? toNum(germ.value) : null;
+    components.germination = germN != null ? Math.max(0, Math.min(100, germN)) : null;
+
+    // 2. Yield component (25%) — combine head weight + speed
+    var weight = getLatestParam(study, 'yield') || getLatestParam(study, 'height');
+    var weightN = weight ? toNum(weight.value) : null;
+    var growthDur = getLatestParam(study, 'growth_dur');
+    var growthN = growthDur ? toNum(growthDur.value) : null;
+    var yieldScore = null;
+    if (weightN != null) {
+      // 150g head = 80; 250g+ = 100; 50g = 30
+      yieldScore = Math.max(0, Math.min(100, ((weightN - 50) / 200) * 70 + 30));
+      if (growthN != null && growthN > 0) {
+        // Bonus if grows fast: <30 days = +15, >50 days = -10
+        var speedBonus = growthN < 30 ? 15 : (growthN > 50 ? -10 : 0);
+        yieldScore = Math.max(0, Math.min(100, yieldScore + speedBonus));
+      }
+    }
+    components.yield = yieldScore;
+
+    // 3. Quality component (20%) — text-based heuristics on stress signs
+    var qualityFactors = ['wilting','leaves','leaf_uniformity'];
+    var qScores = qualityFactors.map(function(p){
+      var v = getLatestParam(study, p);
+      return v ? scoreFromText(v.value) : null;
+    }).filter(function(x){ return x != null; });
+    var rootH = getLatestParam(study, 'root_health');
+    var rootN = rootH ? toNum(rootH.value) : null;
+    if (rootN != null) qScores.push(Math.max(0, Math.min(100, rootN * 20))); // 5=100, 4=80, etc
+    components.quality = qScores.length ? qScores.reduce(function(a,b){return a+b;}, 0) / qScores.length : null;
+
+    // 4. Shelf-life / loss component (15%)
+    var shelf = getLatestParam(study, 'shelf_life');
+    var shelfN = shelf ? toNum(shelf.value) : null;
+    var loss = study.postHarvestLoss != null && study.postHarvestLoss !== '' ? toNum(study.postHarvestLoss) : null;
+    var preserveScore = null;
+    if (shelfN != null) preserveScore = Math.max(0, Math.min(100, (shelfN / 14) * 100)); // 14 days = 100
+    if (loss != null) {
+      var lossScore = Math.max(0, Math.min(100, 100 - loss * 5)); // 0% loss = 100, 20% loss = 0
+      preserveScore = preserveScore != null ? (preserveScore + lossScore) / 2 : lossScore;
+    }
+    components.preservation = preserveScore;
+
+    // 5. Cost component (10%) — yield per $1 of seed
+    var yieldPerDollar = study.yieldPerDollar != null && study.yieldPerDollar !== '' ? toNum(study.yieldPerDollar) : null;
+    components.cost = yieldPerDollar != null ? Math.max(0, Math.min(100, yieldPerDollar * 10)) : null; // 10 units/$ = 100
+
+    // 6. Market appeal (15%) — text from feedback field
+    components.market = scoreFromText(study.marketAppeal || (getLatestParam(study,'taste') && getLatestParam(study,'taste').value));
+
+    // Weighted blend (skip components that are null, redistribute weight)
+    var weights = { germination:15, yield:25, quality:20, preservation:15, cost:10, market:15 };
+    var totalW = 0, weighted = 0;
+    var entries = [];
+    for (var k in components) {
+      if (components[k] != null) {
+        weighted += components[k] * weights[k];
+        totalW += weights[k];
+        entries.push({ key:k, score:components[k], weight:weights[k] });
+      }
+    }
+    var autoScore = totalW > 0 ? Math.round(weighted / totalW) : null;
+
+    return { autoScore: autoScore, components: components, entries: entries, completeness: Math.round((totalW/100)*100) };
+  }
+
+  function scoreColor(n) {
+    if (n == null) return 'none';
+    if (n >= 80) return 'green';
+    if (n >= 60) return 'yellow';
+    if (n >= 40) return 'orange';
+    return 'red';
+  }
+  function scoreVerdict(n) {
+    if (n == null) return { label:'Not enough data', cls:'none' };
+    if (n >= 80) return { label:'🟢 Market Now', cls:'green' };
+    if (n >= 60) return { label:'🟡 Promising — extend trial', cls:'yellow' };
+    if (n >= 40) return { label:'🟠 Marginal', cls:'orange' };
+    return { label:'🔴 Reject', cls:'red' };
+  }
+  function effectiveScore(study) {
+    // Manual override takes precedence if set, else auto.
+    var mkt = computeMarketability(study);
+    var manual = study.manualScore != null && study.manualScore !== '' ? toNum(study.manualScore) : null;
+    var verdict = study.verdict || null;  // 'reject' | 'future' | 'market_now' | null
+    return {
+      auto: mkt.autoScore,
+      manual: manual,
+      effective: manual != null ? manual : mkt.autoScore,
+      verdict: verdict,
+      completeness: mkt.completeness,
+      breakdown: mkt
+    };
+  }
+  window.computeMarketability = computeMarketability;
+  window.effectiveScore = effectiveScore;
+
+  // ───────── Sunday Banner ─────────
+  function isSunday() { return new Date().getDay() === 0; }
+  function daysSinceLastReport(study) {
+    var params = (study.parameters || []);
+    if (!params.length) return null;
+    var latest = params.reduce(function(max, p){ return (p.recordedAt||0) > max ? (p.recordedAt||0) : max; }, 0);
+    if (!latest) return null;
+    return Math.floor((Date.now() - latest) / 86400000);
+  }
+
+  function buildSundayBanner(studies) {
+    var active = studies.filter(function(s){ return (s.status||'active') === 'active'; });
+    var due = active.map(function(s){
+      var days = daysSinceLastReport(s);
+      return { study: s, days: days };
+    }).filter(function(item){
+      // Due if no report ever, or last report >= 6 days ago
+      return item.days == null || item.days >= 6;
+    });
+
+    if (!isSunday() && due.length === 0) return '';
+
+    var todayIs = isSunday() ? 'TODAY IS SUNDAY — Weekly reports due' : 'Reports overdue';
+    var subText = due.length === 0
+      ? 'All ' + active.length + ' active studies have a fresh report. Nice work.'
+      : due.length + ' of ' + active.length + ' active studies need a report (last update ≥ 6 days ago).';
+
+    var tags = due.slice(0, 12).map(function(item){
+      var name = (item.study.variety || '(unnamed)').slice(0, 22);
+      var daysTxt = item.days == null ? 'never' : (item.days + 'd');
+      return '<span class="ss-sunday-tag" onclick="_seedSelectedId=\''+ item.study.id +'\';_seedView=\'detail\';renderSeedStudy();">📋 '+ escHtml(name) +' <small style="opacity:.6;">· '+ daysTxt +'</small></span>';
+    }).join('');
+
+    return '<div class="ss-sunday-banner">'
+      + '<div class="ss-sunday-icon">'+ (isSunday() ? '🔔' : '⚠️') +'</div>'
+      + '<div style="flex:1;min-width:240px;">'
+      +   '<div class="ss-sunday-title">'+ todayIs +'</div>'
+      +   '<div class="ss-sunday-sub">'+ subText +'</div>'
+      +   (tags ? '<div class="ss-sunday-list">'+ tags +'</div>' : '')
+      + '</div>'
+      + '</div>';
+  }
+
+  function escHtml(s){
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
+  // ───────── Marketability Widget (detail view) ─────────
+  function buildMarketabilityWidget(study) {
+    var es = effectiveScore(study);
+    var n = es.effective;
+    var col = scoreColor(n);
+    var verdict = scoreVerdict(n);
+
+    var manualVerdict = study.verdict || '';
+
+    var componentBars = '';
+    var labels = {
+      germination:'Germination', yield:'Yield', quality:'Quality',
+      preservation:'Shelf/Loss', cost:'Cost', market:'Market Appeal'
+    };
+    for (var k in labels) {
+      var v = es.breakdown.components[k];
+      var w = v != null ? v : 0;
+      var color = v == null ? '#444' : (v >= 70 ? '#5fe07a' : (v >= 50 ? '#ffd54f' : (v >= 30 ? '#ffa726' : '#ef5350')));
+      componentBars += '<div class="ss-mkt-comp">'
+        + '<div class="ss-mkt-comp-label">'+ labels[k] +'</div>'
+        + '<div class="ss-mkt-comp-val">'+ (v != null ? Math.round(v) : '—') +'</div>'
+        + '<div class="ss-mkt-comp-bar"><div class="ss-mkt-comp-bar-fill" style="width:'+ w +'%;background:'+ color +';"></div></div>'
+      + '</div>';
+    }
+
+    var html = '';
+    html += '<div class="ss-mkt">';
+    html +=   '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:8px;">';
+    html +=     '<div style="font-family:var(--mono);font-size:13px;font-weight:800;color:#a5d6a7;letter-spacing:1.2px;text-transform:uppercase;">📊 Marketability Matrix</div>';
+    html +=     '<div style="font-size:10px;color:var(--text3);font-family:var(--mono);">Data completeness: '+ es.completeness +'%</div>';
+    html +=   '</div>';
+    html +=   '<div class="ss-mkt-row">';
+    html +=     '<div class="ss-mkt-score">';
+    html +=       '<div class="ss-mkt-num '+ col +'">'+ (n != null ? n : '?') +'<span class="ss-mkt-num-suffix">/100</span></div>';
+    html +=       '<div class="ss-mkt-label">Effective Score</div>';
+    html +=     '</div>';
+    html +=     '<div class="ss-mkt-verdict">';
+    html +=       '<div class="ss-mkt-verdict-pill '+ verdict.cls +'">'+ verdict.label +'</div>';
+    html +=       '<div style="font-size:11px;color:var(--text2);margin-top:8px;line-height:1.5;">';
+    html +=         'Auto-computed: <strong style="color:#'+ (es.auto != null ? (es.auto >= 80 ? '5fe07a' : es.auto >= 60 ? 'ffd54f' : es.auto >= 40 ? 'ffa726' : 'ef5350') : '888') +';">'+ (es.auto != null ? es.auto : '—') +'/100</strong>';
+    html +=         (es.manual != null ? ' · Your rating: <strong style="color:#64b5f6;">'+ es.manual +'/100</strong> (override)' : '');
+    html +=       '</div>';
+    html +=     '</div>';
+    html +=   '</div>';
+    html +=   '<div class="ss-mkt-breakdown">'+ componentBars +'</div>';
+    html +=   '<div class="ss-mkt-actions">';
+    html +=     '<div class="ss-mkt-rate">';
+    html +=       '<label>Your override (0-100):</label>';
+    html +=       '<input type="number" min="0" max="100" value="'+ (es.manual != null ? es.manual : '') +'" placeholder="auto" id="ssManualScore_'+ study.id +'" onchange="window._ssSetManual(\''+ study.id +'\', this.value)">';
+    html +=     '</div>';
+    html +=     '<div class="ss-mkt-rate">';
+    html +=       '<label>Final Verdict:</label>';
+    html +=       '<select class="ss-mkt-verdict-select" onchange="window._ssSetVerdict(\''+ study.id +'\', this.value)">';
+    html +=         '<option value="">(use auto)</option>';
+    html +=         '<option value="market_now"'+ (manualVerdict==='market_now'?' selected':'') +'>🟢 Market Now</option>';
+    html +=         '<option value="future"'+ (manualVerdict==='future'?' selected':'') +'>🟡 Future Potential</option>';
+    html +=         '<option value="marginal"'+ (manualVerdict==='marginal'?' selected':'') +'>🟠 Marginal</option>';
+    html +=         '<option value="reject"'+ (manualVerdict==='reject'?' selected':'') +'>🔴 Reject</option>';
+    html +=       '</select>';
+    html +=     '</div>';
+    if (study.verdictNote || es.manual != null || manualVerdict) {
+      html += '<div style="flex:1;min-width:200px;"><input class="ss-photo-url-input" style="width:100%;" placeholder="Reason for override (recommended)..." value="'+ escHtml(study.verdictNote || '') +'" onchange="window._ssSetVerdictNote(\''+ study.id +'\', this.value)"></div>';
+    }
+    html +=   '</div>';
+    html += '</div>';
+    return html;
+  }
+
+  // ───────── Commercial Considerations Section ─────────
+  function buildCommercialSection(study) {
+    var fields = [
+      { id:'seedCostPerUnit', label:'Seed Cost per Unit', placeholder:'e.g. ₱0.45' },
+      { id:'yieldPerDollar', label:'Yield per $1 of Seed', placeholder:'units/$', type:'number' },
+      { id:'laborReq', label:'Labor Requirements', placeholder:'Higher / Average / Lower', type:'select', options:['','Lower than avg','Average','Higher than avg'] },
+      { id:'specialEquipment', label:'Special Equipment Needed', placeholder:'e.g. CO2 dosing' },
+      { id:'postHarvestLoss', label:'Post-Harvest Loss (%)', placeholder:'%', type:'number' },
+      { id:'marketAppeal', label:'Market Appeal / Client Feedback', placeholder:'Positive feedback, taste, etc.', textarea:true },
+      { id:'recommendedMass', label:'Recommended for Mass Production?', type:'select', options:['','Yes','No','Future','Pending'] },
+      { id:'approvedBy', label:'Approved By', placeholder:'Approver name' },
+      { id:'dateReviewed', label:'Date Reviewed', type:'date' }
+    ];
+    var inner = '';
+    fields.forEach(function(f){
+      var val = study[f.id] != null ? study[f.id] : '';
+      inner += '<div class="ss-commercial-field">';
+      inner += '<label>'+ f.label +'</label>';
+      if (f.textarea) {
+        inner += '<textarea rows="2" onchange="window._ssCommercial(\''+ study.id +'\',\''+ f.id +'\', this.value)" placeholder="'+ (f.placeholder || '') +'">'+ escHtml(val) +'</textarea>';
+      } else if (f.type === 'select') {
+        inner += '<select onchange="window._ssCommercial(\''+ study.id +'\',\''+ f.id +'\', this.value)">';
+        f.options.forEach(function(opt){
+          inner += '<option value="'+ escHtml(opt) +'"'+ (val===opt?' selected':'') +'>'+ (opt || '— pick —') +'</option>';
+        });
+        inner += '</select>';
+      } else {
+        inner += '<input type="'+ (f.type || 'text') +'" value="'+ escHtml(val) +'" placeholder="'+ (f.placeholder || '') +'" onchange="window._ssCommercial(\''+ study.id +'\',\''+ f.id +'\', this.value)">';
+      }
+      inner += '</div>';
+    });
+    var html = '';
+    html += '<div class="section-title" style="margin-top:18px;">💰 Commercial Considerations</div>';
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">';
+    html += '<div class="ss-commercial-grid">'+ inner +'</div>';
+    html += '</div>';
+    return html;
+  }
+
+  // ───────── Drive Photo URL Support ─────────
+  function buildDrivePhotoControls(studyId) {
+    var stages = ['supplier','nursery','zigzag','nft','harvest'];
+    var html = '';
+    html += '<div style="margin-top:14px;padding:12px;background:rgba(100,181,246,.08);border:1px dashed rgba(100,181,246,.35);border-radius:10px;">';
+    html +=   '<div style="font-size:11px;font-weight:700;color:#64b5f6;font-family:var(--mono);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:8px;">🔗 Add Photo by Drive URL (alternative to direct upload)</div>';
+    html +=   '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">';
+    html +=     '<select id="ssDrivePhotoStage" class="ss-photo-url-input" style="min-width:140px;">';
+    stages.forEach(function(s){
+      var lbls = {supplier:'🏷 Supplier',nursery:'🌱 Nursery',zigzag:'🪡 ZigZag',nft:'🚿 NFT Pipe',harvest:'🥬 Harvest'};
+      html += '<option value="'+ s +'">'+ lbls[s] +'</option>';
+    });
+    html +=     '</select>';
+    html +=     '<input id="ssDrivePhotoUrl" class="ss-photo-url-input" placeholder="https://drive.google.com/file/d/..." style="flex:1;min-width:240px;">';
+    html +=     '<button class="btn btn-primary" style="padding:7px 14px;font-size:11px;" onclick="window._ssAddDrivePhoto(\''+ studyId +'\')">🔗 Add Drive Photo</button>';
+    html +=   '</div>';
+    html +=   '<div style="font-size:10.5px;color:var(--text3);margin-top:8px;line-height:1.4;">Paste any Google Drive image link. Saves the link only \u2014 not the bytes \u2014 so no localStorage size issues. Photo opens in Drive on click.</div>';
+    html += '</div>';
+    return html;
+  }
+
+  // ───────── State Setters ─────────
+  window._ssSetManual = function(id, v) {
+    if (typeof loadSeedStudies !== 'function') return;
+    var arr = loadSeedStudies();
+    var s = null; for (var i=0;i<arr.length;i++) if (arr[i].id===id) { s = arr[i]; break; }
+    if (!s) return;
+    s.manualScore = v === '' ? null : Number(v);
+    if (typeof saveSeedStudies === 'function') saveSeedStudies(arr);
+    if (typeof renderSeedStudy === 'function') renderSeedStudy();
+  };
+  window._ssSetVerdict = function(id, v) {
+    if (typeof loadSeedStudies !== 'function') return;
+    var arr = loadSeedStudies();
+    var s = null; for (var i=0;i<arr.length;i++) if (arr[i].id===id) { s = arr[i]; break; }
+    if (!s) return;
+    s.verdict = v || null;
+    if (typeof saveSeedStudies === 'function') saveSeedStudies(arr);
+    if (typeof renderSeedStudy === 'function') renderSeedStudy();
+  };
+  window._ssSetVerdictNote = function(id, v) {
+    if (typeof loadSeedStudies !== 'function') return;
+    var arr = loadSeedStudies();
+    var s = null; for (var i=0;i<arr.length;i++) if (arr[i].id===id) { s = arr[i]; break; }
+    if (!s) return;
+    s.verdictNote = v;
+    if (typeof saveSeedStudies === 'function') saveSeedStudies(arr);
+  };
+  window._ssCommercial = function(id, field, value) {
+    if (typeof loadSeedStudies !== 'function') return;
+    var arr = loadSeedStudies();
+    var s = null; for (var i=0;i<arr.length;i++) if (arr[i].id===id) { s = arr[i]; break; }
+    if (!s) return;
+    s[field] = value;
+    s.updatedAt = Date.now();
+    if (typeof saveSeedStudies === 'function') saveSeedStudies(arr);
+    // Re-render to update marketability (debounced via raf)
+    requestAnimationFrame(function(){ if (typeof renderSeedStudy === 'function') renderSeedStudy(); });
+  };
+  window._ssAddDrivePhoto = function(id) {
+    var urlInp = document.getElementById('ssDrivePhotoUrl');
+    var stageSel = document.getElementById('ssDrivePhotoStage');
+    if (!urlInp || !stageSel) return;
+    var url = (urlInp.value || '').trim();
+    var stage = stageSel.value;
+    if (!url) { alert('Paste a Drive link first.'); return; }
+    var m = url.match(/\/(?:file\/d|d)\/([a-zA-Z0-9_-]+)/);
+    var driveId = m ? m[1] : url.match(/^([a-zA-Z0-9_-]{20,})$/) ? url.match(/^([a-zA-Z0-9_-]{20,})$/)[1] : null;
+    if (!driveId) { alert('Could not detect a Drive file ID from that URL. Try the full /file/d/... link.'); return; }
+    var arr = loadSeedStudies();
+    var s = null; for (var i=0;i<arr.length;i++) if (arr[i].id===id) { s = arr[i]; break; }
+    if (!s) return;
+    s.photos = s.photos || {};
+    s.photos[stage] = s.photos[stage] || [];
+    // Store as a special "drive:<id>" marker so the renderer knows it's a link, not base64
+    s.photos[stage].push('drive:' + driveId);
+    s.updatedAt = Date.now();
+    saveSeedStudies(arr);
+    urlInp.value = '';
+    if (typeof showToast === 'function') showToast('Drive photo linked', 'ok');
+    renderSeedStudy();
+  };
+
+  // ───────── Hook into renderSeedStudy ─────────
+  // Wait for the base function to be defined, then wrap it.
+  function installHook() {
+    if (typeof window.renderSeedStudy !== 'function') {
+      return setTimeout(installHook, 200);
+    }
+    if (window.__SEED_HOOK_INSTALLED__) return;
+    window.__SEED_HOOK_INSTALLED__ = true;
+    var baseRender = window.renderSeedStudy;
+
+    window.renderSeedStudy = function() {
+      // Call the base first
+      baseRender.apply(this, arguments);
+      // Then layer enhancements on top
+      try { enhanceAfterRender(); } catch(e) { console.warn('[Seed enh]', e); }
+    };
+
+    // Also patch the photo renderer so drive: links display properly
+    patchPhotoRender();
+  }
+
+  function enhanceAfterRender() {
+    var body = document.getElementById('seedStudyBody');
+    if (!body) return;
+    var studies = (typeof loadSeedStudies === 'function') ? (loadSeedStudies() || []) : [];
+
+    // Detect current view by inspecting DOM
+    var inDetail = !!body.querySelector('button[onclick*="_seedView=\'list\'"]');
+    var inList = !inDetail && !!body.querySelector('button[onclick*="_seedNewStudy"]');
+
+    if (inList) {
+      // Add Sunday banner at top
+      var banner = buildSundayBanner(studies);
+      if (banner) {
+        var sectionTitle = body.querySelector('.section-title');
+        if (sectionTitle) sectionTitle.insertAdjacentHTML('afterend', banner);
+        else body.insertAdjacentHTML('afterbegin', banner);
+      }
+      // Add marketability badges to each card
+      var cardEls = body.querySelectorAll('[onclick*="_seedSelectedId="]');
+      cardEls.forEach(function(card){
+        var m = card.getAttribute('onclick').match(/_seedSelectedId='([^']+)'/);
+        if (!m) return;
+        var sid = m[1];
+        var s = null; for (var i=0;i<studies.length;i++) if (studies[i].id===sid) { s = studies[i]; break; }
+        if (!s) return;
+        var es = effectiveScore(s);
+        var col = scoreColor(es.effective);
+        var label = es.effective != null ? (es.effective + '/100') : 'No data';
+        var verdictTxt = es.verdict ? ({market_now:'🟢',future:'🟡',marginal:'🟠',reject:'🔴'})[es.verdict] : '';
+        var badge = '<div class="ss-card-mkt '+ col +'" style="margin-top:8px;display:inline-flex;">📊 Marketability: '+ label + (verdictTxt ? ' ' + verdictTxt : '') +'</div>';
+        if (!card.querySelector('.ss-card-mkt')) {
+          card.insertAdjacentHTML('beforeend', badge);
+        }
+      });
+    }
+
+    if (inDetail) {
+      // Find the selected study
+      var sid = window._seedSelectedId;
+      if (!sid) return;
+      var s = null; for (var i=0;i<studies.length;i++) if (studies[i].id===sid) { s = studies[i]; break; }
+      if (!s) return;
+
+      // Insert marketability widget right after the header (before "Trial Details")
+      var firstSection = body.querySelector('.section-title');
+      if (firstSection && !body.querySelector('.ss-mkt')) {
+        firstSection.insertAdjacentHTML('beforebegin', buildMarketabilityWidget(s));
+      }
+
+      // Insert Drive photo controls inside the Photos section
+      var sectionTitles = body.querySelectorAll('.section-title');
+      sectionTitles.forEach(function(t){
+        if (/Photos by Stage/i.test(t.textContent) && !body.querySelector('#ssDrivePhotoUrl')) {
+          var photoBox = t.nextElementSibling;
+          if (photoBox) photoBox.insertAdjacentHTML('beforeend', buildDrivePhotoControls(s.id));
+        }
+      });
+
+      // Insert Commercial section before the photos section
+      sectionTitles.forEach(function(t){
+        if (/Photos by Stage/i.test(t.textContent) && !body.querySelector('.ss-commercial-grid')) {
+          t.insertAdjacentHTML('beforebegin', buildCommercialSection(s));
+        }
+      });
+
+      // Check for previous trials of the same variety
+      if (s.variety && !body.querySelector('.ss-prev-trials')) {
+        var prev = studies.filter(function(x){
+          return x.id !== s.id
+              && (x.variety || '').toLowerCase().trim() === (s.variety || '').toLowerCase().trim();
+        });
+        if (prev.length) {
+          var prevHtml = '<div class="ss-prev-trials" style="background:rgba(100,181,246,.08);border-left:3px solid #64b5f6;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">';
+          prevHtml += '<strong style="color:#64b5f6;">📚 Previous trials of this variety:</strong> ';
+          prevHtml += prev.map(function(p){
+            var es2 = effectiveScore(p);
+            return '<span style="margin-right:14px;">' + escHtml(p.lotNumber||'') + ' · ' + (p.dateHarvest||'in progress') + ' · score ' + (es2.effective || '—') + '/100' + (p.recommendedMass ? ' · ' + escHtml(p.recommendedMass) : '') + '</span>';
+          }).join('');
+          prevHtml += '</div>';
+          var first = body.querySelector('.ss-mkt') || body.querySelector('.section-title');
+          if (first) first.insertAdjacentHTML('afterend', prevHtml);
+        }
+      }
+    }
+  }
+
+  function patchPhotoRender() {
+    // Convert any existing "drive:XXX" markers in rendered photo thumbnails into Drive links
+    // (Polled approach since baseRender redraws on every action.)
+    var origAdd = window._seedAddPhoto;
+    // We can't patch the renderer directly, but the photo thumbs are recreated each render.
+    // Use a MutationObserver to upgrade drive: src values to proper Drive thumbnails.
+    var observer = new MutationObserver(function(){
+      var imgs = document.querySelectorAll('#seedStudyBody img[src^="drive:"]');
+      imgs.forEach(function(img){
+        var driveId = img.src.replace('drive:', '').replace(/^.*\//,'');
+        // Wrap in a clickable card showing it's a Drive link
+        var parent = img.parentElement;
+        if (parent && !parent.querySelector('.ss-drive-thumb')) {
+          parent.innerHTML = '<a href="https://drive.google.com/file/d/' + driveId + '/view" target="_blank" rel="noopener" class="ss-drive-thumb" style="text-decoration:none;display:flex;flex-direction:column;align-items:center;justify-content:center;width:80px;height:80px;">'
+            + '<div class="ss-drive-thumb-icon">🔗</div>'
+            + '<div class="ss-drive-thumb-label">Drive</div>'
+            + '</a>';
+        }
+      });
+    });
+    observer.observe(document.body, { childList:true, subtree:true });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', installHook);
+  else installHook();
+
+  console.log('[Seed enh] v2.46.241 enhancement layer ready');
+})();
+</script>
+<!-- END SEED STUDIES ENHANCEMENT LAYER -->
+
+
 </body></html>`);
     w.document.close();
   }
@@ -67382,7 +67969,7 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.240-company-policies-module';  // ✨ STAGE CARDS — strong motion pass. User noted the motion needed to be more visible. (1) KEN BURNS ZOOM — each poster now has a slow background-size+position drift (16s alternating, 106%→114% scale, slight position pan), so the image itself feels alive even when other animations are subtle. (2) BIGGER AURA — opacity .7→.85, inset -20%→-25%, breathing scale .96-1.04→.92-1.08, gradient inner stop opacity bumped (.45→.7 green, .55→.85 gold, .45→.7 cyan). Now visibly pulsing rather than just shimmering. (3) FASTER SHINE — 5.5s→4s base, 3.5s→2.4s active. Brighter highlight band (.35→.5 opacity, .15→.18 sides; gold .2→.28, .45→.6). Added mid-keyframe so motion feels smoother. (4) MORE PARTICLES — 4-5 → 6-8 per card. Particle size 6px→8px, glow shadows 8/14px→12/22px (much brighter halo). Pulse animation amplitude .4→.3 to 1.2→1.4 (deeper breathing). (5) RING — 1.5px→1.8px, glow inset 16px→22px, color amplitude .4↔.85 (more dramatic), animation 2.4s→2s. (6) NEW: animated rim glow on every card via ::before pseudo-element with hue-rotate filter sweeping every 2.6s active / 4s done / 5s future — gives each card an outer breathing color halo independent of the inner aura. (7) TITLE PULSE — active card title now pulses opacity .85↔1 with text-shadow expanding 10px→18px every 1.6s. (8) Total motion sources per card: Ken Burns zoom + aura breath + shine sweep + ring breath (active) + 6-8 particles + outer rim sweep + title pulse (active) = 7 layered animations. Now clearly visible.
+const APP_VERSION='2.46.241-seed-studies-enhanced';  // ✨ STAGE CARDS — strong motion pass. User noted the motion needed to be more visible. (1) KEN BURNS ZOOM — each poster now has a slow background-size+position drift (16s alternating, 106%→114% scale, slight position pan), so the image itself feels alive even when other animations are subtle. (2) BIGGER AURA — opacity .7→.85, inset -20%→-25%, breathing scale .96-1.04→.92-1.08, gradient inner stop opacity bumped (.45→.7 green, .55→.85 gold, .45→.7 cyan). Now visibly pulsing rather than just shimmering. (3) FASTER SHINE — 5.5s→4s base, 3.5s→2.4s active. Brighter highlight band (.35→.5 opacity, .15→.18 sides; gold .2→.28, .45→.6). Added mid-keyframe so motion feels smoother. (4) MORE PARTICLES — 4-5 → 6-8 per card. Particle size 6px→8px, glow shadows 8/14px→12/22px (much brighter halo). Pulse animation amplitude .4→.3 to 1.2→1.4 (deeper breathing). (5) RING — 1.5px→1.8px, glow inset 16px→22px, color amplitude .4↔.85 (more dramatic), animation 2.4s→2s. (6) NEW: animated rim glow on every card via ::before pseudo-element with hue-rotate filter sweeping every 2.6s active / 4s done / 5s future — gives each card an outer breathing color halo independent of the inner aura. (7) TITLE PULSE — active card title now pulses opacity .85↔1 with text-shadow expanding 10px→18px every 1.6s. (8) Total motion sources per card: Ken Burns zoom + aura breath + shine sweep + ring breath (active) + 6-8 particles + outer rim sweep + title pulse (active) = 7 layered animations. Now clearly visible.
 const APP_BUILD=1779820000;
 const APP_BUILD_DATE='2026-05-15';
 
