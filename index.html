@@ -5288,6 +5288,13 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 <!-- POOL CLEANING (Production) -->
 <div class="view" id="view-prod_pool_cleaning"><div id="stubPoolCleaningBody"></div></div>
 <div class="view" id="view-prod_recurring"><div id="recurringHubBody"></div></div>
+<div class="view" id="view-maint_recurring"></div>
+<div class="view" id="view-irr_recurring"></div>
+<div class="view" id="view-log_recurring"></div>
+<div class="view" id="view-prod_open_calls"></div>
+<div class="view" id="view-maint_open_calls"></div>
+<div class="view" id="view-irr_open_calls"></div>
+<div class="view" id="view-log_open_calls"></div>
 <div class="view" id="view-prod_seeds"><div id="seedStudyBody"></div></div>
 <div class="view" id="view-prj11_cold_storage"><div id="prj11ColdStorageBody"></div></div>
 <div class="view" id="view-indoor_projects"><div id="indoorProjectsBody"></div></div>
@@ -5512,6 +5519,11 @@ td.critical-blink,div.critical-blink,span.critical-blink,
   <div id="memosBody"></div>
 </div>
 
+<!-- COMPANY POLICIES & PROCESSES VIEW (v2.46.240) -->
+<div class="view" id="view-company_policies">
+  <div id="companyPoliciesBody"></div>
+</div>
+
 <!-- RECONCILIATION VIEW -->
 <div class="view" id="view-reconcile">
   <div id="reconcileBody"></div>
@@ -5674,6 +5686,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 <div class="view" id="view-crm_reminders"><div id="crmRemindersBody"></div></div>
 <!-- Quality -->
 <div class="view" id="view-qc_dash"><div id="stubQcDashBody"></div></div>
+<div class="view" id="view-qc_prod_inspection"><div id="qcProdInspectionBody"></div></div>
 <div class="view" id="view-qc_inspections"><div id="stubQcInspectionsBody"></div></div>
 <div class="view" id="view-qc_rejections"><div id="stubQcRejectionsBody"></div></div>
 <div class="view" id="view-qc_standards"><div id="stubQcStandardsBody"></div></div>
@@ -14800,6 +14813,106 @@ const CAT_COLORS = {
   safety:    '#ff1744'   // bright red
 };
 
+// ── v2.46.230 — Supervisor checklist ↔ recurring task links ──
+// Each entry connects a CATEGORIES item to a RECURRING_TASKS task. When the
+// supervisor views their daily checklist, items linked to recurring tasks
+// auto-fill their status from the task's completion record for that GH.
+//   positive: true  → if task done, item shows OK (e.g. "Big Fans Functioning")
+//   positive: false → if task done, item shows OK because the issue is resolved
+//                     (e.g. "Black Hose Blocked" — when we run the cleaning task,
+//                      the blockage issue is cleared)
+const SUPERVISOR_TASK_LINKS = [
+  // Climate & Ventilation Systems
+  { cat:'climate', item:'Big Fans Functioning',                taskId:'sop_big_fans',       positive:true  },
+  { cat:'climate', item:'Roof Fans Functioning',               taskId:'sop_roof_fans',      positive:true  },
+  { cat:'climate', item:'Cooling Pad Status',                  taskId:'clean_cooling_pad',  positive:true  },
+  { cat:'climate', item:'Cooling Pad Filters Clean',           taskId:'clean_pad_filters',  positive:true  },
+  // Infrastructure & Sanitation
+  { cat:'infra',   item:'Black Hose Blocked',                  taskId:'clean_black_hose',   positive:false },
+  { cat:'infra',   item:'Pipes are cleaned and stored correctly', taskId:'clean_waterline', positive:true  },
+  { cat:'infra',   item:'Channel Blockage',                    taskId:'sop_nursery_pipes',  positive:false },
+  // Sanitation & Hygiene Control
+  { cat:'sanit',   item:'Gutter covers and drains are clean',  taskId:'sop_drain_nets',     positive:true  },
+  // Structure, Screens & Plastics
+  { cat:'struct',  item:'Side plastics are adjusted properly', taskId:'sop_side_plastics',  positive:true  },
+  { cat:'struct',  item:'Pulley functioning, wiggle wires in place', taskId:'sop_side_plastics', positive:true },
+  { cat:'struct',  item:'No visible holes on screen and on plastics', taskId:'sop_metal_corrosion', positive:true },
+  // Water Flow & Tables
+  { cat:'waterflow', item:'Black Hose NFT Blocked / Not Clean', taskId:'clean_black_hose',  positive:false },
+  // Growth & Development (transplant/progression)
+  { cat:'growth',  item:'Seedlings Not Moved From Nursery (Zigzag)', taskId:'sop_pipe_progression', positive:false },
+  { cat:'growth',  item:'Transplant Delay',                    taskId:'sop_pipe_progression', positive:false }
+];
+
+function getSupAutoStatus(gh, catId, itemName){
+  try{
+    const link = SUPERVISOR_TASK_LINKS.find(l => l.cat===catId && l.item===itemName);
+    if(!link) return null;
+    if(typeof getRecurringCompletion !== 'function') return null;
+    const c = getRecurringCompletion(link.taskId, gh);
+    if(!c || !c.status) return null;
+    if(c.status==='done')     return {auto:true, status:'ok',        link};
+    if(c.status==='partly')   return {auto:true, status:'attention', link};
+    if(c.status==='not_done') return {auto:true, status:'critical',  link};
+    return null;
+  }catch(e){ return null; }
+}
+
+const SUP_CHECK_KEY = 'hnx_sup_checklist_v1';
+function _todayISOSup(){return new Date().toISOString().slice(0,10);}
+function getSupCheckState(gh, catId, itemIdx, dateISO){
+  try{
+    const date = dateISO || _todayISOSup();
+    const all = JSON.parse(localStorage.getItem(SUP_CHECK_KEY)||'{}');
+    return (all[date] && all[date][gh] && all[date][gh][catId] && all[date][gh][catId][itemIdx]) || null;
+  }catch(e){return null;}
+}
+function setSupCheckState(gh, catId, itemIdx, status){
+  try{
+    const date = _todayISOSup();
+    const all = JSON.parse(localStorage.getItem(SUP_CHECK_KEY)||'{}');
+    if(!all[date])all[date]={};
+    if(!all[date][gh])all[date][gh]={};
+    if(!all[date][gh][catId])all[date][gh][catId]={};
+    if(status==null) delete all[date][gh][catId][itemIdx];
+    else all[date][gh][catId][itemIdx]=status;
+    localStorage.setItem(SUP_CHECK_KEY, JSON.stringify(all));
+  }catch(e){}
+}
+// Toggle status for a checklist item (called from UI buttons)
+window.toggleSupCheck = function(gh, catId, itemIdx, status){
+  const cur = getSupCheckState(gh, catId, itemIdx);
+  setSupCheckState(gh, catId, itemIdx, cur===status ? null : status);
+  if(typeof renderSup === 'function') renderSup();
+};
+// Resolve effective status (manual override beats auto)
+function getEffectiveSupStatus(gh, catId, itemName, itemIdx){
+  const manual = getSupCheckState(gh, catId, itemIdx);
+  if(manual) return {auto:false, status:manual, link:null};
+  return getSupAutoStatus(gh, catId, itemName);
+}
+// Get summary for a category (counts of ok/attention/critical/unchecked) for a GH
+function getSupCatSummary(gh, catId){
+  const cat = CATEGORIES.find(c => c.id===catId);
+  if(!cat) return {ok:0, attention:0, critical:0, unchecked:0, total:0, auto:0};
+  const out = {ok:0, attention:0, critical:0, unchecked:0, total:cat.items.length, auto:0};
+  cat.items.forEach((item, idx) => {
+    const eff = getEffectiveSupStatus(gh, catId, item, idx);
+    if(!eff){ out.unchecked++; return; }
+    if(eff.auto) out.auto++;
+    out[eff.status]++;
+  });
+  return out;
+}
+try{
+  window.SUPERVISOR_TASK_LINKS = SUPERVISOR_TASK_LINKS;
+  window.getSupAutoStatus = getSupAutoStatus;
+  window.getSupCheckState = getSupCheckState;
+  window.setSupCheckState = setSupCheckState;
+  window.getEffectiveSupStatus = getEffectiveSupStatus;
+  window.getSupCatSummary = getSupCatSummary;
+}catch(e){}
+
 // ===================== STATE =====================
 const TODAY = new Date().toISOString().slice(0,10);
 const SKEY = 'hydroPro_'+TODAY;
@@ -15004,7 +15117,41 @@ const RECURRING_TASKS=[
    icon:'🛣️',cat:'Site',priority:'low',schedule:{}},
   {id:'clean_pool_gutter',name:'Pool cleaning & NFT gutter flush',freq:'weekly_one_per_day',owner:'GH workers',
    icon:'🏊',cat:'GH',priority:'high',timeStart:'07:00',timeEnd:'08:00',
-   schedule:{Mon:'GH1&2',Tue:'GH3&4',Wed:'GH5&6',Thu:'GH7&8',Fri:'GH9&10'}}
+   schedule:{Mon:'GH1&2',Tue:'GH3&4',Wed:'GH5&6',Thu:'GH7&8',Fri:'GH9&10'}},
+  // v2.46.226 — GH internal gutter cleaning (between roof spans, inside the GH).
+  // Distinct from external roof gutters (Maintenance) and from NFT pool gutters.
+  {id:'clean_gh_gutter',name:'Cleaning of GH internal gutters (between spans)',freq:'weekly_one_per_day',owner:'GH workers',
+   icon:'🪣',cat:'GH',priority:'medium',
+   schedule:{Mon:'GH1&2',Tue:'GH3&4',Wed:'GH5&6',Thu:'GH7&8',Fri:'GH9&10'}},
+  // ── v2.46.220 ── SOP-driven tasks (not already covered by xlsx-derived list) ──
+  {id:'sop_nursery_pipes',name:'Nursery pipes — sweep & algae removal',freq:'daily',owner:'GH workers',
+   icon:'🌱',cat:'GH',priority:'high',sopId:'sop_nursery_pipes_daily',sopCode:'SOP-PROD-001',
+   schedule:{Mon:'GH1-10',Tue:'GH1-10',Wed:'GH1-10',Thu:'GH1-10',Fri:'GH1-10',Sun:'GH1-10'}},
+  {id:'sop_drain_nets',name:'Drain net covers — inspection & maintenance',freq:'daily',owner:'GH workers',
+   icon:'🕳️',cat:'GH',priority:'high',sopId:'sop_drain_net_covers_daily',sopCode:'SOP-PROD-002',
+   schedule:{Mon:'GH1-10',Tue:'GH1-10',Wed:'GH1-10',Thu:'GH1-10',Fri:'GH1-10',Sun:'GH1-10'}},
+  {id:'sop_pipe_progression',name:'Pipe & plant progression movement',freq:'daily',owner:'GH workers',
+   icon:'➡️',cat:'GH',priority:'medium',sopId:'sop_pipe_plant_progression_daily',sopCode:'SOP-PROD-003',
+   schedule:{Mon:'GH1&2',Tue:'GH3&4',Wed:'GH5&6',Thu:'GH7&8',Fri:'GH9&10',Sun:'GH1-10'}},
+  {id:'sop_big_fans',name:'Big industrial fans — inspection & maintenance',freq:'daily',owner:'Maintenance',
+   icon:'🌀',cat:'Cooling',priority:'high',sopId:'sop_big_fans_inspection_daily',sopCode:'SOP-MNT-001',
+   schedule:{Mon:'GH1-10',Tue:'GH1-10',Wed:'GH1-10',Thu:'GH1-10',Fri:'GH1-10',Sun:'GH1-10'}},
+  {id:'sop_roof_fans',name:'Roof mechanical exhaust fans — inspection',freq:'daily',owner:'Maintenance',
+   icon:'🪂',cat:'Cooling',priority:'high',sopId:'sop_roof_fans_inspection_daily',sopCode:'SOP-MNT-002',
+   schedule:{Mon:'GH1-10',Tue:'GH1-10',Wed:'GH1-10',Thu:'GH1-10',Fri:'GH1-10',Sun:'GH1-10'}},
+  {id:'sop_side_plastics',name:'Side plastics & pulley system — operation check',freq:'daily',owner:'Maintenance',
+   icon:'🪟',cat:'Structure',priority:'medium',sopId:'sop_side_plastics_pulley_daily',sopCode:'SOP-MNT-004',
+   schedule:{Mon:'GH1-10',Tue:'GH1-10',Wed:'GH1-10',Thu:'GH1-10',Fri:'GH1-10',Sun:'GH1-10'}},
+  {id:'sop_metal_corrosion',name:'Metal corrosion — inspection & maintenance',freq:'weekly',owner:'Maintenance',
+   icon:'🔩',cat:'Structure',priority:'medium',sopId:'sop_metal_corrosion_weekly',sopCode:'SOP-MNT-005',
+   schedule:{Mon:'GH1&2',Tue:'GH3&4',Wed:'GH5&6',Thu:'GH7&8',Fri:'GH9&10'}},
+  {id:'sop_overhead_tank_flush',name:'Overhead tank flushing & filter cleaning',freq:'daily',owner:'Maintenance',
+   icon:'🛢️',cat:'Water',priority:'high',sopId:'sop_overhead_tank_daily',sopCode:'SOP-IRR-001',
+   schedule:{Mon:'All',Tue:'All',Wed:'All',Thu:'All',Fri:'All',Sun:'All'}},
+  {id:'sop_delivery_truck',name:'Delivery truck — inspection, cleaning, maintenance',freq:'daily',owner:'Logistics',
+   icon:'🚚',cat:'Logistics',priority:'high',sopId:'sop_delivery_truck_daily',sopCode:'SOP-LOG-001',schedule:{}},
+  {id:'sop_ebike_megabox',name:'E-bike harvest transport (Megabox) — checks',freq:'daily',owner:'Logistics',
+   icon:'🛺',cat:'Logistics',priority:'medium',sopId:'sop_ebike_harvest_daily',sopCode:'SOP-LOG-002',schedule:{}}
 ];
 const FREQ_LABELS={
   daily:'Daily', daily_one_table:'Daily — One table/day',
@@ -15012,6 +15159,67 @@ const FREQ_LABELS={
   weekly_one_per_day:'Weekly — One per day', monthly:'Monthly',
   quarterly:'Quarterly', semi_annual:'Semi-annual', annual:'Annual'
 };
+
+// ── v2.46.221 — Module classification for recurring tasks ────────────────────
+// Each recurring task belongs to exactly ONE primary module. The recurring hub
+// shows a filter strip at the top so each module's view shows only its own
+// tasks (e.g. delivery truck belongs to Logistics, NOT Production/GH).
+// ─────────────────────────────────────────────────────────────────────────────
+const RECURRING_TASK_MODULES={
+  // — Production (work done by GH workers on growing infrastructure) —
+  clean_black_hose:        'production',
+  clean_waterline:         'production',
+  clean_drain_cover:       'production',
+  clean_pad_filters:       'production',
+  clean_side_screens:      'production',
+  clean_pool_gutter:       'production',
+  clean_gh_gutter:         'production',
+  sop_nursery_pipes:       'production',
+  sop_drain_nets:          'production',
+  sop_pipe_progression:    'production',
+  // — Maintenance (structural / cooling / energy / site upkeep) —
+  clean_roof_plastic:      'maintenance',
+  clean_side_plastic:      'maintenance',
+  clean_pad_screens:       'maintenance',
+  clean_cooling_pad:       'maintenance',
+  clean_pad_waterline:     'maintenance',
+  clean_solar_panels:      'maintenance',
+  clean_solar_floor:       'maintenance',
+  clean_roof_gutters:      'maintenance',
+  clean_road_fence:        'maintenance',
+  sop_big_fans:            'maintenance',
+  sop_roof_fans:           'maintenance',
+  sop_side_plastics:       'maintenance',
+  sop_metal_corrosion:     'maintenance',
+  // — Irrigation (water tanks, drums, irrigation system) —
+  clean_overhead_tank:     'irrigation',
+  clean_10k_drum:          'irrigation',
+  sop_overhead_tank_flush: 'irrigation',
+  // — Logistics (vehicles, transport assets — NOT tied to GHs) —
+  sop_delivery_truck:      'logistics',
+  sop_ebike_megabox:       'logistics'
+};
+const MODULE_META={
+  production:  {label:'Production',  icon:'🌱', color:'#9ccc65'},
+  maintenance: {label:'Maintenance', icon:'🔧', color:'#42a5f5'},
+  irrigation:  {label:'Irrigation',  icon:'💧', color:'#4dd0e1'},
+  logistics:   {label:'Logistics',   icon:'🚚', color:'#ffa726'}
+};
+function getTaskModule(t){
+  if(!t)return 'production';
+  if(t.module)return t.module;
+  return RECURRING_TASK_MODULES[t.id]||'production';
+}
+// Tasks that aren't tied to specific GHs (assets like trucks, e-bikes, site-wide infra)
+const SITE_ONLY_TASK_IDS=new Set(['sop_delivery_truck','sop_ebike_megabox','clean_road_fence','clean_solar_panels','clean_solar_floor','clean_roof_gutters','clean_overhead_tank','clean_10k_drum']);
+function isSiteOnlyTask(t){
+  if(!t)return false;
+  if(t.siteOnly===true)return true;
+  return SITE_ONLY_TASK_IDS.has(t.id);
+}
+// Current module filter for the recurring hub. 'all' shows everything.
+window._recurringModuleFilter=window._recurringModuleFilter||'production';
+function _setRecurringModuleFilter(m){window._recurringModuleFilter=m;if(typeof renderRecurringHub==='function')renderRecurringHub();}
 const RECURRING_KEY='hydroPro_recurring_completions_v1';
 function loadRecurringCompletions(){try{const v=JSON.parse(localStorage.getItem(RECURRING_KEY)||'{}');return (v&&typeof v==='object')?v:{};}catch(e){return {};}}
 function saveRecurringCompletions(obj){try{localStorage.setItem(RECURRING_KEY,JSON.stringify(obj||{}));}catch(e){}}
@@ -15099,6 +15307,12 @@ try{
   window._recurringStats=_recurringStats;
   window.loadRecurringCompletions=loadRecurringCompletions;
   window.expandGhRange=expandGhRange;
+  // v2.46.223 — expose module helpers so IIFE filter, print buttons, and per-module recurring tabs all work
+  window.RECURRING_TASK_MODULES=RECURRING_TASK_MODULES;
+  window.MODULE_META=MODULE_META;
+  window.getTaskModule=getTaskModule;
+  window.isSiteOnlyTask=isSiteOnlyTask;
+  window._setRecurringModuleFilter=_setRecurringModuleFilter;
 }catch(e){}
 
 // ===================== DASHBOARD =====================
@@ -15280,7 +15494,7 @@ function _renderDbRecurringToday(){
     const c=getRecurringCompletion(t.id,d.gh);
     const isDone=c&&c.status==='done';
     const meta=(typeof _priorityMeta==='function')?_priorityMeta(t.priority):{color:'#888',label:t.priority,short:t.priority,bg:'rgba(0,0,0,.1)'};
-    const ownerColor=t.owner==='Maintenance'?'#42a5f5':'#9ccc65';
+    const ownerColor=t.owner==='Maintenance'?'#42a5f5':(t.owner==='Logistics'?'#ffa726':'#9ccc65');
     const cardBg=isDone?'rgba(76,175,80,0.08)':'var(--surface)';
     const cardBorder=isDone?'#4caf50':'var(--border)';
     return `<div style="padding:11px 13px;background:${cardBg};border:1px solid ${cardBorder};border-left:4px solid ${meta.color};border-radius:7px;display:flex;flex-direction:column;gap:6px;${isDone?'opacity:.85;':''}">
@@ -15477,43 +15691,47 @@ function _renderDbRecurringWeek(){
   const scheduled=RECURRING_TASKS.filter(t=>Object.keys(t.schedule||{}).length>0);
   const noSched=RECURRING_TASKS.filter(t=>!Object.keys(t.schedule||{}).length);
   const rowsHtml=scheduled.map(t=>{
-    const ownerColor=t.owner==='Maintenance'?'#42a5f5':'#9ccc65';
+    const ownerColor=t.owner==='Maintenance'?'#42a5f5':(t.owner==='Logistics'?'#ffa726':'#9ccc65');
     const cells=days.map(d=>{
       const v=t.schedule[d]||'';
       const isToday=d===todayDow;
-      const bg=isToday?'rgba(102,187,106,0.12)':(v?'var(--surface)':'transparent');
-      const border=isToday?'1px solid #66bb6a':(v?'1px solid var(--border)':'1px dashed var(--border)');
-      return `<td style="padding:7px 8px;background:${bg};border:${border};border-radius:5px;font-size:11px;color:${v?'var(--text)':'var(--text3)'};font-family:var(--mono);text-align:center;font-weight:${isToday?'700':'500'};">${v||'—'}</td>`;
+      const bg=isToday?'rgba(102,187,106,0.15)':(v?'var(--surface)':'transparent');
+      const border=isToday?'2px solid #66bb6a':(v?'1px solid var(--border)':'1px dashed var(--border)');
+      return `<td style="padding:13px 12px;background:${bg};border:${border};border-radius:6px;font-size:14px;color:${v?'var(--text)':'var(--text3)'};font-family:var(--mono);text-align:center;font-weight:${isToday?'800':'600'};min-width:85px;">${v||'—'}</td>`;
     }).join('');
+    const sopBadge=t.sopCode?`<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:rgba(66,165,245,0.15);border:1px solid rgba(66,165,245,0.4);color:#42a5f5;font-size:9px;font-family:var(--mono);font-weight:700;">${t.sopCode}</span>`:'';
     return `<tr>
-      <td style="padding:7px 8px;font-size:11px;color:var(--text);font-weight:600;line-height:1.3;">${t.icon} ${t.name}</td>
-      <td style="padding:7px 8px;font-size:10px;color:${ownerColor};font-family:var(--mono);font-weight:700;">${t.owner}</td>
+      <td style="padding:11px 12px;font-size:13px;color:var(--text);font-weight:600;line-height:1.35;">${t.icon} ${t.name}${sopBadge}</td>
+      <td style="padding:11px 12px;font-size:12px;color:${ownerColor};font-family:var(--mono);font-weight:700;white-space:nowrap;">${t.owner}</td>
       ${cells}
     </tr>`;
   }).join('');
   const noSchedHtml=noSched.map(t=>{
-    const ownerColor=t.owner==='Maintenance'?'#42a5f5':'#9ccc65';
-    return `<div style="padding:8px 11px;background:var(--surface);border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;gap:8px;">
-      <span style="font-size:14px;">${t.icon}</span>
+    const ownerColor=t.owner==='Maintenance'?'#42a5f5':(t.owner==='Logistics'?'#ffa726':'#9ccc65');
+    const sopBadge=t.sopCode?`<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:rgba(66,165,245,0.15);border:1px solid rgba(66,165,245,0.4);color:#42a5f5;font-size:9px;font-family:var(--mono);font-weight:700;">${t.sopCode}</span>`:'';
+    return `<div style="padding:11px 14px;background:var(--surface);border:1px solid var(--border);border-radius:7px;display:flex;align-items:center;gap:10px;">
+      <span style="font-size:18px;">${t.icon}</span>
       <div style="flex:1;">
-        <div style="font-size:11px;color:var(--text);font-weight:600;">${t.name}</div>
-        <div style="font-size:10px;color:var(--text3);font-family:var(--mono);"><span style="color:${ownerColor};font-weight:700;">${t.owner}</span> · ${FREQ_LABELS[t.freq]||t.freq}</div>
+        <div style="font-size:13px;color:var(--text);font-weight:600;line-height:1.35;">${t.name}${sopBadge}</div>
+        <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-top:3px;"><span style="color:${ownerColor};font-weight:700;">${t.owner}</span> · ${FREQ_LABELS[t.freq]||t.freq}</div>
       </div>
     </div>`;
   }).join('');
   target.innerHTML=`<div class="section-title">📅 This Week's Recurring Schedule <span style="font-size:11px;color:var(--text3);font-weight:400;">— ${RECURRING_TASKS.length} tasks total</span></div>
-    <div style="overflow-x:auto;margin-bottom:10px;">
-      <table style="width:100%;border-collapse:separate;border-spacing:3px;font-size:11px;">
+    <div id="dbRecurringWeekPrintable" data-print-title="This Week's Recurring Schedule">
+    <div style="overflow-x:auto;margin-bottom:12px;">
+      <table style="width:100%;border-collapse:separate;border-spacing:4px;font-size:14px;">
         <thead><tr>
-          <th style="text-align:left;padding:7px 8px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-family:var(--mono);">Task</th>
-          <th style="text-align:left;padding:7px 8px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-family:var(--mono);">Owner</th>
-          ${days.map(d=>{const isToday=d===todayDow;return `<th style="padding:7px 8px;font-size:10px;color:${isToday?'#66bb6a':'var(--text3)'};text-transform:uppercase;letter-spacing:.5px;font-family:var(--mono);font-weight:${isToday?'800':'700'};">${d}${isToday?' •':''}</th>`;}).join('')}
+          <th style="text-align:left;padding:11px 12px;font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);">Task</th>
+          <th style="text-align:left;padding:11px 12px;font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);">Owner</th>
+          ${days.map(d=>{const isToday=d===todayDow;return `<th style="padding:11px 12px;font-size:13px;color:${isToday?'#66bb6a':'var(--text2)'};text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);font-weight:${isToday?'800':'700'};">${d}${isToday?' •':''}</th>`;}).join('')}
         </tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>
     </div>
-    <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-family:var(--mono);margin:10px 0 6px;">Long-cadence tasks (no per-day schedule)</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:7px;margin-bottom:14px;">${noSchedHtml}</div>`;
+    <div style="font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);margin:14px 0 8px;">Long-cadence tasks (no per-day schedule)</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;margin-bottom:14px;">${noSchedHtml}</div>
+    </div>`;
 }
 
 // ---- Bolting / harvest urgency tracker ----
@@ -15628,20 +15846,58 @@ try{
 let _recurringHubTab='today'; // today | week | history | stats
 function _setRecurringHubTab(t){_recurringHubTab=t;renderRecurringHub();}
 function renderRecurringHub(){
-  const target=document.getElementById('recurringHubBody');
+  // v2.46.223 — Works in each module's own recurring view, auto-filters by module.
+  // Map view-id → module filter.
+  const VIEW_TO_MODULE={
+    'prod_recurring':  'production',
+    'maint_recurring': 'maintenance',
+    'irr_recurring':   'irrigation',
+    'log_recurring':   'logistics'
+  };
+  const cv=window.currentView||'prod_recurring';
+  const moduleViewKey=VIEW_TO_MODULE[cv]||null;
+  if(moduleViewKey){
+    // Force filter to this module's module (one-way: opening Maintenance shows Maintenance tasks)
+    window._recurringModuleFilter=moduleViewKey;
+  }
+  // Find the active view container — fall back to prod_recurring
+  const viewEl=document.getElementById('view-'+cv)||document.getElementById('view-prod_recurring');
+  if(!viewEl){setTimeout(renderRecurringHub,80);return;}
+  // Ensure the view has a recurringHubBody inside it (each module-view gets its own)
+  let target=viewEl.querySelector('#recurringHubBody, .recurringHubBody');
   if(!target){
-    // View div might not be loaded yet — try the view directly
-    const v=document.getElementById('view-prod_recurring');
-    if(v)v.innerHTML='<div id="recurringHubBody"></div>';
-    setTimeout(renderRecurringHub,80);
-    return;
+    viewEl.innerHTML='<div id="recurringHubBody" class="recurringHubBody"></div>';
+    target=viewEl.querySelector('#recurringHubBody, .recurringHubBody');
+    if(!target){setTimeout(renderRecurringHub,80);return;}
   }
   const stats=_recurringStats();
+  // ── v2.46.221 — module filter chips ──
+  const curModFilter=window._recurringModuleFilter||'production';
+  const modCounts={all:0,production:0,maintenance:0,irrigation:0,logistics:0};
+  RECURRING_TASKS.forEach(t=>{modCounts.all++;const m=getTaskModule(t);if(modCounts[m]!=null)modCounts[m]++;});
+  // v2.46.223 — Hide chips when we're inside a module-specific recurring view.
+  // The module is already determined by the nav, so chips would be redundant/confusing.
+  const inModuleSpecificView=moduleViewKey!==null && moduleViewKey!=='production';
+  const modChips=inModuleSpecificView ? '' : `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center;">
+      <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);margin-right:4px;">Module:</span>
+      ${[
+        {id:'all',label:'All',icon:'📋',color:'#cfd8dc'},
+        {id:'production',label:'Production',icon:'🌱',color:'#9ccc65'},
+        {id:'maintenance',label:'Maintenance',icon:'🔧',color:'#42a5f5'},
+        {id:'irrigation',label:'Irrigation',icon:'💧',color:'#4dd0e1'},
+        {id:'logistics',label:'Logistics',icon:'🚚',color:'#ffa726'}
+      ].map(m=>{
+        const active=curModFilter===m.id;
+        return `<button onclick="_setRecurringModuleFilter('${m.id}')" style="padding:6px 12px;border:1px solid ${active?m.color:'var(--border)'};border-radius:18px;background:${active?'rgba(255,255,255,0.04)':'transparent'};color:${active?m.color:'var(--text2)'};font-size:12px;font-weight:${active?'800':'600'};cursor:pointer;font-family:var(--sans);box-shadow:${active?'0 0 8px '+m.color+'33':'none'};transition:all 0.15s;">${m.icon} ${m.label} <span style="opacity:.65;font-family:var(--mono);font-size:11px;">(${modCounts[m.id]||0})</span></button>`;
+      }).join('')}
+    </div>`;
   const tabHtml=`
     <div style="display:flex;gap:6px;margin-bottom:14px;background:var(--surface2);padding:4px;border-radius:9px;border:1px solid var(--border);width:fit-content;">
       ${[
         {id:'today',label:'🔥 Today',count:stats.due},
         {id:'week',label:'📅 Week'},
+        {id:'month',label:'🗓️ Month'},
         {id:'history',label:'📋 History'},
         {id:'stats',label:'📊 Stats'}
       ].map(t=>`<button onclick="_setRecurringHubTab('${t.id}')" style="padding:7px 14px;border:none;border-radius:6px;background:${_recurringHubTab===t.id?'var(--accent)':'transparent'};color:${_recurringHubTab===t.id?'#0a0e0c':'var(--text2)'};font-size:12px;font-weight:700;cursor:pointer;font-family:var(--sans);">${t.label}${t.count!=null?' <span style="opacity:.6;">('+t.count+')</span>':''}</button>`).join('')}
@@ -15649,6 +15905,7 @@ function renderRecurringHub(){
   let body='';
   if(_recurringHubTab==='today')body=_renderRecurringHubToday();
   else if(_recurringHubTab==='week')body=_renderRecurringHubWeek();
+  else if(_recurringHubTab==='month')body=_renderRecurringHubMonth();
   else if(_recurringHubTab==='history')body=_renderRecurringHubHistory();
   else if(_recurringHubTab==='stats')body=_renderRecurringHubStats();
   // Hero KPI strip
@@ -15681,9 +15938,13 @@ function renderRecurringHub(){
     </div>`;
   target.innerHTML=`
     <div class="section-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">🔥 Recurring Tasks Management
-      <span style="font-size:11px;color:var(--text3);font-weight:400;">— 16 cleaning tasks · ${stats.due} due today</span>
+      <span style="font-size:11px;color:var(--text3);font-weight:400;">— ${RECURRING_TASKS.length} tasks · ${stats.due} due today · viewing <span style="color:${(MODULE_META[curModFilter]||{color:'#cfd8dc'}).color};font-weight:700;">${curModFilter==='all'?'all modules':MODULE_META[curModFilter].label}</span></span>
+      <button onclick="window.hpPrintRecurringHub&&window.hpPrintRecurringHub()" style="margin-left:auto;padding:8px 16px;background:linear-gradient(180deg,#2f9d4a,#1d6b32);border:1px solid #5fe07a;border-radius:8px;color:#eafff0;font-size:13px;font-weight:800;cursor:pointer;font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;box-shadow:0 0 12px rgba(95,224,122,0.3);">🖨 Print</button>
+      ${(typeof getCurrentUserLevel==='function'&&getCurrentUserLevel()>=3)?`<button onclick="window.hnxOpenAddOneTimeModal&&window.hnxOpenAddOneTimeModal()" style="padding:8px 16px;background:linear-gradient(180deg,#ab47bc,#7b1fa2);border:1px solid #ce93d8;border-radius:8px;color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;box-shadow:0 0 12px rgba(206,147,216,0.3);">⭐ Add Today's Task</button>`:''}
+      <button onclick="window._hnxOpenScheduleEditor&&window._hnxOpenScheduleEditor()" style="padding:8px 16px;background:linear-gradient(180deg,#1a3a5a,#143050);border:1px solid #5ec5ff;border-radius:8px;color:#cfe8ff;font-size:13px;font-weight:800;cursor:pointer;font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;box-shadow:0 0 12px rgba(94,197,255,0.25);">⚙ Add / Edit Tasks</button>
     </div>
     ${heroHtml}
+    ${modChips}
     ${tabHtml}
     ${body}
   `;
@@ -15918,7 +16179,7 @@ function _renderRecurringHubToday(){
     const gpct=total?Math.round(done/total*100):0;
     const gtone=gpct===100?'ok':gpct>=60?'warn':'crit';
     const meta=(typeof _priorityMeta==='function')?_priorityMeta(t.priority):{color:'#888',short:t.priority};
-    const ownerColor=t.owner==='Maintenance'?'#42a5f5':'#9ccc65';
+    const ownerColor=t.owner==='Maintenance'?'#42a5f5':(t.owner==='Logistics'?'#ffa726':'#9ccc65');
 
     /* Drill-down rows per GH */
     const drill=g.rows.map(d=>{
@@ -15959,47 +16220,133 @@ function _renderRecurringHubToday(){
 
   return `${aiBanner}<div class="rt-grid">${masters}</div>`;
 }
-// Week tab — Mon-Sun grid (same as dashboard but standalone)
+// Week tab — Mon-Sun grid (BIGGER + readable — v2.46.220)
 function _renderRecurringHubWeek(){
   const days=['Mon','Tue','Wed','Thu','Fri','Sun'];
   const todayDow=_dowShort(new Date());
   const scheduled=RECURRING_TASKS.filter(t=>Object.keys(t.schedule||{}).length>0);
   const noSched=RECURRING_TASKS.filter(t=>!Object.keys(t.schedule||{}).length);
   const rowsHtml=scheduled.map(t=>{
-    const ownerColor=t.owner==='Maintenance'?'#42a5f5':'#9ccc65';
+    const ownerColor=t.owner==='Maintenance'?'#42a5f5':(t.owner==='Logistics'?'#ffa726':'#9ccc65');
     const cells=days.map(d=>{
       const v=t.schedule[d]||'';
       const isToday=d===todayDow;
-      const bg=isToday?'rgba(102,187,106,0.12)':(v?'var(--surface)':'transparent');
-      const border=isToday?'1px solid #66bb6a':(v?'1px solid var(--border)':'1px dashed var(--border)');
-      return `<td style="padding:8px 10px;background:${bg};border:${border};border-radius:5px;font-size:11px;color:${v?'var(--text)':'var(--text3)'};font-family:var(--mono);text-align:center;font-weight:${isToday?'700':'500'};">${v||'—'}</td>`;
+      const bg=isToday?'rgba(102,187,106,0.18)':(v?'var(--surface)':'transparent');
+      const border=isToday?'2px solid #66bb6a':(v?'1px solid var(--border)':'1px dashed var(--border)');
+      return `<td style="padding:18px 14px;background:${bg};border:${border};border-radius:7px;font-size:15px;color:${v?'var(--text)':'var(--text3)'};font-family:var(--mono);text-align:center;font-weight:${isToday?'800':'600'};min-width:90px;">${v||'—'}</td>`;
     }).join('');
-    return `<tr><td style="padding:8px 10px;font-size:12px;color:var(--text);font-weight:600;line-height:1.3;">${t.icon} ${t.name}</td>
-      <td style="padding:8px 10px;font-size:10px;color:${ownerColor};font-family:var(--mono);font-weight:700;">${t.owner}</td>
+    const sopBadge=t.sopCode?`<span style="display:inline-block;margin-left:8px;padding:2px 7px;border-radius:4px;background:rgba(66,165,245,0.15);border:1px solid rgba(66,165,245,0.4);color:#42a5f5;font-size:10px;font-family:var(--mono);font-weight:700;letter-spacing:.3px;">${t.sopCode}</span>`:'';
+    return `<tr><td style="padding:14px 14px;font-size:15px;color:var(--text);font-weight:600;line-height:1.35;">${t.icon} ${t.name}${sopBadge}</td>
+      <td style="padding:14px 14px;font-size:13px;color:${ownerColor};font-family:var(--mono);font-weight:700;white-space:nowrap;">${t.owner}</td>
       ${cells}</tr>`;
   }).join('');
   const noSchedHtml=noSched.map(t=>{
-    const ownerColor=t.owner==='Maintenance'?'#42a5f5':'#9ccc65';
-    return `<div style="padding:9px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;gap:10px;">
-      <span style="font-size:16px;">${t.icon}</span>
+    const ownerColor=t.owner==='Maintenance'?'#42a5f5':(t.owner==='Logistics'?'#ffa726':'#9ccc65');
+    const sopBadge=t.sopCode?`<span style="display:inline-block;margin-left:6px;padding:2px 6px;border-radius:4px;background:rgba(66,165,245,0.15);border:1px solid rgba(66,165,245,0.4);color:#42a5f5;font-size:10px;font-family:var(--mono);font-weight:700;">${t.sopCode}</span>`:'';
+    return `<div style="padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:12px;">
+      <span style="font-size:22px;">${t.icon}</span>
       <div style="flex:1;">
-        <div style="font-size:12px;color:var(--text);font-weight:600;">${t.name}</div>
-        <div style="font-size:10px;color:var(--text3);font-family:var(--mono);"><span style="color:${ownerColor};font-weight:700;">${t.owner}</span> · ${FREQ_LABELS[t.freq]||t.freq}</div>
+        <div style="font-size:14px;color:var(--text);font-weight:600;line-height:1.35;">${t.name}${sopBadge}</div>
+        <div style="font-size:12px;color:var(--text3);font-family:var(--mono);margin-top:4px;"><span style="color:${ownerColor};font-weight:700;">${t.owner}</span> · ${FREQ_LABELS[t.freq]||t.freq}</div>
       </div>
     </div>`;
   }).join('');
-  return `<div style="overflow-x:auto;margin-bottom:14px;">
-      <table style="width:100%;border-collapse:separate;border-spacing:4px;font-size:12px;">
+  return `<div id="recurringWeekPrintable" data-print-title="Weekly Recurring Schedule">
+    <div style="overflow-x:auto;margin-bottom:18px;">
+      <table style="width:100%;border-collapse:separate;border-spacing:5px;font-size:15px;">
         <thead><tr>
-          <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-family:var(--mono);">Task</th>
-          <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-family:var(--mono);">Owner</th>
-          ${days.map(d=>{const isToday=d===todayDow;return `<th style="padding:8px 10px;font-size:10px;color:${isToday?'#66bb6a':'var(--text3)'};text-transform:uppercase;letter-spacing:.5px;font-family:var(--mono);font-weight:${isToday?'800':'700'};">${d}${isToday?' •':''}</th>`;}).join('')}
+          <th style="text-align:left;padding:12px 14px;font-size:13px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);">Task</th>
+          <th style="text-align:left;padding:12px 14px;font-size:13px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);">Owner</th>
+          ${days.map(d=>{const isToday=d===todayDow;return `<th style="padding:12px 14px;font-size:14px;color:${isToday?'#66bb6a':'var(--text2)'};text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);font-weight:${isToday?'800':'700'};">${d}${isToday?' •':''}</th>`;}).join('')}
         </tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>
     </div>
-    <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-family:var(--mono);margin:14px 0 8px;">Long-cadence tasks (no per-day schedule)</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;">${noSchedHtml}</div>`;
+    <div style="font-size:13px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);margin:18px 0 10px;">Long-cadence tasks (no per-day schedule)</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;">${noSchedHtml}</div>
+  </div>`;
+}
+
+// Month tab — full 5-week calendar grid (NEW — v2.46.220)
+let _recurringMonthOffset=0; // 0 = current month, -1 = prev, +1 = next
+function _setRecurringMonthOffset(d){_recurringMonthOffset+=d;renderRecurringHub();}
+function _renderRecurringHubMonth(){
+  const now=new Date();
+  const viewDate=new Date(now.getFullYear(),now.getMonth()+_recurringMonthOffset,1);
+  const year=viewDate.getFullYear(),month=viewDate.getMonth();
+  const monthName=viewDate.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  const firstDow=new Date(year,month,1).getDay(); // 0=Sun ... 6=Sat
+  const daysInMonth=new Date(year,month+1,0).getDate();
+  const todayISO=_todayISO();
+  const dayHeaders=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const dowToShort={0:'Sun',1:'Mon',2:'Tue',3:'Wed',4:'Thu',5:'Fri',6:'Sat'};
+  // Build 6-week grid (42 cells max)
+  const cells=[];
+  // Leading blanks
+  for(let i=0;i<firstDow;i++)cells.push({blank:true});
+  // Days of month
+  for(let d=1;d<=daysInMonth;d++){
+    const dt=new Date(year,month,d);
+    const iso=dt.toISOString().slice(0,10);
+    const dow=dowToShort[dt.getDay()];
+    const isToday=iso===todayISO;
+    const isSat=dt.getDay()===6;
+    // Gather tasks for this day
+    const tasks=[];
+    RECURRING_TASKS.forEach(t=>{
+      if(t.schedule&&t.schedule[dow]){tasks.push({task:t,scope:t.schedule[dow]});return;}
+      if(t.freq==='daily'||t.freq==='daily_one_table'){if(!isSat)tasks.push({task:t,scope:'All'});return;}
+      if(t.freq==='weekly'){if(dow==='Mon'&&!t.schedule[dow])tasks.push({task:t,scope:'All'});return;}
+      if(t.freq==='monthly'){if(d<=7&&dow==='Mon')tasks.push({task:t,scope:'All'});return;}
+      if(t.freq==='quarterly'){if(d<=7&&dow==='Mon'&&[0,3,6,9].includes(month))tasks.push({task:t,scope:'All'});return;}
+      if(t.freq==='semi_annual'){if(d<=7&&dow==='Mon'&&[0,6].includes(month))tasks.push({task:t,scope:'All'});return;}
+      if(t.freq==='annual'){if(d===1&&month===0)tasks.push({task:t,scope:'All'});return;}
+    });
+    cells.push({day:d,iso,dow,isToday,tasks,blank:false});
+  }
+  // Pad to a multiple of 7
+  while(cells.length%7!==0)cells.push({blank:true});
+  // Render rows
+  const rowsHtml=[];
+  for(let r=0;r<cells.length;r+=7){
+    const rowCells=cells.slice(r,r+7).map(c=>{
+      if(c.blank)return `<td style="padding:0;background:transparent;border:1px dashed var(--border);min-height:120px;height:120px;"></td>`;
+      const taskList=c.tasks.slice(0,4).map(tt=>{
+        const owColor=tt.task.owner==='Maintenance'?'#42a5f5':'#9ccc65';
+        return `<div style="font-size:11px;line-height:1.3;color:var(--text2);padding:2px 0;display:flex;gap:4px;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><span style="font-size:11px;flex-shrink:0;">${tt.task.icon}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><span style="color:${owColor};font-weight:700;">${tt.scope}</span> · ${tt.task.name}</span></div>`;
+      }).join('');
+      const more=c.tasks.length>4?`<div style="font-size:10px;color:var(--text3);font-style:italic;margin-top:3px;">+${c.tasks.length-4} more</div>`:'';
+      const bg=c.isToday?'rgba(102,187,106,0.15)':'var(--surface)';
+      const borderC=c.isToday?'2px solid #66bb6a':'1px solid var(--border)';
+      return `<td style="padding:8px 10px;background:${bg};border:${borderC};border-radius:6px;vertical-align:top;min-height:130px;height:130px;width:14.28%;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <div style="font-size:15px;font-weight:${c.isToday?'800':'700'};color:${c.isToday?'#66bb6a':'var(--text)'};font-family:var(--mono);">${c.day}${c.isToday?' •':''}</div>
+          <div style="font-size:10px;color:var(--text3);font-family:var(--mono);">${c.dow}${c.tasks.length?` · ${c.tasks.length}`:''}</div>
+        </div>
+        ${taskList}${more}
+      </td>`;
+    }).join('');
+    rowsHtml.push(`<tr>${rowCells}</tr>`);
+  }
+  return `<div id="recurringMonthPrintable" data-print-title="Monthly Recurring Schedule — ${monthName}">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:14px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button class="btn btn-outline" onclick="_setRecurringMonthOffset(-1)" style="padding:8px 14px;font-size:13px;">‹ Prev</button>
+        <div style="font-size:20px;font-weight:800;color:var(--text);font-family:var(--mono);min-width:240px;text-align:center;">${monthName}</div>
+        <button class="btn btn-outline" onclick="_setRecurringMonthOffset(1)" style="padding:8px 14px;font-size:13px;">Next ›</button>
+        <button class="btn btn-outline" onclick="_recurringMonthOffset=0;renderRecurringHub();" style="padding:8px 14px;font-size:12px;">Today</button>
+      </div>
+      <div style="font-size:12px;color:var(--text3);font-family:var(--mono);">${RECURRING_TASKS.length} recurring tasks scheduled</div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:separate;border-spacing:4px;table-layout:fixed;">
+        <thead><tr>
+          ${dayHeaders.map(d=>`<th style="padding:10px;font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);text-align:center;">${d}</th>`).join('')}
+        </tr></thead>
+        <tbody>${rowsHtml.join('')}</tbody>
+      </table>
+    </div>
+  </div>`;
 }
 // History tab — all completions, filterable
 function _renderRecurringHubHistory(){
@@ -16010,7 +16357,7 @@ function _renderRecurringHubHistory(){
     const t=RECURRING_TASKS.find(x=>x.id===e.taskId);
     const tName=t?t.name:e.taskId;
     const tIcon=t?t.icon:'•';
-    const ownerColor=t&&t.owner==='Maintenance'?'#42a5f5':'#9ccc65';
+    const ownerColor=t&&t.owner==='Maintenance'?'#42a5f5':(t&&t.owner==='Logistics'?'#ffa726':'#9ccc65');
     return `<tr style="border-bottom:1px solid var(--border);">
       <td style="padding:8px 10px;font-size:11px;color:var(--text3);font-family:var(--mono);">${e.date||''}</td>
       <td style="padding:8px 10px;font-size:11px;color:var(--text3);font-family:var(--mono);">${e.at?new Date(e.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''}</td>
@@ -16056,7 +16403,7 @@ function _renderRecurringHubStats(){
   });
   const taskRows=RECURRING_TASKS.map(t=>{
     const cnt=perTask[t.id]||0;
-    const ownerColor=t.owner==='Maintenance'?'#42a5f5':'#9ccc65';
+    const ownerColor=t.owner==='Maintenance'?'#42a5f5':(t.owner==='Logistics'?'#ffa726':'#9ccc65');
     return `<tr style="border-bottom:1px solid var(--border);">
       <td style="padding:9px 11px;font-size:12px;color:var(--text);">${t.icon} ${t.name}</td>
       <td style="padding:9px 11px;font-size:11px;color:${ownerColor};font-family:var(--mono);font-weight:700;">${t.owner}</td>
@@ -16233,20 +16580,9 @@ function buildLocPicker(gh,cat,idx,locs){
     <b>💡 Likely cause</b>: ${ai.cause}
     <br><b>🔧 Suggested action</b>: ${ai.remedy}
   </div>`:'';
-  // Visual table map
-  const selectedTables=new Set(locs.filter(l=>l.type==='specific').map(l=>l.table+'-'+l.number));
-  const mapHtml=hasAll?'':`<div style="margin-top:8px;">
-    <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-family:var(--mono);font-weight:700;margin-bottom:5px;">🗺 Quick-tap table map (A–F × 1–6) — tap to add/remove</div>
-    <div class="cl-table-map">
-      ${['A','B','C','D','E','F'].map(t=>{
-        return Array.from({length:6},(_,n)=>{
-          const num=n+1;const k=t+'-'+num;
-          const sel=selectedTables.has(k);
-          return `<div class="cl-table-cell ${sel?'selected':''}" onclick="_toggleLocFromMap('${gh}','${cat}',${idx},'${t}',${num})">${t}${num}</div>`;
-        }).join('');
-      }).join('')}
-    </div>
-  </div>`;
+  // v2.46.229 — Removed redundant quick-tap A–F × 1–6 grid. The Table + No.
+  // dropdowns above already handle this (and support up to 32 tables per row,
+  // not just 6). Having both was confusing per ES BA feedback.
   return `<div class="loc-wrap">
     <div class="loc-title">📍 Problem Location</div>
     ${chips?`<div class="loc-chips">${chips}</div>`:''}
@@ -16258,7 +16594,6 @@ function buildLocPicker(gh,cat,idx,locs){
       <select class="loc-select" id="${pickerId}-n"><option value="">No.</option>${numOpts}</select>
       <button class="loc-add-btn" onclick="addLocSpecific('${gh}','${cat}',${idx},'${pickerId}')">+ Add</button>
     </div>`}
-    ${mapHtml}
     ${aiHtml}
     <div class="loc-note-wrap">
       <div class="loc-note-label">📝 Notes / Description</div>
@@ -16882,6 +17217,54 @@ function renderSup(){
       const active=s.seedlings===v;
       return `<button onclick="setSuperField('${gh}','seedlings','${v}',this.closest('.sup-card'))" style="font-size:10px;padding:3px 9px;border-radius:5px;border:1.5px solid ${active?col:'var(--border2)'};background:${active?bg:'none'};color:${active?col:'var(--text3)'};cursor:pointer;font-family:var(--sans);font-weight:600;">${label}</button>`;
     }).join('');
+    // v2.46.230 — Full Daily Checklist (all 11 sections from CATEGORIES) per GH,
+    // with auto-status from recurring task completions for linked items.
+    const supCheckHtml = (function(){
+      const isOpen = (window._supCheckOpen && window._supCheckOpen[gh]) || {};
+      const sections = CATEGORIES.map(catObj => {
+        const sum = getSupCatSummary(gh, catObj.id);
+        const open = !!isOpen[catObj.id];
+        const sevColor = sum.critical>0 ? 'var(--danger)' : sum.attention>0 ? 'var(--warn)' : sum.ok>0 ? 'var(--ok)' : 'var(--text3)';
+        const sevSummary = sum.critical>0 ? `<span style="color:var(--danger);font-weight:700;">${sum.critical}✗</span>` : '';
+        const warnSummary = sum.attention>0 ? `<span style="color:var(--warn);font-weight:700;margin-left:4px;">${sum.attention}⚠</span>` : '';
+        const okSummary = sum.ok>0 ? `<span style="color:var(--ok);font-weight:700;margin-left:4px;">${sum.ok}✓</span>` : '';
+        const autoTag = sum.auto>0 ? `<span style="color:#42a5f5;font-size:9px;font-weight:700;margin-left:5px;border:1px solid #42a5f566;padding:0 4px;border-radius:4px;">${sum.auto} auto</span>` : '';
+        // The header row of the section (always visible)
+        const header = `<div onclick="toggleSupCheckSection('${gh}','${catObj.id}')" style="display:flex;align-items:center;gap:6px;padding:7px 9px;background:var(--surface2);border:1px solid var(--border);border-left:3px solid ${sevColor};border-radius:6px;cursor:pointer;font-size:11px;margin-bottom:4px;">
+          <span style="font-size:13px;">${catObj.icon}</span>
+          <span style="flex:1;color:var(--text);font-weight:600;">${catObj.name}</span>
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text3);">${sum.ok+sum.attention+sum.critical}/${sum.total}</span>
+          ${sevSummary}${warnSummary}${okSummary}${autoTag}
+          <span style="color:var(--text3);font-size:10px;margin-left:4px;">${open?'▼':'▶'}</span>
+        </div>`;
+        if(!open) return header;
+        // The items inside the section (only rendered when open)
+        const itemsHtml = catObj.items.map((item, idx) => {
+          const eff = getEffectiveSupStatus(gh, catObj.id, item, idx);
+          const cur = eff ? eff.status : null;
+          const isAuto = eff && eff.auto;
+          const btnStyle = (val, label, color, bg) => {
+            const active = cur===val;
+            return `<button onclick="event.stopPropagation();toggleSupCheck('${gh}','${catObj.id}',${idx},'${val}')" style="font-size:9px;padding:2px 7px;border-radius:4px;border:1.5px solid ${active?color:'var(--border2)'};background:${active?bg:'transparent'};color:${active?color:'var(--text3)'};cursor:pointer;font-weight:700;font-family:var(--sans);" title="${label}">${label}</button>`;
+          };
+          const autoBadge = isAuto ? `<span style="color:#42a5f5;font-size:9px;font-weight:700;margin-left:5px;border:1px solid #42a5f566;padding:1px 5px;border-radius:4px;" title="Auto-filled from recurring task: ${eff.link.taskId}">auto</span>` : '';
+          return `<div style="display:flex;align-items:center;gap:6px;padding:5px 9px 5px 16px;font-size:11px;border-bottom:1px dashed rgba(255,255,255,0.04);">
+            <span style="flex:1;color:var(--text2);">${item}</span>${autoBadge}
+            <div style="display:flex;gap:3px;">
+              ${btnStyle('ok','✓','var(--ok)','#1b3a1c')}
+              ${btnStyle('attention','⚠','var(--warn)','#3a2800')}
+              ${btnStyle('critical','✗','var(--danger)','#3a0e0e')}
+            </div>
+          </div>`;
+        }).join('');
+        return header + `<div style="margin-bottom:6px;background:rgba(0,0,0,0.15);border:1px solid var(--border);border-radius:0 0 6px 6px;margin-top:-5px;">${itemsHtml}</div>`;
+      }).join('');
+      return `<div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">📋 Daily Supervisor Checklist (50 items, 11 sections)</div>
+        ${sections}
+      </div>`;
+    })();
+
     return `<div class="sup-card">
       <div class="sup-fac-name">${gh} ${issBadge}</div>
       <div style="margin-bottom:8px;">
@@ -16906,12 +17289,21 @@ function renderSup(){
           <span style="font-family:var(--mono);font-size:10px;${npIssueCount(gh,NUMBERED_PANELS.entrance).danger?'color:var(--danger);':npIssueCount(gh,NUMBERED_PANELS.entrance).warn?'color:var(--warn);':'color:var(--text3);'}">${npBadgeText(gh,NUMBERED_PANELS.entrance)}</span>
         </button>
       </div>
+      ${supCheckHtml}
       <div class="sup-tags">${tagHTML}</div>
       <textarea class="sup-textarea" placeholder="Supervisor remarks…" onchange="setSupNote('${gh}',this.value)">${s.supNote||''}</textarea>
       <textarea class="sup-textarea" style="min-height:96px;margin-top:6px;" placeholder="🥬 Lettuce Issues List — per-GH observations: roots, leaves, leaks, harvest, pipes, growth…" onchange="setSupNarrative('${gh}',this.value)">${s.supNarrative||''}</textarea>
     </div>`;
   }).join('');
 }
+
+// v2.46.230 — Toggle expansion state of a supervisor checklist section.
+window._supCheckOpen = window._supCheckOpen || {};
+window.toggleSupCheckSection = function(gh, catId){
+  if(!window._supCheckOpen[gh]) window._supCheckOpen[gh] = {};
+  window._supCheckOpen[gh][catId] = !window._supCheckOpen[gh][catId];
+  if(typeof renderSup === 'function') renderSup();
+};
 // =====================================================================
 // BIG FANS & ROOF FANS INSPECTION  (v2.46.31 — compact-picker rewrite)
 // =====================================================================
@@ -18563,6 +18955,7 @@ const MODULES={
       {id:'checklist',label:'Checklist',perm:null},
       {id:'supervisor',label:'Supervisor',perm:'viewSupervisor'},
       {id:'prod_recurring',label:'🔥 Recurring Tasks',perm:null,title:'Full management view of all 16 recurring cleaning tasks — today, week, history, missed-task report, stats, task drill-down'},
+      {id:'prod_open_calls',label:'📞 Open Calls',perm:null,title:'All open calls from Production module — live status, assignees, last update, critical/warning indicators. The dedicated home for the banner that used to appear on every page.'},
       {id:'training',label:'🎓 Training',perm:null,title:'5-level proficiency certification — supervisor sign-off, level-based pay rates, 16 tasks across all GHs'},
       {id:'prod_seeds',label:'🌾 Seed Studies',perm:null,title:'Hydroponic seed trials — track germination, growth, yield, commercial viability per variety/batch'},
       {id:'indoor_projects',label:'🏭 Indoor Projects',perm:null,title:'PRJ11 / PRJ12 lettuce daily checklist — per-table issue tracking (A1-A6, B1-B6) with supervisor controls'},
@@ -18580,7 +18973,8 @@ const MODULES={
       {id:'hr',label:'Employees',perm:'viewHR'},
       {id:'attendance',label:'⏰ Attendance',perm:'manageHR'},
       {id:'reconcile',label:'🔄 Reconcile',perm:'manageHR',title:'Fingerprint import & reconciliation'},
-      {id:'memos',label:'📋 Memos',perm:'manageHR'}
+      {id:'memos',label:'📋 Memos',perm:'manageHR'},
+      {id:'company_policies',label:'📁 Company Policies & Processes',perm:null,title:'Company-wide policies, SOPs, and processes organized by department. Imported from Google Drive folder structure. Add new or update existing.'}
     ]
   },
   // =========== PAYROLL ===========
@@ -18608,6 +19002,8 @@ const MODULES={
       {id:'maint_equipment',label:'⚙️ Equipment & Machines',perm:'viewMaintenance',title:'Hub for all equipment, machines, and inventory: radios, ozone, RO, tools, CCTV, IT computers/printers/TVs, cold storage, pumps, climate, dosing, lighting, CO₂, sensors, generators, vehicles, sprayers, packaging, PRJ11, NFT pipes, and Fans (Big Fans, Roof Fans, Exhaust/Cooling Pad).'},
       {id:'maint_parts',label:'🔩 Spare Parts',perm:'viewMaintenance',title:'Spare parts inventory — stock levels, reorder points, linked to specific equipment. Auto-decremented when used in a service log entry.'},
       {id:'maint_matrix',label:'📊 Calls Matrix',perm:'viewMaintenance',title:'Maintenance open calls organized by Subject × Department. Includes all auto-calls from equipment checks, NFT variance, PM scheduler, and parts reorders.'},
+      {id:'maint_recurring',label:'🔥 Recurring Tasks',perm:'viewMaintenance',title:'Maintenance recurring tasks — cleaning of plastic roofs, side plastic, cooling pads, screens, water lines, solar panels, roof gutters, road/fence, big industrial fans, roof exhaust fans, side plastics & pulley, metal corrosion. Today / Week / Month / History / Stats. Print supported.'},
+      {id:'maint_open_calls',label:'📞 Open Calls',perm:'viewMaintenance',title:'All open calls from Maintenance module — live status, assignees, last update, critical/warning indicators.'},
       {id:'maint_tech_per_gh',label:'🔧 Tech Issues per GH',perm:'viewMaintenance',title:'Same per-GH equipment matrix as Production. Mirrors the Production view so maintenance team sees and acts on the same calls.'},
       {id:'maint_irr_rooms',label:'💧 FR Matrix',perm:'viewMaintenance',title:'Fertilizer Room (FR) equipment matrix — same as Irrigation module → Rooms Equipment Matrix. 12 rooms × 21 equipment types. Calls raised here also appear in Irrigation module + My Calls Matrix.'},
       // Hidden views — accessed via the Equipment hub, NOT shown in top tab bar.
@@ -18650,6 +19046,8 @@ const MODULES={
       {id:'irr_systems',label:'🔬 Sensor Calibration',perm:'viewIrrigation'},
       {id:'irr_rooms_matrix',label:'💧 Rooms Equipment Matrix',perm:'viewIrrigation',title:'Irrigation rooms equipment matrix — pumps, drums, air system, controllers, RO/ozone/UV, filters, plumbing, drains, generator, shade. 12 rooms × 21 equipment types. All issues raise maintenance calls.'},
       {id:'irr_matrix',label:'📋 Irrigation Matrix',perm:'viewIrrigation',title:'Cross-pool indicator matrix — 20 indicators × all pools. Live data from Pool Monitor + Drum Levels + Equipment Matrix. Two views: 🌊 Pools × Indicators (default) and 📊 Issues × Rooms (legacy).'},
+      {id:'irr_recurring',label:'🔥 Recurring Tasks',perm:'viewIrrigation',title:'Irrigation recurring tasks — overhead tank flushing & filter cleaning, quarterly cleaning of overhead tank and 10K drums. Today / Week / Month / History / Stats. Print supported.'},
+      {id:'irr_open_calls',label:'📞 Open Calls',perm:'viewIrrigation',title:'All open calls from Irrigation module — live status, assignees, last update, critical/warning indicators.'},
       {id:'pool_setup',label:'⚙️ Pool & Drum Setup',perm:'viewIrrigation',title:'Per-pool thresholds: water level (max/min/crit), EC, pH, ozone target seconds, drift thresholds. Per-room drum thresholds (A/B/C). All values used to color-code 4x/day form readings live.'},
       // Hidden views — kept registered so old links still work, but not in top bar:
       {id:'irr_timeline',label:'📊 GH Timeline',perm:'viewIrrigation',hidden:true,title:'GH Timeline (now embedded in Pool Monitor history)'},
@@ -18691,7 +19089,9 @@ const MODULES={
       {id:'log_dash',label:'Dashboard',perm:'viewLogistics'},
       {id:'log_deliveries',label:'🚚 Deliveries',perm:'viewLogistics'},
       {id:'log_routes',label:'🗺️ Routes',perm:'viewLogistics'},
-      {id:'log_vehicles',label:'🚐 Dispatch',perm:'viewLogistics'}
+      {id:'log_vehicles',label:'🚐 Dispatch',perm:'viewLogistics'},
+      {id:'log_recurring',label:'🔥 Recurring Tasks',perm:'viewLogistics',title:'Logistics recurring tasks — delivery truck daily inspection & cleaning, e-bike harvest transport (Megabox) checks. Site-wide assets, not tied to specific greenhouses. Print supported.'},
+      {id:'log_open_calls',label:'📞 Open Calls',perm:'viewLogistics',title:'All open calls from Logistics module — live status, assignees, last update, critical/warning indicators.'}
     ]
   },
   crm:{
@@ -18739,7 +19139,8 @@ const MODULES={
     views:[
       {id:'qc_cmd',label:'🎯 Command Center',perm:'viewQuality',title:'QC Command Center · cameras + KPIs + AI Brain · cockpit view'},
       {id:'qc_dash',label:'Dashboard',perm:'viewQuality'},
-      {id:'qc_inspections',label:'🔍 Inspections',perm:'viewQuality'},
+      {id:'qc_prod_inspection',label:'🌱 Production Inspection',perm:'viewQuality',title:'Plant & crop inspection matrix — 10 inspection items × 14 GHs · daily checks. Plus aggregated flags: tasks not done, partly done, or done improperly across all modules.'},
+      {id:'qc_inspections',label:'🔍 Product Inspections',perm:'viewQuality'},
       {id:'qc_rejections',label:'❌ Rejections',perm:'viewQuality'},
       {id:'qc_standards',label:'📋 Standards',perm:'viewQuality'}
     ]
@@ -18788,6 +19189,7 @@ const MODULES={
     adminOnly:true,
     views:[
       {id:'sop_vault_admin',label:'🔒 SOP Vault',perm:'manageSecurity',title:'Secure SOP master vault — admin-only. Houses all Standard Operating Procedures; auto-syncs to relevant modules.'},
+      {id:'company_policies',label:'📁 Company Policies & Processes',perm:null,title:'Company-wide policies, SOPs, and processes organized by department. Imported from Google Drive folder structure. Add new or update existing.'},
       {id:'users',label:'Users',perm:'viewUsers'},
       {id:'geo_setup',label:'🌍 Geographic Setup',perm:'manageGeo',title:'Countries, clusters, sites'},
       {id:'email_routing',label:'📧 Email Routing',perm:'manageSecurity',title:'Per-module email addresses'},
@@ -18878,7 +19280,33 @@ function renderModuleHeader(modId){
   document.getElementById('modHeaderIcon').textContent=mod.icon;
   document.getElementById('modHeaderName').textContent=mod.name;
   const views=getVisibleViews(modId);
-  const tabs=views.map(v=>`<button class="module-sub-tab" id="modTab-${v.id}" onclick="switchView('${v.id}')" ${v.title?`title="${v.title}"`:''}>${v.label}</button>`).join('');
+  const tabs=views.map(v=>{
+    // v2.46.224 — dynamic count badge for `*_open_calls` tabs
+    let label=v.label;
+    if(/_open_calls$/.test(v.id)){
+      try{
+        const moduleForTab=typeof _moduleOfView==='function'?_moduleOfView(v.id):null;
+        const calls=(typeof loadCalls==='function')?loadCalls().filter(c=>{
+          if(typeof isCallClosed==='function'&&isCallClosed(c))return false;
+          const src=c.sourceModule||'';
+          if(!src)return false;
+          return typeof _moduleOfView==='function'?(_moduleOfView(src)===moduleForTab):false;
+        }):[];
+        const total=calls.length;
+        let crit=0,warn=0;
+        calls.forEach(c=>{
+          const p=(c.priority||c.severity||'').toLowerCase();
+          if(p==='crit'||p==='critical'||p==='high')crit++;
+          else if(p==='warn'||p==='warning'||p==='medium'||p==='med')warn++;
+        });
+        if(total>0){
+          const dotColor=crit>0?'#ef5350':(warn>0?'#ffa726':'#9ccc65');
+          label=`${v.label} <span style="display:inline-flex;align-items:center;gap:4px;margin-left:4px;padding:1px 7px;border-radius:9px;background:${dotColor}22;color:${dotColor};font-size:10px;font-weight:800;font-family:var(--mono);border:1px solid ${dotColor}55;">${total}${crit>0?' 🚨'+crit:''}${warn>0&&crit===0?' ⚠'+warn:''}</span>`;
+        }
+      }catch(e){}
+    }
+    return `<button class="module-sub-tab" id="modTab-${v.id}" onclick="switchView('${v.id}')" ${v.title?`title="${v.title}"`:''}>${label}</button>`;
+  }).join('');
   document.getElementById('modSubTabs').innerHTML=tabs;
 
   // HydroNexis-AI Brain banner — shown on every module page
@@ -19038,14 +19466,14 @@ function switchView(v,skipModuleCheck){
     hr:'manageHR',attendance:'manageHR',memos:'manageHR',reconcile:'manageHR',
     payroll_ops:'managePayroll',payroll_office:'managePayroll',payroll_history:'managePayroll',payroll_rates:'managePayroll',
     // New modules
-    maint_dash:'viewMaintenance',maint_tasks:'viewMaintenance',maint_calendar:'viewMaintenance',maint_materials:'viewMaintenance',maint_ozone:'viewMaintenance',maint_ro:'viewMaintenance',maint_radio:'viewMaintenance',maint_tools:'viewMaintenance',maint_equipment:'viewMaintenance',maint_nft:'viewMaintenance',maint_parts:'viewMaintenance',maint_matrix:'viewMaintenance',
+    maint_dash:'viewMaintenance',maint_tasks:'viewMaintenance',maint_calendar:'viewMaintenance',maint_materials:'viewMaintenance',maint_ozone:'viewMaintenance',maint_ro:'viewMaintenance',maint_radio:'viewMaintenance',maint_tools:'viewMaintenance',maint_equipment:'viewMaintenance',maint_nft:'viewMaintenance',maint_parts:'viewMaintenance',maint_matrix:'viewMaintenance',maint_recurring:'viewMaintenance',maint_open_calls:'viewMaintenance',
     it_cctv:'viewMaintenance',it_radios:'viewMaintenance',it_devices:'viewMaintenance',it_prj11:'viewMaintenance',
-    irr_dash:'viewIrrigation',irr_schedule:'viewIrrigation',irr_drums:'viewIrrigation',irr_nutrients:'viewIrrigation',irr_systems:'viewIrrigation',irr_smart_dose:'viewIrrigation',irr_ai_insights:'viewIrrigation',irr_predictions:'viewIrrigation',
+    irr_dash:'viewIrrigation',irr_schedule:'viewIrrigation',irr_drums:'viewIrrigation',irr_nutrients:'viewIrrigation',irr_systems:'viewIrrigation',irr_smart_dose:'viewIrrigation',irr_ai_insights:'viewIrrigation',irr_predictions:'viewIrrigation',irr_recurring:'viewIrrigation',irr_open_calls:'viewIrrigation',
     inv_dash:'viewInventory',inv_stock:'viewInventory',inv_movements:'viewInventory',inv_categories:'viewInventory',
     pack_dash:'viewPackaging',pack_materials:'viewPackaging',pack_operations:'viewPackaging',
-    log_dash:'viewLogistics',log_deliveries:'viewLogistics',log_routes:'viewLogistics',log_vehicles:'viewLogistics',
+    log_dash:'viewLogistics',log_deliveries:'viewLogistics',log_routes:'viewLogistics',log_vehicles:'viewLogistics',log_recurring:'viewLogistics',log_open_calls:'viewLogistics',
     crm_dash:'viewCRM',crm_reminders:'viewCRM',crm_leads:'viewCRM',crm_customers:'viewCRM',crm_marketing:'viewCRM',crm_pipeline:'viewCRM',crm_catalog:'viewCRM',crm_quotes:'viewCRM',crm_orders:'viewCRM',crm_sales:'viewCRM',
-    qc_dash:'viewQuality',qc_inspections:'viewQuality',qc_rejections:'viewQuality',qc_standards:'viewQuality',
+    qc_dash:'viewQuality',qc_inspections:'viewQuality',qc_rejections:'viewQuality',qc_standards:'viewQuality',qc_prod_inspection:'viewQuality',
     fleet_dash:'viewFleet',fleet_vehicles:'viewFleet',fleet_drivers:'viewFleet',fleet_fuel:'viewFleet',fleet_logistics_coord:'viewFleet',
     lic_dash:'viewLicenses',lic_registry:'viewLicenses',lic_expiring:'viewLicenses',lic_compliance:'viewLicenses',
     prj_dash:'viewProjects',prj_active:'viewProjects',prj_planning:'viewProjects',prj_completed:'viewProjects',
@@ -19088,6 +19516,7 @@ function switchView(v,skipModuleCheck){
   if(v==='attendance')renderAttendance();
   if(v==='reconcile')renderReconcile();
   if(v==='memos')renderMemos();
+  if(v==='company_policies'&&typeof renderCompanyPolicies==='function')renderCompanyPolicies();
   if(v==='training')renderTraining();
   if(v==='payroll_ops')renderPayrollOps();
   if(v==='payroll_office')renderPayrollOffice();
@@ -19096,6 +19525,8 @@ function switchView(v,skipModuleCheck){
   if(v==='history')renderHistory();
   if(v==='prod_pool_cleaning')renderPoolCleaning();
   if(v==='prod_recurring')renderRecurringHub();
+  if(v==='maint_recurring'||v==='irr_recurring'||v==='log_recurring')renderRecurringHub();
+  if(/_open_calls$/.test(v))renderModuleOpenCalls(v);
   if(v==='sop_vault_admin')renderSopVaultAdmin();
   if(/_cmd$/.test(v))renderModuleCommandCenter(v);
   if(v==='prod_seeds')renderSeedStudy();
@@ -19186,6 +19617,7 @@ function switchView(v,skipModuleCheck){
   if(v==='crm_sales')renderCRMSales();
   if(v==='qc_dash')renderQCDash();
   if(v==='qc_inspections')renderQCInspections();
+  if(v==='qc_prod_inspection')renderQCProdInspection();
   if(v==='qc_rejections')renderQCRejections();
   if(v==='qc_standards')renderQCStandards();
   if(v.startsWith('fleet_'))renderStubModule('fleet',v);
@@ -24244,7 +24676,425 @@ function previewReport(){
     w.document.write(`<p><strong>Schedule:</strong> ${formatSchedule(t)}</p>`);
     w.document.write(`<hr>`);
     w.document.write(`<pre>${body.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>`);
-    w.document.write(`</body></html>`);
+    w.document.write(`
+
+
+
+<!-- v2.46.240 · COMPANY POLICIES & PROCESSES MODULE · safer JS -->
+<style>
+  .cp-hero{background:linear-gradient(135deg,rgba(20,60,40,.55),rgba(8,30,18,.7));border:1px solid rgba(129,199,132,.30);border-radius:14px;padding:18px 22px;margin-bottom:18px;}
+  .cp-hero h2{margin:0;font-family:var(--mono);font-size:18px;letter-spacing:1.5px;color:#a5d6a7;text-transform:uppercase;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .cp-hero p{margin:8px 0 0;font-size:13px;color:var(--text2);line-height:1.55;}
+  .cp-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+  .cp-dept-select{flex:1;min-width:260px;padding:10px 14px;background:rgba(20,40,30,.6);border:1px solid rgba(129,199,132,.4);border-radius:8px;color:#e8f5e9;font-size:14px;font-family:var(--mono);font-weight:700;cursor:pointer;}
+  .cp-dept-select option{background:#0b1d12;color:#e8f5e9;font-family:var(--mono);}
+  .cp-search{flex:1;min-width:200px;padding:10px 14px;background:rgba(20,40,30,.4);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;}
+  .cp-btn{padding:9px 16px;border-radius:8px;background:linear-gradient(180deg,#2f9d4a,#1d6b32);border:1px solid #5fe07a;color:#eafff0;font-size:12px;font-weight:800;cursor:pointer;font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;white-space:nowrap;}
+  .cp-btn:hover{filter:brightness(1.15);}
+  .cp-btn-secondary{background:rgba(100,181,246,.18);border-color:#64b5f6;color:#64b5f6;}
+  .cp-btn-danger{background:rgba(239,83,80,.18);border-color:#ef5350;color:#ef5350;}
+  .cp-dept-header{display:flex;align-items:center;gap:14px;margin:18px 0 12px;padding:14px 18px;background:rgba(20,40,30,.5);border-left:4px solid #81c784;border-radius:8px;}
+  .cp-dept-icon{font-size:32px;line-height:1;}
+  .cp-dept-name{font-family:var(--mono);font-size:18px;font-weight:800;color:#a5d6a7;letter-spacing:1.2px;text-transform:uppercase;}
+  .cp-dept-meta{font-size:12px;color:var(--text2);margin-top:3px;}
+  .cp-section-h{font-family:var(--mono);font-size:11px;font-weight:800;color:#80deea;letter-spacing:1.4px;text-transform:uppercase;margin:18px 0 8px;}
+  .cp-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px;}
+  .cp-card{background:linear-gradient(135deg,rgba(20,40,30,.5),rgba(8,20,14,.7));border:1px solid var(--border);border-radius:11px;padding:14px;display:flex;flex-direction:column;gap:8px;}
+  .cp-card:hover{transform:translateY(-2px);border-color:rgba(129,199,132,.4);}
+  .cp-card-head{display:flex;align-items:flex-start;gap:10px;}
+  .cp-card-icon{font-size:24px;line-height:1;flex-shrink:0;width:38px;height:38px;display:flex;align-items:center;justify-content:center;background:rgba(100,181,246,.12);border:1px solid rgba(100,181,246,.3);border-radius:8px;}
+  .cp-card-icon.xlsx{background:rgba(129,199,132,.12);border-color:rgba(129,199,132,.35);}
+  .cp-card-icon.csv{background:rgba(255,167,38,.12);border-color:rgba(255,167,38,.35);}
+  .cp-card-icon.folder{background:rgba(255,202,82,.12);border-color:rgba(255,202,82,.4);}
+  .cp-card-icon.img{background:rgba(206,147,216,.12);border-color:rgba(206,147,216,.35);}
+  .cp-card-title{flex:1;font-size:13px;font-weight:600;color:#e8f5e9;line-height:1.35;word-break:break-word;}
+  .cp-card-meta{font-size:10.5px;color:var(--text3);font-family:var(--mono);display:flex;flex-wrap:wrap;gap:6px;}
+  .cp-card-meta span{padding:2px 7px;border-radius:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);}
+  .cp-card-meta .src-drive{background:rgba(100,181,246,.12);color:#64b5f6;border-color:rgba(100,181,246,.3);}
+  .cp-card-meta .src-local{background:rgba(129,199,132,.12);color:#81c784;border-color:rgba(129,199,132,.3);}
+  .cp-card-actions{display:flex;gap:6px;margin-top:auto;padding-top:8px;border-top:1px dashed rgba(255,255,255,.06);}
+  .cp-card-action{flex:1;padding:6px 10px;font-size:11px;font-weight:700;font-family:var(--mono);text-align:center;border-radius:6px;border:1px solid;cursor:pointer;background:transparent;text-decoration:none;}
+  .cp-card-action.view{color:#64b5f6;border-color:rgba(100,181,246,.4);}
+  .cp-card-action.view:hover{background:rgba(100,181,246,.15);}
+  .cp-card-action.update{color:#ffa726;border-color:rgba(255,167,38,.4);}
+  .cp-card-action.update:hover{background:rgba(255,167,38,.15);}
+  .cp-card-action.delete{color:#ef5350;border-color:rgba(239,83,80,.4);}
+  .cp-card-action.delete:hover{background:rgba(239,83,80,.15);}
+  .cp-empty{padding:36px;text-align:center;background:rgba(20,40,30,.3);border:1px dashed var(--border);border-radius:11px;color:var(--text3);font-size:13px;}
+  .cp-stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+  .cp-stat{flex:1;min-width:140px;background:rgba(20,40,30,.45);border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
+  .cp-stat-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1.2px;font-family:var(--mono);}
+  .cp-stat-val{font-size:24px;font-weight:800;color:#a5d6a7;font-family:var(--mono);margin-top:4px;}
+  .cp-stat-sub{font-size:11px;color:var(--text2);margin-top:2px;}
+  .cp-modal{position:fixed;inset:0;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;}
+  .cp-modal-box{background:linear-gradient(135deg,#0a1f12,#06140c);border:1px solid rgba(129,199,132,.4);border-radius:14px;padding:22px;max-width:520px;width:100%;max-height:88vh;overflow-y:auto;}
+  .cp-modal-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+  .cp-modal-h h3{margin:0;font-family:var(--mono);font-size:16px;color:#a5d6a7;letter-spacing:1.3px;text-transform:uppercase;}
+  .cp-modal-close{background:transparent;border:none;color:var(--text3);font-size:22px;cursor:pointer;line-height:1;}
+  .cp-modal-field{margin-bottom:12px;}
+  .cp-modal-field label{display:block;font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);margin-bottom:5px;}
+  .cp-modal-field input,.cp-modal-field select,.cp-modal-field textarea{width:100%;padding:9px 12px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box;}
+  .cp-modal-field textarea{min-height:80px;resize:vertical;}
+  .cp-modal-actions{display:flex;gap:8px;margin-top:18px;}
+</style>
+
+<script>
+(function(){
+  'use strict';
+  if (window.__CP_MODULE_LOADED__) return;
+  window.__CP_MODULE_LOADED__ = true;
+
+  var DEPARTMENTS = [
+    { id:'production',  name:'Production',     icon:'\ud83c\udf31', driveFolderId:'16fWRUWXt4KSBkoTkBb9Fd6PQuNoA8gOU' },
+    { id:'packaging',   name:'Packaging',      icon:'\ud83d\udce6', driveFolderId:'1ell97lpAvLArfeWsPBREdAfKrFrVHnyz' },
+    { id:'admin',       name:'Administration', icon:'\u2699\ufe0f', driveFolderId:'1LM6csACpp56sRCYs21WhRqOYzMC6R_eg' },
+    { id:'hr',          name:'HR & People',    icon:'\ud83d\udc65', driveFolderId:null },
+    { id:'maintenance', name:'Maintenance',    icon:'\ud83d\udd27', driveFolderId:null },
+    { id:'irrigation',  name:'Irrigation',     icon:'\ud83d\udca7', driveFolderId:null },
+    { id:'it',          name:'IT',             icon:'\ud83d\udcbb', driveFolderId:null },
+    { id:'logistics',   name:'Logistics',      icon:'\ud83d\ude9a', driveFolderId:null },
+    { id:'quality',     name:'Quality',        icon:'\u2705',       driveFolderId:null },
+    { id:'inventory',   name:'Inventory',      icon:'\ud83d\udccb', driveFolderId:null },
+    { id:'safety',      name:'Safety',         icon:'\ud83e\uddba', driveFolderId:null },
+    { id:'accounting',  name:'Accounting',     icon:'\ud83d\udcb0', driveFolderId:null }
+  ];
+
+  var SEED_DOCUMENTS = [
+    { dept:'production', kind:'policy',  title:'PRODUCTION policies \u2014 June 16 2025', driveId:'13MlMwEAFSOjchPkrui-6fpvwkVQVa2F3', mime:'xlsx', size:408974, modified:'2025-06-16', notes:'Main policy document \u2014 Nursery monitoring, rockwool placement, cleaning, harvesting, post-harvest, seedling preparation, pool cleaning across all 10 GHs.' },
+    { dept:'production', kind:'process', title:'Cleaning Pool Process \u2014 June 16 2025', driveId:'1VNtUAS9TEwAchCTzw2NBmeYIEt5DrFIV', mime:'xlsx', size:17092, modified:'2025-06-22', notes:'Step-by-step pool cleaning SOP \u2014 labor, prep, water removal, scrubbing, refill, EC/pH balancing.' },
+    { dept:'production', kind:'process', title:'25 Subtasks per Hydroponics Cleaning Task', driveId:'1VTxrkDactos__9wbzP3krOoGpBCYqWrF', mime:'csv', size:6091, modified:'2025-06-14', notes:'Detailed subtask breakdown for cooling pad, water lines, tables, black hose.' },
+    { dept:'production', kind:'process', title:'Hydroponics Cleaning Subtasks', driveId:'1_A9l7nrjcMbKc73WihEVqH3PiiksfqsE', mime:'csv', size:6055, modified:'2025-06-14', notes:'Subtask checklist for daily and periodic cleaning.' },
+    { dept:'production', kind:'process', title:'50 Daily NFT Hydroponics Tasks', driveId:'1bH6GgPKryeMBUI9qmLjPDMvM1sRJsge-', mime:'csv', size:2281, modified:'2025-06-14', notes:'50-item daily checklist for NFT operations.' },
+    { dept:'production', kind:'process', title:'Hydroponics Daily & Periodic Tasks', driveId:'1XUIsLKXoYb3D3kNZXaKWLa05qgl3M4_k', mime:'csv', size:5057, modified:'2025-06-14', notes:'Calendar-style task list \u2014 daily, weekly, periodic with frequencies.' },
+    { dept:'production', kind:'policy',  title:'OCULAR INSPECTION HYDRO MASTERLIST \u2014 Aug 15 2024', driveId:'1RQK_AmsLrvd03BvC7m52VLgDSBFTXNFs', mime:'xlsx', size:64435, modified:'2025-02-25', notes:'Master ocular inspection checklist \u2014 biometrics, uniform, equipment, daily ops, QC.' },
+    { dept:'production', kind:'policy',  title:'OCULAR INSPECTION HYDRO MASTERLIST \u2014 Aug 15 2024 (orig)', driveId:'1fmknh4oCoby-mQTX8_IBDfV4EvfAz4HI', mime:'xlsx', size:64110, modified:'2024-08-16', notes:'Original ocular inspection master list \u2014 pre-recovery version.' },
+    { dept:'production', kind:'policy',  title:'OCULAR INSPECTION MASTERLIST \u2014 Aug 15 2024', driveId:'1gp5uxZFWiZHJBJWFqvgq8ebo8eed1dY1', mime:'xlsx', size:311025, modified:'2024-08-15', notes:'Full labor checklist with GH1-GH10 columns \u2014 equipment, harvesting, pruning, trellising.' },
+    { dept:'production', kind:'policy',  title:'PRODUCTION policies and process \u2014 March 19 2024', driveId:'1u3v7WdNWmma-gpT4kj0rizn3JntMolu2', mime:'xlsx', size:80691, modified:'2025-02-25', notes:'Earlier production policies \u2014 seedling quantities, schedules, rockwool prep, pool cleaning.' },
+    { dept:'production', kind:'folder',  title:'Cleaning Pools (subfolder)', driveId:'13EIJtfLWly6H7dK1WePuI22ESkjdX2aW', mime:'folder', size:0, modified:'2025-06-30', notes:'Subfolder with additional pool cleaning materials.' },
+    { dept:'packaging', kind:'process', title:'Washed and Trimmed Process \u2014 June 18 2025', driveId:'1PyCf2Ngn-LSAkOtAdkmWqpeMAVKJMNzB', mime:'xlsx', size:7683833, modified:'2025-06-18', notes:'Complete W&T procedure \u2014 prep, ozone bath, trimming, washing, spinning, drying, mixing, packing, sealing, cold storage.' },
+    { dept:'packaging', kind:'process', title:'Washed and Trimmed Process \u2014 Dec 15 2024', driveId:'1on2xerfl9rthbDn8vN1CgMOlvk5tnYju', mime:'xlsx', size:7679104, modified:'2025-06-17', notes:'Previous W&T version \u2014 checklist format with key persons, status, materials.' },
+    { dept:'packaging', kind:'policy',  title:'Glide Monitoring Sheet (Combined)', driveId:'1scVGqkW5QDF9undR85zs8ev__LovQd1g', mime:'xlsx', size:8109, modified:'2025-06-28', notes:'Glide-app monitoring sheet for W&T + Pool Cleaning processes.' },
+    { dept:'packaging', kind:'process', title:'Glide Visual Mockups Upload Table', driveId:'1HANYcbMy1_mPfaCRAZecxHLMglUQvLSM', mime:'csv', size:392, modified:'2025-06-28', notes:'Visual mockup index for Glide app deployment.' },
+    { dept:'packaging', kind:'policy',  title:'W&T Process UI Mockup (Layout View)', driveId:'1KWkRnHsVs5kh6_c__YzL-YRQSjeO7FFb', mime:'png', size:1402038, modified:'2025-06-28', notes:'Mobile app screen \u2014 list view with toggle switches, task info, scheduled times.' },
+    { dept:'admin', kind:'policy',  title:'Vehicle Service Control Table \u2014 June 16 2025', driveId:'1QpIk6r3l_BtCmMvH9JkW7RV8qMwYX0A5', mime:'xlsx', size:11816, modified:'2025-06-16', notes:'Vehicle service monitoring \u2014 8 vehicles + heavy machinery + electric vehicles.' },
+    { dept:'admin', kind:'process', title:'Vehicle Maintenance Matrix', driveId:'1krGCVEBsLLNRhvLAT0BcohQiLHrf0ThV', mime:'xlsx', size:10299, modified:'2025-06-16', notes:'Vehicle maintenance schedule matrix \u2014 oil change, brakes, tires, battery, coolant, filters.' }
+  ];
+
+  var STORAGE_KEY = 'hnx_company_policies_v1';
+  var _cpState = { selectedDept:'production', search:'' };
+
+  function loadDocs(){
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        var seeded = SEED_DOCUMENTS.map(function(d, i){
+          var copy = {};
+          for (var k in d) copy[k] = d[k];
+          copy.id = 'cp_' + Date.now() + '_' + i;
+          copy.source = 'drive';
+          copy.addedAt = new Date().toISOString();
+          return copy;
+        });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded));
+        return seeded;
+      }
+      return JSON.parse(raw);
+    } catch(e) { console.warn('[CP] load', e); return []; }
+  }
+  function saveDocs(docs){
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(docs)); } catch(e){}
+  }
+  function escHtml(s){
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function fileIcon(mime){
+    if (mime === 'folder') return { emoji:'\ud83d\udcc1', cls:'folder' };
+    if (/xlsx|xls|sheet/i.test(mime)) return { emoji:'\ud83d\udcca', cls:'xlsx' };
+    if (/csv/i.test(mime)) return { emoji:'\ud83d\udccb', cls:'csv' };
+    if (/pdf/i.test(mime)) return { emoji:'\ud83d\udcd5', cls:'pdf' };
+    if (/doc/i.test(mime)) return { emoji:'\ud83d\udcc4', cls:'doc' };
+    if (/png|jpg|jpeg|image/i.test(mime)) return { emoji:'\ud83d\uddbc\ufe0f', cls:'img' };
+    return { emoji:'\ud83d\udcce', cls:'' };
+  }
+  function fmtSize(b){
+    if (!b) return '\u2014';
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+    return (b/1048576).toFixed(1) + ' MB';
+  }
+  function fmtDate(s){
+    if (!s) return '\u2014';
+    try { return new Date(s).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }); }
+    catch(e) { return s; }
+  }
+  function driveUrl(driveId, mime){
+    if (!driveId) return '#';
+    if (mime === 'folder') return 'https://drive.google.com/drive/folders/' + driveId;
+    return 'https://drive.google.com/file/d/' + driveId + '/view?usp=drivesdk';
+  }
+  function buildDocCard(d){
+    var ic = fileIcon(d.mime);
+    var src = d.source === 'drive' ? 'Drive' : (d.source === 'local' ? 'Local' : 'Manual');
+    var srcClass = d.source === 'drive' ? 'src-drive' : 'src-local';
+    var viewLink = d.driveId ? driveUrl(d.driveId, d.mime) : '#';
+    var h = '';
+    h += '<div class="cp-card" data-id="' + escHtml(d.id) + '">';
+    h +=   '<div class="cp-card-head">';
+    h +=     '<div class="cp-card-icon ' + ic.cls + '">' + ic.emoji + '</div>';
+    h +=     '<div class="cp-card-title">' + escHtml(d.title) + '</div>';
+    h +=   '</div>';
+    if (d.notes) h += '<div style="font-size:11.5px;color:var(--text2);line-height:1.45;">' + escHtml(d.notes) + '</div>';
+    h +=   '<div class="cp-card-meta">';
+    h +=     '<span class="' + srcClass + '">' + src + '</span>';
+    h +=     (d.mime === 'folder' ? '<span>FOLDER</span>' : '<span>' + escHtml(String(d.mime || 'file').toUpperCase()) + '</span>');
+    if (d.size) h += '<span>' + fmtSize(d.size) + '</span>';
+    if (d.modified) h += '<span>\ud83d\udcc5 ' + fmtDate(d.modified) + '</span>';
+    h +=   '</div>';
+    h +=   '<div class="cp-card-actions">';
+    h +=     '<a href="' + viewLink + '" target="_blank" rel="noopener" class="cp-card-action view">\ud83d\udc41 View</a>';
+    h +=     '<button class="cp-card-action update" onclick="window.cpUpdateDoc(\'' + escHtml(d.id) + '\')">\u270f Update</button>';
+    h +=     '<button class="cp-card-action delete" onclick="window.cpDeleteDoc(\'' + escHtml(d.id) + '\')">\ud83d\uddd1 Archive</button>';
+    h +=   '</div>';
+    h += '</div>';
+    return h;
+  }
+
+  function renderCompanyPolicies(){
+    var target = document.getElementById('companyPoliciesBody');
+    if (!target) return;
+    var docs = loadDocs();
+    var dept = null;
+    for (var i = 0; i < DEPARTMENTS.length; i++) {
+      if (DEPARTMENTS[i].id === _cpState.selectedDept) { dept = DEPARTMENTS[i]; break; }
+    }
+    if (!dept) dept = DEPARTMENTS[0];
+
+    var search = (_cpState.search || '').toLowerCase().trim();
+    var deptDocs = docs.filter(function(d){
+      if (d.dept !== dept.id) return false;
+      if (!search) return true;
+      return (d.title || '').toLowerCase().indexOf(search) >= 0
+          || (d.notes || '').toLowerCase().indexOf(search) >= 0;
+    });
+    var policies = deptDocs.filter(function(d){ return d.kind === 'policy'; });
+    var processes = deptDocs.filter(function(d){ return d.kind === 'process'; });
+    var folders = deptDocs.filter(function(d){ return d.kind === 'folder'; });
+
+    var totalDocs = docs.length;
+    var deptSet = {}; docs.forEach(function(d){ deptSet[d.dept] = 1; });
+    var totalDepts = 0; for (var k in deptSet) totalDepts++;
+    var driveDocs = docs.filter(function(d){ return d.source === 'drive'; }).length;
+    var localDocs = docs.filter(function(d){ return d.source === 'local' || d.source === 'manual'; }).length;
+
+    var deptOptions = DEPARTMENTS.map(function(d){
+      var count = docs.filter(function(x){ return x.dept === d.id; }).length;
+      var tag = count > 0 ? ' (' + count + ')' : '';
+      var sel = d.id === dept.id ? ' selected' : '';
+      return '<option value="' + d.id + '"' + sel + '>' + d.icon + ' ' + d.name + tag + '</option>';
+    }).join('');
+
+    var h = '';
+    h += '<div class="cp-hero">';
+    h +=   '<h2>\ud83d\udcc1 Company Policies & Processes <span style="font-size:11px;color:var(--text3);letter-spacing:1px;">v2.46.240</span></h2>';
+    h +=   '<p>All company policies, procedures, and SOPs \u2014 organized by department. Imported from your Google Drive master folder "New process 2025" on 2026-05-15. ';
+    h +=   'Click View to open in Drive, Update to replace with a newer version (history kept), Archive to soft-remove. Use the dropdown below to switch departments.</p>';
+    h += '</div>';
+
+    h += '<div class="cp-stats">';
+    h +=   '<div class="cp-stat"><div class="cp-stat-label">Total Documents</div><div class="cp-stat-val">' + totalDocs + '</div><div class="cp-stat-sub">across ' + totalDepts + ' active depts</div></div>';
+    h +=   '<div class="cp-stat"><div class="cp-stat-label">From Google Drive</div><div class="cp-stat-val" style="color:#64b5f6;">' + driveDocs + '</div><div class="cp-stat-sub">linked to original</div></div>';
+    h +=   '<div class="cp-stat"><div class="cp-stat-label">Manually Added</div><div class="cp-stat-val" style="color:#81c784;">' + localDocs + '</div><div class="cp-stat-sub">uploaded via UI</div></div>';
+    h +=   '<div class="cp-stat"><div class="cp-stat-label">Selected Dept</div><div class="cp-stat-val" style="color:#ffa726;font-size:16px;line-height:1.2;">' + dept.icon + ' ' + dept.name + '</div><div class="cp-stat-sub">' + deptDocs.length + ' docs</div></div>';
+    h += '</div>';
+
+    h += '<div class="cp-controls">';
+    h +=   '<select class="cp-dept-select" onchange="window.cpSelectDept(this.value)">' + deptOptions + '</select>';
+    h +=   '<input type="text" class="cp-search" placeholder="\ud83d\udd0d Search in ' + escHtml(dept.name) + '..." value="' + escHtml(_cpState.search || '') + '" oninput="window.cpSearch(this.value)">';
+    h +=   '<button class="cp-btn" onclick="window.cpAddDoc()">+ Add New</button>';
+    if (dept.driveFolderId) {
+      h += '<a href="' + driveUrl(dept.driveFolderId, 'folder') + '" target="_blank" rel="noopener" class="cp-btn cp-btn-secondary" style="text-decoration:none;display:inline-block;">\ud83d\udcc1 Drive Folder</a>';
+    }
+    h +=   '<button class="cp-btn cp-btn-secondary" style="margin-left:auto;" onclick="window.cpPrint()">\ud83d\udda8 Print</button>';
+    h += '</div>';
+
+    h += '<div class="cp-dept-header">';
+    h +=   '<div class="cp-dept-icon">' + dept.icon + '</div>';
+    h +=   '<div>';
+    h +=     '<div class="cp-dept-name">' + escHtml(dept.name) + '</div>';
+    h +=     '<div class="cp-dept-meta">' + policies.length + ' policies \u00b7 ' + processes.length + ' processes \u00b7 ' + folders.length + ' folders';
+    h +=     (dept.driveFolderId ? ' \u00b7 synced from Drive' : ' \u00b7 awaiting Drive folder');
+    h +=     '</div>';
+    h +=   '</div>';
+    h += '</div>';
+
+    if (deptDocs.length === 0) {
+      h += '<div class="cp-empty">No documents in ' + escHtml(dept.name) + ' yet.<br><br>Click <strong>+ Add New</strong> to add one';
+      if (dept.driveFolderId) h += ', or <a href="' + driveUrl(dept.driveFolderId, 'folder') + '" target="_blank" style="color:#64b5f6;">browse the Drive folder</a>';
+      h += '.</div>';
+    } else {
+      if (policies.length) {
+        h += '<div class="cp-section-h">\ud83d\udcdc Policies <span style="font-size:10px;color:var(--text3);">(' + policies.length + ')</span></div>';
+        h += '<div class="cp-list">' + policies.map(buildDocCard).join('') + '</div>';
+      }
+      if (processes.length) {
+        h += '<div class="cp-section-h">\u2699\ufe0f Processes / SOPs <span style="font-size:10px;color:var(--text3);">(' + processes.length + ')</span></div>';
+        h += '<div class="cp-list">' + processes.map(buildDocCard).join('') + '</div>';
+      }
+      if (folders.length) {
+        h += '<div class="cp-section-h">\ud83d\udcc1 Subfolders <span style="font-size:10px;color:var(--text3);">(' + folders.length + ')</span></div>';
+        h += '<div class="cp-list">' + folders.map(buildDocCard).join('') + '</div>';
+      }
+    }
+
+    target.innerHTML = h;
+  }
+  window.renderCompanyPolicies = renderCompanyPolicies;
+
+  window.cpSelectDept = function(deptId){
+    _cpState.selectedDept = deptId;
+    _cpState.search = '';
+    renderCompanyPolicies();
+  };
+  window.cpSearch = function(q){
+    _cpState.search = q;
+    requestAnimationFrame(renderCompanyPolicies);
+  };
+  window.cpPrint = function(){
+    if (window.hpPrintView) {
+      window.hpPrintView('view-company_policies', { title:'Company Policies', module:'Admin/HR' });
+    } else {
+      window.print();
+    }
+  };
+
+  window.cpAddDoc = function(){
+    var deptOpts = DEPARTMENTS.map(function(d){
+      var sel = d.id === _cpState.selectedDept ? ' selected' : '';
+      return '<option value="' + d.id + '"' + sel + '>' + d.icon + ' ' + d.name + '</option>';
+    }).join('');
+    var body = '';
+    body += '<div class="cp-modal-field"><label>Title</label><input id="cpModalTitle" placeholder="e.g. HR Leave Policy 2026"></div>';
+    body += '<div class="cp-modal-field"><label>Department</label><select id="cpModalDept">' + deptOpts + '</select></div>';
+    body += '<div class="cp-modal-field"><label>Type</label><select id="cpModalKind"><option value="policy">\ud83d\udcdc Policy</option><option value="process">\u2699\ufe0f Process / SOP</option><option value="folder">\ud83d\udcc1 Folder</option></select></div>';
+    body += '<div class="cp-modal-field"><label>Google Drive link or file ID (optional)</label><input id="cpModalDriveLink" placeholder="https://drive.google.com/file/d/..."></div>';
+    body += '<div class="cp-modal-field"><label>Notes / description</label><textarea id="cpModalNotes" placeholder="What this policy covers..."></textarea></div>';
+    showModal('Add Policy or Process', body, function(){
+      var title = (document.getElementById('cpModalTitle').value || '').trim();
+      if (!title) { alert('Please enter a title.'); return false; }
+      var driveLink = (document.getElementById('cpModalDriveLink').value || '').trim();
+      var driveId = null;
+      if (driveLink) {
+        var m = driveLink.match(/\/(?:file\/d|folders|d)\/([a-zA-Z0-9_-]+)/);
+        if (!m) m = driveLink.match(/^([a-zA-Z0-9_-]{20,})$/);
+        if (m) driveId = m[1];
+      }
+      var newDoc = {
+        id: 'cp_' + Date.now() + '_' + Math.floor(Math.random()*999),
+        dept: document.getElementById('cpModalDept').value,
+        kind: document.getElementById('cpModalKind').value,
+        title: title,
+        notes: (document.getElementById('cpModalNotes').value || '').trim(),
+        driveId: driveId,
+        mime: driveId ? 'file' : 'manual',
+        source: driveId ? 'drive' : 'manual',
+        size: 0,
+        modified: new Date().toISOString().slice(0,10),
+        addedAt: new Date().toISOString()
+      };
+      var docs = loadDocs();
+      docs.push(newDoc);
+      saveDocs(docs);
+      _cpState.selectedDept = newDoc.dept;
+      renderCompanyPolicies();
+      return true;
+    });
+  };
+
+  window.cpUpdateDoc = function(id){
+    var docs = loadDocs();
+    var d = null;
+    for (var i = 0; i < docs.length; i++) if (docs[i].id === id) { d = docs[i]; break; }
+    if (!d) return;
+    var body = '';
+    body += '<div style="background:rgba(100,181,246,.10);border:1px solid rgba(100,181,246,.3);border-radius:8px;padding:10px;margin-bottom:14px;font-size:12px;color:var(--text2);">Updating: <strong style="color:#e8f5e9;">' + escHtml(d.title) + '</strong></div>';
+    body += '<div class="cp-modal-field"><label>New title (optional)</label><input id="cpModalTitle" value="' + escHtml(d.title || '') + '"></div>';
+    body += '<div class="cp-modal-field"><label>New Google Drive link / file ID (optional)</label><input id="cpModalDriveLink" placeholder="' + escHtml(d.driveId || 'leave blank to keep current') + '"></div>';
+    body += '<div class="cp-modal-field"><label>Notes / change description</label><textarea id="cpModalNotes">' + escHtml(d.notes || '') + '</textarea></div>';
+    showModal('Update Document', body, function(){
+      var newTitle = (document.getElementById('cpModalTitle').value || '').trim();
+      var newDriveLink = (document.getElementById('cpModalDriveLink').value || '').trim();
+      var newNotes = (document.getElementById('cpModalNotes').value || '').trim();
+      if (!d.history) d.history = [];
+      d.history.push({ ts:new Date().toISOString(), prevTitle:d.title, prevDriveId:d.driveId, prevNotes:d.notes });
+      if (newTitle) d.title = newTitle;
+      if (newDriveLink) {
+        var m = newDriveLink.match(/\/(?:file\/d|folders|d)\/([a-zA-Z0-9_-]+)/);
+        if (!m) m = newDriveLink.match(/^([a-zA-Z0-9_-]{20,})$/);
+        if (m) { d.driveId = m[1]; d.source = 'drive'; }
+      }
+      d.notes = newNotes;
+      d.modified = new Date().toISOString().slice(0,10);
+      saveDocs(docs);
+      renderCompanyPolicies();
+      return true;
+    });
+  };
+
+  window.cpDeleteDoc = function(id){
+    if (!confirm('Archive this document? It will be removed from the list.')) return;
+    var docs = loadDocs().filter(function(d){ return d.id !== id; });
+    saveDocs(docs);
+    renderCompanyPolicies();
+  };
+
+  function showModal(title, bodyHtml, onSave){
+    var old = document.getElementById('cpModalOverlay');
+    if (old) old.remove();
+    var ov = document.createElement('div');
+    ov.id = 'cpModalOverlay';
+    ov.className = 'cp-modal';
+    var inner = '';
+    inner += '<div class="cp-modal-box">';
+    inner +=   '<div class="cp-modal-h"><h3>' + escHtml(title) + '</h3>';
+    inner +=     '<button class="cp-modal-close" onclick="var o=document.getElementById(\'cpModalOverlay\');if(o)o.remove();">\u2715</button>';
+    inner +=   '</div>';
+    inner +=   bodyHtml;
+    inner +=   '<div class="cp-modal-actions">';
+    inner +=     '<button class="cp-btn cp-btn-danger" onclick="var o=document.getElementById(\'cpModalOverlay\');if(o)o.remove();">Cancel</button>';
+    inner +=     '<button class="cp-btn" id="cpModalSave" style="margin-left:auto;">Save</button>';
+    inner +=   '</div>';
+    inner += '</div>';
+    ov.innerHTML = inner;
+    document.body.appendChild(ov);
+    document.getElementById('cpModalSave').onclick = function(){
+      if (onSave) {
+        var ok = onSave();
+        if (ok !== false) {
+          var o = document.getElementById('cpModalOverlay');
+          if (o) o.remove();
+        }
+      } else {
+        var o = document.getElementById('cpModalOverlay');
+        if (o) o.remove();
+      }
+    };
+    ov.addEventListener('click', function(e){ if (e.target === ov) ov.remove(); });
+  }
+
+  function boot(){
+    loadDocs();
+    console.log('[CP] Company Policies module ready v2.46.240');
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>
+<!-- END COMPANY POLICIES & PROCESSES MODULE -->
+
+
+</body></html>`);
     w.document.close();
   }
 }
@@ -66532,7 +67382,7 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.219-matrix-flipped';  // ✨ STAGE CARDS — strong motion pass. User noted the motion needed to be more visible. (1) KEN BURNS ZOOM — each poster now has a slow background-size+position drift (16s alternating, 106%→114% scale, slight position pan), so the image itself feels alive even when other animations are subtle. (2) BIGGER AURA — opacity .7→.85, inset -20%→-25%, breathing scale .96-1.04→.92-1.08, gradient inner stop opacity bumped (.45→.7 green, .55→.85 gold, .45→.7 cyan). Now visibly pulsing rather than just shimmering. (3) FASTER SHINE — 5.5s→4s base, 3.5s→2.4s active. Brighter highlight band (.35→.5 opacity, .15→.18 sides; gold .2→.28, .45→.6). Added mid-keyframe so motion feels smoother. (4) MORE PARTICLES — 4-5 → 6-8 per card. Particle size 6px→8px, glow shadows 8/14px→12/22px (much brighter halo). Pulse animation amplitude .4→.3 to 1.2→1.4 (deeper breathing). (5) RING — 1.5px→1.8px, glow inset 16px→22px, color amplitude .4↔.85 (more dramatic), animation 2.4s→2s. (6) NEW: animated rim glow on every card via ::before pseudo-element with hue-rotate filter sweeping every 2.6s active / 4s done / 5s future — gives each card an outer breathing color halo independent of the inner aura. (7) TITLE PULSE — active card title now pulses opacity .85↔1 with text-shadow expanding 10px→18px every 1.6s. (8) Total motion sources per card: Ken Burns zoom + aura breath + shine sweep + ring breath (active) + 6-8 particles + outer rim sweep + title pulse (active) = 7 layered animations. Now clearly visible.
+const APP_VERSION='2.46.240-company-policies-module';  // ✨ STAGE CARDS — strong motion pass. User noted the motion needed to be more visible. (1) KEN BURNS ZOOM — each poster now has a slow background-size+position drift (16s alternating, 106%→114% scale, slight position pan), so the image itself feels alive even when other animations are subtle. (2) BIGGER AURA — opacity .7→.85, inset -20%→-25%, breathing scale .96-1.04→.92-1.08, gradient inner stop opacity bumped (.45→.7 green, .55→.85 gold, .45→.7 cyan). Now visibly pulsing rather than just shimmering. (3) FASTER SHINE — 5.5s→4s base, 3.5s→2.4s active. Brighter highlight band (.35→.5 opacity, .15→.18 sides; gold .2→.28, .45→.6). Added mid-keyframe so motion feels smoother. (4) MORE PARTICLES — 4-5 → 6-8 per card. Particle size 6px→8px, glow shadows 8/14px→12/22px (much brighter halo). Pulse animation amplitude .4→.3 to 1.2→1.4 (deeper breathing). (5) RING — 1.5px→1.8px, glow inset 16px→22px, color amplitude .4↔.85 (more dramatic), animation 2.4s→2s. (6) NEW: animated rim glow on every card via ::before pseudo-element with hue-rotate filter sweeping every 2.6s active / 4s done / 5s future — gives each card an outer breathing color halo independent of the inner aura. (7) TITLE PULSE — active card title now pulses opacity .85↔1 with text-shadow expanding 10px→18px every 1.6s. (8) Total motion sources per card: Ken Burns zoom + aura breath + shine sweep + ring breath (active) + 6-8 particles + outer rim sweep + title pulse (active) = 7 layered animations. Now clearly visible.
 const APP_BUILD=1779820000;
 const APP_BUILD_DATE='2026-05-15';
 
@@ -68812,6 +69662,9 @@ function refreshModuleCallsBanner(){
   // Remove any existing banners across all views (we only want one active)
   document.querySelectorAll('.module-calls-banner-host').forEach(x=>x.remove());
   if(!v)return;
+  // v2.46.224 — banner only shows on dedicated `*_open_calls` views per module.
+  // Stops the redundant banner from cluttering every module page.
+  if(!/_open_calls$/.test(v))return;
   const view=document.getElementById('view-'+v)||document.querySelector('.view.active');
   if(!view)return;
   const currentModule=_moduleOfView(v);
@@ -68863,6 +69716,74 @@ function _trackCurrentView(v){
   // Re-render after the view is rendered (gives existing renderers time to populate)
   setTimeout(refreshModuleCallsBanner,80);
   setTimeout(refreshModuleCallsBanner,400);
+}
+
+// v2.46.224 — Dedicated Open Calls view per module (replaces per-page banner)
+function renderModuleOpenCalls(viewId){
+  const view=document.getElementById('view-'+viewId);
+  if(!view)return;
+  const moduleForTab=_moduleOfView(viewId);
+  const META={production:{label:'Production',icon:'🌱',color:'#9ccc65'},
+              maintenance:{label:'Maintenance',icon:'🔧',color:'#42a5f5'},
+              irrigation:{label:'Irrigation',icon:'💧',color:'#4dd0e1'},
+              logistics:{label:'Logistics',icon:'🚚',color:'#ffa726'}};
+  const meta=META[moduleForTab]||{label:moduleForTab||'Module',icon:'📞',color:'#cfd8dc'};
+  const all=(typeof loadCalls==='function')?loadCalls():[];
+  const calls=all.filter(c=>{
+    if(typeof isCallClosed==='function'&&isCallClosed(c))return false;
+    const src=c.sourceModule||'';
+    if(!src)return false;
+    return _moduleOfView(src)===moduleForTab;
+  });
+  calls.sort((a,b)=>{
+    const rank=p=>{p=(p||'').toLowerCase();return (p==='crit'||p==='critical'||p==='high')?0:(p==='warn'||p==='warning'||p==='medium'||p==='med')?1:2;};
+    const r=rank(a.priority||a.severity)-rank(b.priority||b.severity);if(r)return r;
+    return new Date(b.createdAt||b.date||0)-new Date(a.createdAt||a.date||0);
+  });
+  let crit=0,warn=0;
+  calls.forEach(c=>{const p=(c.priority||c.severity||'').toLowerCase();
+    if(p==='crit'||p==='critical'||p==='high')crit++;
+    else if(p==='warn'||p==='warning'||p==='medium'||p==='med')warn++;
+  });
+  const escFn=v=>String(v||'').replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[ch]);
+  const printBtn=`<button onclick="window.hpPrintView&&window.hpPrintView('view-${viewId}',{title:'Open Calls',module:'${meta.label}'})" style="margin-left:auto;padding:8px 16px;background:linear-gradient(180deg,#2f9d4a,#1d6b32);border:1px solid #5fe07a;border-radius:8px;color:#eafff0;font-size:13px;font-weight:800;cursor:pointer;font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;box-shadow:0 0 12px rgba(95,224,122,0.3);">🖨 Print</button>`;
+  if(!calls.length){
+    view.innerHTML=`<div class="section-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">📞 ${meta.label} — Open Calls
+      <span style="font-size:11px;color:#9ccc65;font-weight:400;">— 0 open · all clear ✓</span>${printBtn}</div>
+      <div style="padding:36px;background:var(--surface);border:1px solid var(--border);border-radius:10px;text-align:center;color:var(--text3);font-size:13px;">
+        <div style="font-size:46px;margin-bottom:10px;">✓</div>No open calls from ${meta.label}. All issues resolved.</div>`;
+    return;
+  }
+  const cards=calls.map(c=>{
+    const p=(c.priority||c.severity||'').toLowerCase();
+    const isCrit=p==='crit'||p==='critical'||p==='high';
+    const isWarn=p==='warn'||p==='warning'||p==='medium'||p==='med';
+    const pColor=isCrit?'#ef5350':isWarn?'#ffa726':'#9ccc65';
+    const pLabel=isCrit?'🚨 CRITICAL':isWarn?'⚠ WARNING':'• Normal';
+    const st=(typeof getCallStatus==='function')?getCallStatus(c):'open';
+    const stCls=(typeof statusCssClass==='function')?statusCssClass(st):'';
+    const stLabel=(typeof statusLabel==='function')?statusLabel(st):st;
+    const assignees=(typeof getCallAssignees==='function')?getCallAssignees(c):[];
+    const upd=(c.updates||[]).length;
+    const last=upd?c.updates[c.updates.length-1]:null;
+    return `<div onclick="if(typeof viewCallDetail==='function')viewCallDetail('${c.id}')" style="padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-left:4px solid ${pColor};border-radius:8px;margin-bottom:8px;cursor:pointer;transition:transform 0.1s;" onmouseover="this.style.transform='translateX(2px)'" onmouseout="this.style.transform='translateX(0)'">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+        <span style="padding:3px 9px;border-radius:5px;background:${pColor}22;color:${pColor};border:1px solid ${pColor}55;font-size:10px;font-weight:800;font-family:var(--mono);">${pLabel}</span>
+        <span class="call-status-pill ${stCls}" style="font-size:10px;">${escFn(stLabel)}</span>
+        <span style="font-size:14px;font-weight:700;color:var(--text);">${escFn(c.subject||'')}</span>
+        <span style="margin-left:auto;font-size:10px;color:var(--text3);font-family:var(--mono);">${escFn(c.createdAt||c.date||'')}</span>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text2);">
+        ${assignees.length?`<span>👤 ${escFn(assignees.join(', '))}</span>`:'<span style="color:var(--text3);font-style:italic;">unassigned</span>'}
+        ${upd?`<span style="color:var(--info);">💬 ${upd} update${upd>1?'s':''}</span>`:''}
+        ${last?`<span style="color:var(--text3);">last (${escFn(last.date||'')}): ${escFn((last.note||'').slice(0,80))}${(last.note||'').length>80?'…':''}</span>`:''}
+      </div>
+    </div>`;
+  }).join('');
+  view.innerHTML=`<div class="section-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">📞 ${meta.label} — Open Calls
+    <span style="font-size:11px;color:var(--text3);font-weight:400;">— ${calls.length} open${crit?' · <span style="color:#ef5350;font-weight:700;">'+crit+' critical</span>':''}${warn?' · <span style="color:#ffa726;font-weight:700;">'+warn+' warning</span>':''}</span>${printBtn}</div>
+    <div style="margin-bottom:12px;padding:10px 14px;background:var(--surface2);border-left:3px solid ${meta.color};border-radius:7px;font-size:11px;color:var(--text2);">Calls listed below are sorted by severity then recency. Click any card to open detail. The banner that used to appear at the top of every page now lives here only.</div>
+    <div>${cards}</div>`;
 }
 
 // ============= FLEET GPS =============
@@ -119750,7 +120671,9 @@ body.hnx-mobile-locked { overflow: hidden; }
 .hnx-ghm-c.not_done{background:linear-gradient(180deg,#ff7a6a,#c43122);color:#fff;box-shadow:0 0 7px rgba(255,90,74,0.5);}
 .hnx-ghm-c.na{background:transparent;border:1px dashed rgba(76,175,80,0.16);width:24px;height:24px;}
 .hnx-ghm-c.site{font-size:8px;letter-spacing:.3px;}
-.hnx-ghm-dot{position:absolute;top:-4px;right:-4px;width:8px;height:8px;border-radius:50%;background:#84e0d8;border:1.5px solid #0d1711;}
+.hnx-ghm-dot{position:absolute;top:-4px;right:-4px;width:8px;height:8px;border-radius:50%;background:#84e0d8;border:1.5px solid #0d1711;pointer-events:none;}
+.hnx-ghm-bk{position:absolute;bottom:-5px;right:-5px;min-width:16px;height:14px;padding:0 3px;border-radius:7px;background:linear-gradient(180deg,#42a5f5,#1976d2);border:1.5px solid #0d1711;color:#fff;font-size:9px;font-weight:800;line-height:14px;text-align:center;font-family:var(--mono,monospace);box-shadow:0 0 4px rgba(66,165,245,0.6);pointer-events:none;}
+.hnx-ghm-c.carryover{position:relative;}
 .hnx-ghm-empty{padding:30px 18px;text-align:center;color:#7a9b80;font-size:13px;}
 .hnx-ghw-day{padding:7px 4px;font-size:9.5px;font-weight:800;color:#9fd4a4;font-family:var(--mono,monospace);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid rgba(76,175,80,0.28);min-width:78px;}
 .hnx-ghw-day.today{color:#6ae585;}
@@ -119830,10 +120753,179 @@ body.hnx-mobile-locked { overflow: hidden; }
   }
   function shortName(n){return String(n||'').replace(/^Cleaning of /i,'').replace(/ greenhouses?$/i,'');}
 
+  // ── v2.46.225 — Backlog (carry-over) computation ──
+  // For each (taskId, gh) pair, count how many past days (within lookback window)
+  // the task was scheduled but is still 'todo' or 'not_done'. Returns
+  // { taskId: { gh: { count, oldestISO } } }.
+  function isoOfDate(d){var z=new Date(d.getTime()-d.getTimezoneOffset()*60000);return z.toISOString().slice(0,10);}
+  function computeBacklog(lookbackDays){
+    lookbackDays=lookbackDays||7;
+    var map={};
+    var today=new Date(); today.setHours(12,0,0,0);
+    for(var i=1;i<=lookbackDays;i++){
+      var d=new Date(today); d.setDate(today.getDate()-i);
+      var iso=isoOfDate(d);
+      var due=dueForDate(d);
+      due.forEach(function(item){
+        var taskId=item.task.id;
+        var gh=item.gh||'_site';
+        var st=stateOf(taskId, item.gh, iso);
+        var state=st[0];
+        // v2.46.227 — only count EXPLICIT unfinished states (a worker/system marked it).
+        // Pure 'todo' with no record means "never touched" — that's the default state on
+        // a clean system and would flood the matrix with blue. Real backlog requires
+        // either an explicit 'not_done' mark, or 'partly' (incomplete work).
+        if(st[1] && (state==='not_done' || state==='partly')){
+          if(!map[taskId])map[taskId]={};
+          if(!map[taskId][gh])map[taskId][gh]={count:0,oldestISO:iso};
+          map[taskId][gh].count++;
+          if(iso<map[taskId][gh].oldestISO)map[taskId][gh].oldestISO=iso;
+        }
+      });
+    }
+    return map;
+  }
+
+  // ── v2.46.225 — One-time tasks (ad-hoc, single-day) ──
+  // Stored in localStorage under 'hnx_oneTimeTasks_v1'.
+  // Shape: { '2026-05-15': [{ id, name, owner, ghs:[...], icon, module, addedBy, addedAt }] }
+  var ONE_TIME_KEY='hnx_oneTimeTasks_v1';
+  function loadOneTime(){
+    try{return JSON.parse(localStorage.getItem(ONE_TIME_KEY)||'{}');}catch(e){return {};}
+  }
+  function saveOneTime(data){
+    try{localStorage.setItem(ONE_TIME_KEY, JSON.stringify(data));}catch(e){}
+  }
+  function getOneTimeForDate(iso){
+    var all=loadOneTime();
+    return (all[iso]||[]).filter(function(t){
+      // Filter by current module unless 'all'
+      var f=_currentModFilter();
+      if(f==='all')return true;
+      return (t.module||'production')===f;
+    });
+  }
+  window.hnxAddOneTimeTask=function(t){
+    var all=loadOneTime();
+    var iso=t.dateISO||isoOfDate(new Date());
+    if(!all[iso])all[iso]=[];
+    t.id=t.id||('ot_'+Date.now()+'_'+Math.floor(Math.random()*1000));
+    t.addedAt=t.addedAt||new Date().toISOString();
+    all[iso].push(t);
+    saveOneTime(all);
+    return t;
+  };
+  window.hnxRemoveOneTimeTask=function(iso,id){
+    var all=loadOneTime();
+    if(!all[iso])return;
+    all[iso]=all[iso].filter(function(t){return t.id!==id;});
+    if(!all[iso].length)delete all[iso];
+    saveOneTime(all);
+  };
+
+  // ── v2.46.228 — RESTORED hnxGhmCell click handler (was accidentally removed in v2.46.225). ──
+  // Every matrix cell's onclick calls this. It opens the recurring cell modal where the
+  // worker can mark done / partly / not_done, add a note, attach a photo.
   window.hnxGhmCell=function(taskId,gh){
     try{
-      if(typeof window._openRecurringCellModal==='function'){ window._openRecurringCellModal(taskId,gh||''); }
-    }catch(e){ console.error('[ghmatrix] cell',e); }
+      if(typeof window._openRecurringCellModal==='function'){
+        window._openRecurringCellModal(taskId,gh||'');
+      } else {
+        console.error('[ghmatrix] _openRecurringCellModal is not defined');
+        alert('Cell modal handler is not loaded. Try hard-refreshing the page.');
+      }
+    }catch(e){ console.error('[ghmatrix] cell click failed:',e); alert('Error opening cell modal: '+e.message); }
+  };
+
+  // ── v2.46.225 — Modal for supervisors to add a one-time task to today's matrix ──
+  window.hnxOpenAddOneTimeModal=function(){
+    var lvl=(typeof getCurrentUserLevel==='function')?getCurrentUserLevel():0;
+    if(lvl<3){alert('Only supervisors and above can add one-time tasks.');return;}
+    // Remove any existing modal
+    var existing=document.getElementById('hnxOneTimeModal');
+    if(existing)existing.remove();
+    var curMod=_currentModFilter()==='all'?'production':_currentModFilter();
+    var meta=(window.MODULE_META||{})[curMod]||{label:'Production',icon:'🌱',color:'#9ccc65'};
+    var allGhs=ghOrder();
+    var u=(typeof getCurrentUser==='function')?getCurrentUser():null;
+    var addedBy=u&&u.username?u.username:(u&&u.name?u.name:'supervisor');
+    var iso=todayISO();
+    var modal=document.createElement('div');
+    modal.id='hnxOneTimeModal';
+    modal.style.cssText='position:fixed;inset:0;background:rgba(0,10,5,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    modal.innerHTML='<div style="background:linear-gradient(180deg,#0d2415,#081a0e);border:1px solid '+meta.color+';border-radius:12px;padding:24px;max-width:560px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 0 30px '+meta.color+'40;">'
+      +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:12px;">'
+        +'<span style="font-size:22px;">⭐</span>'
+        +'<div style="flex:1;"><div style="font-size:16px;font-weight:800;color:#fff;font-family:var(--mono,monospace);letter-spacing:1px;">ADD ONE-TIME TASK</div>'
+        +'<div style="font-size:11px;color:var(--text3);">For today only · '+iso+' · added by '+esc(addedBy)+' · module: <span style="color:'+meta.color+';font-weight:700;">'+meta.label+'</span></div></div>'
+        +'<button onclick="document.getElementById(\'hnxOneTimeModal\').remove()" style="background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text2);padding:6px 12px;font-size:12px;cursor:pointer;">✕ Close</button>'
+      +'</div>'
+      +'<div style="display:grid;gap:14px;">'
+        +'<label style="display:block;"><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);margin-bottom:4px;">Task name *</div>'
+          +'<input id="hnxOT_name" type="text" placeholder="e.g. Emergency drain inspection in GH3" style="width:100%;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:14px;font-family:var(--sans);box-sizing:border-box;" /></label>'
+        +'<label style="display:block;"><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);margin-bottom:4px;">Icon</div>'
+          +'<input id="hnxOT_icon" type="text" maxlength="3" value="⭐" style="width:80px;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:18px;text-align:center;box-sizing:border-box;" /></label>'
+        +'<label style="display:block;"><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);margin-bottom:4px;">Owner</div>'
+          +'<select id="hnxOT_owner" style="width:100%;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;font-family:var(--sans);box-sizing:border-box;">'
+            +'<option value="GH workers">GH workers</option>'
+            +'<option value="Maintenance">Maintenance</option>'
+            +'<option value="Supervisor">Supervisor</option>'
+            +'<option value="Logistics">Logistics</option>'
+          +'</select></label>'
+        +'<div><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-family:var(--mono);margin-bottom:6px;">Scope · which greenhouses?</div>'
+          +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">'
+            +'<label style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:12px;"><input type="radio" name="hnxOT_scope" value="all" checked /> All GHs</label>'
+            +'<label style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:12px;"><input type="radio" name="hnxOT_scope" value="site" /> Site-wide (no specific GH)</label>'
+            +'<label style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:12px;"><input type="radio" name="hnxOT_scope" value="select" /> Select GHs</label>'
+          +'</div>'
+          +'<div id="hnxOT_ghPick" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:10px;flex-wrap:wrap;gap:6px;">'
+            +allGhs.map(function(g){return '<label style="display:inline-flex;align-items:center;gap:4px;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;cursor:pointer;font-size:12px;font-family:var(--mono);margin-right:4px;margin-bottom:4px;"><input type="checkbox" name="hnxOT_gh" value="'+g+'" /> '+g+'</label>';}).join('')
+          +'</div>'
+        +'</div>'
+      +'</div>'
+      +'<div style="margin-top:20px;display:flex;justify-content:flex-end;gap:8px;">'
+        +'<button onclick="document.getElementById(\'hnxOneTimeModal\').remove()" style="padding:9px 18px;background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text2);font-size:13px;cursor:pointer;font-family:var(--sans);">Cancel</button>'
+        +'<button onclick="window.hnxConfirmAddOneTime()" style="padding:9px 18px;background:linear-gradient(180deg,#ab47bc,#7b1fa2);border:1px solid #ce93d8;border-radius:7px;color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;">⭐ Add to Today\'s Matrix</button>'
+      +'</div>'
+    +'</div>';
+    document.body.appendChild(modal);
+    // Toggle GH picker visibility on scope change
+    modal.querySelectorAll('input[name="hnxOT_scope"]').forEach(function(r){
+      r.addEventListener('change',function(){
+        var pick=document.getElementById('hnxOT_ghPick');
+        if(pick)pick.style.display=this.value==='select'?'flex':'none';
+      });
+    });
+    setTimeout(function(){var n=document.getElementById('hnxOT_name');if(n)n.focus();},50);
+  };
+
+  window.hnxConfirmAddOneTime=function(){
+    var modal=document.getElementById('hnxOneTimeModal');
+    if(!modal)return;
+    var name=(document.getElementById('hnxOT_name')||{}).value;
+    name=(name||'').trim();
+    if(!name){alert('Task name is required.');return;}
+    var icon=((document.getElementById('hnxOT_icon')||{}).value||'⭐').trim();
+    var owner=(document.getElementById('hnxOT_owner')||{}).value||'GH workers';
+    var scopeRadio=modal.querySelector('input[name="hnxOT_scope"]:checked');
+    var scope=scopeRadio?scopeRadio.value:'all';
+    var ghs=[];
+    if(scope==='all')ghs=ghOrder().slice();
+    else if(scope==='site')ghs=['SITE'];
+    else if(scope==='select'){
+      modal.querySelectorAll('input[name="hnxOT_gh"]:checked').forEach(function(c){ghs.push(c.value);});
+      if(!ghs.length){alert('Select at least one greenhouse, or change scope.');return;}
+    }
+    var curMod=_currentModFilter()==='all'?'production':_currentModFilter();
+    var u=(typeof getCurrentUser==='function')?getCurrentUser():null;
+    var addedBy=u&&u.username?u.username:(u&&u.name?u.name:'supervisor');
+    var iso=todayISO();
+    window.hnxAddOneTimeTask({
+      name:name, icon:icon, owner:owner, ghs:ghs, module:curMod,
+      addedBy:addedBy, dateISO:iso, freq:'daily'
+    });
+    modal.remove();
+    if(typeof renderRecurringHub==='function')renderRecurringHub();
   };
 
   // ---- the Today matrix: TASK rows × GREENHOUSE columns ----
@@ -119842,11 +120934,30 @@ body.hnx-mobile-locked { overflow: hidden; }
   // task is scheduled for that greenhouse today; otherwise it is a faint
   // "not scheduled today" marker. Colours: white = to-do today, yellow = partly,
   // red = not done / day passed, green = done.
+  // v2.46.221 — Now filters by module and renders site-only tasks (truck, e-bike,
+  // road, solar) as a SINGLE wide cell instead of 14 phantom SITE cells.
+  function _modOfTask(t){
+    try{ return (typeof window.getTaskModule==='function')?window.getTaskModule(t):'production'; }catch(e){return 'production';}
+  }
+  function _isSiteOnly(t){
+    try{ return (typeof window.isSiteOnlyTask==='function')?window.isSiteOnlyTask(t):false; }catch(e){return false;}
+  }
+  function _currentModFilter(){return window._recurringModuleFilter||'production';}
+  function _filterByMod(tasks){
+    var f=_currentModFilter();
+    if(f==='all')return tasks;
+    return tasks.filter(function(t){return _modOfTask(t)===f;});
+  }
   function renderGhMatrix(){
     var date=todayISO();
     var dObj=new Date(date+'T12:00:00');
-    var allTasks=mergedTasks();
-    if(!allTasks.length){ return '<div class="hnx-ghm-empty">No recurring tasks defined.</div>'; }
+    var allTasks=_filterByMod(mergedTasks());
+    if(!allTasks.length){
+      var modLabel=(window.MODULE_META&&window.MODULE_META[_currentModFilter()])?window.MODULE_META[_currentModFilter()].label:_currentModFilter();
+      return '<div class="hnx-ghm-empty">No recurring tasks defined for <strong>'+esc(modLabel)+'</strong>. Try selecting another module above.</div>';
+    }
+    // v2.46.225 — Compute backlog (past unfinished work) for carryover blue cells
+    var backlog=computeBacklog(7);
     var due=dueForDate(dObj), dueMap={};
     due.forEach(function(d){
       var id=d.task.id;
@@ -119854,19 +120965,34 @@ body.hnx-mobile-locked { overflow: hidden; }
       if(d.gh){dueMap[id].ghs[d.gh]=1;} else {dueMap[id].site=true;}
     });
     var ghs=ghOrder(); // ALL greenhouses & projects, GH1-10 + PRJ11/12 + GH15/16
+    // Split tasks: GH-scoped (have GH columns) vs Site-only (one row, one cell)
+    var ghScopedTasks=allTasks.filter(function(t){return !_isSiteOnly(t);});
+    var siteOnlyTasks=allTasks.filter(function(t){return _isSiteOnly(t);});
     var FREQ=window.FREQ_LABELS||{};
     var SYM={todo:'',done:'✓',partly:'–',not_done:'✗'};
     var thead='<th class="hnx-ght-corner">TASK \\ GREENHOUSE</th>'+ghs.map(function(g){
       return '<th class="hnx-ght-ghhead" title="'+esc(g)+'">'+esc(g.replace('PRJ','P').replace('GH',''))+'</th>';
     }).join('');
     var dueTaskCount=0;
-    var body=allTasks.map(function(t){
+    var totalBacklogCount=0;
+    var body=ghScopedTasks.map(function(t){
       var dm=dueMap[t.id];
       if(dm)dueTaskCount++;
+      var taskBacklog=backlog[t.id]||{};
       var doneN=0,totN=0;
       var tds=ghs.map(function(g){
         var scheduledToday=dm&&(dm.site||dm.ghs[g]);
+        var bgInfo=taskBacklog[dm&&dm.site?'_site':g];
+        var hasBacklog=!!(bgInfo&&bgInfo.count>0);
+        if(hasBacklog)totalBacklogCount++;
         if(!scheduledToday){
+          // v2.46.225 — Even if not scheduled today, show blue carryover if backlog exists
+          if(hasBacklog){
+            return '<td class="hnx-ghm-cell"><div class="hnx-ghm-c hit carryover" '
+              +'style="background:linear-gradient(180deg,#42a5f5,#1976d2);color:#fff;font-weight:800;border:1.5px solid #64b5f6;box-shadow:0 0 8px rgba(66,165,245,0.35);" '
+              +'title="'+esc(g+' — '+t.name+' · carry-over from '+bgInfo.oldestISO+' · '+bgInfo.count+' unfinished day'+(bgInfo.count>1?'s':''))+'" '
+              +'onclick="hnxGhmCell(\''+t.id+'\',\''+esc(g)+'\')">⇧'+bgInfo.count+'</div></td>';
+          }
           return '<td class="hnx-ghm-cell"><div class="hnx-ghm-c na" title="'+esc(g+' — '+t.name+' · not scheduled today')+'"></div></td>';
         }
         var keyGh=dm.site?'':g;
@@ -119876,64 +121002,220 @@ body.hnx-mobile-locked { overflow: hidden; }
         var note=(st[1]&&st[1].note)?'<span class="hnx-ghm-dot" title="has note"></span>':'';
         var cls=effState+(dm.site?' site':'');
         var content=dm.site?(effState==='todo'?'SITE':SYM[effState]):SYM[effState];
+        // Add a small blue corner badge if this cell ALSO has backlog from past days
+        var backlogBadge=hasBacklog?'<span class="hnx-ghm-bk" title="carry-over: '+bgInfo.count+' past day'+(bgInfo.count>1?'s':'')+' unfinished">⇧'+bgInfo.count+'</span>':'';
         return '<td class="hnx-ghm-cell"><div class="hnx-ghm-c hit '+cls+'" '
-          +'title="'+esc(g+' — '+t.name+(dm.site?' (site-wide task)':''))+'" '
-          +'onclick="hnxGhmCell(\''+t.id+'\',\''+esc(keyGh)+'\')">'+content+note+'</div></td>';
+          +'title="'+esc(g+' — '+t.name+(dm.site?' (site-wide task)':'')+(hasBacklog?' · '+bgInfo.count+' carry-over from past day(s)':''))+'" '
+          +'onclick="hnxGhmCell(\''+t.id+'\',\''+esc(keyGh)+'\')">'+content+note+backlogBadge+'</div></td>';
       }).join('');
       var cnt=dm?(doneN+'/'+totN):'—';
+      var modBadge='';
+      try{
+        var m=_modOfTask(t);
+        var meta=(window.MODULE_META||{})[m];
+        if(meta&&_currentModFilter()==='all'){
+          modBadge=' <span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700;background:'+meta.color+'22;color:'+meta.color+';border:1px solid '+meta.color+'55;margin-left:4px;vertical-align:middle;">'+meta.icon+'</span>';
+        }
+      }catch(e){}
       var lbl='<td class="hnx-ght-tasklbl"><div class="hnx-ght-row">'
         +'<span class="hnx-ght-ic">'+(t.icon||'•')+'</span>'
-        +'<span class="hnx-ght-meta"><span class="hnx-ght-nm">'+esc(t.name)+'</span>'
+        +'<span class="hnx-ght-meta"><span class="hnx-ght-nm">'+esc(t.name)+modBadge+'</span>'
         +'<span class="hnx-ght-fq">'+esc(FREQ[t.freq]||t.freq||'')+(t.owner?' · '+esc(t.owner):'')+'</span></span>'
         +'<span class="hnx-ght-cnt">'+cnt+'</span></div></td>';
       return '<tr'+(dm?'':' class="hnx-ght-off"')+'>'+lbl+tds+'</tr>';
     }).join('');
+    // Site-only tasks (truck, e-bike, road, solar) — render as single-cell rows
+    var siteRowsHtml='';
+    if(siteOnlyTasks.length){
+      siteRowsHtml=siteOnlyTasks.map(function(t){
+        var dm=dueMap[t.id];
+        if(dm)dueTaskCount++;
+        var st=stateOf(t.id,'',date);
+        var effState=(st[0]==='todo'&&date<todayISO())?'not_done':st[0];
+        var cnt=dm?((effState==='done'?1:0)+'/1'):'—';
+        var note=(st[1]&&st[1].note)?'<span class="hnx-ghm-dot" title="has note"></span>':'';
+        var cls=effState;
+        var content=effState==='todo'?'SITE-WIDE':(SYM[effState]||'SITE-WIDE');
+        var modBadge='';
+        try{
+          var m=_modOfTask(t);
+          var meta=(window.MODULE_META||{})[m];
+          if(meta){
+            modBadge=' <span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700;background:'+meta.color+'22;color:'+meta.color+';border:1px solid '+meta.color+'55;margin-left:4px;vertical-align:middle;">'+meta.icon+' '+meta.label+'</span>';
+          }
+        }catch(e){}
+        var siteCell=dm
+          ? '<td class="hnx-ghm-cell" colspan="'+ghs.length+'"><div class="hnx-ghm-c hit site '+cls+'" style="width:100%;max-width:100%;border-radius:6px;font-weight:800;letter-spacing:1px;" title="'+esc(t.name+' · site-wide / asset-based')+'" onclick="hnxGhmCell(\''+t.id+'\',\'\')">'+content+note+'</div></td>'
+          : '<td class="hnx-ghm-cell" colspan="'+ghs.length+'"><div class="hnx-ghm-c na" style="width:100%;max-width:100%;">not scheduled today</div></td>';
+        var lbl='<td class="hnx-ght-tasklbl"><div class="hnx-ght-row">'
+          +'<span class="hnx-ght-ic">'+(t.icon||'•')+'</span>'
+          +'<span class="hnx-ght-meta"><span class="hnx-ght-nm">'+esc(t.name)+modBadge+'</span>'
+          +'<span class="hnx-ght-fq">'+esc(FREQ[t.freq]||t.freq||'')+(t.owner?' · '+esc(t.owner):'')+' · site-wide</span></span>'
+          +'<span class="hnx-ght-cnt">'+cnt+'</span></div></td>';
+        return '<tr'+(dm?'':' class="hnx-ght-off"')+'>'+lbl+siteCell+'</tr>';
+      }).join('');
+    }
+    var modLabel=(window.MODULE_META&&window.MODULE_META[_currentModFilter()])?window.MODULE_META[_currentModFilter()].label:'All modules';
+    var subTitle=_currentModFilter()==='all'?(allTasks.length+' recurring tasks · all modules'):(allTasks.length+' '+modLabel+' tasks');
+    // v2.46.225 — Append rows for one-time tasks added today by supervisors
+    var oneTimeTasks=getOneTimeForDate(date);
+    var oneTimeRowsHtml='';
+    if(oneTimeTasks.length){
+      oneTimeRowsHtml=oneTimeTasks.map(function(t){
+        var ghsForTask=Array.isArray(t.ghs)?t.ghs:(t.ghs?[t.ghs]:[]);
+        var isSiteWide=!ghsForTask.length||(ghsForTask.length===1&&(ghsForTask[0]==='SITE'||ghsForTask[0]==='all'||ghsForTask[0]==='ALL'));
+        var doneN=0,totN=0;
+        var tds;
+        if(isSiteWide){
+          var stS=stateOf(t.id,'',date);
+          var effS=(stS[0]==='todo'&&date<todayISO())?'not_done':stS[0];
+          totN=1; if(effS==='done')doneN=1;
+          var noteS=(stS[1]&&stS[1].note)?'<span class="hnx-ghm-dot"></span>':'';
+          var clsS=effS;
+          var contS=effS==='todo'?'ONE-TIME':(SYM[effS]||'ONE-TIME');
+          tds='<td class="hnx-ghm-cell" colspan="'+ghs.length+'"><div class="hnx-ghm-c hit site '+clsS+'" style="width:100%;max-width:100%;border-radius:6px;font-weight:800;letter-spacing:1px;background:linear-gradient(180deg,#ab47bc,#7b1fa2);border:1.5px solid #ce93d8;color:#fff;" title="'+esc(t.name+' · ONE-TIME today only')+'" onclick="hnxGhmCell(\''+t.id+'\',\'\')">'+contS+noteS+'</div></td>';
+        } else {
+          tds=ghs.map(function(g){
+            var inScope=ghsForTask.indexOf(g)>=0;
+            if(!inScope)return '<td class="hnx-ghm-cell"><div class="hnx-ghm-c na" title="'+esc(g+' — '+t.name+' · not in scope for this one-time task')+'"></div></td>';
+            var stOT=stateOf(t.id,g,date);
+            var effOT=(stOT[0]==='todo'&&date<todayISO())?'not_done':stOT[0];
+            totN++; if(effOT==='done')doneN++;
+            var nOT=(stOT[1]&&stOT[1].note)?'<span class="hnx-ghm-dot"></span>':'';
+            return '<td class="hnx-ghm-cell"><div class="hnx-ghm-c hit '+effOT+'" style="border:1.5px solid #ce93d8;box-shadow:0 0 6px rgba(206,147,216,0.4);" title="'+esc(g+' — '+t.name+' · ONE-TIME today only')+'" onclick="hnxGhmCell(\''+t.id+'\',\''+esc(g)+'\')">'+(SYM[effOT]||'')+nOT+'</div></td>';
+          }).join('');
+        }
+        var cntT=doneN+'/'+totN;
+        var modBadgeT=' <span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:800;background:rgba(171,71,188,0.20);color:#ce93d8;border:1px solid #ce93d8;margin-left:4px;vertical-align:middle;">⭐ ONE-TIME</span>';
+        var removeBtn=getCurrentUserLevel()>=3?'<button onclick="event.stopPropagation();if(confirm(\'Remove this one-time task?\')){hnxRemoveOneTimeTask(\''+date+'\',\''+t.id+'\');if(typeof renderRecurringHub===\'function\')renderRecurringHub();}" style="margin-left:6px;padding:0 6px;background:transparent;border:1px solid #c43122;border-radius:4px;color:#ff7a6a;font-size:9px;cursor:pointer;font-family:var(--mono);">✕</button>':'';
+        var lblT='<td class="hnx-ght-tasklbl" style="background:linear-gradient(180deg,rgba(171,71,188,0.10),rgba(123,31,162,0.10));"><div class="hnx-ght-row">'
+          +'<span class="hnx-ght-ic">'+(t.icon||'⭐')+'</span>'
+          +'<span class="hnx-ght-meta"><span class="hnx-ght-nm">'+esc(t.name)+modBadgeT+removeBtn+'</span>'
+          +'<span class="hnx-ght-fq">added '+esc((t.addedAt||'').slice(11,16))+' · '+esc(t.owner||'GH workers')+(t.addedBy?' · by '+esc(t.addedBy):'')+'</span></span>'
+          +'<span class="hnx-ght-cnt">'+cntT+'</span></div></td>';
+        return '<tr>'+lblT+tds+'</tr>';
+      }).join('');
+    }
+    var oneTimeNote=oneTimeTasks.length?(' · '+oneTimeTasks.length+' one-time'):'';
+    var backlogNote=totalBacklogCount>0?(' · ⇧'+totalBacklogCount+' carry-over'):'';
     return '<div class="hnx-ghm-head"><span class="hnx-ghm-title">📍 Per-Greenhouse Schedule</span>'
-      +'<span class="hnx-ghm-sub">'+DOWFULL[dObj.getDay()]+' · '+esc(date)+' · '+allTasks.length+' recurring tasks × '+ghs.length+' greenhouses · '+dueTaskCount+' tasks due today · tap a lit cell to mark / add note</span></div>'
+      +'<span class="hnx-ghm-sub">'+DOWFULL[dObj.getDay()]+' · '+esc(date)+' · '+subTitle+' × '+ghs.length+' greenhouses · '+dueTaskCount+' due today'+backlogNote+oneTimeNote+' · tap a lit cell to mark / add note</span></div>'
       +'<div class="hnx-ghm-legend">'
       +'<span><i style="background:#eef2ee;border:1.5px solid #fff"></i>To do (today)</span>'
       +'<span><i style="background:linear-gradient(180deg,#6ae585,#2f9d4a)"></i>Done</span>'
       +'<span><i style="background:linear-gradient(180deg,#f4be5e,#c4881f)"></i>Partly</span>'
       +'<span><i style="background:linear-gradient(180deg,#ff7a6a,#c43122)"></i>Not done</span>'
+      +'<span><i style="background:linear-gradient(180deg,#42a5f5,#1976d2);border:1.5px solid #64b5f6"></i>⇧ Carry-over from past days</span>'
+      +'<span><i style="background:linear-gradient(180deg,#ab47bc,#7b1fa2);border:1.5px solid #ce93d8"></i>⭐ One-time (today only)</span>'
       +'<span><i style="border:1px dashed rgba(76,175,80,.4);background:transparent"></i>Not scheduled today</span>'
       +'<span style="color:#84e0d8">● = has a note</span></div>'
-      +'<div class="hnx-ghm-wrap"><table class="hnx-ghm-tbl"><thead><tr>'+thead+'</tr></thead><tbody>'+body+'</tbody></table></div>';
+      +'<div class="hnx-ghm-wrap"><table class="hnx-ghm-tbl"><thead><tr>'+thead+'</tr></thead><tbody>'+body+siteRowsHtml+oneTimeRowsHtml+'</tbody></table></div>';
   }
 
 
   function renderGhWeekMatrix(){
+    // v2.46.224 — Readable week view: day columns with full task entries listed,
+    // matching the Month view's layout. No more tiny icons + just "4 tasks" labels.
     var days=['Mon','Tue','Wed','Thu','Fri','Sun'];
+    var dayFull={Mon:'Monday',Tue:'Tuesday',Wed:'Wednesday',Thu:'Thursday',Fri:'Friday',Sat:'Saturday',Sun:'Sunday'};
     var todayDow=DOW[new Date().getDay()];
-    var tasks=mergedTasks();
-    var sched=tasks.filter(function(t){return t.schedule&&Object.keys(t.schedule).length>0;});
-    var noSched=tasks.filter(function(t){return !t.schedule||!Object.keys(t.schedule).length;});
-    // rows = GHs that appear anywhere in any task's weekly schedule
-    var rowSet={};
-    sched.forEach(function(t){ days.forEach(function(d){ if(t.schedule[d]) expandGh(t.schedule[d]).forEach(function(g){rowSet[g]=1;}); }); });
-    var rows=ghOrder().filter(function(g){return rowSet[g];});
-    if(!rows.length)rows=Object.keys(rowSet);
-    if(!rows.length){ return '<div class="hnx-ghm-empty">No per-day greenhouse schedules defined yet.</div>'; }
+    var todayDateISO=todayISO();
+    var tasks=_filterByMod(mergedTasks());
+    if(!tasks.length){
+      var modLabel0=(window.MODULE_META&&window.MODULE_META[_currentModFilter()])?window.MODULE_META[_currentModFilter()].label:_currentModFilter();
+      return '<div class="hnx-ghm-empty">No tasks defined for <strong>'+esc(modLabel0)+'</strong>.</div>';
+    }
     var FREQ=window.FREQ_LABELS||{};
-    var thead='<th class="hnx-ghm-corner">GH \\ Day</th>'+days.map(function(d){
-      return '<th class="hnx-ghw-day'+(d===todayDow?' today':'')+'">'+d+(d===todayDow?' •':'')+'</th>';
+    // Compute the dates of this week (Mon-Sun for the current week)
+    var now=new Date();
+    var dow=now.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    var daysFromMon=(dow===0)?6:(dow-1); // Sunday wraps back to 6 days from prior Monday
+    var monDate=new Date(now); monDate.setDate(now.getDate()-daysFromMon); monDate.setHours(12,0,0,0);
+    function dateFor(d){
+      var idx=days.indexOf(d); // 0=Mon, 5=Sun (we skip Sat)
+      var actualOffset=idx===5?6:idx; // Sun is 6 days after Mon
+      var dt=new Date(monDate); dt.setDate(monDate.getDate()+actualOffset);
+      return dt;
+    }
+    function isoOf(d){var z=new Date(d.getTime()-d.getTimezoneOffset()*60000);return z.toISOString().slice(0,10);}
+    // Site-only tasks (no per-day GH schedule) are listed separately below
+    var ghTasks=tasks.filter(function(t){return !_isSiteOnly(t);});
+    var siteTasks=tasks.filter(function(t){return _isSiteOnly(t);});
+    // Build each day column
+    var dayCols=days.map(function(d){
+      var dt=dateFor(d);
+      var iso=isoOf(dt);
+      var isToday=d===todayDow && iso===todayDateISO;
+      var entries=[];
+      ghTasks.forEach(function(t){
+        if(t.schedule&&t.schedule[d]){
+          var scope=t.schedule[d];
+          var ghs=expandGh(scope);
+          if(!ghs.length)return;
+          // Group entry: icon + scope label (e.g. "GH1-10" or "GH3&4") + task name
+          var ownerColor=t.owner==='Maintenance'?'#42a5f5':(t.owner==='Logistics'?'#ffa726':'#9ccc65');
+          var modBadge='';
+          try{
+            var m=_modOfTask(t);
+            var meta=(window.MODULE_META||{})[m];
+            if(meta&&_currentModFilter()==='all'){
+              modBadge=' <span style="display:inline-block;padding:0 4px;border-radius:6px;font-size:8px;font-weight:700;background:'+meta.color+'22;color:'+meta.color+';border:1px solid '+meta.color+'55;vertical-align:middle;">'+meta.icon+'</span>';
+            }
+          }catch(e){}
+          entries.push(
+            '<div style="font-size:12px;line-height:1.4;color:var(--text);padding:5px 8px;border-radius:5px;background:var(--surface);border:1px solid var(--border);margin-bottom:5px;display:flex;align-items:flex-start;gap:6px;cursor:pointer;" onclick="hnxGhmCell(\''+t.id+'\',\''+esc(ghs[0])+'\')" title="'+esc(t.name+' · '+scope+' on '+dayFull[d])+'">'
+              +'<span style="font-size:14px;flex-shrink:0;">'+(t.icon||'•')+'</span>'
+              +'<div style="flex:1;min-width:0;">'
+                +'<div style="font-weight:700;color:'+ownerColor+';font-family:var(--mono,monospace);font-size:11px;">'+esc(scope)+modBadge+'</div>'
+                +'<div style="color:var(--text2);font-size:11px;line-height:1.3;">'+esc(t.name)+'</div>'
+              +'</div>'
+            +'</div>'
+          );
+        }
+      });
+      var bg=isToday?'rgba(102,187,106,0.10)':'var(--surface2)';
+      var border=isToday?'2px solid #66bb6a':'1px solid var(--border)';
+      var dayHead='<div style="padding:10px 12px;background:'+(isToday?'rgba(102,187,106,0.20)':'var(--surface)')+';border-bottom:1px solid var(--border);border-radius:7px 7px 0 0;">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;">'
+          +'<div style="font-size:13px;font-weight:'+(isToday?'800':'700')+';color:'+(isToday?'#66bb6a':'var(--text)')+';font-family:var(--mono,monospace);letter-spacing:1px;">'+d.toUpperCase()+(isToday?' •':'')+'</div>'
+          +'<div style="font-size:11px;color:var(--text3);font-family:var(--mono,monospace);">'+(dt.getMonth()+1)+'/'+dt.getDate()+'</div>'
+        +'</div>'
+        +'<div style="font-size:10px;color:var(--text3);margin-top:3px;">'+entries.length+' task'+(entries.length===1?'':'s')+'</div>'
+      +'</div>';
+      var dayBody=entries.length
+        ? '<div style="padding:8px;">'+entries.join('')+'</div>'
+        : '<div style="padding:24px 12px;text-align:center;color:var(--text3);font-size:11px;font-style:italic;">No scheduled tasks</div>';
+      return '<div style="background:'+bg+';border:'+border+';border-radius:8px;display:flex;flex-direction:column;min-height:280px;overflow:hidden;">'+dayHead+dayBody+'</div>';
     }).join('');
-    var body=rows.map(function(g){
-      var tds=days.map(function(d){
-        var hit=[];
-        sched.forEach(function(t){ if(t.schedule[d]&&expandGh(t.schedule[d]).indexOf(g)>=0)hit.push(t); });
-        if(!hit.length)return '<td class="hnx-ghw-cell'+(d===todayDow?' today':'')+'"><div class="hnx-ghw-c empty"></div></td>';
-        var icons=hit.map(function(t){return '<span class="hnx-ghw-ic" title="'+esc(t.name)+'">'+(t.icon||'•')+'</span>';}).join('');
-        return '<td class="hnx-ghw-cell'+(d===todayDow?' today':'')+'" title="'+esc(g+' · '+d+': '+hit.map(function(t){return t.name;}).join(', '))+'">'
-          +'<div class="hnx-ghw-c">'+icons+'<span class="hnx-ghw-n">'+hit.length+' task'+(hit.length>1?'s':'')+'</span></div></td>';
-      }).join('');
-      return '<tr><td class="hnx-ghm-ghl"><span class="g">'+esc(g)+'</span></td>'+tds+'</tr>';
-    }).join('');
-    var longHtml=noSched.length?('<div style="font-size:10px;color:#6f8a74;font-family:var(--mono,monospace);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 4px;">Long-cadence tasks (no per-day schedule)</div>'
-      +'<div class="hnx-ghw-long">'+noSched.map(function(t){return '<span class="it"><span style="font-size:14px">'+(t.icon||'•')+'</span>'+esc(shortName(t.name))+' <span class="fq">'+esc(FREQ[t.freq]||t.freq||'')+'</span></span>';}).join('')+'</div>'):'';
-    return '<div class="hnx-ghm-head"><span class="hnx-ghm-title">📅 Weekly Schedule · Per Greenhouse</span>'
-      +'<span class="hnx-ghm-sub">'+rows.length+' greenhouses × 6 days · each row is that greenhouse\'s week · hover a cell for task names</span></div>'
-      +'<div class="hnx-ghm-wrap"><table class="hnx-ghm-tbl"><thead><tr>'+thead+'</tr></thead><tbody>'+body+'</tbody></table></div>'
-      +longHtml;
+    // Site / long-cadence tasks at the bottom
+    var siteHtml='';
+    if(siteTasks.length){
+      siteHtml='<div style="font-size:12px;color:#9ccc65;font-family:var(--mono,monospace);text-transform:uppercase;letter-spacing:1px;margin:20px 0 8px;font-weight:700;">Site-wide / Long-cadence tasks (no per-day GH schedule)</div>'
+        +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;">'
+        +siteTasks.map(function(t){
+          var m=_modOfTask(t);
+          var meta=(window.MODULE_META||{})[m]||{};
+          var ownerColor=t.owner==='Maintenance'?'#42a5f5':(t.owner==='Logistics'?'#ffa726':'#9ccc65');
+          return '<div style="padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-left:3px solid '+(meta.color||'#666')+';border-radius:7px;display:flex;align-items:center;gap:10px;">'
+            +'<span style="font-size:18px;">'+(t.icon||'•')+'</span>'
+            +'<div style="flex:1;min-width:0;">'
+              +'<div style="font-size:12px;color:var(--text);font-weight:600;line-height:1.3;">'+esc(t.name)+'</div>'
+              +'<div style="font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:2px;"><span style="color:'+ownerColor+';font-weight:700;">'+esc(t.owner||'')+'</span> · '+esc(FREQ[t.freq]||t.freq||'')+(_isSiteOnly(t)?' · <span style="color:'+(meta.color||'#ffa726')+';font-weight:700;">site-wide</span>':'')+'</div>'
+            +'</div>'
+          +'</div>';
+        }).join('')
+        +'</div>';
+    }
+    var modLabel=(window.MODULE_META&&window.MODULE_META[_currentModFilter()])?window.MODULE_META[_currentModFilter()].label:'All modules';
+    var weekStart=monDate.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    var sunDate=new Date(monDate); sunDate.setDate(monDate.getDate()+6);
+    var weekEnd=sunDate.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    return '<div class="hnx-ghm-head" style="margin-bottom:12px;">'
+      +'<span class="hnx-ghm-title">📅 Weekly Schedule · '+esc(modLabel)+'</span>'
+      +'<span class="hnx-ghm-sub">'+weekStart+' – '+weekEnd+' · '+ghTasks.length+' scheduled task'+(ghTasks.length===1?'':'s')+' + '+siteTasks.length+' site-wide</span>'
+      +'</div>'
+      +'<div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;">'+dayCols+'</div>'
+      +siteHtml;
   }
 
   // install: replace the hub "Today" list with the GH matrix
@@ -119972,6 +121254,208 @@ body.hnx-mobile-locked { overflow: hidden; }
     },3000);
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);
+  else start();
+})();
+</script>
+
+<!-- ════════════════════════════════════════════════════════════════════════════
+     v2.46.220 — UNIVERSAL PRINT ENGINE
+     Adds a 🖨 Print button to every matrix and every calendar in every module.
+     Print output is a clean, paginated, header-stamped page (no sidebar chrome).
+     ════════════════════════════════════════════════════════════════════════════ -->
+<script>
+(function(){
+  'use strict';
+
+  // ── Map of view-id (or section-title text fragment) → printable title & module
+  const PRINTABLE_VIEWS = {
+    // Matrices
+    'view-prod_matrix':       { title:'Production Status Matrix',          module:'Production' },
+    'view-maint_matrix':      { title:'Maintenance Matrix',                module:'Maintenance' },
+    'view-irr_matrix':        { title:'Irrigation Matrix',                 module:'Irrigation' },
+    'view-irr_rooms_matrix':  { title:'Irrigation Rooms Equipment Matrix', module:'Irrigation' },
+    'view-it_matrix':         { title:'IT Equipment Matrix',               module:'IT' },
+    'view-hr_matrix':         { title:'Training & Skills Matrix',          module:'HR' },
+    'view-prod_recurring':    { title:'Recurring Tasks — Calendar',        module:'Production' },
+    'view-maint_recurring':   { title:'Recurring Tasks — Calendar',        module:'Maintenance' },
+    'view-irr_recurring':     { title:'Recurring Tasks — Calendar',        module:'Irrigation' },
+    'view-log_recurring':     { title:'Recurring Tasks — Calendar',        module:'Logistics' }
+  };
+
+  // ── Print styles injected once
+  function injectPrintStyles(){
+    if(document.getElementById('hp-print-styles'))return;
+    const css = `
+@media print {
+  body * { visibility: hidden !important; }
+  .hp-print-root, .hp-print-root * { visibility: visible !important; }
+  .hp-print-root {
+    position: absolute !important; left: 0 !important; top: 0 !important;
+    width: 100% !important; background: #fff !important; color: #000 !important;
+    padding: 24px !important; font-family: Arial, Helvetica, sans-serif !important;
+  }
+  .hp-print-root .hp-print-header { border-bottom: 2px solid #2a5a2a; padding-bottom: 10px; margin-bottom: 16px; }
+  .hp-print-root .hp-print-header h1 { font-size: 20px; margin: 0 0 4px 0; color: #1a3d1a; }
+  .hp-print-root .hp-print-header .meta { font-size: 11px; color: #555; font-family: 'Courier New', monospace; }
+  .hp-print-root table { page-break-inside: auto; border-collapse: collapse !important; width: 100% !important; }
+  .hp-print-root tr { page-break-inside: avoid; page-break-after: auto; }
+  .hp-print-root thead { display: table-header-group; }
+  .hp-print-root th, .hp-print-root td {
+    border: 1px solid #888 !important; padding: 6px 8px !important;
+    font-size: 10pt !important; color: #000 !important; background: #fff !important;
+  }
+  .hp-print-root th { background: #e6f0e6 !important; font-weight: 700; }
+  .hp-print-root .hp-print-cell-warn { background: #fff4d6 !important; }
+  .hp-print-root .hp-print-cell-danger { background: #ffd6d6 !important; }
+  .hp-no-print, .hp-no-print * { display: none !important; }
+  @page { size: landscape; margin: 12mm; }
+}
+.hp-print-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 11px; margin-left: 8px;
+  background: linear-gradient(180deg, #1a3a1a, #143014);
+  border: 1px solid #2d7048; border-radius: 6px;
+  color: #9ccc65 !important; font-size: 11px; font-weight: 700;
+  font-family: 'Space Mono', ui-monospace, monospace; cursor: pointer;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  vertical-align: middle; transition: all 0.15s;
+}
+.hp-print-btn:hover { background: linear-gradient(180deg, #2d7048, #1a4d2a); color: #c8eba8 !important; box-shadow: 0 0 8px rgba(102,187,106,0.4); }
+.hp-print-btn:active { transform: translateY(1px); }
+`;
+    const style = document.createElement('style');
+    style.id = 'hp-print-styles';
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+
+  // ── The actual print routine — clones the target, wraps it with a header, prints, cleans up
+  window.hpPrintView = function(viewId, opts){
+    opts = opts || {};
+    const info = PRINTABLE_VIEWS[viewId] || { title: opts.title||'Report', module: opts.module||'' };
+    const title = opts.title || info.title;
+    const moduleName = opts.module || info.module;
+    let source = document.getElementById(viewId);
+    // For the recurring hub specifically, prefer the currently-visible printable block
+    if(viewId === 'view-prod_recurring'){
+      const monthBox = document.getElementById('recurringMonthPrintable');
+      const weekBox  = document.getElementById('recurringWeekPrintable');
+      const todayBox = document.getElementById('recurringHubBody');
+      source = (monthBox && monthBox.offsetParent !== null) ? monthBox
+             : (weekBox  && weekBox.offsetParent  !== null) ? weekBox
+             : todayBox || source;
+    }
+    if(!source){ alert('Nothing to print on this view.'); return; }
+
+    // Build the printable wrapper
+    const now = new Date();
+    const stamp = now.toLocaleString('en-US',{weekday:'short',year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    const root = document.createElement('div');
+    root.className = 'hp-print-root';
+    root.id = 'hp-print-root-active';
+    root.innerHTML = `
+      <div class="hp-print-header">
+        <h1>${moduleName?moduleName+' · ':''}${title}</h1>
+        <div class="meta">ABA Pardes Agritech · HydroNexis-AI · Printed ${stamp}</div>
+      </div>
+      <div class="hp-print-body"></div>
+    `;
+    // Deep clone source so we don't disturb the live DOM
+    const clone = source.cloneNode(true);
+    // Strip any nested print buttons or interactive-only chrome
+    clone.querySelectorAll('.hp-print-btn, .hp-no-print').forEach(el=>el.remove());
+    clone.querySelectorAll('button, select, input[type="checkbox"], input[type="date"]').forEach(el=>{
+      // Replace controls with their current value as plain text where it makes sense
+      if(el.tagName==='INPUT' && el.type==='date' && el.value){
+        const span = document.createElement('span');
+        span.textContent = el.value;
+        span.style.cssText = 'font-family:monospace;color:#000;padding:2px 6px;border:1px solid #888;border-radius:3px;background:#f0f0f0;';
+        el.replaceWith(span);
+      } else {
+        el.style.display='none';
+      }
+    });
+    root.querySelector('.hp-print-body').appendChild(clone);
+    document.body.appendChild(root);
+
+    // Print
+    setTimeout(()=>{
+      window.print();
+      // Cleanup after print
+      setTimeout(()=>{ if(root.parentNode) root.parentNode.removeChild(root); }, 500);
+    }, 100);
+  };
+
+  // ── Inject 🖨 Print button next to the first .section-title inside a given view
+  function injectIntoView(viewEl, viewId){
+    if(!viewEl) return;
+    const info = PRINTABLE_VIEWS[viewId];
+    if(!info) return;
+    // Find the most prominent header for this view
+    const headers = viewEl.querySelectorAll('.section-title');
+    if(!headers.length) return;
+    const header = headers[0];
+    if(header.querySelector('.hp-print-btn')) return; // already injected
+    const btn = document.createElement('button');
+    btn.className = 'hp-print-btn hp-no-print';
+    btn.innerHTML = '🖨 Print';
+    btn.title = `Print ${info.title}`;
+    btn.onclick = function(ev){ ev.preventDefault(); ev.stopPropagation(); window.hpPrintView(viewId); };
+    header.appendChild(btn);
+  }
+
+  // ── Sweep all known printable views and inject buttons where missing
+  function sweepInjections(){
+    Object.keys(PRINTABLE_VIEWS).forEach(viewId=>{
+      // Skip the recurring views — they have their own big visible PRINT button in the hub header
+      if(/recurring$/.test(viewId)) return;
+      const el = document.getElementById(viewId);
+      if(el) injectIntoView(el, viewId);
+    });
+    // Also inject into Dashboard's weekly schedule widget when present
+    const dbWeek = document.getElementById('dbRecurringWeek');
+    if(dbWeek){
+      const h = dbWeek.querySelector('.section-title');
+      if(h && !h.querySelector('.hp-print-btn')){
+        const btn = document.createElement('button');
+        btn.className = 'hp-print-btn hp-no-print';
+        btn.innerHTML = '🖨 Print';
+        btn.title = 'Print Weekly Recurring Schedule';
+        btn.onclick = function(ev){ ev.preventDefault(); ev.stopPropagation(); window.hpPrintView('dbRecurringWeek',{ title:"This Week's Recurring Schedule", module:'Production' }); };
+        h.appendChild(btn);
+      }
+    }
+  }
+
+  function start(){
+    injectPrintStyles();
+    sweepInjections();
+    // Re-sweep periodically because matrices re-render and replace innerHTML
+    setInterval(sweepInjections, 1200);
+  }
+
+  // Dedicated entry point for the recurring hub Print button (very visible)
+  window.hpPrintRecurringHub = function(){
+    const cv = window.currentView || 'prod_recurring';
+    const VIEW_MAP = {
+      prod_recurring:  'view-prod_recurring',
+      maint_recurring: 'view-maint_recurring',
+      irr_recurring:   'view-irr_recurring',
+      log_recurring:   'view-log_recurring'
+    };
+    const viewId = VIEW_MAP[cv] || 'view-prod_recurring';
+    const f = window._recurringModuleFilter||'production';
+    const meta = (window.MODULE_META||{})[f];
+    const modLabel = (f==='all') ? 'All Modules' : (meta?meta.label:f);
+    const tab = window._recurringHubTab||'today';
+    const tabLabel = ({today:'Today',week:'Week',month:'Month',history:'History',stats:'Stats'})[tab]||tab;
+    window.hpPrintView(viewId, {
+      title: `Recurring Tasks · ${tabLabel} View`,
+      module: modLabel
+    });
+  };
+
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 })();
 </script>
