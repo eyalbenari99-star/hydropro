@@ -58154,105 +58154,598 @@ function _qbCustomersHTMLPlaceholder(){
   </div>`;
 }
 
+// UI state (preserved between renders so filter/sort/search/detail persist)
+const _qbUI = { search:'', segment:'all', view:'list', sort:'name_asc', showInactive:false, selected:null, detailTab:'overview' };
+
 function _qbRenderInner(result){
-  const inner = document.getElementById('qbCustomersInner');
+  const inner  = document.getElementById('qbCustomersInner');
   const status = document.getElementById('qbCustomersStatus');
   if(!inner) return;
 
   if(!result.ok){
     if(status) status.textContent = '';
-    inner.innerHTML = `<div style="padding:18px;text-align:center;color:var(--danger);font-size:12px;">
+    inner.innerHTML = `<div style="padding:40px;text-align:center;color:var(--danger);font-size:14px;">
       ⚠ Could not load QuickBooks customers — ${result.error}
-      <br><button class="btn btn-outline" style="margin-top:10px;" onclick="_qbRefreshCustomers()">Retry</button>
+      <div style="margin-top:14px;"><button class="btn btn-outline" onclick="_qbRefreshCustomers()">Retry</button></div>
     </div>`;
     return;
   }
 
   _qbCache.lastList = result.data || [];
-  const all = _qbCache.lastList;
 
   if(status){
     const when = new Date(_qbCache.customersAt).toLocaleTimeString();
     status.textContent = '· ' + (result.cached?'cached':'fresh') + ' @ ' + when;
   }
 
+  // ── Detail view branch ──
+  if(_qbUI.selected){
+    const c = _qbCache.lastList.find(x => String(x.Id) === String(_qbUI.selected));
+    if(c){ inner.innerHTML = _qbRenderDetail(c); return; }
+    _qbUI.selected = null;
+  }
+
+  // ── Dashboard ──
+  const all = _qbCache.lastList;
   const activeCount   = all.filter(c => c.Active !== false).length;
   const inactiveCount = all.length - activeCount;
-  const withBalance   = all.filter(c => Number(c.Balance) > 0).length;
-  const totalBalance  = all.reduce((s,c) => s + (Number(c.Balance) || 0), 0);
+  const withBalList   = all.filter(c => Number(c.Balance) > 0);
+  const totalBalance  = withBalList.reduce((s,c) => s + Number(c.Balance), 0);
+  const avgBalance    = withBalList.length ? Math.round(totalBalance / withBalList.length) : 0;
+  const activePct     = all.length ? Math.round((activeCount / all.length) * 100) : 0;
 
-  // Build shell with search input + empty tbody — typing only re-renders the tbody
+  const segments = _qbBuildSegments(all);
+  const topAR    = [...withBalList].sort((a,b) => Number(b.Balance) - Number(a.Balance)).slice(0, 5);
+  const insights = _qbBuildInsights(all, segments, withBalList, totalBalance, activeCount, inactiveCount);
+
   inner.innerHTML = `
-    <div class="pay-stat-row" style="margin-bottom:14px;">
-      <div class="pay-stat"><div class="pay-stat-label">Total Customers</div><div class="pay-stat-val">${all.length}</div></div>
-      <div class="pay-stat"><div class="pay-stat-label">Active (QBO)</div><div class="pay-stat-val" style="color:var(--ok);">${activeCount}</div></div>
-      <div class="pay-stat"><div class="pay-stat-label">Inactive</div><div class="pay-stat-val" style="color:var(--text3);">${inactiveCount}</div></div>
-      <div class="pay-stat"><div class="pay-stat-label">With Open Balance</div><div class="pay-stat-val">${withBalance}</div></div>
-      <div class="pay-stat"><div class="pay-stat-label">Total AR</div><div class="pay-stat-val gold">₱${totalBalance.toLocaleString()}</div></div>
+    <!-- ═════ HERO METRICS ═════ -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:18px;">
+      ${_qbMetric('👥','TOTAL CUSTOMERS', all.length.toLocaleString(), `${activeCount} active · ${inactiveCount} inactive`, 'var(--accent2)')}
+      ${_qbMetric('🟢','ACTIVE RATE',     activePct+'%',                 `${activeCount} of ${all.length} active in QBO`, activePct>=80?'var(--ok)':'var(--warn)')}
+      ${_qbMetric('💰','OPEN AR',         '₱'+_qbAbbr(totalBalance),     `${withBalList.length} customers owe money`, 'var(--gold)')}
+      ${_qbMetric('📊','AVG BALANCE',     '₱'+avgBalance.toLocaleString(), `among ${withBalList.length} with open AR`, 'var(--info)')}
     </div>
-    <div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-      <input type="text" id="qbCustomersSearch" placeholder="🔍 Search name, email, phone, city…" oninput="_qbRenderRows(this.value)" style="flex:1;min-width:240px;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text1);font-size:12px;">
-      <span id="qbCustomersCount" style="font-size:11px;color:var(--text3);font-family:var(--mono);">${all.length} shown</span>
+
+    <!-- ═════ SEARCH (prominent) ═════ -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:18px;">
+      <div style="font-size:10px;color:var(--text3);letter-spacing:1.5px;margin-bottom:8px;font-family:var(--mono);">🔍 FIND CUSTOMER</div>
+      <input type="text" id="qbCustomersSearch" placeholder="Type a name, email, phone, or city…" value="${(_qbUI.search||'').replace(/"/g,'&quot;')}" oninput="_qbUI.search=this.value;_qbRenderRows()"
+        style="width:100%;box-sizing:border-box;padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text1);font-size:15px;">
     </div>
-    <div class="tool-table-wrap">
-      <table class="cctv-inventory-table">
-        <thead><tr><th>Customer</th><th>Status</th><th>Email</th><th>Phone</th><th>Address</th><th style="text-align:right;">AR Balance</th></tr></thead>
-        <tbody id="qbCustomersTbody"></tbody>
-      </table>
+
+    <!-- ═════ AI INSIGHTS ═════ -->
+    ${insights.length ? `<div style="margin-bottom:18px;">
+      <div style="font-size:11px;color:var(--text3);letter-spacing:1.8px;margin-bottom:10px;font-family:var(--mono);">🤖 AI INSIGHTS · CUSTOMER INTELLIGENCE</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:10px;">
+        ${insights.map(_qbInsightCard).join('')}
+      </div>
+    </div>` : ''}
+
+    <!-- ═════ SEGMENTS ═════ -->
+    <div style="margin-bottom:18px;">
+      <div style="font-size:11px;color:var(--text3);letter-spacing:1.8px;margin-bottom:10px;font-family:var(--mono);">📂 AUTO-SEGMENTED · TAP TO FILTER</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        ${_qbSegPill('all','🌐','All',all.length,_qbUI.segment==='all')}
+        ${segments.map(s => _qbSegPill(s.key,s.icon,s.label,s.list.length,_qbUI.segment===s.key)).join('')}
+      </div>
+    </div>
+
+    <!-- ═════ TOP AR ═════ -->
+    ${topAR.length ? `<div style="margin-bottom:18px;">
+      <div style="font-size:11px;color:var(--text3);letter-spacing:1.8px;margin-bottom:10px;font-family:var(--mono);">💎 TOP CUSTOMERS · OPEN AR</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;">
+        ${topAR.map((c,i) => _qbTopCard(c,i+1,totalBalance)).join('')}
+      </div>
+    </div>` : ''}
+
+    <!-- ═════ DIRECTORY ═════ -->
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+        <div style="font-size:11px;color:var(--text3);letter-spacing:1.8px;font-family:var(--mono);">📋 CUSTOMER DIRECTORY · CLICK A ROW TO OPEN</div>
+        <span id="qbDirectoryCount" style="font-size:11px;color:var(--text3);font-family:var(--mono);"></span>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:center;">
+        <div style="display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+          <button onclick="_qbUI.view='list';_qbRenderRows()" style="padding:9px 14px;background:${_qbUI.view==='list'?'var(--accent2)':'transparent'};color:${_qbUI.view==='list'?'#000':'var(--text2)'};border:none;font-size:12px;cursor:pointer;font-weight:${_qbUI.view==='list'?'700':'400'};">☰ List</button>
+          <button onclick="_qbUI.view='grid';_qbRenderRows()" style="padding:9px 14px;background:${_qbUI.view==='grid'?'var(--accent2)':'transparent'};color:${_qbUI.view==='grid'?'#000':'var(--text2)'};border:none;font-size:12px;cursor:pointer;font-weight:${_qbUI.view==='grid'?'700':'400'};">▦ Grid</button>
+        </div>
+        <select onchange="_qbUI.sort=this.value;_qbRenderRows()" style="padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text1);font-size:12px;">
+          <option value="name_asc"  ${_qbUI.sort==='name_asc'?'selected':''}>Sort: Name A→Z</option>
+          <option value="name_desc" ${_qbUI.sort==='name_desc'?'selected':''}>Sort: Name Z→A</option>
+          <option value="ar_desc"   ${_qbUI.sort==='ar_desc'?'selected':''}>Sort: AR ↓ (highest first)</option>
+          <option value="ar_asc"    ${_qbUI.sort==='ar_asc'?'selected':''}>Sort: AR ↑ (lowest first)</option>
+          <option value="updated_desc" ${_qbUI.sort==='updated_desc'?'selected':''}>Sort: Recently updated</option>
+        </select>
+        <button onclick="_qbUI.showInactive=!_qbUI.showInactive;_qbRenderRows()"
+          style="padding:9px 14px;background:${_qbUI.showInactive?'rgba(76,175,80,0.18)':'var(--surface2)'};color:${_qbUI.showInactive?'var(--ok)':'var(--text2)'};border:1px solid var(--border);border-radius:8px;font-size:12px;cursor:pointer;">
+          ${_qbUI.showInactive?'☑':'☐'} Show inactive
+        </button>
+      </div>
+      <div id="qbCustomersBody"></div>
     </div>
   `;
-  _qbRenderRows('');
+  _qbRenderRows();
 }
 
-function _qbRenderRows(searchTerm){
-  const tbody   = document.getElementById('qbCustomersTbody');
-  const counter = document.getElementById('qbCustomersCount');
-  if(!tbody) return;
+// ════════════════════════════════════════════════════════════════
+// CUSTOMER DETAIL PANEL — full record with tabs
+// ════════════════════════════════════════════════════════════════
+function _qbRenderDetail(c){
+  const name        = c.DisplayName || c.FullyQualifiedName || c.CompanyName || '—';
+  const email       = (c.PrimaryEmailAddr && c.PrimaryEmailAddr.Address) || '';
+  const phone       = (c.PrimaryPhone && c.PrimaryPhone.FreeFormNumber) || '';
+  const altPhone    = (c.AlternatePhone && c.AlternatePhone.FreeFormNumber) || '';
+  const mobile      = (c.Mobile && c.Mobile.FreeFormNumber) || '';
+  const fax         = (c.Fax && c.Fax.FreeFormNumber) || '';
+  const web         = (c.WebAddr && c.WebAddr.URI) || '';
+  const billAddr    = c.BillAddr ? [c.BillAddr.Line1, c.BillAddr.Line2, c.BillAddr.City, c.BillAddr.CountrySubDivisionCode, c.BillAddr.PostalCode].filter(Boolean).join(', ') : '';
+  const shipAddr    = c.ShipAddr ? [c.ShipAddr.Line1, c.ShipAddr.Line2, c.ShipAddr.City, c.ShipAddr.CountrySubDivisionCode, c.ShipAddr.PostalCode].filter(Boolean).join(', ') : '';
+  const city        = (c.BillAddr && c.BillAddr.City) || '';
+  const bal         = Number(c.Balance) || 0;
+  const balWithJobs = Number(c.BalanceWithJobs) || 0;
+  const isInactive  = c.Active === false;
+  const initials    = name.split(/\s+/).map(w => w[0]).filter(Boolean).slice(0,2).join('').toUpperCase();
+  const created     = c.MetaData && c.MetaData.CreateTime     ? new Date(c.MetaData.CreateTime).toLocaleDateString()     : '—';
+  const updated     = c.MetaData && c.MetaData.LastUpdatedTime ? new Date(c.MetaData.LastUpdatedTime).toLocaleDateString() : '—';
+  const ageInDays   = c.MetaData && c.MetaData.CreateTime ? Math.floor((Date.now() - new Date(c.MetaData.CreateTime).getTime())/(1000*60*60*24)) : null;
 
-  const all  = _qbCache.lastList || [];
-  const term = (searchTerm||'').toLowerCase().trim();
+  // Infer segment
+  const seg = _qbInferSegment(c);
+  const accentColor = isInactive ? 'var(--text3)' : (bal > 0 ? 'var(--gold)' : 'var(--accent2)');
 
-  const filtered = term ? all.filter(c => {
-    const fields = [
-      c.DisplayName, c.FullyQualifiedName, c.CompanyName,
-      c.PrimaryEmailAddr && c.PrimaryEmailAddr.Address,
-      c.PrimaryPhone && c.PrimaryPhone.FreeFormNumber,
-      c.BillAddr && c.BillAddr.Line1,
-      c.BillAddr && c.BillAddr.City
-    ];
-    return fields.some(f => f && String(f).toLowerCase().includes(term));
-  }) : all;
+  const tab = _qbUI.detailTab || 'overview';
+  let tabContent = '';
+  if(tab === 'overview')      tabContent = _qbDetailOverview(c, { email, phone, altPhone, mobile, fax, web, billAddr, shipAddr, created, updated, balWithJobs });
+  else if(tab === 'invoices') tabContent = _qbDetailEmpty('📜 Recent Invoices', 'Per-customer invoice history — line items, dates, totals, paid/overdue status.', 'Get Customer Invoices', `SELECT * FROM Invoice WHERE CustomerRef = '${c.Id}' ORDERBY TxnDate DESC`);
+  else if(tab === 'products') tabContent = _qbDetailEmpty('📦 Product Mix', 'What this customer buys — by kilograms and by revenue. Top SKUs, trend by month.', 'Get Customer Product Mix', `Aggregate Invoice LineItems by Item, group by CustomerRef = '${c.Id}'.`);
+  else if(tab === 'pricing')  tabContent = _qbDetailEmpty('💰 Price Tier', 'Customer price tier (Standard / Premium / Wholesale / VIP) and item-level price list.', 'Customer Price Tier', 'QBO does not natively store tiers. Options: (a) custom field on Customer, (b) use QBO Price Levels, (c) external mapping stored in app.');
+  else if(tab === 'sales')    tabContent = _qbDetailEmpty('📊 Sales History', 'Lifetime revenue, monthly average, this-month sales, sales trend chart, last order date.', 'Customer Sales Summary', `Aggregate Invoice.TotalAmt by CustomerRef = '${c.Id}', grouped by month.`);
 
-  const rows = filtered.map(c => {
-    const name  = c.DisplayName || c.FullyQualifiedName || c.CompanyName || '—';
-    const email = (c.PrimaryEmailAddr && c.PrimaryEmailAddr.Address) || '';
-    const phone = (c.PrimaryPhone && c.PrimaryPhone.FreeFormNumber) || '';
-    const addr  = c.BillAddr ? [c.BillAddr.Line1, c.BillAddr.City].filter(Boolean).join(', ') : '';
-    const bal   = Number(c.Balance) || 0;
-    const balDisplay = bal > 0 ? '₱' + bal.toLocaleString() : '—';
-    const balColor   = bal > 0 ? 'var(--warn)' : 'var(--text3)';
-    const isInactive = c.Active === false;
-    const statusBadge = isInactive
-      ? '<span style="background:rgba(239,83,80,0.15);color:var(--danger);padding:2px 7px;border-radius:3px;font-size:10px;font-family:var(--mono);">INACTIVE</span>'
-      : '<span style="background:rgba(76,175,80,0.15);color:var(--ok);padding:2px 7px;border-radius:3px;font-size:10px;font-family:var(--mono);">ACTIVE</span>';
-    const rowOpacity = isInactive ? 'opacity:0.55;' : '';
-    return `<tr style="${rowOpacity}">
-      <td><strong>${name}</strong></td>
-      <td>${statusBadge}</td>
-      <td style="font-size:11px;">${email||'—'}</td>
-      <td style="font-size:11px;">${phone||'—'}</td>
-      <td style="font-size:11px;color:var(--text3);">${addr||'—'}</td>
-      <td style="font-size:11px;font-family:var(--mono);text-align:right;color:${balColor};">${balDisplay}</td>
-    </tr>`;
-  }).join('');
+  return `
+    <button class="btn btn-outline" onclick="_qbUI.selected=null;_qbUI.detailTab='overview';_qbRenderInner({ok:true,data:_qbCache.lastList,cached:true})" style="margin-bottom:14px;font-size:12px;">← Back to all customers</button>
 
-  tbody.innerHTML = rows || `<tr><td colspan="6" style="padding:30px;text-align:center;color:var(--text3);">${term?'No customers match "'+term+'"':'No customers returned from QBO.'}</td></tr>`;
+    <!-- HEADER -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid ${accentColor};border-radius:12px;padding:18px 20px;margin-bottom:16px;">
+      <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+        <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,${accentColor},rgba(0,0,0,0.5));color:#000;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;font-family:var(--mono);flex-shrink:0;">${initials||'?'}</div>
+        <div style="flex:1;min-width:240px;">
+          <div style="font-size:20px;font-weight:700;color:var(--text1);line-height:1.2;">${name}</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap;">
+            ${isInactive
+              ? '<span style="font-size:10px;background:rgba(239,83,80,0.18);color:var(--danger);padding:3px 8px;border-radius:4px;font-family:var(--mono);font-weight:700;">INACTIVE</span>'
+              : '<span style="font-size:10px;background:rgba(76,175,80,0.18);color:var(--ok);padding:3px 8px;border-radius:4px;font-family:var(--mono);font-weight:700;">ACTIVE</span>'}
+            <span style="font-size:11px;background:var(--surface2);color:var(--text2);padding:3px 8px;border-radius:4px;font-family:var(--mono);">${seg.icon} ${seg.label}</span>
+            ${city ? `<span style="font-size:12px;color:var(--text3);">📍 ${city}</span>` : ''}
+            <span style="font-size:11px;color:var(--text3);font-family:var(--mono);">QBO ID: ${c.Id}</span>
+          </div>
+          <div style="display:flex;gap:14px;margin-top:8px;flex-wrap:wrap;font-size:12.5px;color:var(--text2);">
+            ${email ? `<span>✉ <a href="mailto:${email}" style="color:var(--accent2);">${email}</a></span>` : ''}
+            ${phone ? `<span>📞 <a href="tel:${phone}" style="color:var(--accent2);">${phone}</a></span>` : ''}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- KPI STRIP -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:16px;">
+      ${_qbMetric('💰','OPEN AR', bal>0?'₱'+bal.toLocaleString():'₱0', bal>0?'has unpaid balance':'no outstanding AR', bal>0?'var(--gold)':'var(--ok)')}
+      ${_qbMetric('🧾','BALANCE w/ JOBS', balWithJobs>0?'₱'+balWithJobs.toLocaleString():'₱0', 'including subordinate jobs', 'var(--info)')}
+      ${_qbMetric('📅','CUSTOMER SINCE', created, ageInDays!==null?ageInDays+' days ago':'', 'var(--accent2)')}
+      ${_qbMetric('🔄','LAST UPDATED', updated, 'in QuickBooks', 'var(--text2)')}
+    </div>
+
+    <!-- TAB STRIP -->
+    <div class="sensor-tabs" style="margin-bottom:14px;display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--border);">
+      ${_qbDetailTab('overview','📋','Overview')}
+      ${_qbDetailTab('invoices','📜','Invoices')}
+      ${_qbDetailTab('products','📦','Product Mix')}
+      ${_qbDetailTab('pricing','💰','Price Tier')}
+      ${_qbDetailTab('sales','📊','Sales History')}
+    </div>
+
+    <!-- TAB CONTENT -->
+    ${tabContent}
+  `;
+}
+
+function _qbDetailTab(id, icon, label){
+  const active = _qbUI.detailTab === id;
+  return `<button onclick="_qbUI.detailTab='${id}';_qbRenderInner({ok:true,data:_qbCache.lastList,cached:true})"
+    style="padding:10px 14px;background:${active?'var(--surface)':'transparent'};color:${active?'var(--accent2)':'var(--text2)'};border:none;border-bottom:2px solid ${active?'var(--accent2)':'transparent'};font-size:13px;cursor:pointer;font-weight:${active?'600':'400'};">
+    ${icon} ${label}
+  </button>`;
+}
+
+function _qbDetailOverview(c, parts){
+  const { email, phone, altPhone, mobile, fax, web, billAddr, shipAddr, created, updated, balWithJobs } = parts;
+  const currency  = (c.CurrencyRef && (c.CurrencyRef.name || c.CurrencyRef.value)) || '—';
+  const delivery  = c.PreferredDeliveryMethod || '—';
+  const taxable   = c.Taxable === true ? 'Yes' : c.Taxable === false ? 'No' : '—';
+  const taxCode   = (c.DefaultTaxCodeRef && c.DefaultTaxCodeRef.value) || '—';
+  const printOn   = c.PrintOnCheckName || '—';
+  const notes     = c.Notes || '';
+  const fqn       = c.FullyQualifiedName || '—';
+  const company   = c.CompanyName || '—';
+  const isJob     = c.Job === true ? 'Yes (sub-customer)' : 'No';
+  const parentRef = c.ParentRef && c.ParentRef.name ? c.ParentRef.name : (c.ParentRef && c.ParentRef.value ? c.ParentRef.value : '—');
+
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;">
+      <!-- CONTACT -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+        <div style="font-size:11px;color:var(--text3);letter-spacing:1.5px;margin-bottom:10px;font-family:var(--mono);">📞 CONTACT</div>
+        ${_qbKV('Email',     email ? `<a href="mailto:${email}" style="color:var(--accent2);">${email}</a>` : '—')}
+        ${_qbKV('Phone',     phone ? `<a href="tel:${phone}" style="color:var(--accent2);">${phone}</a>` : '—')}
+        ${_qbKV('Mobile',    mobile ? `<a href="tel:${mobile}" style="color:var(--accent2);">${mobile}</a>` : '—')}
+        ${_qbKV('Alt Phone', altPhone || '—')}
+        ${_qbKV('Fax',       fax || '—')}
+        ${_qbKV('Web',       web ? `<a href="${web}" target="_blank" style="color:var(--accent2);">${web}</a>` : '—')}
+      </div>
+
+      <!-- ADDRESSES -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+        <div style="font-size:11px;color:var(--text3);letter-spacing:1.5px;margin-bottom:10px;font-family:var(--mono);">📍 ADDRESSES</div>
+        ${_qbKV('Bill to',  billAddr || '—')}
+        ${_qbKV('Ship to',  shipAddr || (billAddr ? '<em style="color:var(--text3);">same as bill</em>' : '—'))}
+      </div>
+
+      <!-- ACCOUNT -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+        <div style="font-size:11px;color:var(--text3);letter-spacing:1.5px;margin-bottom:10px;font-family:var(--mono);">💼 ACCOUNT</div>
+        ${_qbKV('Display Name',    c.DisplayName || '—')}
+        ${_qbKV('Company',         company)}
+        ${_qbKV('Fully Qualified', fqn)}
+        ${_qbKV('Print On Check',  printOn)}
+        ${_qbKV('Is a Job',        isJob)}
+        ${_qbKV('Parent',          parentRef)}
+      </div>
+
+      <!-- FINANCIAL -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+        <div style="font-size:11px;color:var(--text3);letter-spacing:1.5px;margin-bottom:10px;font-family:var(--mono);">💵 FINANCIAL</div>
+        ${_qbKV('Open Balance',       Number(c.Balance)>0       ? '<span style="color:var(--gold);font-weight:700;">₱'+Number(c.Balance).toLocaleString()+'</span>' : '₱0')}
+        ${_qbKV('Balance with Jobs',  balWithJobs>0             ? '<span style="color:var(--info);font-weight:700;">₱'+balWithJobs.toLocaleString()+'</span>'        : '₱0')}
+        ${_qbKV('Currency',           currency)}
+        ${_qbKV('Taxable',            taxable)}
+        ${_qbKV('Default Tax Code',   taxCode)}
+        ${_qbKV('Delivery Method',    delivery)}
+      </div>
+
+      <!-- METADATA -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+        <div style="font-size:11px;color:var(--text3);letter-spacing:1.5px;margin-bottom:10px;font-family:var(--mono);">🛠 SYSTEM</div>
+        ${_qbKV('QBO ID',         c.Id || '—')}
+        ${_qbKV('Sync Token',     c.SyncToken || '—')}
+        ${_qbKV('Created',        created)}
+        ${_qbKV('Last Updated',   updated)}
+        ${_qbKV('Active in QBO',  c.Active === false ? 'No (archived)' : 'Yes')}
+      </div>
+
+      <!-- NOTES -->
+      ${notes ? `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;grid-column:1/-1;">
+        <div style="font-size:11px;color:var(--text3);letter-spacing:1.5px;margin-bottom:10px;font-family:var(--mono);">📝 NOTES (from QuickBooks)</div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.6;white-space:pre-wrap;">${notes}</div>
+      </div>` : ''}
+    </div>
+  `;
+}
+
+function _qbKV(label, value){
+  return `<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px dashed rgba(255,255,255,0.04);">
+    <span style="font-size:11px;color:var(--text3);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;">${label}</span>
+    <span style="font-size:13px;color:var(--text1);text-align:right;word-break:break-word;">${value}</span>
+  </div>`;
+}
+
+function _qbDetailEmpty(title, description, scenarioName, technicalNote){
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:32px;text-align:center;">
+    <div style="font-size:48px;margin-bottom:14px;opacity:0.6;">🔌</div>
+    <div style="font-size:17px;font-weight:600;color:var(--text1);margin-bottom:6px;">${title}</div>
+    <div style="font-size:13px;color:var(--text2);max-width:520px;margin:0 auto 18px;line-height:1.6;">${description}</div>
+    <div style="display:inline-block;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 18px;text-align:left;max-width:560px;">
+      <div style="font-size:10px;color:var(--text3);letter-spacing:1.5px;margin-bottom:6px;font-family:var(--mono);">⚙️ NEXT MAKE SCENARIO NEEDED</div>
+      <div style="font-size:13px;color:var(--accent2);font-weight:600;margin-bottom:6px;">${scenarioName}</div>
+      <div style="font-size:11px;color:var(--text3);font-family:var(--mono);line-height:1.5;">${technicalNote}</div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:14px;">Ask Claude to build this scenario when you're ready.</div>
+  </div>`;
+}
+
+function _qbInferSegment(c){
+  const n = ((c.DisplayName||'') + ' ' + (c.CompanyName||'') + ' ' + (c.FullyQualifiedName||'')).toLowerCase();
+  if(n.includes('aba pardes') || n.includes('apti') || n.includes('agritech')) return { key:'aba',         icon:'🌱', label:'ABA Pardes' };
+  if(n.includes('resort'))                                                     return { key:'resorts',     icon:'🌴', label:'Resort' };
+  if(n.includes('hotel') || n.match(/\binn\b/))                                return { key:'hotels',      icon:'🏨', label:'Hotel' };
+  if(n.includes('cafe') || n.includes('café') || n.includes('bakery') || n.includes('coffee')) return { key:'cafes', icon:'☕', label:'Café/Bakery' };
+  if(n.includes('restaurant') || n.includes('grill') || n.includes('kitchen') || n.includes('bistro') || n.includes('dine')) return { key:'restaurants', icon:'🍽️', label:'Restaurant' };
+  if(n.match(/\d+\s*grm/) || n.includes('lettuce') || n.includes('kopiko') || n.includes('pack of')) return { key:'products', icon:'📦', label:'SKU-like entry' };
+  return { key:'other', icon:'👤', label:'Other' };
+}
+
+function _qbAbbr(n){
+  if(n >= 1000000) return (n/1000000).toFixed(1) + 'M';
+  if(n >= 1000)    return (n/1000).toFixed(n>=10000?0:1) + 'k';
+  return Math.round(n).toString();
+}
+
+function _qbMetric(icon, label, value, sub, accent){
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${accent};border-radius:10px;padding:14px 16px;">
+    <div style="display:flex;align-items:center;gap:8px;color:var(--text3);font-size:10px;letter-spacing:1.4px;margin-bottom:8px;font-family:var(--mono);">
+      <span style="font-size:14px;">${icon}</span>${label}
+    </div>
+    <div style="font-size:24px;font-weight:700;color:${accent};line-height:1;margin-bottom:6px;font-family:var(--mono);">${value}</div>
+    <div style="font-size:11px;color:var(--text3);">${sub}</div>
+  </div>`;
+}
+
+function _qbInsightCard(ins){
+  const tones = { warn:'var(--warn)', danger:'var(--danger)', ok:'var(--ok)', info:'var(--info)' };
+  const accent = tones[ins.tone] || 'var(--info)';
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${accent};border-radius:10px;padding:13px 14px;">
+    <div style="display:flex;align-items:start;gap:10px;">
+      <div style="font-size:22px;flex-shrink:0;line-height:1;">${ins.icon}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;color:${accent};font-weight:600;margin-bottom:4px;">${ins.title}</div>
+        <div style="font-size:11.5px;color:var(--text2);line-height:1.5;">${ins.detail}</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function _qbSegPill(key, icon, label, count, isActive){
+  return `<button onclick="_qbUI.segment='${key}';_qbRenderInner({ok:true,data:_qbCache.lastList,cached:true})"
+    style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;background:${isActive?'rgba(0,200,150,0.18)':'var(--surface)'};border:1px solid ${isActive?'var(--accent2)':'var(--border)'};border-radius:20px;color:${isActive?'var(--accent2)':'var(--text2)'};font-size:12.5px;cursor:pointer;font-family:var(--mono);">
+    <span>${icon}</span>${label}
+    <span style="background:${isActive?'var(--accent2)':'var(--surface2)'};color:${isActive?'#000':'var(--text3)'};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;">${count}</span>
+  </button>`;
+}
+
+function _qbTopCard(c, rank, totalBalance){
+  const name = c.DisplayName || c.FullyQualifiedName || c.CompanyName || '—';
+  const bal  = Number(c.Balance) || 0;
+  const pct  = totalBalance ? Math.round((bal / totalBalance) * 100) : 0;
+  const initials = name.split(/\s+/).map(w => w[0]).filter(Boolean).slice(0,2).join('').toUpperCase();
+  return `<div onclick="_qbUI.selected='${c.Id}';_qbUI.detailTab='overview';_qbRenderInner({ok:true,data:_qbCache.lastList,cached:true})"
+    style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:12px;cursor:pointer;">
+    <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--gold),var(--accent2));color:#000;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;font-family:var(--mono);flex-shrink:0;">${initials||'?'}</div>
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:10px;color:var(--text3);font-family:var(--mono);letter-spacing:1px;">#${rank} · ${pct}% of AR</div>
+      <div style="font-size:13px;font-weight:600;color:var(--text1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</div>
+      <div style="font-size:14px;color:var(--gold);font-family:var(--mono);font-weight:700;">₱${bal.toLocaleString()}</div>
+    </div>
+  </div>`;
+}
+
+function _qbBuildSegments(list){
+  const segs = {
+    hotels:      { key:'hotels',      icon:'🏨', label:'Hotels',         list:[] },
+    resorts:     { key:'resorts',     icon:'🌴', label:'Resorts',        list:[] },
+    restaurants: { key:'restaurants', icon:'🍽️', label:'Restaurants',    list:[] },
+    cafes:       { key:'cafes',       icon:'☕', label:'Cafés & Bakery',  list:[] },
+    aba:         { key:'aba',         icon:'🌱', label:'ABA Pardes',     list:[] },
+    products:    { key:'products',    icon:'📦', label:'Looks like SKU', list:[] },
+    other:       { key:'other',       icon:'👤', label:'Other',          list:[] }
+  };
+  list.forEach(c => {
+    const s = _qbInferSegment(c);
+    (segs[s.key] || segs.other).list.push(c);
+  });
+  return Object.values(segs).filter(s => s.list.length > 0);
+}
+
+function _qbBuildInsights(all, segments, withBal, totalBal, activeCount, inactiveCount){
+  const out = [];
+  if(withBal.length >= 3 && totalBal > 0){
+    const top3 = [...withBal].sort((a,b) => Number(b.Balance) - Number(a.Balance)).slice(0, 3);
+    const top3Sum = top3.reduce((s,c) => s + Number(c.Balance), 0);
+    const pct = Math.round((top3Sum / totalBal) * 100);
+    if(pct >= 50){
+      out.push({ icon:'🎯', tone:'warn', title:`AR concentration risk · ${pct}%`,
+        detail:`Top 3 customers carry ${pct}% of all open AR (₱${_qbAbbr(top3Sum)} of ₱${_qbAbbr(totalBal)}). Single default would impact cashflow.` });
+    }
+  }
+  const productSeg = segments.find(s => s.key === 'products');
+  if(productSeg && productSeg.list.length > 0){
+    out.push({ icon:'⚠️', tone:'danger', title:`${productSeg.list.length} entries look like SKUs, not customers`,
+      detail:`Items like "Curly green Lettuce 250grm" appear in your customer database. Should be Products, not Customers. Worth cleaning up in QBO.` });
+  }
+  if(all.length > 0){
+    const inactivePct = Math.round((inactiveCount / all.length) * 100);
+    if(inactivePct >= 15){
+      out.push({ icon:'🗑️', tone:'info', title:`${inactivePct}% inactive in QBO`,
+        detail:`${inactiveCount} of ${all.length} customers are archived. Toggle "Show inactive" to include them.` });
+    }
+  }
+  const highValue = withBal.filter(c => Number(c.Balance) >= 50000);
+  if(highValue.length > 0){
+    const sum = highValue.reduce((s,c) => s + Number(c.Balance), 0);
+    out.push({ icon:'💎', tone:'ok', title:`${highValue.length} high-value AR (₱50k+)`,
+      detail:`Combined balance ₱${_qbAbbr(sum)}. Prioritize follow-up — collecting these clears ${Math.round((sum/totalBal)*100)}% of total AR.` });
+  }
+  return out.slice(0, 4);
+}
+
+function _qbRenderRows(){
+  const body    = document.getElementById('qbCustomersBody');
+  const counter = document.getElementById('qbDirectoryCount');
+  if(!body) return;
+
+  let list = _qbCache.lastList || [];
+  const totalAll = list.length;
+
+  if(_qbUI.segment && _qbUI.segment !== 'all'){
+    const segs = _qbBuildSegments(list);
+    const seg = segs.find(s => s.key === _qbUI.segment);
+    if(seg) list = seg.list;
+  }
+  if(!_qbUI.showInactive) list = list.filter(c => c.Active !== false);
+
+  const term = (_qbUI.search||'').toLowerCase().trim();
+  if(term){
+    list = list.filter(c => {
+      const fields = [
+        c.DisplayName, c.FullyQualifiedName, c.CompanyName,
+        c.PrimaryEmailAddr && c.PrimaryEmailAddr.Address,
+        c.PrimaryPhone && c.PrimaryPhone.FreeFormNumber,
+        c.BillAddr && c.BillAddr.Line1, c.BillAddr && c.BillAddr.City
+      ];
+      return fields.some(f => f && String(f).toLowerCase().includes(term));
+    });
+  }
+
+  list = [...list];
+  if(_qbUI.sort === 'ar_desc')       list.sort((a,b) => (Number(b.Balance)||0) - (Number(a.Balance)||0));
+  else if(_qbUI.sort === 'ar_asc')   list.sort((a,b) => (Number(a.Balance)||0) - (Number(b.Balance)||0));
+  else if(_qbUI.sort === 'name_asc') list.sort((a,b) => (a.DisplayName||'').localeCompare(b.DisplayName||''));
+  else if(_qbUI.sort === 'name_desc')list.sort((a,b) => (b.DisplayName||'').localeCompare(a.DisplayName||''));
+  else if(_qbUI.sort === 'updated_desc') list.sort((a,b) => {
+    const ta = (a.MetaData && a.MetaData.LastUpdatedTime) || '';
+    const tb = (b.MetaData && b.MetaData.LastUpdatedTime) || '';
+    return tb.localeCompare(ta);
+  });
 
   if(counter){
-    counter.textContent = filtered.length === all.length
-      ? all.length + ' shown'
-      : filtered.length + ' of ' + all.length + ' shown';
+    counter.textContent = list.length === totalAll ? `· ${totalAll} total` : `· ${list.length} of ${totalAll}`;
   }
+
+  if(list.length === 0){
+    body.innerHTML = `<div style="padding:40px;text-align:center;color:var(--text3);background:var(--surface);border:1px dashed var(--border);border-radius:10px;font-size:13px;">No customers match the current filters.</div>`;
+    return;
+  }
+
+  if(_qbUI.view === 'grid'){
+    body.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">${list.map(_qbCustomerCard).join('')}</div>`;
+  } else {
+    body.innerHTML = _qbCustomerListView(list);
+  }
+}
+
+function _qbCustomerCard(c){
+  const name  = c.DisplayName || c.FullyQualifiedName || c.CompanyName || '—';
+  const email = (c.PrimaryEmailAddr && c.PrimaryEmailAddr.Address) || '';
+  const phone = (c.PrimaryPhone && c.PrimaryPhone.FreeFormNumber) || '';
+  const city  = (c.BillAddr && c.BillAddr.City) || '';
+  const bal   = Number(c.Balance) || 0;
+  const isInactive = c.Active === false;
+  const initials = name.split(/\s+/).map(w => w[0]).filter(Boolean).slice(0,2).join('').toUpperCase();
+  const accentColor = isInactive ? 'var(--text3)' : (bal > 0 ? 'var(--gold)' : 'var(--accent2)');
+  const borderLeft  = isInactive ? 'var(--text3)' : (bal > 0 ? 'var(--gold)' : 'transparent');
+  const seg = _qbInferSegment(c);
+
+  return `<div onclick="_qbUI.selected='${c.Id}';_qbUI.detailTab='overview';_qbRenderInner({ok:true,data:_qbCache.lastList,cached:true})"
+    style="background:var(--surface);border:1px solid var(--border);${borderLeft!=='transparent'?`border-left:3px solid ${borderLeft};`:''}border-radius:10px;padding:14px;cursor:pointer;${isInactive?'opacity:0.6;':''}">
+    <div style="display:flex;align-items:start;gap:11px;margin-bottom:10px;">
+      <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,${accentColor},rgba(0,0,0,0.5));color:#000;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;font-family:var(--mono);flex-shrink:0;">${initials||'?'}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13.5px;font-weight:600;color:var(--text1);line-height:1.3;word-break:break-word;">${name}</div>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap;">
+          <span style="font-size:11px;color:var(--text3);">${seg.icon} ${seg.label}</span>
+          ${city ? `<span style="font-size:11px;color:var(--text3);">· 📍 ${city}</span>` : ''}
+        </div>
+      </div>
+    </div>
+    ${email ? `<div style="font-size:11.5px;color:var(--text2);margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">✉ ${email}</div>` : ''}
+    ${phone ? `<div style="font-size:11.5px;color:var(--text2);margin-bottom:6px;">📞 ${phone}</div>` : ''}
+    ${bal > 0 ? `<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-size:10px;color:var(--text3);font-family:var(--mono);letter-spacing:1px;">OPEN AR</span>
+      <span style="font-size:15px;color:var(--gold);font-weight:700;font-family:var(--mono);">₱${bal.toLocaleString()}</span>
+    </div>` : ''}
+  </div>`;
+}
+
+function _qbCustomerListView(list){
+  const rows = list.map(c => {
+    const name        = c.DisplayName || c.FullyQualifiedName || c.CompanyName || '—';
+    const company     = c.CompanyName && c.CompanyName !== c.DisplayName ? c.CompanyName : '';
+    const email       = (c.PrimaryEmailAddr && c.PrimaryEmailAddr.Address) || '';
+    const phone       = (c.PrimaryPhone && c.PrimaryPhone.FreeFormNumber) || '';
+    const mobile      = (c.Mobile && c.Mobile.FreeFormNumber) || '';
+    const altPhone    = (c.AlternatePhone && c.AlternatePhone.FreeFormNumber) || '';
+    const billAddr    = c.BillAddr ? [c.BillAddr.Line1, c.BillAddr.Line2, c.BillAddr.City].filter(Boolean).join(', ') : '';
+    const notes       = (c.Notes || '').trim();
+    const bal         = Number(c.Balance) || 0;
+    const balWithJobs = Number(c.BalanceWithJobs) || 0;
+    const isInactive  = c.Active === false;
+    const initials    = name.split(/\s+/).map(w => w[0]).filter(Boolean).slice(0,2).join('').toUpperCase();
+    const seg         = _qbInferSegment(c);
+    const accentColor = isInactive ? 'var(--text3)' : (bal > 0 ? 'var(--gold)' : 'var(--accent2)');
+    const borderLeft  = isInactive ? 'var(--text3)' : (bal > 0 ? 'var(--gold)' : 'var(--accent2)');
+
+    // Customer-since
+    let since = '';
+    if(c.MetaData && c.MetaData.CreateTime){
+      const d = new Date(c.MetaData.CreateTime);
+      const days = Math.floor((Date.now() - d.getTime())/(1000*60*60*24));
+      since = days < 30 ? days + 'd' : days < 365 ? Math.floor(days/30) + 'mo' : (days/365).toFixed(1) + 'y';
+    }
+
+    // Build the contact line — only items that exist, joined with " · "
+    const contactParts = [];
+    if(email)    contactParts.push(`<span>✉ <span style="color:var(--accent2);">${email}</span></span>`);
+    if(phone)    contactParts.push(`<span>📞 ${phone}</span>`);
+    if(mobile && mobile !== phone)    contactParts.push(`<span>📱 ${mobile}</span>`);
+    if(altPhone && altPhone !== phone) contactParts.push(`<span>☎ ${altPhone}</span>`);
+    if(billAddr) contactParts.push(`<span>📍 ${billAddr}</span>`);
+    const contactLine = contactParts.length
+      ? `<div style="font-size:11.5px;color:var(--text2);margin-top:4px;display:flex;flex-wrap:wrap;gap:4px 14px;line-height:1.5;">${contactParts.join('<span style="color:var(--text3);">·</span>')}</div>`
+      : '';
+
+    // Notes preview (truncated)
+    const notesPreview = notes
+      ? `<div style="font-size:11px;color:var(--text3);margin-top:4px;font-style:italic;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;">📝 ${notes.replace(/\n/g,' ').slice(0,140)}${notes.length>140?'…':''}</div>`
+      : '';
+
+    // Status badge
+    const badge = isInactive
+      ? '<span style="background:rgba(239,83,80,0.18);color:var(--danger);padding:2px 7px;border-radius:3px;font-size:9.5px;font-family:var(--mono);font-weight:700;letter-spacing:0.5px;">INACTIVE</span>'
+      : '<span style="background:rgba(76,175,80,0.18);color:var(--ok);padding:2px 7px;border-radius:3px;font-size:9.5px;font-family:var(--mono);font-weight:700;letter-spacing:0.5px;">ACTIVE</span>';
+
+    // Segment tag
+    const segTag = `<span style="font-size:10.5px;background:var(--surface2);color:var(--text2);padding:2px 8px;border-radius:3px;font-family:var(--mono);">${seg.icon} ${seg.label}</span>`;
+
+    // Right-column metrics
+    const arBlock = bal > 0
+      ? `<div style="text-align:right;"><div style="font-size:9px;color:var(--text3);letter-spacing:1px;font-family:var(--mono);">OPEN AR</div><div style="font-size:15px;color:var(--gold);font-weight:700;font-family:var(--mono);">₱${bal.toLocaleString()}</div></div>`
+      : `<div style="text-align:right;"><div style="font-size:10px;color:var(--text3);font-family:var(--mono);">no balance</div></div>`;
+    const sinceBlock = since
+      ? `<div style="text-align:right;font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:2px;">customer ${since}</div>`
+      : '';
+    const jobsBlock = (balWithJobs > 0 && balWithJobs !== bal)
+      ? `<div style="text-align:right;font-size:10px;color:var(--info);font-family:var(--mono);margin-top:2px;">w/ jobs ₱${balWithJobs.toLocaleString()}</div>`
+      : '';
+
+    return `<div class="qb-row" onclick="_qbUI.selected='${c.Id}';_qbUI.detailTab='overview';_qbRenderInner({ok:true,data:_qbCache.lastList,cached:true})"
+      style="display:flex;align-items:flex-start;gap:14px;padding:13px 16px;background:var(--surface);border:1px solid var(--border);border-left:3px solid ${borderLeft};border-radius:10px;margin-bottom:8px;cursor:pointer;${isInactive?'opacity:0.6;':''}transition:transform 0.08s,border-color 0.1s;">
+
+      <!-- Avatar -->
+      <div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,${accentColor},rgba(0,0,0,0.5));color:#000;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;font-family:var(--mono);flex-shrink:0;">${initials||'?'}</div>
+
+      <!-- Main content -->
+      <div style="flex:1;min-width:0;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="font-size:14.5px;font-weight:600;color:var(--text1);line-height:1.2;">${name}</span>
+          ${badge}
+          ${segTag}
+          ${company ? `<span style="font-size:11px;color:var(--text3);">· ${company}</span>` : ''}
+        </div>
+        ${contactLine}
+        ${notesPreview}
+      </div>
+
+      <!-- Right metrics -->
+      <div style="flex-shrink:0;min-width:140px;display:flex;flex-direction:column;justify-content:flex-start;">
+        ${arBlock}
+        ${jobsBlock}
+        ${sinceBlock}
+      </div>
+
+      <!-- Open arrow -->
+      <div style="flex-shrink:0;color:var(--text3);font-size:18px;align-self:center;">→</div>
+    </div>`;
+  }).join('');
+
+  return `<style>.qb-row:hover{transform:translateX(2px);border-color:var(--accent2)!important;background:var(--surface2)!important;}</style>${rows}`;
 }
 
 function _qbRefreshCustomers(){
