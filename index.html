@@ -19719,6 +19719,7 @@ const MODULES={
       {id:'indoor_projects',label:'🏭 Indoor Projects',perm:null,title:'PRJ11 / PRJ12 lettuce daily checklist — per-table issue tracking (A1-A6, B1-B6) with supervisor controls'},
       {id:'open_issues',label:'📊 Open Issues',perm:null,title:'Open issues tracker for Indoor Projects — persistence days, follow-up, photo progression'},
       {id:'prod_tech_per_gh',label:'🔧 Tech Issues per GH',perm:null,title:'Per-GH equipment & infrastructure issue logger — fans, tables, cooling pad, plastic, screens, water lines, NFT pipes, doors, cabinets. All issues auto-raise maintenance calls in My Calls Matrix.'},
+      {id:'crops_matrix',label:'🌿 Crops Matrix',perm:null,title:'Status Matrix across all facilities — categories × greenhouses, color-coded by HydroNexis Brain. Connects to calls, checklist, and other modules.'},
       {id:'history',label:'History',perm:'viewHistory'}
     ]
   },
@@ -124570,8 +124571,125 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 
-<!-- HydroNexis-AI patches.js — served from Cloudflare Worker KV.
-     Updates live without Netlify deploy. Bump ?v=N to force-invalidate all clients. -->
-<script src="https://api.abapardes.com.ph/patches/latest.js?v=1"></script>
+<!-- HydroNexis-AI inline patches · v3 (2026-05-17)
+     · Module dropdown clip-fix (smaller Mac < 1500px wide)
+     · Crops Matrix as standalone view in Production module dropdown
+       (entry added in MODULES.production.views above; here we wire switchView) -->
+<script>
+(function () {
+  console.log(
+    '%c[HydroNexis-AI patches] inline v3 · 2026-05-17',
+    'color:#66bb6a;font-weight:bold;font-size:13px;'
+  );
+  window.__HNX_PATCHES = {
+    version: 'v3-inline',
+    loadedAt: new Date().toISOString(),
+    source: 'inline in index.html',
+    fixes: ['module-dropdown-clip', 'crops-matrix-as-view'],
+  };
+
+  // ============================================================
+  // FIX 1: Module switcher panel gets clipped on screens < 1500px
+  // (topbar overflow-x:auto implicitly upgrades overflow-y to auto).
+  // Switch panel to position:fixed and reposition on every open.
+  // ============================================================
+  function applyModuleDropdownFix() {
+    if (!document.getElementById('hnx-patch-mod-dropdown')) {
+      var style = document.createElement('style');
+      style.id = 'hnx-patch-mod-dropdown';
+      style.textContent =
+        '.hnx-mod-panel{position:fixed!important;max-height:calc(100vh - 180px)!important;}';
+      document.head.appendChild(style);
+    }
+    var trigger = document.getElementById('hnxModTrigger');
+    var panel   = document.getElementById('hnxModPanel');
+    var picker  = document.getElementById('hnxModPicker');
+    if (!trigger || !panel || !picker) {
+      setTimeout(applyModuleDropdownFix, 500);
+      return;
+    }
+    if (picker.dataset.hnxFixed === '1') return;
+    picker.dataset.hnxFixed = '1';
+    function reposition() {
+      if (!picker.classList.contains('open')) return;
+      var rect = trigger.getBoundingClientRect();
+      panel.style.top  = (rect.bottom + 8) + 'px';
+      panel.style.left = rect.left + 'px';
+    }
+    new MutationObserver(reposition).observe(picker, {
+      attributes: true, attributeFilter: ['class'],
+    });
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, { capture: true, passive: true });
+    console.log('[HNX-patches] fix 1: module-dropdown clip-fix active');
+  }
+  applyModuleDropdownFix();
+
+  // ============================================================
+  // FIX 2: Wire the 'crops_matrix' view (entry added to
+  // MODULES.production.views in source). Since no <div id="view-crops_matrix">
+  // exists in the DOM, we intercept switchView calls: when target ===
+  // 'crops_matrix', we activate the dashboard view underneath and apply the
+  // hp-crops-matrix-only body class (which hides everything except the
+  // Status Matrix). We also mark the correct sub-tab so the dropdown shows
+  // "Crops Matrix" as the current view, not "Dashboard".
+  // ============================================================
+  function applyCropsMatrixViewWrap() {
+    if (typeof window.switchView !== 'function') {
+      setTimeout(applyCropsMatrixViewWrap, 500);
+      return;
+    }
+    if (window.switchView._hnxCropsWrapped) return;
+
+    var origSwitchView = window.switchView;
+    window.switchView = function (v, skipModuleCheck) {
+      if (v === 'crops_matrix') {
+        // Brain-view cleanup (mirrors activateCropsMatrixTab in the original)
+        var appMain = document.getElementById('appMain');
+        if (appMain) {
+          Array.from(appMain.querySelectorAll(':scope > .hn-brain-view')).forEach(function (el) { el.remove(); });
+          Array.from(appMain.children).forEach(function (c) {
+            if (c.dataset && c.dataset.hnBrainHidden) {
+              c.classList.remove('hn-brain-force-hide');
+              if (c.dataset.hnBrainHadActive) {
+                c.classList.add('active');
+                delete c.dataset.hnBrainHadActive;
+              }
+              delete c.dataset.hnBrainHidden;
+            }
+          });
+        }
+        // Switch to dashboard view underneath, then enter crops-matrix-only mode
+        var r = origSwitchView('dashboard', skipModuleCheck);
+        setTimeout(function () {
+          window.currentView = 'crops_matrix';
+          document.body.classList.add('hp-crops-matrix-only');
+          // Mark the dropdown button to show "Crops Matrix", not "Dashboard"
+          if (typeof window.markActiveSubTab === 'function') {
+            try { window.markActiveSubTab('crops_matrix'); } catch (e) {}
+          }
+          // Re-render the matrix and brain overlay
+          ['renderMatrix','renderStatusMatrix','renderDashboardMatrix','renderAll','renderRecurringWeek'].forEach(function (fn) {
+            if (typeof window[fn] === 'function') { try { window[fn](); } catch (e) {} }
+          });
+          if (typeof window.hnApplyMatrixOverlay === 'function') {
+            try { window.hnApplyMatrixOverlay(); } catch (e) {}
+          }
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }, 60);
+        return r;
+      }
+      // Any other view target → leave crops-matrix-only mode if it was on
+      if (document.body.classList.contains('hp-crops-matrix-only')) {
+        document.body.classList.remove('hp-crops-matrix-only');
+      }
+      return origSwitchView.apply(this, arguments);
+    };
+    window.switchView._hnxCropsWrapped = true;
+    console.log('[HNX-patches] fix 2: switchView wrapped for crops_matrix view');
+  }
+  applyCropsMatrixViewWrap();
+})();
+</script>
 </body>
 </html>
