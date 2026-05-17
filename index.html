@@ -97697,7 +97697,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.79';
+        vEl.textContent = orig + ' · HNX v2.80';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -126311,5 +126311,389 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.75 CLOUD SYNC ===================== -->
+<!-- ===================== HNX v2.80 — PAYROLL ENHANCEMENTS ===================== -->
+<script id="hnx-payroll-v280-js">
+/* Payroll v2.80:
+   - Adds Level column (1-5) per row (from existing TRAINING_CERTS)
+   - Splits "Gov Ded" into SSS / PHIC / HDMF / TIN columns
+   - Type column shows full name (Regular / Trainee / Intern)
+   - Period picker (Thu→Wed weeks already used by system)
+   - Level Rate Config opens existing training rates editor
+   - FIX: payroll calc was reading emp.dailyRate but field is emp.rate.
+     Wraps calcEmployeePayroll to use the correct rate fallback chain:
+       emp.rateOverride > emp.rate > levelRates[level] > 0
+   - Connects to existing hydroPro_attendance data automatically
+*/
+(function(){
+  'use strict';
+  if(window.__HNX_PAYROLL_V280__) return;
+  window.__HNX_PAYROLL_V280__ = true;
+
+  // ----- Rate resolution -----
+  function getEmpLevel(empId){
+    try{
+      if(typeof getEmpCert==='function'){
+        var c = getEmpCert(empId);
+        return c && c.level ? c.level : 1;
+      }
+      var certs = JSON.parse(localStorage.getItem('hydroPro_training_certs')||'{}');
+      return certs[empId] && certs[empId].level ? certs[empId].level : 1;
+    }catch(e){ return 1; }
+  }
+
+  function getEmpDailyRate(emp){
+    if(!emp) return 0;
+    // 1. explicit override
+    if(emp.rateOverride && parseFloat(emp.rateOverride) > 0) return parseFloat(emp.rateOverride);
+    // 2. stored rate
+    if(emp.rate && parseFloat(emp.rate) > 0) return parseFloat(emp.rate);
+    // 3. compute from level
+    try{
+      var rates = (typeof loadLevelRates==='function') ? loadLevelRates() : {};
+      var lvl = getEmpLevel(emp.id);
+      var r = rates[lvl] || 0;
+      return parseFloat(r) || 0;
+    }catch(e){ return 0; }
+  }
+
+  // ----- FIX the payroll calc bug (reads emp.dailyRate which doesn't exist) -----
+  if(typeof window.calcEmployeePayroll === 'function'){
+    var origCalc = window.calcEmployeePayroll;
+    window.calcEmployeePayroll = function(emp, periodStart, periodEnd, periodType){
+      // Inject the daily rate into a clone so the original calc finds it
+      var fixedEmp = Object.assign({}, emp);
+      if(!fixedEmp.dailyRate || parseFloat(fixedEmp.dailyRate) === 0){
+        fixedEmp.dailyRate = getEmpDailyRate(emp);
+      }
+      return origCalc.call(this, fixedEmp, periodStart, periodEnd, periodType);
+    };
+    console.log('[HNX v2.80] calcEmployeePayroll wrapped with rate-fallback fix');
+  }
+
+  function toast(msg, kind){
+    if(typeof showToast==='function'){ showToast(msg, kind); return; }
+    console.log('[HNX] '+msg);
+  }
+
+  // ----- Level Rates editor (using existing loadLevelRates / saveLevelRates) -----
+  window.HNX_openLevelRatesConfig = function(){
+    var rates = (typeof loadLevelRates==='function') ? loadLevelRates() : {1:350,2:450,3:550,4:680,5:850};
+    var html = '<div id="hnx-levelrates-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;">'+
+      '<div style="background:#0f1a0f;border:2px solid #4caf50;border-radius:12px;padding:24px;min-width:360px;max-width:90vw;color:#e8f5e9;">'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">'+
+          '<div style="font-size:18px;font-weight:800;color:#7fff7f;">🎚 Daily Rate per Pro Level</div>'+
+          '<button onclick="document.getElementById(\'hnx-levelrates-overlay\').remove()" style="background:transparent;color:#aaa;border:1px solid #444;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;">✕</button>'+
+        '</div>'+
+        '<div style="color:#aaa;font-size:12px;margin-bottom:16px;">Set the daily ₱ rate for each Pro Level (1-5). Used as fallback when an employee has no rate set. Click "Apply to All" to push these rates to every active employee without an override.</div>';
+    for(var i=1;i<=5;i++){
+      html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">'+
+        '<label style="min-width:90px;color:#7fff7f;font-weight:700;">Level '+i+'</label>'+
+        '<span style="color:#aaa;">₱</span>'+
+        '<input type="number" id="hnx-lvl-rate-'+i+'" value="'+(rates[i]||0)+'" step="0.01" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px 10px;font-size:14px;width:140px;font-family:monospace;">'+
+        '<span style="color:#888;font-size:11px;">per day</span>'+
+      '</div>';
+    }
+    html += '<div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end;flex-wrap:wrap;">'+
+        '<button onclick="HNX_saveLevelRatesFromForm()" style="background:#1a3a1a;color:#7fff7f;border:1px solid #4caf50;border-radius:6px;padding:10px 18px;font-weight:700;cursor:pointer;">💾 Save Rates</button>'+
+        '<button onclick="HNX_applyLevelRatesToEmployees()" style="background:#4caf50;color:#000;border:none;border-radius:6px;padding:10px 18px;font-weight:800;cursor:pointer;">⚡ Apply to All Active Employees</button>'+
+      '</div>'+
+      '</div>'+
+    '</div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+  };
+
+  window.HNX_saveLevelRatesFromForm = function(){
+    var r = {};
+    for(var i=1;i<=5;i++){
+      var el = document.getElementById('hnx-lvl-rate-'+i);
+      r[i] = el ? parseFloat(el.value||0) : 0;
+    }
+    if(typeof saveLevelRates==='function'){
+      saveLevelRates(r);
+    } else {
+      localStorage.setItem('hydroPro_training_level_rates', JSON.stringify(r));
+    }
+    toast('✓ Level rates saved','ok');
+  };
+
+  window.HNX_applyLevelRatesToEmployees = function(){
+    if(!confirm('Push the Level 1-5 daily rates to ALL ACTIVE employees who do NOT have a custom rateOverride.\n\nProceed?')) return;
+    var rates = (typeof loadLevelRates==='function') ? loadLevelRates() : {};
+    var employees;
+    try{
+      employees = JSON.parse(localStorage.getItem('hydroPro_employees')||'[]');
+    }catch(e){ alert('Could not read employees: '+e.message); return; }
+    var changed = 0;
+    employees.forEach(function(emp){
+      if(emp.status && emp.status !== 'Active' && emp.status !== 'active') return;
+      if(emp.rateOverride) return;
+      var lvl = getEmpLevel(emp.id);
+      var newRate = parseFloat(rates[lvl]||0);
+      if(newRate > 0 && emp.rate !== newRate){
+        emp.rate = newRate;
+        changed++;
+      }
+    });
+    localStorage.setItem('hydroPro_employees', JSON.stringify(employees));
+    var ov = document.getElementById('hnx-levelrates-overlay');
+    if(ov) ov.remove();
+    alert('✓ Updated daily rate for '+changed+' active employees based on their Pro Level.');
+    if(typeof renderPayrollOps==='function') renderPayrollOps();
+  };
+
+  // ----- Period picker -----
+  window.HNX_openPeriodPicker = function(){
+    var current = (window._payOpsCurrentPeriod) || {};
+    var startVal = current.start || new Date().toISOString().slice(0,10);
+    var html = '<div id="hnx-period-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;">'+
+      '<div style="background:#0f1a0f;border:2px solid #4caf50;border-radius:12px;padding:24px;min-width:340px;max-width:90vw;color:#e8f5e9;">'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">'+
+          '<div style="font-size:18px;font-weight:800;color:#7fff7f;">📅 Pick Pay Period</div>'+
+          '<button onclick="document.getElementById(\'hnx-period-overlay\').remove()" style="background:transparent;color:#aaa;border:1px solid #444;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;">✕</button>'+
+        '</div>'+
+        '<div style="color:#aaa;font-size:12px;margin-bottom:14px;">Pay weeks run <b style="color:#7fff7f;">Thursday → Wednesday</b>. Pick any date and the system will use the week containing that date.</div>'+
+        '<div style="display:flex;flex-direction:column;gap:10px;">'+
+          '<label style="color:#7fff7f;font-size:12px;font-weight:700;">Pay Period (any date in the week)</label>'+
+          '<input type="date" id="hnx-period-anydate" value="'+startVal+'" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:10px;font-size:14px;">'+
+          '<div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end;flex-wrap:wrap;">'+
+            '<button onclick="HNX_jumpToPeriod(\'prev\')" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px 14px;cursor:pointer;">◀ Prev Week</button>'+
+            '<button onclick="HNX_jumpToPeriod(\'this\')" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px 14px;cursor:pointer;">This Week</button>'+
+            '<button onclick="HNX_jumpToPeriod(\'next\')" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px 14px;cursor:pointer;">Next Week ▶</button>'+
+          '</div>'+
+          '<button onclick="HNX_applyCustomPeriod()" style="background:#4caf50;color:#000;border:none;border-radius:6px;padding:12px;font-weight:800;cursor:pointer;margin-top:6px;">✓ Apply</button>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+  };
+
+  window.HNX_applyCustomPeriod = function(){
+    var el = document.getElementById('hnx-period-anydate');
+    if(!el) return;
+    var date = el.value;
+    if(!date){ alert('Please pick a date.'); return; }
+    if(typeof getWeekPeriod === 'function'){
+      window._payOpsCurrentPeriod = getWeekPeriod(date);
+    }
+    var ov = document.getElementById('hnx-period-overlay');
+    if(ov) ov.remove();
+    if(typeof renderPayrollOps==='function') renderPayrollOps();
+  };
+
+  window.HNX_jumpToPeriod = function(dir){
+    var el = document.getElementById('hnx-period-anydate');
+    if(!el) return;
+    if(dir==='this'){
+      el.value = new Date().toISOString().slice(0,10);
+      return;
+    }
+    var ref = el.value ? new Date(el.value) : new Date();
+    if(dir==='prev') ref.setDate(ref.getDate()-7);
+    if(dir==='next') ref.setDate(ref.getDate()+7);
+    el.value = ref.toISOString().slice(0,10);
+  };
+
+  // ----- Table enhancement -----
+  function enhanceOpsTable(){
+    var view = document.getElementById('view-payroll_ops');
+    if(!view || view.style.display === 'none' || view.offsetParent === null) return;
+    var table = view.querySelector('.pay-table');
+    if(!table) return;
+    if(table.getAttribute('data-hnx-v280-done') === '1') return;
+
+    var thead = table.querySelector('thead tr');
+    if(!thead) return;
+
+    if(thead.querySelector('th[data-hnx-v280-col="level"]')) return;
+
+    var ths = thead.querySelectorAll('th');
+    if(ths.length < 11) return;
+
+    // Insert Level column after Type (between index 1 and 2)
+    var thLvl = document.createElement('th');
+    thLvl.textContent = 'Lvl';
+    thLvl.className = 'pay-num';
+    thLvl.setAttribute('data-hnx-v280-col','level');
+    thead.insertBefore(thLvl, ths[2]);
+
+    // Now find Gov Ded header
+    var ths2 = thead.querySelectorAll('th');
+    var govDedTh = null;
+    for(var i=0;i<ths2.length;i++){
+      if(/gov\s*ded/i.test(ths2[i].textContent)){ govDedTh = ths2[i]; break; }
+    }
+    if(govDedTh){
+      var cols = ['SSS','PHIC','HDMF','TIN'];
+      cols.forEach(function(c){
+        var nth = document.createElement('th');
+        nth.textContent = c;
+        nth.className = 'pay-num';
+        nth.setAttribute('data-hnx-v280-col','govded');
+        thead.insertBefore(nth, govDedTh);
+      });
+      govDedTh.remove();
+    }
+
+    // Get current run for line data
+    var run = null;
+    try {
+      if(typeof window.getPayrollRun==='function' && window._payOpsCurrentPeriod){
+        var rId = 'ops_'+window._payOpsCurrentPeriod.start+'_'+window._payOpsCurrentPeriod.end;
+        run = window.getPayrollRun(rId);
+      }
+    } catch(e){}
+
+    var tbody = table.querySelector('tbody');
+    if(!tbody){ table.setAttribute('data-hnx-v280-done','1'); return; }
+    var rows = tbody.querySelectorAll('tr');
+    rows.forEach(function(tr){
+      if(tr.classList.contains('dept-row')){
+        var td = tr.querySelector('td[colspan]');
+        if(td){ td.setAttribute('colspan', '15'); }
+        return;
+      }
+      if(tr.classList.contains('total-row')){
+        var first = tr.querySelector('td[colspan]');
+        if(first){ first.setAttribute('colspan','7'); }
+        return;
+      }
+      // subtotal row
+      var subtotalTd = tr.querySelector('td[colspan="6"]');
+      if(subtotalTd){
+        subtotalTd.setAttribute('colspan','7');
+        return;
+      }
+
+      var tds = tr.querySelectorAll('td');
+      if(tds.length !== 11) return;
+
+      var onclickAttr = tr.getAttribute('onclick')||'';
+      var idMatch = onclickAttr.match(/openPayrollLine\([^,]+,\s*['"]([^'"]+)['"]/);
+      var empId = idMatch ? idMatch[1] : null;
+      var level = empId ? getEmpLevel(empId) : 1;
+
+      // Improve Type cell
+      var typeCell = tds[1];
+      if(typeCell){
+        var t = typeCell.textContent.trim();
+        if(t==='REG') typeCell.textContent='Regular';
+        else if(t==='TRA') typeCell.textContent='Trainee';
+        else if(t==='INT') typeCell.textContent='Intern';
+        else if(t==='PRO') typeCell.textContent='Probation';
+        typeCell.style.fontSize='11px';
+        typeCell.style.fontWeight='600';
+        if(typeCell.textContent==='Regular') typeCell.style.color='#a5d6a7';
+        else if(typeCell.textContent==='Trainee') typeCell.style.color='#ffc107';
+      }
+
+      // Insert Level cell
+      var lvlTd = document.createElement('td');
+      lvlTd.className = 'pay-num';
+      lvlTd.style.cssText = 'font-weight:700;color:#90caf9;';
+      lvlTd.textContent = 'L'+level;
+      tr.insertBefore(lvlTd, tds[2]);
+
+      // Now find this employee's line in the run for SSS/PHIC/HDMF/TIN values
+      var line = null;
+      if(run && Array.isArray(run.lines) && empId){
+        line = run.lines.find(function(l){ return l.empId === empId; });
+      }
+      var newTds = tr.querySelectorAll('td');
+      // After Level insert: 0 Name, 1 Type, 2 Lvl, 3 Daily, 4 Days, 5 AbsU, 6 AbsA, 7 Basic, 8 Memo+, 9 Memo-, 10 GovDed, 11 NetPay
+      var govDedCell = newTds[10];
+      if(govDedCell){
+        var sss = line ? (line.sss||0) : 0;
+        var phic = line ? (line.phic||0) : 0;
+        var hdmf = line ? (line.hdmf||0) : 0;
+        var tin = line ? (line.withholdingTax||0) : 0;
+        function fmt(v){ return v>0 ? '<span style="color:#ff8a80;">-₱'+(parseFloat(v)).toFixed(2)+'</span>' : '<span style="color:#666;">—</span>'; }
+        var sssCell = document.createElement('td');
+        sssCell.className = 'pay-num';
+        sssCell.innerHTML = fmt(sss);
+        var phicCell = document.createElement('td');
+        phicCell.className = 'pay-num';
+        phicCell.innerHTML = fmt(phic);
+        var hdmfCell = document.createElement('td');
+        hdmfCell.className = 'pay-num';
+        hdmfCell.innerHTML = fmt(hdmf);
+        var tinCell = document.createElement('td');
+        tinCell.className = 'pay-num';
+        tinCell.innerHTML = fmt(tin);
+        govDedCell.parentNode.insertBefore(sssCell, govDedCell);
+        govDedCell.parentNode.insertBefore(phicCell, govDedCell);
+        govDedCell.parentNode.insertBefore(hdmfCell, govDedCell);
+        govDedCell.parentNode.insertBefore(tinCell, govDedCell);
+        govDedCell.remove();
+      }
+    });
+
+    table.setAttribute('data-hnx-v280-done','1');
+  }
+
+  function injectTopControls(){
+    var view = document.getElementById('view-payroll_ops');
+    if(!view || view.style.display === 'none' || view.offsetParent === null) return;
+    var headRow = view.querySelector('.pay-table-head');
+    if(!headRow) return;
+    var actions = headRow.querySelector('.pay-table-actions');
+    if(!actions) return;
+    if(actions.querySelector('[data-hnx-v280-ctrl]')) return;
+
+    var period = window._payOpsCurrentPeriod;
+    var label = period && period.label ? period.label : 'Pick period';
+
+    var btn1 = document.createElement('button');
+    btn1.className = 'btn btn-outline';
+    btn1.setAttribute('data-hnx-v280-ctrl','period');
+    btn1.innerHTML = '📅 ' + label;
+    btn1.style.cssText = 'font-size:11px;';
+    btn1.onclick = window.HNX_openPeriodPicker;
+
+    var btn2 = document.createElement('button');
+    btn2.className = 'btn btn-outline';
+    btn2.setAttribute('data-hnx-v280-ctrl','rates');
+    btn2.innerHTML = '🎚 Level Rates';
+    btn2.style.cssText = 'font-size:11px;';
+    btn2.onclick = window.HNX_openLevelRatesConfig;
+
+    actions.insertBefore(btn2, actions.firstChild);
+    actions.insertBefore(btn1, actions.firstChild);
+  }
+
+  function tick(){
+    try{
+      injectTopControls();
+      enhanceOpsTable();
+    }catch(e){ console.warn('[HNX payroll v2.80]', e); }
+  }
+  setInterval(tick, 1500);
+  setTimeout(tick, 800);
+
+  // Wrap renderPayrollOps so we re-apply on every refresh
+  if(typeof window.renderPayrollOps === 'function'){
+    var orig = window.renderPayrollOps;
+    window.renderPayrollOps = function(){
+      var ret = orig.apply(this, arguments);
+      setTimeout(function(){
+        var v = document.getElementById('view-payroll_ops');
+        if(v){
+          var t = v.querySelector('.pay-table');
+          if(t) t.removeAttribute('data-hnx-v280-done');
+          var hd = v.querySelector('.pay-table-head .pay-table-actions');
+          if(hd){
+            hd.querySelectorAll('[data-hnx-v280-ctrl]').forEach(function(b){ b.remove(); });
+          }
+        }
+        injectTopControls();
+        enhanceOpsTable();
+      }, 80);
+      return ret;
+    };
+  }
+
+  console.log('[HNX] Payroll v2.80 — rate-fallback + Level col + split gov-ded + period picker + Thu-Wed weeks — ready');
+})();
+</script>
+<!-- ===================== END HNX v2.80 ===================== -->
 </body>
 </html>
