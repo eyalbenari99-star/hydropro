@@ -124691,5 +124691,475 @@ body.hnx-mobile-locked { overflow: hidden; }
   applyCropsMatrixViewWrap();
 })();
 </script>
+<script>
+/* ============================================================================
+ * HydroNexis-AI feature patches — 2026-05-17
+ *
+ * Feature 1: Edit Seed Trials (clear "Save Changes" button + Status feedback)
+ * Feature 1b: Table Type field on Seed Trials (Open Pipes / Zigzag / Regular,
+ *             with 14 / 19 holes option for Regular)
+ * Feature 2: Accreditation Status on CRM Lead form
+ *             (Not process / Start process / For approval / Approved / Other)
+ * Feature 3: Multiple Contact Persons on CRM Lead form
+ *             (Full Name, Phone, Mobile, Email, Position + user-definable
+ *              custom fields per contact, unlimited contacts per lead)
+ *
+ * All features write through localStorage so they persist across sessions.
+ * Existing data structures are preserved — new fields are additive.
+ * ========================================================================== */
+(function () {
+  'use strict';
+
+  /* ===== FEATURE 1 + 1b: Seed trial edit + table type ====================== */
+
+  var TABLE_TYPES = [
+    { id: 'open_pipes', label: '🔵 Open Pipes' },
+    { id: 'zigzag', label: '🪡 Zigzag' },
+    { id: 'regular', label: '🟩 Regular (NFT)' }
+  ];
+  var HOLES_OPTIONS = [
+    { id: '14', label: '14 holes' },
+    { id: '19', label: '19 holes' }
+  ];
+
+  function escAttr(s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
+  function escHtml(s) { return String(s == null ? '' : s).replace(/[<>]/g, function (c) { return c === '<' ? '&lt;' : '&gt;'; }); }
+
+  // Wrap renderSeedStudy. After the original renders the detail view, inject
+  // (a) Table Type + Holes fields into the "Trial Details" grid and
+  // (b) a visible "Save Changes" button next to the status dropdown.
+  if (typeof window.renderSeedStudy === 'function' && !window.renderSeedStudy._hnxSeedEditWrapped) {
+    var origRenderSeed = window.renderSeedStudy;
+    window.renderSeedStudy = function () {
+      var r = origRenderSeed.apply(this, arguments);
+      try {
+        if (typeof _seedView !== 'undefined' && _seedView === 'detail' && _seedSelectedId) {
+          injectSeedExtras();
+        }
+      } catch (e) { console.warn('[HNX-patches] seed inject failed', e); }
+      return r;
+    };
+    window.renderSeedStudy._hnxSeedEditWrapped = true;
+  }
+
+  function injectSeedExtras() {
+    var body = document.getElementById('seedStudyBody');
+    if (!body) return;
+    if (typeof loadSeedStudies !== 'function') return;
+    var studies = loadSeedStudies();
+    var s = studies.find(function (x) { return x.id === _seedSelectedId; });
+    if (!s) return;
+
+    // ----- Inject Table Type + Holes into the Trial Details grid -----
+    var sectionTitles = body.querySelectorAll('.section-title');
+    var trialDetailsCard = null;
+    sectionTitles.forEach(function (t) {
+      if (t.textContent.indexOf('Trial Details') >= 0) {
+        trialDetailsCard = t.nextElementSibling;
+      }
+    });
+    if (trialDetailsCard) {
+      var grid = trialDetailsCard.querySelector('div[style*="grid-template-columns"]');
+      if (grid && !grid.querySelector('[data-hnx-table-type]')) {
+        var ttDiv = document.createElement('div');
+        ttDiv.setAttribute('data-hnx-table-type', '1');
+        ttDiv.innerHTML =
+          '<div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Current Table Type</div>' +
+          '<select class="input" style="width:100%;" data-hnx-tt-select="' + s.id + '" onchange="window._hnxSeedField(\'' + s.id + '\',\'tableType\',this.value);window._hnxToggleHolesField(\'' + s.id + '\',this.value);">' +
+          '<option value="">— Not set —</option>' +
+          TABLE_TYPES.map(function (t) {
+            return '<option value="' + t.id + '" ' + (s.tableType === t.id ? 'selected' : '') + '>' + t.label + '</option>';
+          }).join('') +
+          '</select>' +
+          '<div style="font-size:10px;color:var(--text3);margin-top:3px;">Change when transplanting (e.g. open pipes → zigzag → regular).</div>';
+        grid.appendChild(ttDiv);
+
+        var hDiv = document.createElement('div');
+        hDiv.setAttribute('data-hnx-holes', '1');
+        hDiv.id = 'hnx_holes_field_' + s.id;
+        hDiv.style.display = (s.tableType === 'regular') ? '' : 'none';
+        hDiv.innerHTML =
+          '<div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Holes per Table (Regular only)</div>' +
+          '<select class="input" style="width:100%;" onchange="window._hnxSeedField(\'' + s.id + '\',\'tableHoles\',this.value)">' +
+          '<option value="">— Select holes —</option>' +
+          HOLES_OPTIONS.map(function (h) {
+            return '<option value="' + h.id + '" ' + (String(s.tableHoles) === h.id ? 'selected' : '') + '>' + h.label + '</option>';
+          }).join('') +
+          '</select>';
+        grid.appendChild(hDiv);
+      }
+    }
+
+    // ----- Inject a visible "Save Changes" button + edit hint at the top -----
+    var headerRow = body.querySelector('div[style*="justify-content:space-between"][style*="margin-bottom:14px"]');
+    if (headerRow) {
+      var actionsDiv = headerRow.children[1];
+      if (actionsDiv && !actionsDiv.querySelector('[data-hnx-save-btn]')) {
+        var saveBtn = document.createElement('button');
+        saveBtn.className = 'btn btn-primary';
+        saveBtn.setAttribute('data-hnx-save-btn', '1');
+        saveBtn.style.marginRight = '6px';
+        saveBtn.innerHTML = '💾 Save Changes';
+        saveBtn.onclick = function () {
+          // Fields autosave on blur (existing _seedField). Force a blur on the
+          // currently focused input so any in-progress edit is captured, then
+          // confirm to the user.
+          if (document.activeElement && typeof document.activeElement.blur === 'function') {
+            document.activeElement.blur();
+          }
+          if (typeof showToast === 'function') showToast('✓ All changes saved', 'ok');
+        };
+        actionsDiv.insertBefore(saveBtn, actionsDiv.firstChild);
+      }
+    }
+
+    // ----- Inject an "✏ Fields are editable" hint banner if not present -----
+    if (trialDetailsCard && !trialDetailsCard.previousElementSibling.hasAttribute('data-hnx-edit-hint')) {
+      // Check if hint already exists (in case of repeated renders)
+      var existingHint = body.querySelector('[data-hnx-edit-hint]');
+      if (!existingHint) {
+        var hint = document.createElement('div');
+        hint.setAttribute('data-hnx-edit-hint', '1');
+        hint.style.cssText = 'padding:8px 12px;background:rgba(99,201,255,0.08);border-left:3px solid var(--info);border-radius:6px;margin-bottom:10px;font-size:11px;color:var(--text2);';
+        hint.innerHTML = '✏ <strong>Editing tip:</strong> Click any field below to edit. Changes save automatically when you click away. Press <strong>💾 Save Changes</strong> at the top to confirm.';
+        trialDetailsCard.parentNode.insertBefore(hint, trialDetailsCard);
+      }
+    }
+  }
+
+  // Generic field setter (used by new Table Type + Holes selects)
+  window._hnxSeedField = function (id, field, value) {
+    if (typeof loadSeedStudies !== 'function' || typeof saveSeedStudies !== 'function') return;
+    var arr = loadSeedStudies();
+    var s = arr.find(function (x) { return x.id === id; });
+    if (!s) return;
+    s[field] = value;
+    s.updatedAt = Date.now();
+    saveSeedStudies(arr);
+    if (typeof showToast === 'function') showToast('✓ Saved', 'ok');
+  };
+
+  // Show/hide Holes field based on Table Type selection
+  window._hnxToggleHolesField = function (id, tableType) {
+    var el = document.getElementById('hnx_holes_field_' + id);
+    if (el) el.style.display = (tableType === 'regular') ? '' : 'none';
+  };
+
+  console.log('[HNX-patches] feature 1/1b: seed edit + table type — ready');
+
+  /* ===== FEATURE 2 + 3: Lead accreditation + multi-contact ================= */
+
+  var ACCRED_OPTIONS = [
+    { id: '', label: '— Not set —' },
+    { id: 'not_process', label: '⚪ Not in process' },
+    { id: 'start_process', label: '🟡 Started process' },
+    { id: 'for_approval', label: '🟠 For approval' },
+    { id: 'approved', label: '🟢 Approved' },
+    { id: 'other', label: '🔵 Other (custom)' }
+  ];
+  var ACCRED_LABEL_MAP = {};
+  ACCRED_OPTIONS.forEach(function (o) { ACCRED_LABEL_MAP[o.id] = o.label; });
+
+  // Wrap crmOpenLeadModal: after the modal builds, inject Accreditation +
+  // Contacts sections inside the modal body, populated from the lead being
+  // edited (or empty for a new lead).
+  if (typeof window.crmOpenLeadModal === 'function' && !window.crmOpenLeadModal._hnxWrapped) {
+    var origOpenLead = window.crmOpenLeadModal;
+    window.crmOpenLeadModal = function () {
+      var r = origOpenLead.apply(this, arguments);
+      setTimeout(injectLeadExtras, 10);
+      return r;
+    };
+    window.crmOpenLeadModal._hnxWrapped = true;
+  }
+
+  function injectLeadExtras() {
+    var modal = document.getElementById('crmLeadModal');
+    if (!modal) return;
+    var modalBody = modal.querySelector('.modal-body');
+    if (!modalBody) return;
+    if (modalBody.querySelector('[data-hnx-lead-extras]')) return;
+
+    var lead = null;
+    try {
+      if (typeof _crmEditingLeadId !== 'undefined' && _crmEditingLeadId && typeof _crmLoadLeads === 'function') {
+        lead = _crmLoadLeads().find(function (l) { return l.id === _crmEditingLeadId; });
+      }
+    } catch (e) {}
+    var accred = (lead && lead.accreditation) || '';
+    var accredOther = (lead && lead.accreditationOther) || '';
+    var contacts = (lead && Array.isArray(lead.contacts)) ? lead.contacts : [];
+
+    var extras = document.createElement('div');
+    extras.setAttribute('data-hnx-lead-extras', '1');
+    extras.style.marginTop = '14px';
+
+    var accredHtml =
+      '<div style="padding:12px;background:var(--surface2);border-left:3px solid var(--accent2);border-radius:6px;">' +
+      '<div style="font-size:11px;font-weight:700;color:var(--accent2);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">📋 Accreditation Status</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">' +
+      '<div class="emp-field"><label class="field-label">Status</label>' +
+      '<select id="cl_accred" class="users-input" onchange="document.getElementById(\'cl_accred_other_wrap\').style.display=this.value===\'other\'?\'block\':\'none\'">' +
+      ACCRED_OPTIONS.map(function (o) {
+        return '<option value="' + o.id + '" ' + (accred === o.id ? 'selected' : '') + '>' + o.label + '</option>';
+      }).join('') +
+      '</select></div>' +
+      '<div class="emp-field" id="cl_accred_other_wrap" style="display:' + (accred === 'other' ? 'block' : 'none') + ';">' +
+      '<label class="field-label">Custom status text</label>' +
+      '<input type="text" id="cl_accred_other" class="users-input" value="' + escAttr(accredOther) + '" placeholder="e.g. Documentation under review">' +
+      '</div>' +
+      '</div></div>';
+
+    var contactsHtml =
+      '<div style="margin-top:14px;padding:12px;background:var(--surface2);border-left:3px solid var(--info);border-radius:6px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">' +
+      '<div style="font-size:11px;font-weight:700;color:var(--info);text-transform:uppercase;letter-spacing:1px;">👥 Additional Contact Persons</div>' +
+      '<button type="button" class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="window._hnxAddLeadContact()">➕ Add another contact</button>' +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--text3);margin-bottom:8px;line-height:1.5;">' +
+      'The main contact above is the primary. Add more people from the same company here ' +
+      '(e.g. purchasing officer, chef, accounts payable). Each can have custom fields like LinkedIn or WhatsApp.' +
+      '</div>' +
+      '<div id="cl_contacts_wrap"></div>' +
+      '</div>';
+
+    extras.innerHTML = accredHtml + contactsHtml;
+    modalBody.appendChild(extras);
+
+    // Render contacts now that the wrapper exists in DOM
+    window._hnxRenderLeadContacts(contacts);
+  }
+
+  // Collect the current contact data from the DOM (used when adding/removing
+  // contacts to preserve user-typed values during re-render).
+  function collectLeadContacts() {
+    var wrap = document.getElementById('cl_contacts_wrap');
+    if (!wrap) return [];
+    var arr = [];
+    wrap.querySelectorAll('[data-hnx-contact]').forEach(function (card) {
+      var fields = {
+        fullName: (card.querySelector('[data-hnx-cf="fullName"]') || {}).value || '',
+        phone: (card.querySelector('[data-hnx-cf="phone"]') || {}).value || '',
+        mobile: (card.querySelector('[data-hnx-cf="mobile"]') || {}).value || '',
+        email: (card.querySelector('[data-hnx-cf="email"]') || {}).value || '',
+        position: (card.querySelector('[data-hnx-cf="position"]') || {}).value || '',
+        customFields: []
+      };
+      card.querySelectorAll('[data-hnx-customfield-row]').forEach(function (row) {
+        fields.customFields.push({
+          label: (row.querySelector('[data-hnx-cflabel]') || {}).value || '',
+          value: (row.querySelector('[data-hnx-cfvalue]') || {}).value || ''
+        });
+      });
+      arr.push(fields);
+    });
+    return arr;
+  }
+
+  window._hnxAddLeadContact = function () {
+    var cur = collectLeadContacts();
+    cur.push({ fullName: '', phone: '', mobile: '', email: '', position: '', customFields: [] });
+    window._hnxRenderLeadContacts(cur);
+  };
+
+  window._hnxRemoveLeadContact = function (idx) {
+    var cur = collectLeadContacts();
+    cur.splice(idx, 1);
+    window._hnxRenderLeadContacts(cur);
+  };
+
+  window._hnxAddLeadContactCustomField = function (idx) {
+    var cur = collectLeadContacts();
+    if (!cur[idx]) return;
+    if (!cur[idx].customFields) cur[idx].customFields = [];
+    cur[idx].customFields.push({ label: '', value: '' });
+    window._hnxRenderLeadContacts(cur);
+  };
+
+  window._hnxRemoveLeadContactCustomField = function (contactIdx, fieldIdx) {
+    var cur = collectLeadContacts();
+    if (cur[contactIdx] && cur[contactIdx].customFields) {
+      cur[contactIdx].customFields.splice(fieldIdx, 1);
+    }
+    window._hnxRenderLeadContacts(cur);
+  };
+
+  window._hnxRenderLeadContacts = function (contacts) {
+    var wrap = document.getElementById('cl_contacts_wrap');
+    if (!wrap) return;
+    if (!contacts || !contacts.length) {
+      wrap.innerHTML = '<div style="text-align:center;padding:14px;color:var(--text3);font-size:12px;background:rgba(255,255,255,0.02);border-radius:6px;">No additional contact persons yet. Click <strong>➕ Add another contact</strong> above.</div>';
+      return;
+    }
+    wrap.innerHTML = contacts.map(function (c, idx) {
+      var cfHtml = (c.customFields || []).map(function (cf, cfIdx) {
+        return '<div data-hnx-customfield-row style="display:grid;grid-template-columns:1fr 1.5fr auto;gap:6px;margin-top:4px;">' +
+          '<input type="text" data-hnx-cflabel class="users-input" placeholder="Field name (e.g. LinkedIn)" value="' + escAttr(cf.label) + '" style="font-size:11px;">' +
+          '<input type="text" data-hnx-cfvalue class="users-input" placeholder="Value" value="' + escAttr(cf.value) + '" style="font-size:11px;">' +
+          '<button type="button" class="btn btn-outline" style="padding:2px 8px;font-size:10px;color:var(--danger);" onclick="window._hnxRemoveLeadContactCustomField(' + idx + ',' + cfIdx + ')">🗑</button>' +
+          '</div>';
+      }).join('');
+
+      return '<div data-hnx-contact style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+        '<div style="font-size:11px;font-weight:700;color:var(--text2);">👤 Contact #' + (idx + 1) + '</div>' +
+        '<button type="button" class="btn btn-outline" style="padding:2px 8px;font-size:10px;color:var(--danger);" onclick="window._hnxRemoveLeadContact(' + idx + ')">✕ Remove</button>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
+        '<div class="emp-field"><label class="field-label">Full Name</label><input type="text" data-hnx-cf="fullName" class="users-input" value="' + escAttr(c.fullName) + '" placeholder="e.g. Maria Santos"></div>' +
+        '<div class="emp-field"><label class="field-label">Position</label><input type="text" data-hnx-cf="position" class="users-input" value="' + escAttr(c.position) + '" placeholder="e.g. Purchasing Manager"></div>' +
+        '<div class="emp-field"><label class="field-label">Phone (landline)</label><input type="tel" data-hnx-cf="phone" class="users-input" value="' + escAttr(c.phone) + '" placeholder="+63 2 XXXX XXXX"></div>' +
+        '<div class="emp-field"><label class="field-label">Mobile Phone</label><input type="tel" data-hnx-cf="mobile" class="users-input" value="' + escAttr(c.mobile) + '" placeholder="+63 9XX XXX XXXX"></div>' +
+        '<div class="emp-field" style="grid-column:1/span 2;"><label class="field-label">Email</label><input type="email" data-hnx-cf="email" class="users-input" value="' + escAttr(c.email) + '" placeholder="name@company.com"></div>' +
+        '</div>' +
+        '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;">' +
+        '<div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;">Custom Fields</div>' +
+        '<button type="button" class="btn btn-outline" style="padding:2px 8px;font-size:10px;" onclick="window._hnxAddLeadContactCustomField(' + idx + ')">+ Add field</button>' +
+        '</div>' +
+        (cfHtml || '<div style="font-size:11px;color:var(--text3);margin-top:4px;font-style:italic;">No custom fields. Add things like LinkedIn, WhatsApp, birthday, anniversary, dietary preferences.</div>') +
+        '</div>' +
+        '</div>';
+    }).join('');
+  };
+
+  // Wrap crmSaveLead. After the original saves the standard fields, find the
+  // just-saved lead and apply our extras (accreditation + contacts).
+  if (typeof window.crmSaveLead === 'function' && !window.crmSaveLead._hnxWrapped) {
+    var origSaveLead = window.crmSaveLead;
+    window.crmSaveLead = function () {
+      var wasEditing = null;
+      try { wasEditing = (typeof _crmEditingLeadId !== 'undefined') ? _crmEditingLeadId : null; } catch (e) {}
+
+      var accredEl = document.getElementById('cl_accred');
+      var accredOtherEl = document.getElementById('cl_accred_other');
+      var extras = {
+        accreditation: accredEl ? accredEl.value : '',
+        accreditationOther: accredOtherEl ? accredOtherEl.value : '',
+        contacts: collectLeadContacts()
+      };
+
+      var r = origSaveLead.apply(this, arguments);
+
+      // The original only removes the modal on successful save.
+      if (document.getElementById('crmLeadModal')) return r;
+
+      try {
+        if (typeof _crmLoadLeads !== 'function' || typeof _crmSaveLeads !== 'function') return r;
+        var arr = _crmLoadLeads();
+        var saved;
+        if (wasEditing) {
+          saved = arr.find(function (l) { return l.id === wasEditing; });
+        } else {
+          // Most-recently-created (highest createdAt)
+          saved = arr.slice().sort(function (a, b) {
+            return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+          })[0];
+        }
+        if (saved) {
+          saved.accreditation = extras.accreditation;
+          saved.accreditationOther = extras.accreditationOther;
+          saved.contacts = extras.contacts;
+          _crmSaveLeads(arr);
+        }
+      } catch (e) {
+        console.warn('[HNX-patches] lead extras save failed', e);
+      }
+      return r;
+    };
+    window.crmSaveLead._hnxWrapped = true;
+  }
+
+  // Display Accreditation + Contacts on the lead detail header (after render).
+  if (typeof window.renderCRMLeadDetail === 'function' && !window.renderCRMLeadDetail._hnxWrapped) {
+    var origRenderDetail = window.renderCRMLeadDetail;
+    window.renderCRMLeadDetail = function (target) {
+      var r = origRenderDetail.apply(this, arguments);
+      try { injectLeadDetailExtras(target); } catch (e) { console.warn('[HNX-patches] lead detail inject failed', e); }
+      return r;
+    };
+    window.renderCRMLeadDetail._hnxWrapped = true;
+  }
+
+  function injectLeadDetailExtras(target) {
+    var el = document.getElementById(target);
+    if (!el) return;
+    if (typeof _crmLoadLeads !== 'function' || typeof _crmSelLead === 'undefined') return;
+    var lead = _crmLoadLeads().find(function (l) { return l.id === _crmSelLead; });
+    if (!lead) return;
+
+    var hasAccred = lead.accreditation && lead.accreditation !== '';
+    var hasContacts = Array.isArray(lead.contacts) && lead.contacts.length > 0;
+    if (!hasAccred && !hasContacts) return;
+
+    // Build the display panel
+    var panel = document.createElement('div');
+    panel.setAttribute('data-hnx-lead-display', '1');
+    panel.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:14px;';
+
+    var html = '';
+
+    if (hasAccred) {
+      var label = ACCRED_LABEL_MAP[lead.accreditation] || lead.accreditation;
+      var displayLabel = (lead.accreditation === 'other' && lead.accreditationOther)
+        ? '🔵 ' + escHtml(lead.accreditationOther)
+        : label;
+      var color = lead.accreditation === 'approved' ? 'var(--ok)'
+                : lead.accreditation === 'for_approval' ? 'var(--warn)'
+                : lead.accreditation === 'start_process' ? 'var(--info)'
+                : 'var(--text2)';
+      html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:' + (hasContacts ? '12px' : '0') + ';flex-wrap:wrap;">' +
+        '<div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;">📋 Accreditation</div>' +
+        '<div style="font-size:13px;font-weight:600;color:' + color + ';">' + displayLabel + '</div>' +
+        '</div>';
+    }
+
+    if (hasContacts) {
+      html += '<div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">👥 Contact Persons (' + lead.contacts.length + ')</div>';
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;">';
+      lead.contacts.forEach(function (c, idx) {
+        var parts = [];
+        if (c.position) parts.push('<span style="font-size:11px;color:var(--text3);">' + escHtml(c.position) + '</span>');
+        if (c.mobile) parts.push('<a href="tel:' + escAttr(c.mobile) + '" style="color:var(--accent2);font-size:11px;">📱 ' + escHtml(c.mobile) + '</a>');
+        if (c.phone) parts.push('<a href="tel:' + escAttr(c.phone) + '" style="color:var(--accent2);font-size:11px;">📞 ' + escHtml(c.phone) + '</a>');
+        if (c.email) parts.push('<a href="mailto:' + escAttr(c.email) + '" style="color:var(--accent2);font-size:11px;">✉ ' + escHtml(c.email) + '</a>');
+
+        var cfParts = (c.customFields || []).filter(function (cf) { return cf.label || cf.value; }).map(function (cf) {
+          return '<div style="font-size:10px;color:var(--text3);"><strong>' + escHtml(cf.label) + ':</strong> ' + escHtml(cf.value) + '</div>';
+        }).join('');
+
+        html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;">' +
+          '<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px;">' + escHtml(c.fullName || '(no name)') + '</div>' +
+          parts.map(function (p) { return '<div style="margin-top:2px;">' + p + '</div>'; }).join('') +
+          (cfParts ? '<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);">' + cfParts + '</div>' : '') +
+          '</div>';
+      });
+      html += '</div>';
+    }
+
+    panel.innerHTML = html;
+
+    // Insert AFTER the existing lead header card. Find it by looking for the
+    // first card-style div under target.
+    var firstCard = el.querySelector('div[style*="background:var(--surface)"][style*="margin-bottom:14px"]');
+    // Make sure we don't add twice
+    var existing = el.querySelector('[data-hnx-lead-display]');
+    if (existing) existing.remove();
+    if (firstCard && firstCard.nextSibling) {
+      firstCard.parentNode.insertBefore(panel, firstCard.nextSibling);
+    } else if (firstCard) {
+      firstCard.parentNode.appendChild(panel);
+    }
+  }
+
+  console.log('[HNX-patches] feature 2/3: lead accreditation + multi-contact — ready');
+
+  /* ===== Apply on load ====================================================
+   * If renderSeedStudy / renderCRMLeadDetail were called before our wrappers
+   * installed, the displays won't show until next render. The wrappers above
+   * will catch subsequent calls — switching views always triggers a re-render.
+   * ======================================================================== */
+})();
+</script>
 </body>
 </html>
