@@ -97696,7 +97696,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.72';
+        vEl.textContent = orig + ' · HNX v2.73';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -125317,6 +125317,282 @@ body.hnx-mobile-locked { overflow: hidden; }
   }
 
   console.log('[HNX-patches] matrix date picker — ready');
+})();
+</script>
+<script>
+/* ============================================================================
+ * HydroNexis-AI Crops Matrix split-cell view — 2026-05-17
+ *
+ * In the Crops Matrix tab (body.hp-crops-matrix-only), every status cell is
+ * split into two halves so the supervisor can see at a glance:
+ *   LEFT (📋 Checklist) = what was found in the most-recent daily check
+ *                         report for that GH × category. If the user picks a
+ *                         past date with the date picker, that report becomes
+ *                         the active one.
+ *   RIGHT (🧠 AI)       = the existing AI status (alert/watch/forecast) the
+ *                         brain has already attached to the cell.
+ *
+ * Cells that have no AI status (just a dot or a long-dash) still get split —
+ * left side will show the checklist data if present, right side shows "·".
+ *
+ * Nothing in the original matrix render code is changed; this layer sits on
+ * top using DOM mutation and is reapplied every 1.5s to survive re-renders.
+ * Exiting the crops-matrix-only view cleans the cells back to normal.
+ * ========================================================================== */
+(function () {
+  'use strict';
+
+  /* ---- 1. CSS for split cells ------------------------------------------ */
+  var STYLE_ID = 'hnx-split-style';
+  if (!document.getElementById(STYLE_ID)) {
+    var st = document.createElement('style');
+    st.id = STYLE_ID;
+    st.textContent = [
+      'body.hp-crops-matrix-only td.mx-cell.hnx-split-applied {',
+      '  background: transparent !important;',
+      '  padding: 0 !important;',
+      '  position: relative;',
+      '  border: 1px solid rgba(255,255,255,0.05) !important;',
+      '  animation: none !important;',
+      '  min-height: 38px;',
+      '}',
+      'body.hp-crops-matrix-only td.mx-cell.hnx-split-applied > .icon,',
+      'body.hp-crops-matrix-only td.mx-cell.hnx-split-applied > .lbl {',
+      '  display: none !important;',
+      '}',
+      'body.hp-crops-matrix-only td.mx-cell.hnx-split-applied::before,',
+      'body.hp-crops-matrix-only td.mx-cell.hnx-split-applied::after {',
+      '  display: none !important;',
+      '}',
+      '.hnx-split-wrap {',
+      '  position: absolute; inset: 0;',
+      '  display: flex; width: 100%; height: 100%;',
+      '}',
+      '.hnx-split-half {',
+      '  flex: 1; display: flex; flex-direction: column;',
+      '  justify-content: center; align-items: center;',
+      '  text-align: center; padding: 1px; overflow: hidden;',
+      '  position: relative; min-width: 0;',
+      '  transition: transform .15s ease;',
+      '}',
+      '.hnx-split-half:hover { transform: scale(1.04); z-index: 2; }',
+      '.hnx-split-half--left { border-right: 1px solid rgba(255,255,255,0.12); }',
+      '.hnx-split-half .hh-icon { font-size: 10px; line-height: 1; opacity: 0.85; }',
+      '.hnx-split-half .hh-lbl {',
+      '  font-size: 7px; font-weight: 800; letter-spacing: 0.3px;',
+      '  margin-top: 1px; line-height: 1.1;',
+      '  font-family: var(--mono, "SF Mono", monospace);',
+      '  white-space: nowrap;',
+      '}',
+      '.hnx-cl--ok    { background: rgba(102,187,106,.14); color: #a5d6a7; }',
+      '.hnx-cl--warn  { background: rgba(255,167,38,.16);  color: #ffcc80; }',
+      '.hnx-cl--crit  { background: rgba(255,82,82,.18);   color: #ff8a80; }',
+      '.hnx-cl--none  { background: rgba(255,255,255,.02); color: rgba(255,255,255,.28); }',
+      '.hnx-ai--ok       { background: rgba(102,187,106,.14); color: #a5d6a7; }',
+      '.hnx-ai--warn     { background: rgba(255,167,38,.16);  color: #ffcc80; }',
+      '.hnx-ai--crit     { background: rgba(255,82,82,.18);   color: #ff8a80; }',
+      '.hnx-ai--predict  { background: rgba(77,208,225,.16);  color: #80deea; }',
+      '.hnx-ai--none     { background: rgba(255,255,255,.02); color: rgba(255,255,255,.28); }',
+      /* Legend pill at top of matrix view */
+      '.hnx-split-legend {',
+      '  display: inline-flex; gap: 10px; align-items: center;',
+      '  padding: 4px 10px; background: var(--surface2, #11231b);',
+      '  border: 1px solid var(--border, #1f3329);',
+      '  border-radius: 6px; font-size: 11px; color: var(--text2);',
+      '  margin-left: 10px; font-family: var(--mono, monospace);',
+      '}',
+      '.hnx-split-legend strong { color: var(--text); font-weight: 700; }'
+    ].join('\n');
+    document.head.appendChild(st);
+  }
+
+  /* ---- 2. Issue → Category mapping (mirrors original ISSUE_TO_CATEGORY) - */
+  var CATEGORY_PATTERNS = [
+    { p: /leaf|yellow|curl|tip burn|wilt|spot/i,                                   c: 'Leaf & Canopy Issues' },
+    { p: /bolt|harvest|growth|stunted|head/i,                                       c: 'Growth & Development' },
+    { p: /root|brown root|slimy|rot|oxygen/i,                                       c: 'Root Zone Issues' },
+    { p: /fungus|mildew|aphid|pest|fly|insect|spray|disease/i,                      c: 'Disease & Pests' },
+    { p: /cooling|fan|window|screen|temp|climate|\bair\b|ac\b/i,                    c: 'Climate & Ventilation Systems' },
+    { p: /water flow|water splash|leak|gutter|end cap|hose|pump|table|biofilm|algae|channel/i, c: 'Water Flow & Tables' },
+    { p: /pipes? not (clean|cleaned)|hygiene/i,                                     c: 'Sanitation & Hygiene Control' },
+    { p: /roof|plastic|side|wiggle|pulley|\bstructure\b/i,                          c: 'Structure, Screens & Plastics' },
+    { p: /rockwool|material|preparation/i,                                          c: 'Production Materials & Preparation' },
+    { p: /safety|chemical|hazard|tool|housekeeping/i,                               c: 'Safety, Housekeeping & Compliance' },
+    { p: /transplant|zigzag|nursery|seedling/i,                                     c: 'Seedlings / Nursery' },
+    { p: /infrastructure|lifter|corrosion|damage|floor/i,                           c: 'Infrastructure & Sanitation' }
+  ];
+
+  function categorizeIssue(txt) {
+    var t = String(txt || '');
+    for (var i = 0; i < CATEGORY_PATTERNS.length; i++) {
+      if (CATEGORY_PATTERNS[i].p.test(t)) return CATEGORY_PATTERNS[i].c;
+    }
+    return null;
+  }
+
+  /* ---- 3. Helpers ------------------------------------------------------- */
+
+  function getActiveReport() {
+    // Honor whatever date the user has clicked in the date bar.
+    var bar = document.getElementById('hnCMTDateBar');
+    if (bar) {
+      var activeBtn = bar.querySelector('[data-rpt].active');
+      if (activeBtn) {
+        var id = activeBtn.getAttribute('data-rpt');
+        var hit = (window.HN_DAILY_REPORTS || []).find(function (r) { return r.id === id; });
+        if (hit) return hit;
+      }
+    }
+    // Default: newest report by date.
+    var reports = (window.HN_DAILY_REPORTS || []).slice().sort(function (a, b) {
+      return (b.date || '').localeCompare(a.date || '');
+    });
+    return reports[0] || null;
+  }
+
+  function getGhData(report, gh) {
+    if (!report || !report.perGH) return null;
+    // Matrix uses 'PRJ11' but reports use 'P11'. Try both.
+    return report.perGH[gh]
+        || report.perGH[gh.replace(/^PRJ(\d)/, 'P$1')]
+        || report.perGH[gh.replace(/^P(\d)/, 'PRJ$1')]
+        || null;
+  }
+
+  function getChecklistStatus(gh, category, report) {
+    var ghData = getGhData(report, gh);
+    if (!ghData) return { status: 'none', label: '—', tip: 'No daily check data for ' + gh };
+
+    var allIssues = ghData.issues || [];
+    var matching = allIssues.filter(function (i) {
+      var txt = typeof i === 'string' ? i : (i.txt || '');
+      return categorizeIssue(txt) === category;
+    });
+
+    if (matching.length === 0) {
+      // GH was checked, this category was not flagged.
+      return { status: 'ok', label: 'OK', tip: gh + ' — ' + category + ': no checklist issue logged' };
+    }
+
+    var severity = (ghData.status === 'crit') ? 'crit' : 'warn';
+    var label = severity === 'crit' ? 'CRIT' : 'WARN';
+    var issueTxts = matching.map(function (i) { return typeof i === 'string' ? i : (i.txt || ''); });
+    var tip = gh + ' — ' + category + ' (' + matching.length + ' issue' + (matching.length === 1 ? '' : 's') + '):\n• ' + issueTxts.join('\n• ');
+    return { status: severity, label: label, count: matching.length, tip: tip };
+  }
+
+  function getAiStatus(cell) {
+    if (cell.classList.contains('hn-brain-flagged--crit'))    return { status: 'crit',    label: 'ALERT' };
+    if (cell.classList.contains('hn-brain-flagged--warn'))    return { status: 'warn',    label: 'WATCH' };
+    if (cell.classList.contains('hn-brain-flagged--predict')) return { status: 'predict', label: 'FCAST' };
+    // Fall back to reading the existing label/icon
+    var lbl = cell.querySelector('.lbl');
+    var lblText = lbl ? (lbl.textContent || '').trim().toUpperCase() : '';
+    if (lblText.indexOf('ALERT') >= 0)    return { status: 'crit', label: 'ALERT' };
+    if (lblText.indexOf('WATCH') >= 0)    return { status: 'warn', label: 'WATCH' };
+    if (lblText.indexOf('FORECAST') >= 0) return { status: 'predict', label: 'FCAST' };
+    if (lblText === 'OK')                 return { status: 'ok', label: 'OK' };
+    if (lblText === 'GOOD')               return { status: 'ok', label: 'GOOD' };
+    if (lblText === 'WARN' || lblText === 'ATTN') return { status: 'warn', label: 'WARN' };
+    if (lblText === 'CRIT')               return { status: 'crit', label: 'CRIT' };
+    return { status: 'none', label: '·' };
+  }
+
+  function parseCellTitle(cell) {
+    var title = cell.getAttribute('title') || cell.dataset.origTitle || '';
+    if (!title) return null;
+    // Em-dash separator: "GH3 — Leaf & Canopy Issues"
+    var idx = title.indexOf(' — ');
+    if (idx < 0) idx = title.indexOf(' - ');
+    if (idx < 0) return null;
+    var gh = title.slice(0, idx).trim();
+    var category = title.slice(idx + 3).trim();
+    return { gh: gh, category: category };
+  }
+
+  /* ---- 4. Apply split to a single cell --------------------------------- */
+  function applySplitToCell(cell, report) {
+    var parsed = parseCellTitle(cell);
+    if (!parsed) return;
+
+    var cl = getChecklistStatus(parsed.gh, parsed.category, report);
+    var ai = getAiStatus(cell);
+
+    // Skip re-render if nothing changed for this cell
+    var newKey = parsed.gh + '|' + parsed.category + '|' + cl.status + '|' + cl.label + '|' + ai.status + '|' + ai.label;
+    var existing = cell.querySelector('.hnx-split-wrap');
+    if (existing && existing.getAttribute('data-key') === newKey) return;
+
+    // Preserve original title once (so re-renders don't lose it)
+    if (!cell.dataset.origTitle) cell.dataset.origTitle = cell.getAttribute('title') || '';
+
+    var aiTip = parsed.gh + ' — ' + parsed.category + '\nAI status: ' + ai.label;
+    var html =
+      '<div class="hnx-split-wrap" data-key="' + newKey + '">' +
+        '<div class="hnx-split-half hnx-split-half--left hnx-cl--' + cl.status + '" ' +
+             'title="' + String(cl.tip).replace(/"/g, '&quot;') + '">' +
+          '<span class="hh-icon">📋</span>' +
+          '<span class="hh-lbl">' + cl.label + '</span>' +
+        '</div>' +
+        '<div class="hnx-split-half hnx-ai--' + ai.status + '" ' +
+             'title="' + aiTip.replace(/"/g, '&quot;') + '">' +
+          '<span class="hh-icon">🧠</span>' +
+          '<span class="hh-lbl">' + ai.label + '</span>' +
+        '</div>' +
+      '</div>';
+
+    if (existing) existing.remove();
+    cell.insertAdjacentHTML('beforeend', html);
+    cell.classList.add('hnx-split-applied');
+  }
+
+  /* ---- 5. Apply / remove on view changes ------------------------------- */
+  function cleanupSplitCells() {
+    document.querySelectorAll('td.mx-cell.hnx-split-applied').forEach(function (cell) {
+      cell.classList.remove('hnx-split-applied');
+      var w = cell.querySelector('.hnx-split-wrap');
+      if (w) w.remove();
+    });
+    var legend = document.getElementById('hnxSplitLegend');
+    if (legend) legend.remove();
+  }
+
+  function ensureLegend() {
+    if (document.getElementById('hnxSplitLegend')) return;
+    var bar = document.getElementById('hnCMTDateBar');
+    if (!bar) return;
+    var legend = document.createElement('div');
+    legend.id = 'hnxSplitLegend';
+    legend.className = 'hnx-split-legend';
+    legend.innerHTML = '<span><strong>📋 = Checklist</strong> (left)</span><span><strong>🧠 = AI</strong> (right)</span>';
+    bar.appendChild(legend);
+  }
+
+  function applySplitToMatrix() {
+    if (!document.body.classList.contains('hp-crops-matrix-only')) {
+      cleanupSplitCells();
+      return;
+    }
+    var matrix = document.getElementById('matrixWrap');
+    if (!matrix) return;
+    var cells = matrix.querySelectorAll('td.mx-cell');
+    if (!cells.length) return;
+
+    var report = getActiveReport();
+    if (!report) return;
+
+    cells.forEach(function (cell) {
+      try { applySplitToCell(cell, report); } catch (e) { /* swallow */ }
+    });
+
+    ensureLegend();
+  }
+
+  // Re-apply every 1.5s to survive matrix re-renders + date-picker changes.
+  setInterval(applySplitToMatrix, 1500);
+  setTimeout(applySplitToMatrix, 1400);
+
+  console.log('[HNX-patches] crops matrix split cells — ready');
 })();
 </script>
 </body>
