@@ -97696,7 +97696,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.74';
+        vEl.textContent = orig + ' · HNX v2.75';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -125892,5 +125892,285 @@ body.hnx-mobile-locked { overflow: hidden; }
   console.log('[HNX] Seed Studies v2.74 — 6-stage timeline + tables A-F × 1-32 — ready');
 })();
 </script>
+<!-- ===================== HNX v2.75 — CLOUD SYNC LAYER ===================== -->
+<style id="hnx-cloud-css">
+.hnx-cloud-badge{position:fixed;top:10px;right:14px;z-index:9998;display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:linear-gradient(180deg,rgba(20,32,24,.95),rgba(8,16,12,.95));color:#a5d6a7;border-radius:14px;font-family:'SF Mono',Monaco,Consolas,monospace;font-size:9.5px;font-weight:700;border:1px solid rgba(102,187,106,.4);cursor:pointer;letter-spacing:.8px;text-transform:uppercase;user-select:none;}
+.hnx-cloud-badge:hover{border-color:rgba(102,187,106,.7);}
+.hnx-cloud-badge .dot{width:6px;height:6px;border-radius:50%;background:#66bb6a;box-shadow:0 0 5px rgba(102,187,106,.7);}
+.hnx-cloud-badge .dot.sync{background:#ffc107;animation:hnxPulse 1s infinite;}
+.hnx-cloud-badge .dot.err{background:#ff5252;}
+.hnx-cloud-badge .dot.off{background:#666;box-shadow:none;}
+@keyframes hnxPulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+.hnx-cloud-popup{position:fixed;top:42px;right:14px;background:linear-gradient(180deg,rgba(20,32,24,.99),rgba(8,16,12,.99));border:1px solid rgba(102,187,106,.4);border-radius:8px;padding:10px 14px;z-index:9999;font-family:'SF Mono',Monaco,Consolas,monospace;font-size:10px;color:#e8f5e9;line-height:1.7;letter-spacing:.5px;min-width:200px;box-shadow:0 10px 30px rgba(0,0,0,.5);}
+.hnx-cloud-popup b{color:#a5d6a7;}
+.hnx-cloud-popup .btn{display:inline-block;margin-top:8px;padding:5px 10px;background:linear-gradient(180deg,#66bb6a,#388e3c);color:#0a1f0a;border-radius:5px;cursor:pointer;font-weight:800;text-decoration:none;letter-spacing:1px;border:1px solid #a5d6a7;}
+.hnx-cloud-popup .btn:hover{box-shadow:0 4px 12px rgba(102,187,106,.3);}
+</style>
+<script id="hnx-cloud-js">
+(function(){
+  if(window.__HNX_CLOUD_V275__) return;
+  window.__HNX_CLOUD_V275__=true;
+
+  var WORKER='https://hnx-sync.eyalbenari99.workers.dev';
+  var TOK_KEY='hnx_cloud_token';
+  var LAST_KEY='hnx_cloud_last';
+  var SYNC_INTERVAL=60*1000; // 60s
+
+  // Keys we sync (everything starting with hydroPro_ except sensitive/temp ones)
+  var SKIP_PREFIXES=['hydroPro_session','hydroPro_biometric','hydroPro_audit'];
+  var SKIP_KEYS=['hnx_cloud_token','hnx_cloud_last'];
+
+  function shouldSync(key){
+    if(!key) return false;
+    if(SKIP_KEYS.indexOf(key)!==-1) return false;
+    for(var i=0;i<SKIP_PREFIXES.length;i++){
+      if(key.indexOf(SKIP_PREFIXES[i])===0) return false;
+    }
+    // Sync all hydroPro_ keys
+    return key.indexOf('hydroPro_')===0;
+  }
+
+  var state={online:navigator.onLine, syncing:false, lastSync:null, error:null};
+  function setState(p){
+    Object.assign(state,p);
+    updateBadge();
+  }
+  window.addEventListener('online', function(){ setState({online:true}); tryAutoSync(); });
+  window.addEventListener('offline', function(){ setState({online:false}); });
+
+  function getToken(){ try{ return localStorage.getItem(TOK_KEY); }catch(e){ return null; } }
+  function setToken(t){ if(t) localStorage.setItem(TOK_KEY,t); else localStorage.removeItem(TOK_KEY); }
+
+  function api(path, opts){
+    opts=opts||{};
+    var h=opts.headers||{};
+    var t=getToken();
+    if(t) h['Authorization']='Bearer '+t;
+    if(opts.body && !h['Content-Type']) h['Content-Type']='application/json';
+    return fetch(WORKER+path, {method:opts.method||'GET',headers:h,body:opts.body})
+      .then(function(r){
+        return r.json().then(function(d){
+          if(!r.ok) throw new Error(d.error||('HTTP '+r.status));
+          return d;
+        });
+      });
+  }
+
+  function getLocalUser(){
+    try{
+      var s=JSON.parse(sessionStorage.getItem('hydroPro_session')||'null');
+      if(!s) return null;
+      var users=JSON.parse(localStorage.getItem('hydroPro_users')||'[]');
+      return users.find(function(u){ return u.username===s.username; })||null;
+    }catch(e){ return null; }
+  }
+
+  // Sign in to cloud silently (only when local user is logged in)
+  // Uses a deterministic cloud password based on the local user's stored hash
+  // For NOW: skip auto-login; admin manually links cloud account via Connect button
+  function connectCloud(){
+    var u=getLocalUser();
+    if(!u){ alert('Please sign in to HydroNexis first.'); return; }
+    var cloudUser=prompt('Cloud sync username (Worker account, e.g. "eyal"):', u.username.toLowerCase());
+    if(!cloudUser) return;
+    var cloudPw=prompt('Cloud sync password:');
+    if(!cloudPw) return;
+    setState({syncing:true,error:null});
+    api('/auth/login',{method:'POST',body:JSON.stringify({username:cloudUser.toLowerCase(),password:cloudPw})})
+      .then(function(res){
+        setToken(res.token);
+        setState({syncing:false,error:null});
+        alert('✓ Cloud sync connected as '+res.user.displayName+'.\n\nYour data will sync automatically every minute.');
+        return pushAll();
+      })
+      .catch(function(err){
+        setState({syncing:false,error:err.message});
+        alert('Cloud connection failed: '+err.message);
+      });
+  }
+
+  function disconnectCloud(){
+    if(!confirm('Disconnect cloud sync? Local data will remain.')) return;
+    api('/auth/logout',{method:'POST'}).catch(function(){});
+    setToken(null);
+    setState({online:navigator.onLine,syncing:false,lastSync:null,error:null});
+  }
+
+  function collectData(){
+    var data={};
+    for(var i=0;i<localStorage.length;i++){
+      var k=localStorage.key(i);
+      if(shouldSync(k)){
+        data[k]=localStorage.getItem(k);
+      }
+    }
+    return data;
+  }
+
+  function pushAll(){
+    if(!state.online || !getToken() || state.syncing) return Promise.resolve();
+    setState({syncing:true});
+    var data=collectData();
+    if(Object.keys(data).length===0){
+      setState({syncing:false,lastSync:Date.now()});
+      return Promise.resolve();
+    }
+    return api('/sync/push',{method:'POST',body:JSON.stringify({data:data})})
+      .then(function(res){
+        localStorage.setItem(LAST_KEY, new Date().toISOString());
+        setState({syncing:false,lastSync:Date.now(),error:null});
+        return res;
+      })
+      .catch(function(err){
+        setState({syncing:false,error:err.message});
+        if(String(err.message).indexOf('Unauthorized')!==-1){
+          setToken(null);
+        }
+      });
+  }
+
+  function pullAll(){
+    if(!state.online || !getToken() || state.syncing) return Promise.resolve();
+    setState({syncing:true});
+    return api('/sync/pull')
+      .then(function(res){
+        var data=res.data||{};
+        Object.keys(data).forEach(function(k){
+          if(!shouldSync(k)) return;
+          var v=data[k];
+          if(typeof v==='string') localStorage.setItem(k,v);
+          else localStorage.setItem(k, JSON.stringify(v));
+        });
+        localStorage.setItem(LAST_KEY, new Date().toISOString());
+        setState({syncing:false,lastSync:Date.now(),error:null});
+        return res;
+      })
+      .catch(function(err){
+        setState({syncing:false,error:err.message});
+        if(String(err.message).indexOf('Unauthorized')!==-1){
+          setToken(null);
+        }
+      });
+  }
+
+  function tryAutoSync(){
+    if(!state.online || !getToken() || state.syncing) return;
+    pushAll();
+  }
+
+  setInterval(tryAutoSync, SYNC_INTERVAL);
+
+  function fmtTime(ms){
+    if(!ms) return 'never';
+    var s=Math.floor((Date.now()-ms)/1000);
+    if(s<60) return s+'s ago';
+    if(s<3600) return Math.floor(s/60)+'m ago';
+    return Math.floor(s/3600)+'h ago';
+  }
+
+  function updateBadge(){
+    var b=document.getElementById('hnx-cloud-badge');
+    if(!b) return;
+    var d=b.querySelector('.dot');
+    d.className='dot';
+    if(!state.online) d.classList.add('off');
+    else if(state.syncing) d.classList.add('sync');
+    else if(state.error) d.classList.add('err');
+    var label=b.querySelector('.lbl');
+    if(label){
+      if(!getToken()) label.textContent='Cloud: off';
+      else if(!state.online) label.textContent='Offline';
+      else if(state.syncing) label.textContent='Syncing…';
+      else if(state.error) label.textContent='Error';
+      else label.textContent='Synced '+fmtTime(state.lastSync);
+    }
+  }
+
+  function showPopup(){
+    var existing=document.getElementById('hnx-cloud-popup');
+    if(existing){ existing.remove(); return; }
+    var connected=!!getToken();
+    var p=document.createElement('div');
+    p.id='hnx-cloud-popup';
+    p.className='hnx-cloud-popup';
+    var html='<div><b>CLOUD SYNC v2.75</b></div>';
+    if(connected){
+      html+='<div>Status: <b style="color:'+(state.error?'#ff8a80':'#a5d6a7')+'">'+
+            (!state.online?'Offline':state.syncing?'Syncing…':state.error?'Error':'Connected')+
+            '</b></div>';
+      html+='<div>Last sync: <b>'+fmtTime(state.lastSync)+'</b></div>';
+      if(state.error) html+='<div style="color:#ff8a80;margin-top:4px;font-size:9px;">'+state.error+'</div>';
+      html+='<a class="btn" id="hnx-sync-now">Sync now</a> ';
+      html+='<a class="btn" id="hnx-pull-now" style="background:linear-gradient(180deg,#42a5f5,#1976d2);border-color:#90caf9;color:#fff;">Pull cloud</a> ';
+      html+='<a class="btn" id="hnx-cloud-disc" style="background:rgba(255,82,82,.2);color:#ff8a80;border-color:rgba(255,82,82,.4);">Disconnect</a>';
+    } else {
+      html+='<div style="color:#94a3b8;margin:6px 0 8px;">Not connected to cloud.</div>';
+      html+='<a class="btn" id="hnx-cloud-conn">Connect now</a>';
+    }
+    p.innerHTML=html;
+    document.body.appendChild(p);
+
+    var sn=document.getElementById('hnx-sync-now'); if(sn) sn.onclick=function(){p.remove();pushAll();};
+    var pl=document.getElementById('hnx-pull-now'); if(pl) pl.onclick=function(){
+      if(confirm('Pull cloud data? This will OVERWRITE your local data with the cloud version.')){
+        p.remove(); pullAll();
+      }
+    };
+    var dc=document.getElementById('hnx-cloud-disc'); if(dc) dc.onclick=function(){p.remove();disconnectCloud();};
+    var cn=document.getElementById('hnx-cloud-conn'); if(cn) cn.onclick=function(){p.remove();connectCloud();};
+
+    setTimeout(function(){
+      document.addEventListener('click', function close(e){
+        if(!p.contains(e.target) && e.target.id!=='hnx-cloud-badge' && !document.getElementById('hnx-cloud-badge').contains(e.target)){
+          p.remove();
+          document.removeEventListener('click', close);
+        }
+      });
+    },0);
+  }
+
+  function renderBadge(){
+    if(document.getElementById('hnx-cloud-badge')) return;
+    // Only show if user is logged in
+    var s=null;
+    try{ s=JSON.parse(sessionStorage.getItem('hydroPro_session')||'null'); }catch(e){}
+    if(!s) return;
+    var b=document.createElement('div');
+    b.id='hnx-cloud-badge';
+    b.className='hnx-cloud-badge';
+    b.innerHTML='<span class="dot"></span><span class="lbl">Cloud</span>';
+    b.onclick=showPopup;
+    document.body.appendChild(b);
+    updateBadge();
+  }
+
+  // Boot
+  function boot(){
+    renderBadge();
+    // Re-check every 2s in case user logs in
+    setInterval(function(){
+      try{
+        var s=JSON.parse(sessionStorage.getItem('hydroPro_session')||'null');
+        var b=document.getElementById('hnx-cloud-badge');
+        if(s && !b) renderBadge();
+        else if(!s && b) b.remove();
+      }catch(e){}
+    }, 2000);
+    // First sync attempt
+    if(getToken()) setTimeout(pullAll, 2000);
+  }
+
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot);
+  else setTimeout(boot, 200);
+
+  // Expose for debugging
+  window.HNX_Cloud={
+    push:pushAll, pull:pullAll, state:state,
+    connect:connectCloud, disconnect:disconnectCloud,
+    api:api
+  };
+})();
+</script>
+<!-- ===================== END HNX v2.75 CLOUD SYNC ===================== -->
 </body>
 </html>
