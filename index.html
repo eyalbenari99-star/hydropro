@@ -97697,7 +97697,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.80';
+        vEl.textContent = orig + ' · HNX v2.81';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -126370,6 +126370,56 @@ body.hnx-mobile-locked { overflow: hidden; }
     console.log('[HNX v2.80] calcEmployeePayroll wrapped with rate-fallback fix');
   }
 
+  // ----- Override getSemiMonthPeriod to use 10-24 / 25-9 cycles -----
+  // Period A ("first"): day 10 → day 24 of same month
+  // Period B ("second"): day 25 → day 9 of NEXT month
+  if(typeof window.getSemiMonthPeriod === 'function'){
+    var origSemi = window.getSemiMonthPeriod;
+    window.getSemiMonthPeriod = function(refDate, half){
+      try{
+        var d = new Date(refDate);
+        var y = d.getFullYear();
+        var m = d.getMonth();
+        var day = d.getDate();
+        // Determine which period this date naturally belongs to
+        var autoHalf;
+        if(day >= 10 && day <= 24) autoHalf = 'first';
+        else autoHalf = 'second'; // 25-31 or 1-9
+        var effectiveHalf = half || autoHalf;
+
+        var s, e;
+        if(effectiveHalf === 'first'){
+          // 10th → 24th of refDate's month
+          s = new Date(y, m, 10);
+          e = new Date(y, m, 24);
+        } else {
+          // 25th → 9th of NEXT month
+          // If refDate is between 1-9, the period STARTED on the 25th of PREVIOUS month
+          if(day >= 1 && day <= 9){
+            s = new Date(y, m-1, 25);
+            e = new Date(y, m, 9);
+          } else {
+            // refDate is 25-31, period is current 25th → 9th of next month
+            s = new Date(y, m, 25);
+            e = new Date(y, m+1, 9);
+          }
+        }
+        var iso = function(dt){ return dt.toISOString().slice(0,10); };
+        var fmtShort = (typeof fmtDateShort === 'function') ? fmtDateShort
+                      : function(dt){ return dt.toLocaleDateString('en-US',{month:'short',day:'numeric'}); };
+        return {
+          start: iso(s),
+          end:   iso(e),
+          label: fmtShort(s) + ' — ' + fmtShort(e)
+        };
+      }catch(err){
+        console.warn('[HNX v2.80] semi-month override failed, falling back to original:', err);
+        return origSemi.call(this, refDate, half);
+      }
+    };
+    console.log('[HNX v2.80] getSemiMonthPeriod overridden to 10-24 / 25-9 cycles');
+  }
+
   function toast(msg, kind){
     if(typeof showToast==='function'){ showToast(msg, kind); return; }
     console.log('[HNX] '+msg);
@@ -126660,10 +126710,235 @@ body.hnx-mobile-locked { overflow: hidden; }
     actions.insertBefore(btn1, actions.firstChild);
   }
 
+  // ----- Office Period picker (10-24 / 25-9) -----
+  window.HNX_openOfficePeriodPicker = function(){
+    var current = (window._payOfficeCurrentPeriod) || {};
+    var startVal = current.start || new Date().toISOString().slice(0,10);
+    var html = '<div id="hnx-office-period-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;">'+
+      '<div style="background:#0f1a0f;border:2px solid #4caf50;border-radius:12px;padding:24px;min-width:340px;max-width:90vw;color:#e8f5e9;">'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">'+
+          '<div style="font-size:18px;font-weight:800;color:#7fff7f;">📅 Pick Office Pay Period</div>'+
+          '<button onclick="document.getElementById(\'hnx-office-period-overlay\').remove()" style="background:transparent;color:#aaa;border:1px solid #444;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;">✕</button>'+
+        '</div>'+
+        '<div style="color:#aaa;font-size:12px;margin-bottom:14px;">Office pay periods are <b style="color:#7fff7f;">10–24</b> and <b style="color:#7fff7f;">25–9 (next month)</b>. Pick any date in the period you want.</div>'+
+        '<div style="display:flex;flex-direction:column;gap:10px;">'+
+          '<label style="color:#7fff7f;font-size:12px;font-weight:700;">Pick a date (will auto-detect which half)</label>'+
+          '<input type="date" id="hnx-office-period-anydate" value="'+startVal+'" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:10px;font-size:14px;">'+
+          '<div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end;flex-wrap:wrap;">'+
+            '<button onclick="HNX_jumpOfficePeriod(\'prev\')" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px 14px;cursor:pointer;">◀ Prev Period</button>'+
+            '<button onclick="HNX_jumpOfficePeriod(\'this\')" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px 14px;cursor:pointer;">Current</button>'+
+            '<button onclick="HNX_jumpOfficePeriod(\'next\')" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px 14px;cursor:pointer;">Next Period ▶</button>'+
+          '</div>'+
+          '<button onclick="HNX_applyOfficeCustomPeriod()" style="background:#4caf50;color:#000;border:none;border-radius:6px;padding:12px;font-weight:800;cursor:pointer;margin-top:6px;">✓ Apply</button>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+  };
+
+  window.HNX_applyOfficeCustomPeriod = function(){
+    var el = document.getElementById('hnx-office-period-anydate');
+    if(!el) return;
+    var date = el.value;
+    if(!date){ alert('Please pick a date.'); return; }
+    if(typeof getSemiMonthPeriod === 'function'){
+      // auto-detect half from the date
+      window._payOfficeCurrentPeriod = getSemiMonthPeriod(date);
+    }
+    var ov = document.getElementById('hnx-office-period-overlay');
+    if(ov) ov.remove();
+    if(typeof renderPayrollOffice==='function') renderPayrollOffice();
+  };
+
+  window.HNX_jumpOfficePeriod = function(dir){
+    var el = document.getElementById('hnx-office-period-anydate');
+    if(!el) return;
+    if(dir==='this'){
+      el.value = new Date().toISOString().slice(0,10);
+      return;
+    }
+    var ref = el.value ? new Date(el.value) : new Date();
+    // Jump 15 days (approx half a month) — and auto-detect snaps to the right period
+    if(dir==='prev') ref.setDate(ref.getDate()-15);
+    if(dir==='next') ref.setDate(ref.getDate()+15);
+    el.value = ref.toISOString().slice(0,10);
+  };
+
+  // ----- Office Table enhancement -----
+  function enhanceOfficeTable(){
+    var view = document.getElementById('view-payroll_office');
+    if(!view || view.style.display === 'none' || view.offsetParent === null) return;
+    var table = view.querySelector('.pay-table');
+    if(!table) return;
+    if(table.getAttribute('data-hnx-v280-done') === '1') return;
+
+    var thead = table.querySelector('thead tr');
+    if(!thead) return;
+    if(thead.querySelector('th[data-hnx-v280-col="level"]')) return;
+
+    var ths = thead.querySelectorAll('th');
+    if(ths.length < 12) return; // Office has 12 columns
+
+    // Insert Level column after Type (between index 1 and 2)
+    var thLvl = document.createElement('th');
+    thLvl.textContent = 'Lvl';
+    thLvl.className = 'pay-num';
+    thLvl.setAttribute('data-hnx-v280-col','level');
+    thead.insertBefore(thLvl, ths[2]);
+
+    // Find Gov Ded header (Office has separate "Withholding Tax" col already)
+    var ths2 = thead.querySelectorAll('th');
+    var govDedTh = null;
+    for(var i=0;i<ths2.length;i++){
+      // Match exactly "Gov Ded" — not Withholding Tax
+      var txt = ths2[i].textContent.trim().toLowerCase();
+      if(txt === 'gov ded' || txt === 'govt deductions' || txt === 'gov deductions'){ govDedTh = ths2[i]; break; }
+    }
+    if(govDedTh){
+      // Replace with SSS / PHIC / HDMF (TIN already exists as Withholding Tax column)
+      var cols = ['SSS','PHIC','HDMF'];
+      cols.forEach(function(c){
+        var nth = document.createElement('th');
+        nth.textContent = c;
+        nth.className = 'pay-num';
+        nth.setAttribute('data-hnx-v280-col','govded');
+        thead.insertBefore(nth, govDedTh);
+      });
+      govDedTh.remove();
+    }
+
+    // Get current run
+    var run = null;
+    try {
+      if(typeof window.getPayrollRun==='function' && window._payOfficeCurrentPeriod){
+        var rId = 'office_'+window._payOfficeCurrentPeriod.start+'_'+window._payOfficeCurrentPeriod.end;
+        run = window.getPayrollRun(rId);
+      }
+    } catch(e){}
+
+    var tbody = table.querySelector('tbody');
+    if(!tbody){ table.setAttribute('data-hnx-v280-done','1'); return; }
+    var rows = tbody.querySelectorAll('tr');
+    rows.forEach(function(tr){
+      if(tr.classList.contains('dept-row')){
+        var td = tr.querySelector('td[colspan]');
+        if(td){ td.setAttribute('colspan', '15'); }
+        return;
+      }
+      if(tr.classList.contains('total-row')){
+        var first = tr.querySelector('td[colspan]');
+        if(first){ first.setAttribute('colspan','4'); }
+        return;
+      }
+      // Subtotal row in office has colspan="5"
+      var sub5 = tr.querySelector('td[colspan="5"]');
+      if(sub5){
+        sub5.setAttribute('colspan','6');
+        // also the colspan="5" after subtotal needs +2
+        var allColspan = tr.querySelectorAll('td[colspan="5"]');
+        if(allColspan.length > 1){
+          allColspan[1].setAttribute('colspan','7');
+        }
+        return;
+      }
+
+      var tds = tr.querySelectorAll('td');
+      if(tds.length !== 12) return;
+
+      var onclickAttr = tr.getAttribute('onclick')||'';
+      var idMatch = onclickAttr.match(/openPayrollLine\([^,]+,\s*['"]([^'"]+)['"]/);
+      var empId = idMatch ? idMatch[1] : null;
+      var level = empId ? getEmpLevel(empId) : 1;
+
+      // Improve Type cell
+      var typeCell = tds[1];
+      if(typeCell){
+        var t = typeCell.textContent.trim();
+        if(t==='REG') typeCell.textContent='Regular';
+        else if(t==='TRA') typeCell.textContent='Trainee';
+        else if(t==='INT') typeCell.textContent='Intern';
+        else if(t==='PRO') typeCell.textContent='Probation';
+        typeCell.style.fontSize='11px';
+        typeCell.style.fontWeight='600';
+        if(typeCell.textContent==='Regular') typeCell.style.color='#a5d6a7';
+        else if(typeCell.textContent==='Trainee') typeCell.style.color='#ffc107';
+      }
+
+      // Insert Level cell
+      var lvlTd = document.createElement('td');
+      lvlTd.className = 'pay-num';
+      lvlTd.style.cssText = 'font-weight:700;color:#90caf9;';
+      lvlTd.textContent = 'L'+level;
+      tr.insertBefore(lvlTd, tds[2]);
+
+      // Now find line + replace Gov Ded
+      var line = null;
+      if(run && Array.isArray(run.lines) && empId){
+        line = run.lines.find(function(l){ return l.empId === empId; });
+      }
+      // After Level insert: 0 Name, 1 Type, 2 Lvl, 3 Daily, 4 Days, 5 AbsU, 6 Basic, 7 Memo+, 8 Memo-, 9 Gross, 10 GovDed, 11 WithholdTax, 12 NetPay
+      var newTds = tr.querySelectorAll('td');
+      var govDedCell = newTds[10];
+      if(govDedCell){
+        var sss = line ? (line.sss||0) : 0;
+        var phic = line ? (line.phic||0) : 0;
+        var hdmf = line ? (line.hdmf||0) : 0;
+        function fmt(v){ return v>0 ? '<span style="color:#ff8a80;">-₱'+(parseFloat(v)).toFixed(2)+'</span>' : '<span style="color:#666;">—</span>'; }
+        var sssCell = document.createElement('td');
+        sssCell.className = 'pay-num';
+        sssCell.innerHTML = fmt(sss);
+        var phicCell = document.createElement('td');
+        phicCell.className = 'pay-num';
+        phicCell.innerHTML = fmt(phic);
+        var hdmfCell = document.createElement('td');
+        hdmfCell.className = 'pay-num';
+        hdmfCell.innerHTML = fmt(hdmf);
+        govDedCell.parentNode.insertBefore(sssCell, govDedCell);
+        govDedCell.parentNode.insertBefore(phicCell, govDedCell);
+        govDedCell.parentNode.insertBefore(hdmfCell, govDedCell);
+        govDedCell.remove();
+      }
+    });
+
+    table.setAttribute('data-hnx-v280-done','1');
+  }
+
+  function injectOfficeTopControls(){
+    var view = document.getElementById('view-payroll_office');
+    if(!view || view.style.display === 'none' || view.offsetParent === null) return;
+    var headRow = view.querySelector('.pay-table-head');
+    if(!headRow) return;
+    var actions = headRow.querySelector('.pay-table-actions');
+    if(!actions) return;
+    if(actions.querySelector('[data-hnx-v280-ofc-ctrl]')) return;
+
+    var period = window._payOfficeCurrentPeriod;
+    var label = period && period.label ? period.label : 'Pick period';
+
+    var btn1 = document.createElement('button');
+    btn1.className = 'btn btn-outline';
+    btn1.setAttribute('data-hnx-v280-ofc-ctrl','period');
+    btn1.innerHTML = '📅 ' + label;
+    btn1.style.cssText = 'font-size:11px;';
+    btn1.onclick = window.HNX_openOfficePeriodPicker;
+
+    var btn2 = document.createElement('button');
+    btn2.className = 'btn btn-outline';
+    btn2.setAttribute('data-hnx-v280-ofc-ctrl','rates');
+    btn2.innerHTML = '🎚 Level Rates';
+    btn2.style.cssText = 'font-size:11px;';
+    btn2.onclick = window.HNX_openLevelRatesConfig;
+
+    actions.insertBefore(btn2, actions.firstChild);
+    actions.insertBefore(btn1, actions.firstChild);
+  }
+
   function tick(){
     try{
       injectTopControls();
       enhanceOpsTable();
+      injectOfficeTopControls();
+      enhanceOfficeTable();
     }catch(e){ console.warn('[HNX payroll v2.80]', e); }
   }
   setInterval(tick, 1500);
@@ -126691,7 +126966,29 @@ body.hnx-mobile-locked { overflow: hidden; }
     };
   }
 
-  console.log('[HNX] Payroll v2.80 — rate-fallback + Level col + split gov-ded + period picker + Thu-Wed weeks — ready');
+  // Wrap renderPayrollOffice the same way
+  if(typeof window.renderPayrollOffice === 'function'){
+    var origOfc = window.renderPayrollOffice;
+    window.renderPayrollOffice = function(){
+      var ret = origOfc.apply(this, arguments);
+      setTimeout(function(){
+        var v = document.getElementById('view-payroll_office');
+        if(v){
+          var t = v.querySelector('.pay-table');
+          if(t) t.removeAttribute('data-hnx-v280-done');
+          var hd = v.querySelector('.pay-table-head .pay-table-actions');
+          if(hd){
+            hd.querySelectorAll('[data-hnx-v280-ofc-ctrl]').forEach(function(b){ b.remove(); });
+          }
+        }
+        injectOfficeTopControls();
+        enhanceOfficeTable();
+      }, 80);
+      return ret;
+    };
+  }
+
+  console.log('[HNX] Payroll v2.80 — rate-fallback + Level col + split gov-ded + period picker + Thu-Wed weeks + Office 10-24/25-9 — ready');
 })();
 </script>
 <!-- ===================== END HNX v2.80 ===================== -->
