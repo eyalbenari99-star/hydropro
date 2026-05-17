@@ -88822,9 +88822,10 @@ function _renderSeedDetail(){
   }).join('');
 
   return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
-    <div>
-      <button class="btn btn-outline" onclick="_seedView='list';renderSeedStudy();" style="margin-right:10px;">← All Trials</button>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-outline" onclick="_seedView='list';renderSeedStudy();">← All Trials</button>
       <span style="font-size:18px;font-weight:700;">🌾 ${(s.variety||'(unnamed)').replace(/[<>]/g,'')}</span>
+      <button class="btn btn-outline" title="Rename trial" style="padding:4px 10px;font-size:13px;" onclick="(function(){var n=prompt('Trial name / variety:', ${JSON.stringify(s.variety||'')});if(n!==null){_seedField('${s.id}','variety',n.trim());renderSeedStudy();}})()">✏️ Rename</button>
     </div>
     <div style="display:flex;gap:6px;">
       <select class="call-select" onchange="_seedSetStatus('${s.id}',this.value)" style="font-size:11px;">
@@ -97696,7 +97697,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.75';
+        vEl.textContent = orig + ' · HNX v2.79';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -125671,15 +125672,155 @@ body.hnx-mobile-locked { overflow: hidden; }
     });
   }
 
+  // --- v2.79 multi-table helpers ---
+  // Each stage can have an array of table assignments: trial[stageKey+'Tables'] = [{gh,let,num,plants,holes,notes}, ...]
+  // For backwards compat: if no tables array, the legacy single-fields form one virtual table.
+  function getStageTables(trial, st){
+    var arr = trial[st.key + 'Tables'];
+    if(Array.isArray(arr) && arr.length > 0) return arr.slice();
+    // Legacy single-table compatibility
+    var legacy = {
+      gh: trial[st.ghField] || '',
+      let: trial[st.letField] || '',
+      num: trial[st.numField] || '',
+      plants: trial[st.plantsField] || '',
+      notes: trial[st.notesField] || ''
+    };
+    if(st.hasHoles) legacy.holes = trial.regularHoles || trial.tableHoles || '';
+    // Only return legacy if at least one field is filled
+    if(legacy.gh || legacy.let || legacy.num || legacy.plants || legacy.notes || legacy.holes){
+      return [legacy];
+    }
+    return [legacy]; // Always return at least one empty row
+  }
+
+  function saveStageTables(trialId, stageKey, tables){
+    var patch = {};
+    patch[stageKey + 'Tables'] = tables;
+    patch._lastSavedAt = Date.now();
+    updateTrial(trialId, patch);
+  }
+
+  window.HNX_seedTableSet = function(trialId, stageKey, idx, field, value){
+    var trial = getTrial(trialId);
+    if(!trial) return;
+    var st = STAGES.find(function(s){ return s.key === stageKey; });
+    if(!st) return;
+    var tables = getStageTables(trial, st);
+    if(!tables[idx]) tables[idx] = {};
+    tables[idx][field] = value;
+    saveStageTables(trialId, stageKey, tables);
+    document.querySelectorAll('.hnx-saved-tag').forEach(function(el){
+      el.textContent = '✓ Saved at '+new Date().toLocaleTimeString();
+    });
+    showToast('✓ Saved');
+    // Re-render this stage card by clearing the injection
+    var wrap = document.querySelector('[data-hnx-seed-v274="'+trialId+'"]');
+    if(wrap) wrap.remove();
+  };
+
+  window.HNX_seedTableAdd = function(trialId, stageKey){
+    var trial = getTrial(trialId);
+    if(!trial) return;
+    var st = STAGES.find(function(s){ return s.key === stageKey; });
+    if(!st) return;
+    var tables = getStageTables(trial, st);
+    tables.push({gh:'',let:'',num:'',plants:'',notes:''});
+    saveStageTables(trialId, stageKey, tables);
+    showToast('✓ Table added');
+    var wrap = document.querySelector('[data-hnx-seed-v274="'+trialId+'"]');
+    if(wrap) wrap.remove();
+  };
+
+  window.HNX_seedTableRemove = function(trialId, stageKey, idx){
+    if(!confirm('Remove this table from this stage?')) return;
+    var trial = getTrial(trialId);
+    if(!trial) return;
+    var st = STAGES.find(function(s){ return s.key === stageKey; });
+    if(!st) return;
+    var tables = getStageTables(trial, st);
+    tables.splice(idx, 1);
+    if(tables.length === 0) tables.push({gh:'',let:'',num:'',plants:'',notes:''});
+    saveStageTables(trialId, stageKey, tables);
+    showToast('✓ Table removed');
+    var wrap = document.querySelector('[data-hnx-seed-v274="'+trialId+'"]');
+    if(wrap) wrap.remove();
+  };
+
+  function tableRowHTML(trial, st, idx, tbl, canRemove){
+    var gh = tbl.gh || '';
+    var let_ = tbl.let || '';
+    var num = tbl.num || '';
+    var plants = tbl.plants || '';
+    var holes = tbl.holes || '';
+    var notes = tbl.notes || '';
+
+    var ghOpts = '<option value="">— GH —</option>' + GH_LIST.map(function(g){
+      return '<option value="'+g+'"'+(gh===g?' selected':'')+'>'+g+'</option>';
+    }).join('');
+    var letOpts = '<option value="">—</option>' + TABLE_LETTERS.map(function(L){
+      return '<option value="'+L+'"'+(let_===L?' selected':'')+'>'+L+'</option>';
+    }).join('');
+    var numOpts = '<option value="">—</option>';
+    for(var n=1;n<=32;n++){
+      numOpts += '<option value="'+n+'"'+(String(num)===String(n)?' selected':'')+'>'+n+'</option>';
+    }
+
+    var holesField = '';
+    if(st.hasHoles){
+      holesField =
+        '<div style="display:flex;flex-direction:column;gap:4px;">'+
+          '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Holes</label>'+
+          '<select onchange="HNX_seedTableSet(\''+trial.id+'\',\''+st.key+'\','+idx+',\'holes\',this.value)" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:6px;font-size:13px;width:75px;">'+
+            '<option value=""'+(!holes?' selected':'')+'>—</option>'+
+            '<option value="14"'+(holes==='14'?' selected':'')+'>14</option>'+
+            '<option value="19"'+(holes==='19'?' selected':'')+'>19</option>'+
+          '</select>'+
+        '</div>';
+    }
+
+    var removeBtn = canRemove
+      ? '<button onclick="HNX_seedTableRemove(\''+trial.id+'\',\''+st.key+'\','+idx+')" title="Remove this table" style="background:#3a1a1a;color:#ff8a8a;border:1px solid #ff5252;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;align-self:flex-end;height:32px;">✕</button>'
+      : '';
+
+    var tableLabel = (let_ && num) ? ('Table '+let_+num) : (let_||num ? 'Partial' : '—');
+
+    return ''+
+    '<div style="background:#1a2a1a;border:1px dashed #3a5a3a;border-radius:8px;padding:10px;margin-bottom:8px;">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">'+
+        '<div style="font-size:11px;color:#aaa;font-weight:600;">▸ Table #'+(idx+1)+(tableLabel!=='—'?' · <span style="color:#7fff7f;">'+tableLabel+'</span>'+(gh?' · '+gh:''):'')+'</div>'+
+      '</div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;">'+
+        '<div style="display:flex;flex-direction:column;gap:4px;">'+
+          '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Greenhouse</label>'+
+          '<select onchange="HNX_seedTableSet(\''+trial.id+'\',\''+st.key+'\','+idx+',\'gh\',this.value)" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:6px;font-size:13px;min-width:90px;">'+ghOpts+'</select>'+
+        '</div>'+
+        '<div style="display:flex;flex-direction:column;gap:4px;">'+
+          '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Letter</label>'+
+          '<select onchange="HNX_seedTableSet(\''+trial.id+'\',\''+st.key+'\','+idx+',\'let\',this.value)" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:6px;font-size:13px;width:65px;">'+letOpts+'</select>'+
+        '</div>'+
+        '<div style="display:flex;flex-direction:column;gap:4px;">'+
+          '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Table #</label>'+
+          '<select onchange="HNX_seedTableSet(\''+trial.id+'\',\''+st.key+'\','+idx+',\'num\',this.value)" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:6px;font-size:13px;width:65px;">'+numOpts+'</select>'+
+        '</div>'+
+        '<div style="display:flex;flex-direction:column;gap:4px;">'+
+          '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Plants</label>'+
+          '<input type="number" value="'+escapeHtml(plants)+'" onchange="HNX_seedTableSet(\''+trial.id+'\',\''+st.key+'\','+idx+',\'plants\',this.value)" placeholder="0" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:6px;font-size:13px;width:75px;">'+
+        '</div>'+
+        holesField+
+        '<div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:160px;">'+
+          '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Notes</label>'+
+          '<input type="text" value="'+escapeHtml(notes)+'" onchange="HNX_seedTableSet(\''+trial.id+'\',\''+st.key+'\','+idx+',\'notes\',this.value)" placeholder="any observations..." style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:6px;font-size:13px;">'+
+        '</div>'+
+        removeBtn+
+      '</div>'+
+    '</div>';
+  }
+
   function stageCardHTML(trial, stageIdx){
     var st = STAGES[stageIdx];
     var date = trial[st.dateField] || '';
-    var gh   = trial[st.ghField]   || '';
-    var let_ = trial[st.letField]  || '';
-    var num  = trial[st.numField]  || '';
-    var notes= trial[st.notesField]|| '';
-    var plants=trial[st.plantsField]||'';
-    var holes= trial.regularHoles || trial.tableHoles || '';
+    var tables = getStageTables(trial, st);
 
     var daysBadge = '';
     if(stageIdx > 0){
@@ -125693,76 +125834,47 @@ body.hnx-mobile-locked { overflow: hidden; }
       }
     }
 
-    var ghOpts = '<option value="">— GH —</option>' + GH_LIST.map(function(g){
-      return '<option value="'+g+'"'+(gh===g?' selected':'')+'>'+g+'</option>';
-    }).join('');
-    var letOpts = '<option value="">—</option>' + TABLE_LETTERS.map(function(L){
-      return '<option value="'+L+'"'+(let_===L?' selected':'')+'>'+L+'</option>';
-    }).join('');
-    var numOpts = '<option value="">—</option>';
-    for(var n=1;n<=32;n++){
-      numOpts += '<option value="'+n+'"'+(String(num)===String(n)?' selected':'')+'>'+n+'</option>';
-    }
-
-    var tableLabel = (let_ && num) ? ('Table '+let_+num) : (let_||num ? 'Partial' : 'not set');
-
-    var holesField = '';
-    if(st.hasHoles){
-      holesField =
-        '<div style="display:flex;flex-direction:column;gap:4px;">'+
-          '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Holes (pipe)</label>'+
-          '<select onchange="HNX_seedSet(\''+trial.id+'\',\'regularHoles\',this.value)" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px;font-size:14px;">'+
-            '<option value=""'+(!holes?' selected':'')+'>—</option>'+
-            '<option value="14"'+(holes==='14'?' selected':'')+'>14 holes</option>'+
-            '<option value="19"'+(holes==='19'?' selected':'')+'>19 holes</option>'+
-          '</select>'+
-        '</div>';
-    }
+    // Total plants across all tables in this stage
+    var totalPlants = 0;
+    tables.forEach(function(t){ var n = parseInt(t.plants,10); if(!isNaN(n)) totalPlants += n; });
+    var tableCount = tables.length;
+    var summary = tableCount+' table'+(tableCount!==1?'s':'')+(totalPlants?' · '+totalPlants+' plants':'');
 
     var harvestYield = '';
     if(st.isHarvest){
       var hkg = trial.harvestKg || '';
       harvestYield =
-        '<div style="display:flex;flex-direction:column;gap:4px;">'+
+        '<div style="display:flex;flex-direction:column;gap:4px;margin-left:auto;">'+
           '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Yield (kg)</label>'+
-          '<input type="number" step="0.1" value="'+escapeHtml(hkg)+'" onchange="HNX_seedSet(\''+trial.id+'\',\'harvestKg\',this.value)" placeholder="0.0" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px;font-size:14px;width:90px;">'+
+          '<input type="number" step="0.1" value="'+escapeHtml(hkg)+'" onchange="HNX_seedSet(\''+trial.id+'\',\'harvestKg\',this.value)" placeholder="0.0" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:6px;font-size:13px;width:90px;">'+
         '</div>';
+    }
+
+    // Table rows
+    var canRemove = tables.length > 1;
+    var rowsHTML = '';
+    for(var ti=0; ti<tables.length; ti++){
+      rowsHTML += tableRowHTML(trial, st, ti, tables[ti], canRemove);
     }
 
     return ''+
     '<div style="background:#0f1a0f;border:1px solid #2a4a2a;border-left:5px solid #4caf50;border-radius:10px;padding:14px;margin-bottom:10px;">'+
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">'+
         '<div style="font-size:16px;font-weight:700;color:#7fff7f;">'+st.label+daysBadge+'</div>'+
-        '<div style="font-size:13px;color:#aaa;">📍 '+tableLabel+(gh?' · '+gh:'')+'</div>'+
+        '<div style="font-size:12px;color:#aaa;">📍 '+summary+'</div>'+
       '</div>'+
-      '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;">'+
+      // Date + yield at the stage level (top row)
+      '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #1a2a1a;">'+
         '<div style="display:flex;flex-direction:column;gap:4px;">'+
-          '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Date</label>'+
-          '<input type="date" value="'+escapeHtml(date)+'" onchange="HNX_seedSet(\''+trial.id+'\',\''+st.dateField+'\',this.value)" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px;font-size:14px;">'+
+          '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Stage Date</label>'+
+          '<input type="date" value="'+escapeHtml(date)+'" onchange="HNX_seedSet(\''+trial.id+'\',\''+st.dateField+'\',this.value)" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:6px;font-size:13px;">'+
         '</div>'+
-        '<div style="display:flex;flex-direction:column;gap:4px;">'+
-          '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Greenhouse</label>'+
-          '<select onchange="HNX_seedSet(\''+trial.id+'\',\''+st.ghField+'\',this.value)" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px;font-size:14px;min-width:100px;">'+ghOpts+'</select>'+
-        '</div>'+
-        '<div style="display:flex;flex-direction:column;gap:4px;">'+
-          '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Table Letter</label>'+
-          '<select onchange="HNX_seedSet(\''+trial.id+'\',\''+st.letField+'\',this.value)" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px;font-size:14px;width:70px;">'+letOpts+'</select>'+
-        '</div>'+
-        '<div style="display:flex;flex-direction:column;gap:4px;">'+
-          '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Table #</label>'+
-          '<select onchange="HNX_seedSet(\''+trial.id+'\',\''+st.numField+'\',this.value)" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px;font-size:14px;width:70px;">'+numOpts+'</select>'+
-        '</div>'+
-        '<div style="display:flex;flex-direction:column;gap:4px;">'+
-          '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Plants</label>'+
-          '<input type="number" value="'+escapeHtml(plants)+'" onchange="HNX_seedSet(\''+trial.id+'\',\''+st.plantsField+'\',this.value)" placeholder="0" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px;font-size:14px;width:80px;">'+
-        '</div>'+
-        holesField+
         harvestYield+
-        '<div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px;">'+
-          '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Notes</label>'+
-          '<input type="text" value="'+escapeHtml(notes)+'" onchange="HNX_seedSet(\''+trial.id+'\',\''+st.notesField+'\',this.value)" placeholder="any observations..." style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px;font-size:14px;">'+
-        '</div>'+
       '</div>'+
+      // Tables
+      rowsHTML+
+      // Add table button
+      '<button onclick="HNX_seedTableAdd(\''+trial.id+'\',\''+st.key+'\')" style="background:#1a3a1a;color:#7fff7f;border:1px dashed #4caf50;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer;margin-top:4px;">+ ADD TABLE TO '+st.label.replace(/^[^a-zA-Z]+/,'').toUpperCase()+'</button>'+
     '</div>';
   }
 
@@ -125782,7 +125894,7 @@ body.hnx-mobile-locked { overflow: hidden; }
         '<div style="display:flex;flex-direction:column;gap:4px;">'+
           '<label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">Price Unit</label>'+
           '<select onchange="HNX_seedSet(\''+trial.id+'\',\'seedPriceUnit\',this.value)" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px;font-size:14px;">'+
-            ['per seed','per gram','per pack','total'].map(function(u){return '<option value="'+u+'"'+(trial.seedPriceUnit===u?' selected':'')+'>'+u+'</option>';}).join('')+
+            ['per seed','per gram','per kg','per pack','per 1,000','per 5,000','total'].map(function(u){return '<option value="'+u+'"'+(trial.seedPriceUnit===u?' selected':'')+'>'+u+'</option>';}).join('')+
           '</select>'+
         '</div>'+
         '<div style="display:flex;flex-direction:column;gap:4px;">'+
@@ -125965,19 +126077,46 @@ body.hnx-mobile-locked { overflow: hidden; }
     }catch(e){ return null; }
   }
 
-  // Sign in to cloud silently (only when local user is logged in)
-  // Uses a deterministic cloud password based on the local user's stored hash
-  // For NOW: skip auto-login; admin manually links cloud account via Connect button
+  // Sign in to cloud. If login fails with "Invalid credentials", offer to seed admin.
+  var SEED_KEY='hnxai_4a8f3c91d7e62b5806f4ac9e1d3b27f5e8a91c6047b3e2d8f5c91b6a4e7d80f3';
+  function trySeedAndLogin(cloudUser, cloudPw){
+    return fetch(WORKER+'/seed-admin',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-API-Key':SEED_KEY},
+      body:JSON.stringify({username:cloudUser,password:cloudPw,displayName:cloudUser})
+    }).then(function(r){ return r.json().then(function(d){return {status:r.status,data:d};}); })
+      .then(function(res){
+        if(res.status===200 && res.data.ok){
+          // Seed succeeded - now login
+          return api('/auth/login',{method:'POST',body:JSON.stringify({username:cloudUser,password:cloudPw})});
+        }
+        if(res.status===409){
+          throw new Error('Admin already exists as "'+res.data.existingAdmin+'". Use that username or contact admin.');
+        }
+        throw new Error(res.data.error||'Seed failed');
+      });
+  }
   function connectCloud(){
     var u=getLocalUser();
     if(!u){ alert('Please sign in to HydroNexis first.'); return; }
-    var cloudUser=prompt('Cloud sync username (Worker account, e.g. "eyal"):', u.username.toLowerCase());
+    var cloudUser=prompt('Cloud sync username (e.g. "eyal"):', u.username.toLowerCase());
     if(!cloudUser) return;
-    var cloudPw=prompt('Cloud sync password:');
+    cloudUser=cloudUser.toLowerCase().trim();
+    var cloudPw=prompt('Cloud sync password (min 6 chars):');
     if(!cloudPw) return;
     setState({syncing:true,error:null});
-    api('/auth/login',{method:'POST',body:JSON.stringify({username:cloudUser.toLowerCase(),password:cloudPw})})
+    api('/auth/login',{method:'POST',body:JSON.stringify({username:cloudUser,password:cloudPw})})
+      .catch(function(err){
+        // If login fails with Invalid credentials, offer to seed a new admin
+        if(String(err.message).toLowerCase().indexOf('invalid credentials')!==-1){
+          if(confirm('No cloud account found for "'+cloudUser+'". Create it now as the first admin?')){
+            return trySeedAndLogin(cloudUser, cloudPw);
+          }
+        }
+        throw err;
+      })
       .then(function(res){
+        if(!res) return;
         setToken(res.token);
         setState({syncing:false,error:null});
         alert('✓ Cloud sync connected as '+res.user.displayName+'.\n\nYour data will sync automatically every minute.');
