@@ -97696,7 +97696,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.71';
+        vEl.textContent = orig + ' · HNX v2.72';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -125159,6 +125159,164 @@ body.hnx-mobile-locked { overflow: hidden; }
    * installed, the displays won't show until next render. The wrappers above
    * will catch subsequent calls — switching views always triggers a re-render.
    * ======================================================================== */
+})();
+</script>
+<script>
+/* ============================================================================
+ * HydroNexis-AI matrix date picker — 2026-05-17
+ *
+ * Adds a calendar-style date input to the "VIEW CHECKS FROM" bar on the
+ * Crops Matrix view, so the user can pick ANY date (not just preset buttons).
+ *
+ * Behavior:
+ *   - On any date pick: find a report matching that exact date and apply it.
+ *   - If no exact match: fall back to the closest report on or before the
+ *     picked date and tell the user.
+ *   - If no report exists at all on/before the picked date: tell the user.
+ *
+ * Uses the existing "click the matching report button" mechanism — does not
+ * touch matrix internals.
+ * ========================================================================== */
+(function () {
+  'use strict';
+
+  function getReportDateFromBtn(btn) {
+    var id = btn.getAttribute('data-rpt') || '';
+    var m = id.match(/(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : null;
+  }
+
+  function injectMatrixDatePicker() {
+    var bar = document.getElementById('hnCMTDateBar');
+    if (!bar) return;
+    if (bar.querySelector('[data-hnx-matrix-datepicker]')) return; // already there
+
+    var dateBtns = Array.prototype.slice.call(bar.querySelectorAll('[data-rpt]'));
+    if (!dateBtns.length) return;
+
+    var allDates = dateBtns.map(getReportDateFromBtn).filter(Boolean);
+    var sortedDates = allDates.slice().sort();
+    var earliest = sortedDates[0] || '';
+    var today = new Date().toISOString().slice(0, 10);
+
+    var picker = document.createElement('div');
+    picker.setAttribute('data-hnx-matrix-datepicker', '1');
+    picker.style.cssText = 'display:inline-flex;align-items:center;gap:8px;margin-left:10px;padding:5px 10px;background:rgba(99,201,255,0.10);border:1px solid rgba(99,201,255,0.35);border-radius:6px;flex-wrap:wrap;';
+
+    picker.innerHTML =
+      '<span style="font-size:11px;color:var(--text2);font-weight:600;">📅 Or pick any date:</span>' +
+      '<input type="date" id="hnxMatrixDate" max="' + today + '" ' +
+      (earliest ? 'min="' + earliest + '" ' : '') +
+      'style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:12px;font-family:var(--mono);">' +
+      '<button type="button" id="hnxMatrixDatePrev" title="Previous day" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-size:12px;cursor:pointer;">◀</button>' +
+      '<button type="button" id="hnxMatrixDateNext" title="Next day" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-size:12px;cursor:pointer;">▶</button>' +
+      '<span id="hnxMatrixDateStatus" style="font-size:10px;color:var(--text3);font-family:var(--mono);"></span>';
+
+    // Insert just before the "Clear" button so it lives at the end of the bar
+    var clearBtn = bar.querySelector('#hnCMTClear');
+    if (clearBtn) bar.insertBefore(picker, clearBtn);
+    else bar.appendChild(picker);
+
+    var dateInput = document.getElementById('hnxMatrixDate');
+    var statusEl = document.getElementById('hnxMatrixDateStatus');
+
+    function applyByDate(pickedDate, fromArrow) {
+      if (!pickedDate) return;
+      // Fresh list of buttons (in case bar was rebuilt)
+      var btns = Array.prototype.slice.call(bar.querySelectorAll('[data-rpt]'));
+      var pairs = btns.map(function (b) {
+        return { btn: b, date: getReportDateFromBtn(b) };
+      }).filter(function (p) { return p.date; });
+
+      // Exact match first
+      var exact = pairs.filter(function (p) { return p.date === pickedDate; });
+      if (exact.length) {
+        // If multiple reports on same date (different facilities), pick the one with
+        // the most issues (most informative).
+        exact.sort(function (a, b) {
+          var aCt = parseInt((a.btn.querySelector('.ct') || {}).textContent || '0', 10);
+          var bCt = parseInt((b.btn.querySelector('.ct') || {}).textContent || '0', 10);
+          return bCt - aCt;
+        });
+        exact[0].btn.click();
+        if (statusEl) statusEl.innerHTML = '<span style="color:var(--ok);">✓ Showing ' + pickedDate +
+          (exact.length > 1 ? ' (' + exact.length + ' reports — showing most detailed)' : '') + '</span>';
+        return;
+      }
+
+      // Closest ≤ pickedDate
+      var earlier = pairs.filter(function (p) { return p.date < pickedDate; });
+      if (earlier.length) {
+        earlier.sort(function (a, b) { return b.date.localeCompare(a.date); });
+        earlier[0].btn.click();
+        if (statusEl) statusEl.innerHTML = '<span style="color:var(--warn);">⚠ No check on ' + pickedDate +
+          ' — showing nearest before: <strong>' + earlier[0].date + '</strong></span>';
+        return;
+      }
+
+      // No reports on or before — show one after, or warn
+      var after = pairs.slice().sort(function (a, b) { return a.date.localeCompare(b.date); });
+      if (after.length) {
+        if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger);">✕ No checks on or before ' + pickedDate +
+          '. Earliest available: <strong>' + after[0].date + '</strong></span>';
+      } else {
+        if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger);">✕ No reports available at all</span>';
+      }
+    }
+
+    dateInput.addEventListener('change', function () {
+      applyByDate(this.value);
+    });
+
+    document.getElementById('hnxMatrixDatePrev').addEventListener('click', function () {
+      // Move to previous day with a report (relative to current input value)
+      var cur = dateInput.value || today;
+      var btns = Array.prototype.slice.call(bar.querySelectorAll('[data-rpt]'));
+      var dates = btns.map(getReportDateFromBtn).filter(Boolean).sort();
+      // Find largest date < cur
+      var prev = dates.filter(function (d) { return d < cur; }).pop();
+      if (prev) {
+        dateInput.value = prev;
+        applyByDate(prev, true);
+      } else {
+        if (statusEl) statusEl.innerHTML = '<span style="color:var(--text3);">No earlier reports</span>';
+      }
+    });
+
+    document.getElementById('hnxMatrixDateNext').addEventListener('click', function () {
+      // Move to next day with a report
+      var cur = dateInput.value || '0000-00-00';
+      var btns = Array.prototype.slice.call(bar.querySelectorAll('[data-rpt]'));
+      var dates = btns.map(getReportDateFromBtn).filter(Boolean).sort();
+      var next = dates.filter(function (d) { return d > cur; })[0];
+      if (next) {
+        dateInput.value = next;
+        applyByDate(next, true);
+      } else {
+        if (statusEl) statusEl.innerHTML = '<span style="color:var(--text3);">No later reports</span>';
+      }
+    });
+
+    // Show how many total reports are available
+    if (statusEl && !dateInput.value) {
+      statusEl.innerHTML = '<span style="color:var(--text3);">' + dateBtns.length + ' report' + (dateBtns.length === 1 ? '' : 's') + ' available</span>';
+    }
+  }
+
+  // The original code re-injects #hnCMTDateBar every 1.5s. Match that cadence
+  // so our picker re-attaches if the bar is ever rebuilt.
+  setInterval(injectMatrixDatePicker, 1500);
+  setTimeout(injectMatrixDatePicker, 1200);
+
+  // Also: react immediately when the bar appears via DOM mutation
+  if (typeof MutationObserver === 'function') {
+    var obs = new MutationObserver(function () {
+      if (document.getElementById('hnCMTDateBar')) injectMatrixDatePicker();
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+  }
+
+  console.log('[HNX-patches] matrix date picker — ready');
 })();
 </script>
 </body>
