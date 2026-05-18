@@ -2972,6 +2972,14 @@ td[data-edit-pool]:hover{box-shadow:inset 0 0 0 2px var(--accent);}
 .emp-card.archived::before{background:var(--text3);}
 .emp-card.terminated{opacity:.5;}
 .emp-card.terminated::before{background:var(--danger);}
+.emp-card.resigned{opacity:.65;}
+.emp-card.resigned::before{background:#ffc107;}
+.emp-card.released{opacity:.65;}
+.emp-card.released::before{background:#ff8a80;}
+.emp-card.onleave{opacity:.85;}
+.emp-card.onleave::before{background:#42a5f5;}
+.emp-card.other{opacity:.65;}
+.emp-card.other::before{background:#aaa;}
 .emp-card-top{display:flex;gap:12px;align-items:flex-start;margin-bottom:10px;}
 .emp-avatar{width:54px;height:54px;border-radius:50%;background:var(--surface3);border:2px solid var(--border2);flex-shrink:0;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--text3);background-size:cover;background-position:center;}
 .emp-avatar-initials{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--gold);}
@@ -2993,6 +3001,10 @@ td[data-edit-pool]:hover{box-shadow:inset 0 0 0 2px var(--accent);}
 .emp-status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:4px;}
 .emp-status-dot.archived{background:var(--text3);}
 .emp-status-dot.terminated{background:var(--danger);}
+.emp-status-dot.resigned{background:#ffc107;}
+.emp-status-dot.released{background:#ff8a80;}
+.emp-status-dot.onleave{background:#42a5f5;}
+.emp-status-dot.other{background:#aaa;}
 
 .hr-empty{text-align:center;padding:60px 20px;color:var(--text3);}
 .hr-empty-icon{font-size:48px;margin-bottom:10px;opacity:.5;}
@@ -5386,8 +5398,13 @@ td.critical-blink,div.critical-blink,span.critical-blink,
     </select>
     <select id="hrFilterStatus" class="hr-filter" onchange="renderHR()">
       <option value="Active">Active Only</option>
-      <option value="Archived">Archived Only</option>
+      <option value="On Leave">On Leave</option>
+      <option value="inactive">Departed (all inactive)</option>
+      <option value="Resigned">Resigned</option>
+      <option value="Released">Released</option>
       <option value="Terminated">Terminated</option>
+      <option value="Other">Other</option>
+      <option value="Archived">Archived</option>
       <option value="all">Show All</option>
     </select>
     <button class="btn btn-primary" onclick="openEmployeeModal()">➕ Add Employee</button>
@@ -5421,10 +5438,14 @@ td.critical-blink,div.critical-blink,span.critical-blink,
           <div class="emp-field-row">
             <div class="emp-field"><label class="field-label">Employee ID *</label><input type="text" class="users-input" id="empId" placeholder="e.g. EMP1001"></div>
             <div class="emp-field"><label class="field-label">Status</label>
-              <select class="users-input" id="empStatus">
+              <select class="users-input" id="empStatus" onchange="onEmpStatusChange()">
                 <option value="Active">Active</option>
-                <option value="Archived">Archived</option>
+                <option value="On Leave">On Leave</option>
+                <option value="Resigned">Resigned</option>
+                <option value="Released">Released</option>
                 <option value="Terminated">Terminated</option>
+                <option value="Other">Other (inactive)</option>
+                <option value="Archived">Archived</option>
               </select>
             </div>
           </div>
@@ -5475,6 +5496,16 @@ td.critical-blink,div.critical-blink,span.critical-blink,
         </div>
         <div class="emp-field"><label class="field-label">Daily Rate Override (₱)</label><input type="number" step="0.01" class="users-input" id="empRate" placeholder="Leave empty to use level rate" title="Optional: enter a specific daily rate to override the level-based rate"></div>
         <div class="emp-field"><label class="field-label">Date Hired</label><input type="date" class="users-input" id="empDateHired"></div>
+      </div>
+
+      <!-- v2.83 — Inactive status fields (shown when status != Active) -->
+      <div id="empInactiveBlock" style="display:none;background:rgba(255,107,107,0.05);border:1px solid rgba(255,107,107,0.3);border-radius:8px;padding:14px;margin-top:12px;">
+        <div class="emp-section-title" style="margin-top:0;color:#ff8a80;">🚪 Departure Details</div>
+        <div class="emp-grid">
+          <div class="emp-field"><label class="field-label">Last Working Day *</label><input type="date" class="users-input" id="empLastWorkingDay"></div>
+          <div class="emp-field" style="grid-column:span 2"><label class="field-label">Reason / Note</label><input type="text" class="users-input" id="empStatusReason" placeholder="e.g. Found new job in Manila, Personal reasons, etc."></div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:8px;">After saving, you can generate the <b>Final Pay slip</b> (with pro-rated 13th month) from the employee's row in Payroll.</div>
       </div>
 
       <!-- GH Assignment -->
@@ -20714,6 +20745,108 @@ const SEED_EMPLOYEES=[
 ];
 
 const HR_KEY='hydroPro_employees';
+
+// v2.83 — Allowance categories (Office Payroll)
+const ALLOWANCE_CATS_KEY='hydroPro_allowance_cats_v1';
+const DEFAULT_ALLOWANCE_CATS=[
+  {id:'transportation', name:'Transportation', taxable:false},
+  {id:'telecommunication', name:'Telecommunication', taxable:false},
+  {id:'one_time_incentive', name:'1-Time Incentive', taxable:true},
+  {id:'daily_expense', name:'Daily Expense', taxable:false},
+  {id:'house_rental', name:'House Rental', taxable:true},
+  {id:'others', name:'Others', taxable:true}
+];
+function loadAllowanceCats(){
+  try{
+    const raw=localStorage.getItem(ALLOWANCE_CATS_KEY);
+    if(raw){
+      const arr=JSON.parse(raw);
+      if(Array.isArray(arr)&&arr.length>0)return arr;
+    }
+  }catch(e){console.warn('loadAllowanceCats',e);}
+  // Seed defaults
+  localStorage.setItem(ALLOWANCE_CATS_KEY,JSON.stringify(DEFAULT_ALLOWANCE_CATS));
+  return DEFAULT_ALLOWANCE_CATS.slice();
+}
+function saveAllowanceCats(arr){
+  if(!Array.isArray(arr))return;
+  localStorage.setItem(ALLOWANCE_CATS_KEY,JSON.stringify(arr));
+}
+function getAllowanceCatById(id){
+  return loadAllowanceCats().find(c=>c.id===id)||null;
+}
+
+// v2.83 — Employee allowance entries (per employee per period)
+const ALLOWANCE_ENTRIES_KEY='hydroPro_employee_allowances_v1';
+function loadEmployeeAllowances(){
+  try{
+    const raw=localStorage.getItem(ALLOWANCE_ENTRIES_KEY);
+    if(raw)return JSON.parse(raw);
+  }catch(e){console.warn('loadEmployeeAllowances',e);}
+  return {};
+}
+function saveEmployeeAllowances(obj){
+  localStorage.setItem(ALLOWANCE_ENTRIES_KEY,JSON.stringify(obj||{}));
+}
+// Key shape: { "office_2026-05-11_2026-05-25": { "EMP1001": [{id, catId, amount, note, addedAt}] } }
+function getEmpAllowancesForPeriod(periodKey,empId){
+  const all=loadEmployeeAllowances();
+  if(!all[periodKey])return [];
+  return all[periodKey][empId]||[];
+}
+function setEmpAllowancesForPeriod(periodKey,empId,arr){
+  const all=loadEmployeeAllowances();
+  if(!all[periodKey])all[periodKey]={};
+  all[periodKey][empId]=arr||[];
+  saveEmployeeAllowances(all);
+}
+function totalAllowanceFor(periodKey,empId){
+  return getEmpAllowancesForPeriod(periodKey,empId).reduce((s,a)=>s+(parseFloat(a.amount)||0),0);
+}
+function taxableAllowanceFor(periodKey,empId){
+  const cats=loadAllowanceCats();
+  return getEmpAllowancesForPeriod(periodKey,empId).reduce((s,a)=>{
+    const cat=cats.find(c=>c.id===a.catId);
+    return s+((cat&&cat.taxable)?(parseFloat(a.amount)||0):0);
+  },0);
+}
+function nontaxableAllowanceFor(periodKey,empId){
+  const cats=loadAllowanceCats();
+  return getEmpAllowancesForPeriod(periodKey,empId).reduce((s,a)=>{
+    const cat=cats.find(c=>c.id===a.catId);
+    return s+((cat&&!cat.taxable)?(parseFloat(a.amount)||0):0);
+  },0);
+}
+
+// v2.83 — Manually-added payroll lines (for one-off additions outside HR active list)
+const PAYROLL_MANUAL_ADD_KEY='hydroPro_payroll_manual_adds_v1';
+function loadPayrollManualAdds(){
+  try{
+    const raw=localStorage.getItem(PAYROLL_MANUAL_ADD_KEY);
+    if(raw)return JSON.parse(raw);
+  }catch(e){console.warn('loadPayrollManualAdds',e);}
+  return {};
+}
+function savePayrollManualAdds(obj){
+  localStorage.setItem(PAYROLL_MANUAL_ADD_KEY,JSON.stringify(obj||{}));
+}
+function getManualAddsForPeriod(periodKey){
+  const all=loadPayrollManualAdds();
+  return all[periodKey]||[];
+}
+function addManualPayrollEmp(periodKey,empId){
+  const all=loadPayrollManualAdds();
+  if(!all[periodKey])all[periodKey]=[];
+  if(!all[periodKey].includes(empId))all[periodKey].push(empId);
+  savePayrollManualAdds(all);
+}
+function removeManualPayrollEmp(periodKey,empId){
+  const all=loadPayrollManualAdds();
+  if(all[periodKey])all[periodKey]=all[periodKey].filter(id=>id!==empId);
+  savePayrollManualAdds(all);
+}
+
+
 const DEPARTMENTS=[
   {id:'APTI_REGULAR',      name:'APTI - Regular (GH Production)', icon:'🌿'},
   {id:'APTI_ACCOUNTING',   name:'APTI - Accounting',              icon:'📊'},
@@ -20854,7 +20987,12 @@ function renderHR(){
   const fLevelEl=document.getElementById('hrFilterLevel');
   const fLevel=fLevelEl?fLevelEl.value:'';
   let list=employees.slice();
-  if(fStat!=='all')list=list.filter(e=>e.status===fStat);
+  if(fStat==='inactive'){
+    // v2.83 — show all non-active statuses
+    list=list.filter(e=>e.status&&e.status!=='Active');
+  } else if(fStat!=='all'){
+    list=list.filter(e=>e.status===fStat);
+  }
   if(fDept)list=list.filter(e=>e.dept===fDept);
   if(fType)list=list.filter(e=>e.type===fType);
   if(fLevel){
@@ -21053,8 +21191,19 @@ function buildEmpCard(emp){
   const initials=(emp.name||'').split(',')[0].trim().split(' ').map(s=>s.charAt(0)).join('').substring(0,2);
   const photoStyle=emp.photo?`background-image:url('${emp.photo}');`:'';
   const ghStr=emp.ghAssigned&&emp.ghAssigned.length?emp.ghAssigned.join(', '):'';
-  const statusCls=emp.status==='Archived'?'archived':emp.status==='Terminated'?'terminated':'';
-  const dotCls=emp.status==='Archived'?'archived':emp.status==='Terminated'?'terminated':'';
+  const _statusToCls=(s)=>{
+    switch(s){
+      case 'Archived':return 'archived';
+      case 'Terminated':return 'terminated';
+      case 'Resigned':return 'resigned';
+      case 'Released':return 'released';
+      case 'On Leave':return 'onleave';
+      case 'Other':return 'other';
+      default:return '';
+    }
+  };
+  const statusCls=_statusToCls(emp.status);
+  const dotCls=statusCls;
   return `<div class="emp-card ${statusCls}" onclick="viewEmployee('${emp.id}')">
     <div class="emp-card-top">
       <div class="emp-avatar" style="${photoStyle}">${emp.photo?'':'<span class="emp-avatar-initials">'+escapeHtml(initials)+'</span>'}</div>
@@ -21136,6 +21285,10 @@ function openEmployeeModal(empId){
     document.getElementById('empHDMF').value=emp.hdmf||'';
     document.getElementById('empTIN').value=emp.tin||'';
     document.getElementById('empNotes').value=emp.notes||'';
+    // v2.83 — inactive fields
+    document.getElementById('empLastWorkingDay').value=emp.lastWorkingDay||'';
+    document.getElementById('empStatusReason').value=emp.statusReason||'';
+    onEmpStatusChange();
     // Photo
     _editingEmpPhoto=emp.photo||null;
     updateEmpPhotoPreview();
@@ -21149,8 +21302,9 @@ function openEmployeeModal(empId){
     delBtn.style.display='none';
     document.getElementById('empId').value=nextEmployeeId();
     document.getElementById('empId').readOnly=false;
-    ['empName','empNickname','empBirthday','empTitle','empRate','empDateHired','empAddress','empPhone','empEmail','empEmergName','empEmergPhone','empEmergRel','empSSS','empPHIC','empHDMF','empTIN','empNotes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+    ['empName','empNickname','empBirthday','empTitle','empRate','empDateHired','empAddress','empPhone','empEmail','empEmergName','empEmergPhone','empEmergRel','empSSS','empPHIC','empHDMF','empTIN','empNotes','empLastWorkingDay','empStatusReason'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
     document.getElementById('empStatus').value='Active';
+    onEmpStatusChange();
     document.getElementById('empDept').value='PROD_TRAINEES';
     document.getElementById('empRole').value='Worker';
     document.getElementById('empType').value='Trainee';
@@ -21195,6 +21349,15 @@ function nextEmployeeId(){
     if(m){const n=parseInt(m[1],10);if(n>max)max=n;}
   });
   return 'EMP'+(max+1);
+}
+
+// v2.83 — Show/hide the departure-details block based on status
+function onEmpStatusChange(){
+  const st=document.getElementById('empStatus');
+  const block=document.getElementById('empInactiveBlock');
+  if(!st||!block)return;
+  const inactiveStatuses=['Resigned','Released','Terminated','Other','Archived'];
+  block.style.display=inactiveStatuses.includes(st.value)?'block':'none';
 }
 
 function toggleEmpGH(btn,gh){
@@ -21305,6 +21468,8 @@ function saveEmployee(){
     hdmf:document.getElementById('empHDMF').value.trim(),
     tin:document.getElementById('empTIN').value.trim(),
     notes:document.getElementById('empNotes').value.trim(),
+    lastWorkingDay:document.getElementById('empLastWorkingDay')?document.getElementById('empLastWorkingDay').value:'',
+    statusReason:document.getElementById('empStatusReason')?document.getElementById('empStatusReason').value.trim():'',
     updatedAt:Date.now(),
     updatedBy:(getCurrentUser()||{}).username||'unknown'
   };
@@ -21393,6 +21558,9 @@ function viewEmployee(id){
     }
   }
   const editBtn=can('manageHR')?`<button class="btn btn-primary" style="font-size:11px;padding:7px 14px;" onclick="document.getElementById('empViewModal').classList.remove('open');openEmployeeModal('${emp.id}')">✏️ Edit</button>`:'';
+  // v2.83 — Show Final Pay button when employee is departed
+  const inactiveStatuses=['Resigned','Released','Terminated','Other'];
+  const finalPayBtn=(inactiveStatuses.includes(emp.status)&&can('manageHR'))?`<button class="btn btn-outline" style="font-size:11px;padding:7px 14px;color:#ffc107;border-color:#ffc107;" onclick="document.getElementById('empViewModal').classList.remove('open');payOfficeFinalPayDialog('${emp.id}')">📋 Final Pay</button>`:'';
   document.getElementById('empViewBody').innerHTML=`
     <div class="emp-view-header">
       <div class="emp-view-avatar" style="${photoStyle}">${emp.photo?'':'<span class="emp-avatar-initials">'+escapeHtml(initials)+'</span>'}</div>
@@ -21411,6 +21579,7 @@ function viewEmployee(id){
           <span class="emp-chip">${emp.status||'Active'}</span>
         </div>
       </div>
+      ${finalPayBtn}
       ${editBtn}
     </div>
     <div class="emp-view-section">
@@ -21421,6 +21590,17 @@ function viewEmployee(id){
       ${row('Date Hired',emp.dateHired)}
       ${row('Tenure',tenure)}
     </div>
+    ${(()=>{
+      // v2.83 — Departure Details (shown when status is inactive)
+      const inactive=['Resigned','Released','Terminated','Other','Archived'].includes(emp.status);
+      if(!inactive)return '';
+      return `<div class="emp-view-section" style="background:rgba(255,107,107,0.05);border-left:3px solid #ff8a80;padding-left:12px;">
+        <div class="emp-view-section-title" style="color:#ff8a80;">🚪 Departure Details</div>
+        ${row('Status',emp.status)}
+        ${row('Last Working Day',emp.lastWorkingDay)}
+        ${row('Reason / Note',emp.statusReason)}
+      </div>`;
+    })()}
     <div class="emp-view-section">
       <div class="emp-view-section-title">📇 Personal</div>
       ${row('Birthday',emp.birthday)}
@@ -52203,8 +52383,18 @@ function renderPayrollOps(){
 
   const opsEmps=getOpsEmployees();
 
+  // v2.83 — Include manually-added workers (one-off additions outside auto-list)
+  const periodKey=`ops_${period.start}_${period.end}`;
+  const manualIds=getManualAddsForPeriod(periodKey);
+  const manualEmps=manualIds.map(id=>{
+    if(opsEmps.find(e=>e.id===id))return null;
+    const e=employees.find(emp=>emp.id===id);
+    return e||null;
+  }).filter(Boolean);
+  const allOpsEmps=opsEmps.concat(manualEmps);
+
   // Check existing run
-  const runId=`ops_${period.start}_${period.end}`;
+  const runId=periodKey;
   const existing=getPayrollRun(runId);
 
   // Build lines: use existing if present and not overridden, else compute fresh
@@ -52212,7 +52402,7 @@ function renderPayrollOps(){
   if(existing&&existing.status!=='draft'){
     lines=existing.lines||[];
   } else {
-    lines=opsEmps.map(emp=>calcEmployeePayroll(emp,period.start,period.end,'weekly'));
+    lines=allOpsEmps.map(emp=>calcEmployeePayroll(emp,period.start,period.end,'weekly'));
   }
 
   // Totals
@@ -52328,6 +52518,7 @@ function renderPayrollOps(){
       <div class="pay-table-head">
         <div class="pay-table-title">Payroll breakdown (${lines.length} employees)</div>
         <div class="pay-table-actions">
+          ${status==='draft'?`<button class="btn btn-outline" onclick="payOpsAddEmpDialog()" title="Add a worker to this period who isn't auto-included">➕ Add Worker</button>`:''}
           <button class="btn btn-outline" onclick="payOpsExportCSV()">📊 Export Excel</button>
           <button class="btn btn-outline" onclick="payOpsPrint()">🖨 Print</button>
           ${status==='draft'?`<button class="btn btn-primary" onclick="payOpsApprove()">✓ Approve & Lock</button>`:''}
@@ -52388,6 +52579,72 @@ function payOpsRecalc(){
   showToast('✓ Recalculated','ok');
 }
 
+// v2.83 — Add Worker to Ops/Labor Payroll (one-off, from HR roster)
+function payOpsAddEmpDialog(){
+  if(!_payOpsCurrentPeriod){showToast('No period selected','warn');return;}
+  const period=_payOpsCurrentPeriod;
+  const periodKey=`ops_${period.start}_${period.end}`;
+  const run=getPayrollRun(periodKey);
+  if(run&&run.status==='approved'){showToast('Cannot add to approved payroll','warn');return;}
+
+  const opsIds=new Set(getOpsEmployees().map(e=>e.id));
+  const manualIds=new Set(getManualAddsForPeriod(periodKey));
+  const candidates=employees.filter(e=>{
+    if(!e.status||e.status==='Active'){
+      if(opsIds.has(e.id))return false;
+      if(manualIds.has(e.id))return false;
+      return true;
+    }
+    return false;
+  });
+
+  if(candidates.length===0){
+    showToast('All active HR employees are already in this period','ok');
+    return;
+  }
+
+  const opts=candidates.sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(e=>{
+    const dept=deptById(e.dept);
+    const rate=e.rateOverride||e.rate||0;
+    return `<option value="${e.id}">${e.name} — ${dept?dept.name:e.dept} — ₱${rate.toFixed(2)}/day</option>`;
+  }).join('');
+
+  const overlay=document.createElement('div');
+  overlay.id='payAddEmpOverlay';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML=`
+    <div style="background:#0f1a0f;border:2px solid #4caf50;border-radius:12px;padding:24px;min-width:480px;max-width:90vw;color:#e8f5e9;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="font-size:18px;font-weight:800;color:#7fff7f;">➕ Add Worker to ${period.label}</div>
+        <button onclick="document.getElementById('payAddEmpOverlay').remove()" style="background:transparent;color:#aaa;border:1px solid #444;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;">✕</button>
+      </div>
+      <div style="color:#aaa;font-size:12px;margin-bottom:14px;">Choose an active HR worker to include in this week's payroll. Name + ID + Daily Rate + Department will auto-fill from HR.</div>
+      <label style="color:#7fff7f;font-size:12px;font-weight:700;">Worker</label>
+      <select id="payAddEmpSelect" style="width:100%;background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:10px;font-size:14px;margin-top:6px;">
+        <option value="">— pick a worker —</option>
+        ${opts}
+      </select>
+      <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;">
+        <button onclick="document.getElementById('payAddEmpOverlay').remove()" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px 14px;cursor:pointer;">Cancel</button>
+        <button onclick="payOpsAddEmpConfirm()" style="background:#4caf50;color:#000;border:none;border-radius:6px;padding:8px 14px;font-weight:800;cursor:pointer;">✓ Add to Payroll</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+function payOpsAddEmpConfirm(){
+  const sel=document.getElementById('payAddEmpSelect');
+  if(!sel||!sel.value){showToast('Pick a worker','warn');return;}
+  const empId=sel.value;
+  const periodKey=`ops_${_payOpsCurrentPeriod.start}_${_payOpsCurrentPeriod.end}`;
+  addManualPayrollEmp(periodKey,empId);
+  const list=loadPayrollRuns().filter(r=>r.id!==periodKey);
+  savePayrollRuns(list);
+  audit('payroll_add_emp',`Added ${empId} to ${periodKey}`);
+  document.getElementById('payAddEmpOverlay').remove();
+  renderPayrollOps();
+  showToast('✓ Worker added to period','ok');
+}
+
 function payOpsApprove(){
   const runId=`ops_${_payOpsCurrentPeriod.start}_${_payOpsCurrentPeriod.end}`;
   const run=getPayrollRun(runId);
@@ -52444,15 +52701,64 @@ function renderPayrollOffice(){
   const period=_payOfficeCurrentPeriod;
   const officeEmps=getOfficeEmployees();
 
-  const runId=`office_${period.start}_${period.end}`;
+  // v2.83 — Include manually-added employees (one-off additions outside auto-list)
+  const periodKey=`office_${period.start}_${period.end}`;
+  const manualIds=getManualAddsForPeriod(periodKey);
+  const manualEmps=manualIds.map(id=>{
+    if(officeEmps.find(e=>e.id===id))return null;
+    const e=employees.find(emp=>emp.id===id);
+    return e||null;
+  }).filter(Boolean);
+  const allOfficeEmps=officeEmps.concat(manualEmps);
+
+  const runId=periodKey;
   const existing=getPayrollRun(runId);
 
   let lines;
   if(existing&&existing.status!=='draft'){
     lines=existing.lines||[];
   } else {
-    lines=officeEmps.map(emp=>calcEmployeePayroll(emp,period.start,period.end,'semi_monthly'));
+    lines=allOfficeEmps.map(emp=>calcEmployeePayroll(emp,period.start,period.end,'semi_monthly'));
   }
+
+  // v2.82 — Apply manual SSS/PHIC/HDMF overrides (Q2c hybrid, Q6a remembered per-employee)
+  const govOverrides=JSON.parse(localStorage.getItem('hydroPro_office_gov_overrides')||'{}');
+  lines.forEach(l=>{
+    const ov=govOverrides[l.empId];
+    if(ov){
+      if(typeof ov.sss==='number')l.sss=round2(ov.sss);
+      if(typeof ov.phic==='number')l.phic=round2(ov.phic);
+      if(typeof ov.hdmf==='number')l.hdmf=round2(ov.hdmf);
+      l.totalGovDed=round2((l.sss||0)+(l.phic||0)+(l.hdmf||0));
+      // Recompute net pay since gov-ded changed (withholdingTax was already computed earlier — keep it)
+      l.netPay=round2((l.grossPay||0)-(l.totalGovDed||0)-(l.withholdingTax||0));
+    }
+  });
+
+  // v2.83 — Apply allowance entries to each line (sum taxable into gross, non-taxable added to net only)
+  lines.forEach(l=>{
+    const entries=getEmpAllowancesForPeriod(periodKey,l.empId);
+    const taxable=entries.reduce((s,a)=>{
+      const cat=getAllowanceCatById(a.catId);
+      return s+((cat&&cat.taxable)?(parseFloat(a.amount)||0):0);
+    },0);
+    const nontax=entries.reduce((s,a)=>{
+      const cat=getAllowanceCatById(a.catId);
+      return s+((cat&&!cat.taxable)?(parseFloat(a.amount)||0):0);
+    },0);
+    l.allowanceTaxable=round2(taxable);
+    l.allowanceNonTaxable=round2(nontax);
+    l.allowanceTotal=round2(taxable+nontax);
+    l.allowanceEntries=entries;
+    if(l.allowanceTotal>0){
+      // Add taxable allowances to gross (so withholding tax is recalculated on the higher gross)
+      // Non-taxable allowances are added to net pay only (de minimis benefits)
+      l.grossPay=round2((l.grossPay||0)+taxable);
+      l.netPay=round2((l.grossPay||0)-(l.totalGovDed||0)-(l.withholdingTax||0)+nontax);
+    }
+  });
+
+  const status=existing?existing.status:'draft';
 
   const totals=lines.reduce((a,l)=>({
     daysWorked:a.daysWorked+l.daysWorked,
@@ -52461,10 +52767,14 @@ function renderPayrollOffice(){
     memoDed:a.memoDed+l.memoDed,
     referralBonus:a.referralBonus+(l.referralBonus||0),
     grossPay:a.grossPay+l.grossPay,
+    allowanceTotal:a.allowanceTotal+(l.allowanceTotal||0),
+    sss:a.sss+(l.sss||0),
+    phic:a.phic+(l.phic||0),
+    hdmf:a.hdmf+(l.hdmf||0),
     totalGovDed:a.totalGovDed+l.totalGovDed,
     withholdingTax:a.withholdingTax+l.withholdingTax,
     netPay:a.netPay+l.netPay
-  }),{daysWorked:0,basicPay:0,memoAdd:0,memoDed:0,referralBonus:0,grossPay:0,totalGovDed:0,withholdingTax:0,netPay:0});
+  }),{daysWorked:0,basicPay:0,memoAdd:0,memoDed:0,referralBonus:0,grossPay:0,allowanceTotal:0,sss:0,phic:0,hdmf:0,totalGovDed:0,withholdingTax:0,netPay:0});
 
   const byDept={};
   lines.forEach(l=>{
@@ -52477,28 +52787,45 @@ function renderPayrollOffice(){
   Object.keys(byDept).sort().forEach(dept=>{
     const ls=byDept[dept];
     const deptTot=ls.reduce((a,l)=>({basic:a.basic+l.basicPay,net:a.net+l.netPay}),{basic:0,net:0});
-    tableRows+=`<tr class="dept-row"><td colspan="12" style="padding:8px 10px;">▸ ${deptById(dept).name} (${ls.length})</td></tr>`;
+    tableRows+=`<tr class="dept-row"><td colspan="15" style="padding:8px 10px;">▸ ${deptById(dept).name} (${ls.length})</td></tr>`;
     ls.forEach(l=>{
       const empType=(l.employmentType==='Regular'?'REG':((l.employmentType||'').slice(0,3).toUpperCase()));
-      tableRows+=`<tr onclick="openPayrollLine('${runId}','${l.empId}','semi_monthly')">
-        <td style="font-family:var(--sans);">${l.name}</td>
-        <td style="font-size:10px;">${empType}</td>
-        <td class="pay-num">₱${l.dailyRate.toFixed(2)}</td>
-        <td class="pay-num">${l.daysWorked}</td>
-        <td class="pay-num ${l.daysAbsentUnauth>0?'neg':''}">${l.daysAbsentUnauth||''}</td>
-        <td class="pay-num">₱${l.basicPay.toFixed(2)}</td>
-        <td class="pay-num ${l.memoAdd>0?'pos':''}">${l.memoAdd?'+₱'+l.memoAdd.toFixed(2):''}</td>
-        <td class="pay-num ${l.memoDed>0?'neg':''}">${l.memoDed?'-₱'+l.memoDed.toFixed(2):''}</td>
-        <td class="pay-num">₱${l.grossPay.toFixed(2)}</td>
-        <td class="pay-num ${l.totalGovDed>0?'neg':''}">${l.totalGovDed?'-₱'+l.totalGovDed.toFixed(2):''}</td>
-        <td class="pay-num ${l.withholdingTax>0?'neg':''}">${l.withholdingTax?'-₱'+l.withholdingTax.toFixed(2):''}</td>
-        <td class="pay-num pos" style="font-weight:700;">₱${l.netPay.toFixed(2)}</td>
+      const isManualAdded=manualIds.includes(l.empId);
+      const allowBadge=l.allowanceTotal>0
+        ? `<span onclick="event.stopPropagation();payOfficeManageAllowancesDialog('${l.empId}')" title="Click to manage allowances · ₱${l.allowanceTotal.toFixed(2)}" style="cursor:pointer;display:inline-block;margin-left:6px;padding:2px 6px;background:rgba(127,255,127,0.15);border:1px solid #7fff7f;border-radius:10px;font-size:10px;color:#7fff7f;font-weight:700;">💰 ₱${l.allowanceTotal.toFixed(0)}</span>`
+        : `<span onclick="event.stopPropagation();payOfficeManageAllowancesDialog('${l.empId}')" title="Click to add allowances" style="cursor:pointer;display:inline-block;margin-left:6px;padding:2px 6px;background:transparent;border:1px dashed #666;border-radius:10px;font-size:10px;color:#888;">+ Allowance</span>`;
+      const manualBadge=isManualAdded?`<span onclick="event.stopPropagation();_payOfficeRemoveManual('${l.empId}')" title="Manually added — click to remove from this period" style="cursor:pointer;display:inline-block;margin-left:4px;padding:2px 6px;background:rgba(255,193,7,0.15);border:1px solid #ffc107;border-radius:10px;font-size:10px;color:#ffc107;">★ added</span>`:'';
+      tableRows+=`<tr data-emp="${l.empId}">
+        <td style="font-family:var(--sans);"><span onclick="openPayrollLine('${runId}','${l.empId}','semi_monthly')" style="cursor:pointer;">${l.name}</span>${allowBadge}${manualBadge}</td>
+        <td style="font-size:10px;cursor:pointer;" onclick="openPayrollLine('${runId}','${l.empId}','semi_monthly')">${empType}</td>
+        <td class="pay-num" onclick="openPayrollLine('${runId}','${l.empId}','semi_monthly')" style="cursor:pointer;">₱${l.dailyRate.toFixed(2)}</td>
+        <td class="pay-num" onclick="openPayrollLine('${runId}','${l.empId}','semi_monthly')" style="cursor:pointer;">${l.daysWorked}</td>
+        <td class="pay-num ${l.daysAbsentUnauth>0?'neg':''}" onclick="openPayrollLine('${runId}','${l.empId}','semi_monthly')" style="cursor:pointer;">${l.daysAbsentUnauth||''}</td>
+        <td class="pay-num" onclick="openPayrollLine('${runId}','${l.empId}','semi_monthly')" style="cursor:pointer;">₱${l.basicPay.toFixed(2)}</td>
+        <td class="pay-num ${l.memoAdd>0?'pos':''}" onclick="openPayrollLine('${runId}','${l.empId}','semi_monthly')" style="cursor:pointer;">${l.memoAdd?'+₱'+l.memoAdd.toFixed(2):''}</td>
+        <td class="pay-num ${l.memoDed>0?'neg':''}" onclick="openPayrollLine('${runId}','${l.empId}','semi_monthly')" style="cursor:pointer;">${l.memoDed?'-₱'+l.memoDed.toFixed(2):''}</td>
+        <td class="pay-num" onclick="openPayrollLine('${runId}','${l.empId}','semi_monthly')" style="cursor:pointer;" title="Gross${l.allowanceTaxable>0?' (incl. taxable allow. ₱'+l.allowanceTaxable.toFixed(2)+')':''}">₱${l.grossPay.toFixed(2)}</td>
+        <td class="pay-num ${l.sss>0?'neg':''}" contenteditable="${status==='approved'?'false':'true'}" onblur="payOfficeEditGovDed('${runId}','${l.empId}','sss',this.innerText)" title="Click to edit SSS (Employee share)">${l.sss?l.sss.toFixed(2):'0.00'}</td>
+        <td class="pay-num ${l.phic>0?'neg':''}" contenteditable="${status==='approved'?'false':'true'}" onblur="payOfficeEditGovDed('${runId}','${l.empId}','phic',this.innerText)" title="Click to edit PHIC (Employee share)">${l.phic?l.phic.toFixed(2):'0.00'}</td>
+        <td class="pay-num ${l.hdmf>0?'neg':''}" contenteditable="${status==='approved'?'false':'true'}" onblur="payOfficeEditGovDed('${runId}','${l.empId}','hdmf',this.innerText)" title="Click to edit HDMF (Employee share)">${l.hdmf?l.hdmf.toFixed(2):'0.00'}</td>
+        <td class="pay-num ${l.totalGovDed>0?'neg':''}" style="font-weight:700;" title="Auto: SSS + PHIC + HDMF">${l.totalGovDed?'-₱'+l.totalGovDed.toFixed(2):'—'}</td>
+        <td class="pay-num ${l.withholdingTax>0?'neg':''}" onclick="openPayrollLine('${runId}','${l.empId}','semi_monthly')" style="cursor:pointer;">${l.withholdingTax?'-₱'+l.withholdingTax.toFixed(2):''}</td>
+        <td class="pay-num pos" style="font-weight:700;cursor:pointer;" onclick="openPayrollLine('${runId}','${l.empId}','semi_monthly')">₱${l.netPay.toFixed(2)}</td>
       </tr>`;
     });
+    const deptSssTot=ls.reduce((s,l)=>s+(l.sss||0),0);
+    const deptPhicTot=ls.reduce((s,l)=>s+(l.phic||0),0);
+    const deptHdmfTot=ls.reduce((s,l)=>s+(l.hdmf||0),0);
+    const deptGovTot=deptSssTot+deptPhicTot+deptHdmfTot;
     tableRows+=`<tr style="background:var(--surface2);">
       <td colspan="5" style="padding:6px 10px;font-family:var(--sans);font-size:11px;color:var(--text3);text-align:right;font-weight:700;">${deptById(dept).name} subtotal:</td>
       <td class="pay-num" style="font-weight:700;">₱${deptTot.basic.toFixed(2)}</td>
-      <td colspan="5"></td>
+      <td colspan="3"></td>
+      <td class="pay-num" style="font-weight:700;font-size:10px;color:var(--text3);">${deptSssTot?deptSssTot.toFixed(2):'—'}</td>
+      <td class="pay-num" style="font-weight:700;font-size:10px;color:var(--text3);">${deptPhicTot?deptPhicTot.toFixed(2):'—'}</td>
+      <td class="pay-num" style="font-weight:700;font-size:10px;color:var(--text3);">${deptHdmfTot?deptHdmfTot.toFixed(2):'—'}</td>
+      <td class="pay-num" style="font-weight:700;">${deptGovTot?'-₱'+deptGovTot.toFixed(2):'—'}</td>
+      <td></td>
       <td class="pay-num" style="font-weight:700;color:var(--accent2);">₱${deptTot.net.toFixed(2)}</td>
     </tr>`;
   });
@@ -52511,12 +52838,14 @@ function renderPayrollOffice(){
     <td class="pay-num pos">${totals.memoAdd?'+₱'+totals.memoAdd.toFixed(2):'—'}</td>
     <td class="pay-num neg">${totals.memoDed?'-₱'+totals.memoDed.toFixed(2):'—'}</td>
     <td class="pay-num">₱${totals.grossPay.toFixed(2)}</td>
+    <td class="pay-num neg" title="Total SSS (Employee share)">${totals.sss?totals.sss.toFixed(2):'—'}</td>
+    <td class="pay-num neg" title="Total PHIC (Employee share)">${totals.phic?totals.phic.toFixed(2):'—'}</td>
+    <td class="pay-num neg" title="Total HDMF / Pag-IBIG (Employee share)">${totals.hdmf?totals.hdmf.toFixed(2):'—'}</td>
     <td class="pay-num neg">-₱${totals.totalGovDed.toFixed(2)}</td>
     <td class="pay-num neg">${totals.withholdingTax?'-₱'+totals.withholdingTax.toFixed(2):'—'}</td>
     <td class="pay-num" style="font-size:14px;">₱${totals.netPay.toFixed(2)}</td>
   </tr>`;
 
-  const status=existing?existing.status:'draft';
   const statusBadge=`<span class="pay-status-badge pay-status-${status}">${status.toUpperCase()}</span>`;
 
   document.getElementById('payrollOfficeBody').innerHTML=`
@@ -52553,6 +52882,8 @@ function renderPayrollOffice(){
       <div class="pay-table-head">
         <div class="pay-table-title">Payroll breakdown (${lines.length} employees)</div>
         <div class="pay-table-actions">
+          ${status==='draft'?`<button class="btn btn-outline" onclick="payOfficeAddEmpDialog()" title="Add an employee to this period who isn't auto-included">➕ Add Employee</button>`:''}
+          <button class="btn btn-outline" onclick="payOfficeAllowanceCatsDialog()" title="Manage allowance categories">🏷 Allowance Categories</button>
           <button class="btn btn-outline" onclick="payOfficeExportCSV()">📊 Export Excel</button>
           <button class="btn btn-outline" onclick="payOfficePrint()">🖨 Print</button>
           ${status==='draft'?`<button class="btn btn-primary" onclick="payOfficeApprove()">✓ Approve & Lock</button>`:''}
@@ -52571,7 +52902,10 @@ function renderPayrollOffice(){
               <th class="pay-num">Memo+</th>
               <th class="pay-num">Memo−</th>
               <th class="pay-num">Gross</th>
-              <th class="pay-num">SSS+PHIC+HDMF</th>
+              <th class="pay-num" title="SSS (Employee share) — editable">SSS</th>
+              <th class="pay-num" title="PhilHealth (Employee share) — editable">PHIC</th>
+              <th class="pay-num" title="Pag-IBIG / HDMF (Employee share) — editable">HDMF</th>
+              <th class="pay-num" title="Auto sum: SSS + PHIC + HDMF">Gov ∑</th>
               <th class="pay-num">Tax</th>
               <th class="pay-num">NET PAY</th>
             </tr>
@@ -52609,6 +52943,406 @@ function payOfficeRecalc(){
   audit('payroll_recalc',`Recalculated ${runId}`);
   renderPayrollOffice();
   showToast('✓ Recalculated','ok');
+}
+
+// v2.82 — Manual override of SSS/PHIC/HDMF per employee (Q2c hybrid, Q6a remembered)
+function payOfficeEditGovDed(runId,empId,field,raw){
+  if(!['sss','phic','hdmf'].includes(field))return;
+  const run=getPayrollRun(runId);
+  if(run&&run.status==='approved'){showToast('Cannot edit approved payroll','warn');renderPayrollOffice();return;}
+  // Parse raw input — strip currency/commas
+  const clean=String(raw||'').replace(/[₱,\s]/g,'').trim();
+  const val=parseFloat(clean);
+  if(isNaN(val)||val<0){showToast('Invalid amount — must be a positive number','warn');renderPayrollOffice();return;}
+  const overrides=JSON.parse(localStorage.getItem('hydroPro_office_gov_overrides')||'{}');
+  if(!overrides[empId])overrides[empId]={};
+  overrides[empId][field]=Math.round(val*100)/100;
+  overrides[empId].updatedAt=Date.now();
+  localStorage.setItem('hydroPro_office_gov_overrides',JSON.stringify(overrides));
+  audit('payroll_gov_override',`Office: ${empId} ${field.toUpperCase()} → ${val.toFixed(2)}`);
+  // Also clear any saved run with these old values so totals re-compute
+  const list=loadPayrollRuns().filter(r=>r.id!==runId);
+  savePayrollRuns(list);
+  renderPayrollOffice();
+  showToast(`✓ ${field.toUpperCase()} updated for ${empId}`,'ok');
+}
+
+// v2.82 — Reset gov-ded overrides for one employee (called from drill panel)
+function payOfficeResetGovOverride(empId){
+  if(!confirm(`Reset SSS/PHIC/HDMF overrides for ${empId}?\nThe next render will use auto-calculated values from monthly salary.`))return;
+  const overrides=JSON.parse(localStorage.getItem('hydroPro_office_gov_overrides')||'{}');
+  delete overrides[empId];
+  localStorage.setItem('hydroPro_office_gov_overrides',JSON.stringify(overrides));
+  audit('payroll_gov_override_reset',`Office: ${empId} reset to auto`);
+  const runId=`office_${_payOfficeCurrentPeriod.start}_${_payOfficeCurrentPeriod.end}`;
+  const list=loadPayrollRuns().filter(r=>r.id!==runId);
+  savePayrollRuns(list);
+  renderPayrollOffice();
+  showToast('✓ Reset to auto','ok');
+}
+
+// ============================================================
+// v2.83 — Add Employee to Office Payroll (one-off, from HR roster)
+// ============================================================
+function payOfficeAddEmpDialog(){
+  if(!_payOfficeCurrentPeriod){showToast('No period selected','warn');return;}
+  const period=_payOfficeCurrentPeriod;
+  const periodKey=`office_${period.start}_${period.end}`;
+  const run=getPayrollRun(periodKey);
+  if(run&&run.status==='approved'){showToast('Cannot add to approved payroll','warn');return;}
+
+  // Build list of HR active employees NOT already in the period
+  const officeIds=new Set(getOfficeEmployees().map(e=>e.id));
+  const manualIds=new Set(getManualAddsForPeriod(periodKey));
+  const candidates=employees.filter(e=>{
+    if(!e.status||e.status==='Active'){
+      if(officeIds.has(e.id))return false; // already auto-included
+      if(manualIds.has(e.id))return false; // already manually added
+      return true;
+    }
+    return false;
+  });
+
+  if(candidates.length===0){
+    showToast('All active HR employees are already in this period','ok');
+    return;
+  }
+
+  const opts=candidates.sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(e=>{
+    const dept=deptById(e.dept);
+    const rate=e.rateOverride||e.rate||0;
+    return `<option value="${e.id}">${e.name} — ${dept?dept.name:e.dept} — ₱${rate.toFixed(2)}/day</option>`;
+  }).join('');
+
+  const overlay=document.createElement('div');
+  overlay.id='payAddEmpOverlay';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML=`
+    <div style="background:#0f1a0f;border:2px solid #4caf50;border-radius:12px;padding:24px;min-width:480px;max-width:90vw;color:#e8f5e9;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="font-size:18px;font-weight:800;color:#7fff7f;">➕ Add Employee to ${period.label}</div>
+        <button onclick="document.getElementById('payAddEmpOverlay').remove()" style="background:transparent;color:#aaa;border:1px solid #444;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;">✕</button>
+      </div>
+      <div style="color:#aaa;font-size:12px;margin-bottom:14px;">Choose an active HR employee to include in this period. Name + ID + Daily Rate + Department will auto-fill from HR.</div>
+      <label style="color:#7fff7f;font-size:12px;font-weight:700;">Employee</label>
+      <select id="payAddEmpSelect" style="width:100%;background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:10px;font-size:14px;margin-top:6px;">
+        <option value="">— pick an employee —</option>
+        ${opts}
+      </select>
+      <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;">
+        <button onclick="document.getElementById('payAddEmpOverlay').remove()" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px 14px;cursor:pointer;">Cancel</button>
+        <button onclick="payOfficeAddEmpConfirm()" style="background:#4caf50;color:#000;border:none;border-radius:6px;padding:8px 14px;font-weight:800;cursor:pointer;">✓ Add to Payroll</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+function payOfficeAddEmpConfirm(){
+  const sel=document.getElementById('payAddEmpSelect');
+  if(!sel||!sel.value){showToast('Pick an employee','warn');return;}
+  const empId=sel.value;
+  const periodKey=`office_${_payOfficeCurrentPeriod.start}_${_payOfficeCurrentPeriod.end}`;
+  addManualPayrollEmp(periodKey,empId);
+  // Clear cached run so it recomputes
+  const list=loadPayrollRuns().filter(r=>r.id!==periodKey);
+  savePayrollRuns(list);
+  audit('payroll_add_emp',`Added ${empId} to ${periodKey}`);
+  document.getElementById('payAddEmpOverlay').remove();
+  renderPayrollOffice();
+  showToast('✓ Employee added to period','ok');
+}
+function _payOfficeRemoveManual(empId){
+  const periodKey=`office_${_payOfficeCurrentPeriod.start}_${_payOfficeCurrentPeriod.end}`;
+  const run=getPayrollRun(periodKey);
+  if(run&&run.status==='approved'){showToast('Cannot edit approved payroll','warn');return;}
+  if(!confirm('Remove this manually-added employee from the current period?\nAuto-included employees cannot be removed this way.'))return;
+  removeManualPayrollEmp(periodKey,empId);
+  const list=loadPayrollRuns().filter(r=>r.id!==periodKey);
+  savePayrollRuns(list);
+  audit('payroll_remove_manual_emp',`${empId} removed from ${periodKey}`);
+  renderPayrollOffice();
+  showToast('Employee removed','ok');
+}
+
+// ============================================================
+// v2.83 — Allowance Categories CRUD (admin-only)
+// ============================================================
+function payOfficeAllowanceCatsDialog(){
+  const cats=loadAllowanceCats();
+  const isAdmin=(typeof can==='function')?can('manageHR'):true;
+  const rows=cats.map((c,i)=>`
+    <tr data-cat-id="${c.id}">
+      <td style="padding:6px;border:1px solid #333;">${isAdmin?`<input type="text" value="${(c.name||'').replace(/"/g,'&quot;')}" onchange="_payAllowCatEdit('${c.id}','name',this.value)" style="width:100%;background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:4px;padding:6px;">`:c.name}</td>
+      <td style="padding:6px;border:1px solid #333;text-align:center;">
+        ${isAdmin?`<label style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" ${c.taxable?'checked':''} onchange="_payAllowCatEdit('${c.id}','taxable',this.checked)"> ${c.taxable?'Taxable':'Non-taxable'}</label>`:(c.taxable?'Taxable':'Non-taxable')}
+      </td>
+      <td style="padding:6px;border:1px solid #333;text-align:center;">
+        ${isAdmin?`<button onclick="_payAllowCatDelete('${c.id}')" style="background:transparent;color:#ff8a80;border:1px solid #ff8a80;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:11px;">🗑 Delete</button>`:'—'}
+      </td>
+    </tr>`).join('');
+
+  const overlay=document.createElement('div');
+  overlay.id='payAllowCatsOverlay';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML=`
+    <div style="background:#0f1a0f;border:2px solid #4caf50;border-radius:12px;padding:24px;min-width:560px;max-width:90vw;max-height:80vh;overflow:auto;color:#e8f5e9;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="font-size:18px;font-weight:800;color:#7fff7f;">🏷 Allowance Categories</div>
+        <button onclick="document.getElementById('payAllowCatsOverlay').remove()" style="background:transparent;color:#aaa;border:1px solid #444;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;">✕</button>
+      </div>
+      <div style="color:#aaa;font-size:12px;margin-bottom:14px;">Taxable allowances are added to gross pay (W-Tax is recalculated). Non-taxable (de minimis) allowances are added to net pay only.${isAdmin?'':' <b style="color:#ff8a80;">View-only — admin permission required to edit.</b>'}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#1a1a1a;">
+            <th style="padding:8px;border:1px solid #333;text-align:left;">Category Name</th>
+            <th style="padding:8px;border:1px solid #333;">Tax Treatment</th>
+            <th style="padding:8px;border:1px solid #333;">Action</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${isAdmin?`
+      <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input type="text" id="newAllowCatName" placeholder="New category name..." style="flex:1;min-width:180px;background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px;">
+        <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="newAllowCatTaxable"> Taxable</label>
+        <button onclick="_payAllowCatAdd()" style="background:#4caf50;color:#000;border:none;border-radius:6px;padding:8px 14px;font-weight:800;cursor:pointer;">➕ Add Category</button>
+      </div>`:''}
+      <div style="margin-top:14px;text-align:right;">
+        <button onclick="document.getElementById('payAllowCatsOverlay').remove();if(typeof renderPayrollOffice==='function')renderPayrollOffice();" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px 14px;cursor:pointer;">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+function _payAllowCatEdit(id,field,val){
+  if(typeof can==='function'&&!can('manageHR')){showToast('Admin only','warn');return;}
+  const cats=loadAllowanceCats();
+  const c=cats.find(x=>x.id===id);
+  if(!c)return;
+  c[field]=val;
+  saveAllowanceCats(cats);
+  audit('payroll_allow_cat_edit',`${id}.${field}=${val}`);
+}
+function _payAllowCatDelete(id){
+  if(typeof can==='function'&&!can('manageHR')){showToast('Admin only','warn');return;}
+  if(!confirm('Delete this category?\nExisting allowance entries using this category will keep their amount but show as "(deleted category)".'))return;
+  const cats=loadAllowanceCats().filter(c=>c.id!==id);
+  saveAllowanceCats(cats);
+  audit('payroll_allow_cat_delete',id);
+  document.getElementById('payAllowCatsOverlay').remove();
+  payOfficeAllowanceCatsDialog();
+}
+function _payAllowCatAdd(){
+  if(typeof can==='function'&&!can('manageHR')){showToast('Admin only','warn');return;}
+  const name=(document.getElementById('newAllowCatName')||{}).value||'';
+  if(!name.trim()){showToast('Enter a category name','warn');return;}
+  const taxable=(document.getElementById('newAllowCatTaxable')||{}).checked||false;
+  const id=name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')+'_'+Date.now().toString(36);
+  const cats=loadAllowanceCats();
+  cats.push({id,name:name.trim(),taxable:!!taxable});
+  saveAllowanceCats(cats);
+  audit('payroll_allow_cat_add',`${id} (${name})`);
+  document.getElementById('payAllowCatsOverlay').remove();
+  payOfficeAllowanceCatsDialog();
+}
+
+// ============================================================
+// v2.83 — Manage Allowances for ONE employee in current period
+// ============================================================
+function payOfficeManageAllowancesDialog(empId){
+  if(!_payOfficeCurrentPeriod){showToast('No period selected','warn');return;}
+  const period=_payOfficeCurrentPeriod;
+  const periodKey=`office_${period.start}_${period.end}`;
+  const run=getPayrollRun(periodKey);
+  const locked=run&&run.status==='approved';
+  const emp=employees.find(e=>e.id===empId);
+  if(!emp){showToast('Employee not found','warn');return;}
+  const entries=getEmpAllowancesForPeriod(periodKey,empId);
+  const cats=loadAllowanceCats();
+
+  const rows=entries.map((a,i)=>{
+    const cat=cats.find(c=>c.id===a.catId);
+    const catName=cat?cat.name:'(deleted category)';
+    const taxLabel=cat?(cat.taxable?'<span style="color:#ffc107;">Taxable</span>':'<span style="color:#7fff7f;">Non-tax</span>'):'—';
+    return `<tr>
+      <td style="padding:6px;border:1px solid #333;">${catName}</td>
+      <td style="padding:6px;border:1px solid #333;text-align:center;">${taxLabel}</td>
+      <td style="padding:6px;border:1px solid #333;text-align:right;font-family:monospace;">₱${(parseFloat(a.amount)||0).toFixed(2)}</td>
+      <td style="padding:6px;border:1px solid #333;font-size:11px;color:#aaa;">${a.note||''}</td>
+      <td style="padding:6px;border:1px solid #333;text-align:center;">
+        ${locked?'—':`<button onclick="_payAllowEntryDelete('${empId}',${i})" style="background:transparent;color:#ff8a80;border:1px solid #ff8a80;border-radius:4px;padding:4px 8px;cursor:pointer;font-size:11px;">🗑</button>`}
+      </td>
+    </tr>`;
+  }).join('');
+
+  const catOpts=cats.map(c=>`<option value="${c.id}">${c.name} ${c.taxable?'(Taxable)':'(Non-tax)'}</option>`).join('');
+
+  const total=totalAllowanceFor(periodKey,empId);
+  const taxable=taxableAllowanceFor(periodKey,empId);
+  const nontax=nontaxableAllowanceFor(periodKey,empId);
+
+  const overlay=document.createElement('div');
+  overlay.id='payAllowOverlay';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML=`
+    <div style="background:#0f1a0f;border:2px solid #4caf50;border-radius:12px;padding:24px;min-width:640px;max-width:90vw;max-height:85vh;overflow:auto;color:#e8f5e9;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <div style="font-size:18px;font-weight:800;color:#7fff7f;">💰 Allowances — ${emp.name}</div>
+        <button onclick="document.getElementById('payAllowOverlay').remove()" style="background:transparent;color:#aaa;border:1px solid #444;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;">✕</button>
+      </div>
+      <div style="color:#aaa;font-size:12px;margin-bottom:14px;">Period: <b>${period.label}</b>${locked?' · <span style="color:#ff8a80;">LOCKED (approved)</span>':''}</div>
+
+      <div style="display:flex;gap:14px;margin-bottom:14px;">
+        <div style="flex:1;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:10px;">
+          <div style="font-size:11px;color:#aaa;text-transform:uppercase;">Total</div>
+          <div style="font-size:18px;font-weight:800;color:#7fff7f;">₱${total.toFixed(2)}</div>
+        </div>
+        <div style="flex:1;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:10px;">
+          <div style="font-size:11px;color:#ffc107;text-transform:uppercase;">Taxable</div>
+          <div style="font-size:18px;font-weight:800;color:#ffc107;">₱${taxable.toFixed(2)}</div>
+        </div>
+        <div style="flex:1;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:10px;">
+          <div style="font-size:11px;color:#7fff7f;text-transform:uppercase;">Non-taxable</div>
+          <div style="font-size:18px;font-weight:800;color:#7fff7f;">₱${nontax.toFixed(2)}</div>
+        </div>
+      </div>
+
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#1a1a1a;">
+            <th style="padding:8px;border:1px solid #333;text-align:left;">Category</th>
+            <th style="padding:8px;border:1px solid #333;">Tax</th>
+            <th style="padding:8px;border:1px solid #333;text-align:right;">Amount</th>
+            <th style="padding:8px;border:1px solid #333;text-align:left;">Note</th>
+            <th style="padding:8px;border:1px solid #333;">—</th>
+          </tr>
+        </thead>
+        <tbody>${rows||'<tr><td colspan="5" style="padding:14px;text-align:center;color:#666;">No allowances yet</td></tr>'}</tbody>
+      </table>
+
+      ${locked?'':`
+      <div style="margin-top:14px;padding:12px;background:#1a1a1a;border-radius:8px;">
+        <div style="font-size:12px;color:#7fff7f;font-weight:700;margin-bottom:8px;">➕ Add an allowance</div>
+        <div style="display:grid;grid-template-columns:2fr 1fr 2fr auto;gap:8px;">
+          <select id="newAllowCat" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px;">${catOpts}</select>
+          <input type="number" step="0.01" id="newAllowAmount" placeholder="Amount" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px;">
+          <input type="text" id="newAllowNote" placeholder="Note (optional)" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px;">
+          <button onclick="_payAllowEntryAdd('${empId}')" style="background:#4caf50;color:#000;border:none;border-radius:6px;padding:8px 14px;font-weight:800;cursor:pointer;">Add</button>
+        </div>
+        <div style="font-size:11px;color:#aaa;margin-top:6px;">Need a new category? <a href="javascript:void(0)" onclick="document.getElementById('payAllowOverlay').remove();payOfficeAllowanceCatsDialog();" style="color:#7fff7f;">Manage categories →</a></div>
+      </div>`}
+
+      <div style="margin-top:14px;text-align:right;">
+        <button onclick="document.getElementById('payAllowOverlay').remove();renderPayrollOffice();" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px 14px;cursor:pointer;">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+function _payAllowEntryAdd(empId){
+  const periodKey=`office_${_payOfficeCurrentPeriod.start}_${_payOfficeCurrentPeriod.end}`;
+  const run=getPayrollRun(periodKey);
+  if(run&&run.status==='approved'){showToast('Cannot edit approved payroll','warn');return;}
+  const catId=(document.getElementById('newAllowCat')||{}).value||'';
+  const amountRaw=(document.getElementById('newAllowAmount')||{}).value||'';
+  const note=((document.getElementById('newAllowNote')||{}).value||'').trim();
+  const amount=parseFloat(amountRaw);
+  if(!catId){showToast('Pick a category','warn');return;}
+  if(isNaN(amount)||amount<=0){showToast('Enter a positive amount','warn');return;}
+  const entries=getEmpAllowancesForPeriod(periodKey,empId);
+  entries.push({id:'al_'+Date.now().toString(36),catId,amount:Math.round(amount*100)/100,note,addedAt:Date.now()});
+  setEmpAllowancesForPeriod(periodKey,empId,entries);
+  audit('payroll_allow_add',`${empId} ${catId} ₱${amount}`);
+  // Clear cached run so it recomputes
+  const list=loadPayrollRuns().filter(r=>r.id!==periodKey);
+  savePayrollRuns(list);
+  document.getElementById('payAllowOverlay').remove();
+  payOfficeManageAllowancesDialog(empId);
+  showToast('✓ Allowance added','ok');
+}
+function _payAllowEntryDelete(empId,idx){
+  const periodKey=`office_${_payOfficeCurrentPeriod.start}_${_payOfficeCurrentPeriod.end}`;
+  const run=getPayrollRun(periodKey);
+  if(run&&run.status==='approved'){showToast('Cannot edit approved payroll','warn');return;}
+  if(!confirm('Delete this allowance entry?'))return;
+  const entries=getEmpAllowancesForPeriod(periodKey,empId);
+  entries.splice(idx,1);
+  setEmpAllowancesForPeriod(periodKey,empId,entries);
+  audit('payroll_allow_delete',`${empId} idx ${idx}`);
+  const list=loadPayrollRuns().filter(r=>r.id!==periodKey);
+  savePayrollRuns(list);
+  document.getElementById('payAllowOverlay').remove();
+  payOfficeManageAllowancesDialog(empId);
+  showToast('Entry removed','ok');
+}
+
+// ============================================================
+// v2.83 — Final Pay Slip (with pro-rated 13th month, DOLE formula)
+// ============================================================
+function payOfficeFinalPayDialog(empId){
+  const emp=employees.find(e=>e.id===empId);
+  if(!emp){showToast('Employee not found','warn');return;}
+  if(!emp.lastWorkingDay){showToast('Set Last Working Day in HR first','warn');return;}
+
+  const lwd=new Date(emp.lastWorkingDay);
+  const yearStart=new Date(lwd.getFullYear(),0,1);
+
+  // DOLE formula: 13th month = total basic salary earned in the calendar year / 12
+  // Approximate from all approved Office payroll runs in the year
+  const runs=loadPayrollRuns().filter(r=>{
+    if(r.type!=='semi_monthly'||r.status!=='approved')return false;
+    const rs=new Date(r.periodStart);
+    return rs.getFullYear()===lwd.getFullYear()&&rs<=lwd;
+  });
+  let basicYTD=0;
+  runs.forEach(r=>{
+    const line=(r.lines||[]).find(l=>l.empId===empId);
+    if(line)basicYTD+=(line.basicPay||0);
+  });
+
+  // If no approved runs found, estimate from monthly rate and months worked
+  const rate=emp.rateOverride||emp.rate||0;
+  const monthlyEst=rate*22; // approx 22 working days/month for office
+  let monthsWorked=lwd.getMonth()+1; // Jan = 1
+  // Pro-rate the final month
+  const dayInMonth=lwd.getDate();
+  const daysInLastMonth=new Date(lwd.getFullYear(),lwd.getMonth()+1,0).getDate();
+  const lastMonthFrac=dayInMonth/daysInLastMonth;
+  const estimatedBasicYTD=monthlyEst*((monthsWorked-1)+lastMonthFrac);
+
+  const basicYTDUsed=basicYTD>0?basicYTD:estimatedBasicYTD;
+  const thirteenthMonth=basicYTDUsed/12;
+  const source=basicYTD>0?'from approved payroll runs':'estimated (no approved runs found)';
+
+  const reason=emp.statusReason||'(no reason given)';
+  const status=emp.status||'(unknown)';
+
+  const overlay=document.createElement('div');
+  overlay.id='payFinalPayOverlay';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML=`
+    <div style="background:#0f1a0f;border:2px solid #ffc107;border-radius:12px;padding:24px;min-width:540px;max-width:90vw;color:#e8f5e9;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="font-size:18px;font-weight:800;color:#ffc107;">📋 Final Pay Slip — ${emp.name}</div>
+        <button onclick="document.getElementById('payFinalPayOverlay').remove()" style="background:transparent;color:#aaa;border:1px solid #444;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;">✕</button>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <tr><td style="padding:6px;border:1px solid #333;font-weight:700;">Status</td><td style="padding:6px;border:1px solid #333;">${status}</td></tr>
+        <tr><td style="padding:6px;border:1px solid #333;font-weight:700;">Last Working Day</td><td style="padding:6px;border:1px solid #333;">${emp.lastWorkingDay}</td></tr>
+        <tr><td style="padding:6px;border:1px solid #333;font-weight:700;">Reason</td><td style="padding:6px;border:1px solid #333;">${reason}</td></tr>
+        <tr><td style="padding:6px;border:1px solid #333;font-weight:700;">Date Hired</td><td style="padding:6px;border:1px solid #333;">${emp.dateHired||'(unknown)'}</td></tr>
+        <tr><td style="padding:6px;border:1px solid #333;font-weight:700;">Daily Rate</td><td style="padding:6px;border:1px solid #333;font-family:monospace;text-align:right;">₱${rate.toFixed(2)}</td></tr>
+        <tr style="background:#1a1a1a;"><td colspan="2" style="padding:8px;border:1px solid #333;font-weight:700;color:#ffc107;">13TH MONTH PAY (Pro-rated · DOLE formula)</td></tr>
+        <tr><td style="padding:6px;border:1px solid #333;">Total Basic Salary YTD</td><td style="padding:6px;border:1px solid #333;font-family:monospace;text-align:right;">₱${basicYTDUsed.toFixed(2)}<div style="font-size:10px;color:#aaa;">${source}</div></td></tr>
+        <tr><td style="padding:6px;border:1px solid #333;">÷ 12 months</td><td style="padding:6px;border:1px solid #333;font-family:monospace;text-align:right;">${(basicYTDUsed/12).toFixed(2)}</td></tr>
+        <tr style="background:rgba(255,193,7,0.1);"><td style="padding:8px;border:1px solid #333;font-weight:700;">13th Month Pay</td><td style="padding:8px;border:1px solid #333;font-family:monospace;text-align:right;font-weight:700;font-size:16px;color:#ffc107;">₱${thirteenthMonth.toFixed(2)}</td></tr>
+      </table>
+      <div style="font-size:11px;color:#aaa;margin-top:14px;padding:10px;background:rgba(255,193,7,0.05);border-left:3px solid #ffc107;border-radius:4px;">
+        ⚠ This is a 13th-month estimate only. The actual final pay should also include: unused VL/SL conversion, separation pay (if released/retrenched), and any unpaid wages for the current pay period. Generate the regular payroll for the last partial period separately.
+      </div>
+      <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="window.print()" style="background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:6px;padding:8px 14px;cursor:pointer;">🖨 Print</button>
+        <button onclick="document.getElementById('payFinalPayOverlay').remove()" style="background:#4caf50;color:#000;border:none;border-radius:6px;padding:8px 14px;font-weight:800;cursor:pointer;">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
 }
 function payOfficeApprove(){
   const runId=`office_${_payOfficeCurrentPeriod.start}_${_payOfficeCurrentPeriod.end}`;
@@ -97689,7 +98423,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.58 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.83 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -97698,7 +98432,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.81';
+        vEl.textContent = orig + ' · HNX v2.83';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -97713,7 +98447,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.58 Diagnostics:\n\n' +
+        'HNX-EXT v2.83 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
@@ -126771,87 +127505,51 @@ body.hnx-mobile-locked { overflow: hidden; }
     if(!view || view.style.display === 'none' || view.offsetParent === null) return;
     var table = view.querySelector('.pay-table');
     if(!table) return;
-    if(table.getAttribute('data-hnx-v280-done') === '1') return;
+    if(table.getAttribute('data-hnx-v282-done') === '1') return;
 
     var thead = table.querySelector('thead tr');
     if(!thead) return;
-    if(thead.querySelector('th[data-hnx-v280-col="level"]')) return;
+    if(thead.querySelector('th[data-hnx-v282-col="level"]')) return;
 
     var ths = thead.querySelectorAll('th');
-    if(ths.length < 12) return; // Office has 12 columns
+    if(ths.length < 15) return; // v2.82 — table is now natively 15 cols
 
-    // Insert Level column after Type (between index 1 and 2)
+    // v2.82 — Only inject the Level column; SSS/PHIC/HDMF are already native columns now
     var thLvl = document.createElement('th');
     thLvl.textContent = 'Lvl';
     thLvl.className = 'pay-num';
-    thLvl.setAttribute('data-hnx-v280-col','level');
+    thLvl.setAttribute('data-hnx-v282-col','level');
     thead.insertBefore(thLvl, ths[2]);
 
-    // Find Gov Ded header (Office has separate "Withholding Tax" col already)
-    var ths2 = thead.querySelectorAll('th');
-    var govDedTh = null;
-    for(var i=0;i<ths2.length;i++){
-      // Match exactly "Gov Ded" — not Withholding Tax
-      var txt = ths2[i].textContent.trim().toLowerCase();
-      if(txt === 'gov ded' || txt === 'govt deductions' || txt === 'gov deductions'){ govDedTh = ths2[i]; break; }
-    }
-    if(govDedTh){
-      // Replace with SSS / PHIC / HDMF (TIN already exists as Withholding Tax column)
-      var cols = ['SSS','PHIC','HDMF'];
-      cols.forEach(function(c){
-        var nth = document.createElement('th');
-        nth.textContent = c;
-        nth.className = 'pay-num';
-        nth.setAttribute('data-hnx-v280-col','govded');
-        thead.insertBefore(nth, govDedTh);
-      });
-      govDedTh.remove();
-    }
-
-    // Get current run
-    var run = null;
-    try {
-      if(typeof window.getPayrollRun==='function' && window._payOfficeCurrentPeriod){
-        var rId = 'office_'+window._payOfficeCurrentPeriod.start+'_'+window._payOfficeCurrentPeriod.end;
-        run = window.getPayrollRun(rId);
-      }
-    } catch(e){}
-
     var tbody = table.querySelector('tbody');
-    if(!tbody){ table.setAttribute('data-hnx-v280-done','1'); return; }
+    if(!tbody){ table.setAttribute('data-hnx-v282-done','1'); return; }
     var rows = tbody.querySelectorAll('tr');
     rows.forEach(function(tr){
       if(tr.classList.contains('dept-row')){
         var td = tr.querySelector('td[colspan]');
-        if(td){ td.setAttribute('colspan', '15'); }
+        if(td){ td.setAttribute('colspan', '16'); } // 15 + new Level col
         return;
       }
       if(tr.classList.contains('total-row')){
         var first = tr.querySelector('td[colspan]');
-        if(first){ first.setAttribute('colspan','4'); }
+        if(first){ first.setAttribute('colspan','4'); } // was 3, +1 for Level
         return;
       }
-      // Subtotal row in office has colspan="5"
+      // Subtotal row in office uses colspan="5" for the label section — keep "5" (Name+Type+Daily+Days+Abs)
+      // but we just inserted Level after Type, so label section becomes 6 cols
       var sub5 = tr.querySelector('td[colspan="5"]');
       if(sub5){
-        sub5.setAttribute('colspan','6');
-        // also the colspan="5" after subtotal needs +2
-        var allColspan = tr.querySelectorAll('td[colspan="5"]');
-        if(allColspan.length > 1){
-          allColspan[1].setAttribute('colspan','7');
-        }
+        sub5.setAttribute('colspan','6'); // +1 for Level col
         return;
       }
 
       var tds = tr.querySelectorAll('td');
-      if(tds.length !== 12) return;
+      if(tds.length !== 15) return; // v2.82 — body rows are now 15 cols
 
-      var onclickAttr = tr.getAttribute('onclick')||'';
-      var idMatch = onclickAttr.match(/openPayrollLine\([^,]+,\s*['"]([^'"]+)['"]/);
-      var empId = idMatch ? idMatch[1] : null;
-      var level = empId ? getEmpLevel(empId) : 1;
+      var empId = tr.getAttribute('data-emp') || '';
+      var level = empId && typeof getEmpLevel === 'function' ? getEmpLevel(empId) : 1;
 
-      // Improve Type cell
+      // Improve Type cell text
       var typeCell = tds[1];
       if(typeCell){
         var t = typeCell.textContent.trim();
@@ -126871,37 +127569,9 @@ body.hnx-mobile-locked { overflow: hidden; }
       lvlTd.style.cssText = 'font-weight:700;color:#90caf9;';
       lvlTd.textContent = 'L'+level;
       tr.insertBefore(lvlTd, tds[2]);
-
-      // Now find line + replace Gov Ded
-      var line = null;
-      if(run && Array.isArray(run.lines) && empId){
-        line = run.lines.find(function(l){ return l.empId === empId; });
-      }
-      // After Level insert: 0 Name, 1 Type, 2 Lvl, 3 Daily, 4 Days, 5 AbsU, 6 Basic, 7 Memo+, 8 Memo-, 9 Gross, 10 GovDed, 11 WithholdTax, 12 NetPay
-      var newTds = tr.querySelectorAll('td');
-      var govDedCell = newTds[10];
-      if(govDedCell){
-        var sss = line ? (line.sss||0) : 0;
-        var phic = line ? (line.phic||0) : 0;
-        var hdmf = line ? (line.hdmf||0) : 0;
-        function fmt(v){ return v>0 ? '<span style="color:#ff8a80;">-₱'+(parseFloat(v)).toFixed(2)+'</span>' : '<span style="color:#666;">—</span>'; }
-        var sssCell = document.createElement('td');
-        sssCell.className = 'pay-num';
-        sssCell.innerHTML = fmt(sss);
-        var phicCell = document.createElement('td');
-        phicCell.className = 'pay-num';
-        phicCell.innerHTML = fmt(phic);
-        var hdmfCell = document.createElement('td');
-        hdmfCell.className = 'pay-num';
-        hdmfCell.innerHTML = fmt(hdmf);
-        govDedCell.parentNode.insertBefore(sssCell, govDedCell);
-        govDedCell.parentNode.insertBefore(phicCell, govDedCell);
-        govDedCell.parentNode.insertBefore(hdmfCell, govDedCell);
-        govDedCell.remove();
-      }
     });
 
-    table.setAttribute('data-hnx-v280-done','1');
+    table.setAttribute('data-hnx-v282-done','1');
   }
 
   function injectOfficeTopControls(){
@@ -126976,7 +127646,7 @@ body.hnx-mobile-locked { overflow: hidden; }
         var v = document.getElementById('view-payroll_office');
         if(v){
           var t = v.querySelector('.pay-table');
-          if(t) t.removeAttribute('data-hnx-v280-done');
+          if(t) t.removeAttribute('data-hnx-v282-done');
           var hd = v.querySelector('.pay-table-head .pay-table-actions');
           if(hd){
             hd.querySelectorAll('[data-hnx-v280-ofc-ctrl]').forEach(function(b){ b.remove(); });
@@ -126989,9 +127659,9 @@ body.hnx-mobile-locked { overflow: hidden; }
     };
   }
 
-  console.log('[HNX] Payroll v2.80 — rate-fallback + Level col + split gov-ded + period picker + Thu-Wed weeks + Office 11-25/26-10 — ready');
+  console.log('[HNX] Payroll v2.82 — native SSS/PHIC/HDMF split + editable overrides + Office 11-25/26-10 — ready');
 })();
 </script>
-<!-- ===================== END HNX v2.80 ===================== -->
+<!-- ===================== END HNX v2.83 ===================== -->
 </body>
 </html>
