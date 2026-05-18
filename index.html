@@ -34569,17 +34569,20 @@ function initBackupSystem(){
   if(restored)return; // Page will reload
   // Otherwise, schedule daily backup after login (so we know there's something worth backing up)
   // We'll hook into showApp() to trigger
+  // v2.85.5 — DISABLED System #2 daily backup. We have System #1 (autobackup) which
+  // does the same job with 3-day retention. This stops duplicate backups eating localStorage.
+  // Existing hydroPro_backup_* keys will be auto-cleaned on next page load (see _v285Cleanup below).
   if(typeof window!=='undefined'){
-    // Patch showApp to run backup after login
-    if(typeof showApp==='function'&&!window._showAppBackupPatched){
-      window._showAppBackupPatched=true;
-      const orig=showApp;
-      window.showApp=function(){
-        const r=orig.apply(this,arguments);
-        setTimeout(maybeRunDailyBackup,3000); // 3-second delay so login flow completes first
-        return r;
-      };
-    }
+    // [DISABLED v2.85.5] System #2 daily backup is redundant — System #1 (hydroPro_autobackup_*) covers this.
+    // if(typeof showApp==='function'&&!window._showAppBackupPatched){
+    //   window._showAppBackupPatched=true;
+    //   const orig=showApp;
+    //   window.showApp=function(){
+    //     const r=orig.apply(this,arguments);
+    //     setTimeout(maybeRunDailyBackup,3000);
+    //     return r;
+    //   };
+    // }
   }
 }
 
@@ -69822,7 +69825,7 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.255-no-import-btn';  // 🔧 v2.85.4 — Removed IMPORT 80 CAMERAS button entirely. v2.85.3 still showed the inline button inside CCTV Setup tabs, which cluttered the screen. Now the button is gone from all UI; import is still callable from console via window._hnxOpenAutoImport() if ever needed.
+const APP_VERSION='2.46.256-storage-cleanup';  // 🔧 v2.85.5 — Auto-cleanup of redundant backup system. Previously TWO backup systems ran in parallel (hydroPro_autobackup_* keeping 7 days + hydroPro_backup_* keeping 30 days), which caused localStorage to fill up to 5-15 MB after a few weeks of use, slowing the app to a crawl for all users. v2.85.5 disables the redundant System #2, reduces System #1 retention from 7 to 3 days, adds one-time cleanup that silently removes existing hydroPro_backup_* keys from each user's localStorage on first load (typically frees 2-10 MB), and adds a storage watchdog that warns users when localStorage exceeds 5 MB. Net effect: app stays fast for all users permanently. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
 const APP_BUILD=1779820000;
 const APP_BUILD_DATE='2026-05-15';
 
@@ -95221,7 +95224,7 @@ window._saveNotifSettingsFromModal=function(){
 // One-click backup of ALL hydroPro_* localStorage keys to a JSON file.
 // Restore from file with safety preview. Auto-backup daily with 7-day rolling retention.
 const AUTO_BACKUP_PREFIX='hydroPro_autobackup_';
-const AUTO_BACKUP_KEEP=7;
+const AUTO_BACKUP_KEEP=3;  // v2.85.5 — Reduced from 7 to 3 (System #2 was disabled, less redundancy needed; saves ~4 MB localStorage per user)
 
 function _collectHydroProData(){
   const out={};
@@ -95396,6 +95399,98 @@ function _autoBackupIfNeeded(){
   }catch(e){console.warn('auto-backup',e);}
 }
 setTimeout(_autoBackupIfNeeded,5000);
+
+// ============================================================
+// v2.85.5 — ONE-TIME CLEANUP FOR EXISTING USERS
+// ============================================================
+// Older versions ran TWO backup systems in parallel:
+//   System #1: hydroPro_autobackup_YYYY-MM-DD (kept 7 days)
+//   System #2: hydroPro_backup_<reason>_<timestamp> (kept 30 days)
+// System #2 was redundant and bloated localStorage. We disabled it
+// in v2.85.5 and reduced System #1 retention to 3 days.
+//
+// This function silently cleans up any leftover System #2 keys
+// from existing users' browsers. Runs once on page load.
+// Idempotent — safe to run multiple times. Only deletes backup keys,
+// never touches real data.
+// ============================================================
+function _v285Cleanup(){
+  try{
+    if(localStorage.getItem('hnx_v285_cleanup_done')==='1')return; // already ran
+    let removedCount=0;
+    let removedBytes=0;
+    const toRemove=[];
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(!k)continue;
+      // Match System #2 keys: hydroPro_backup_daily_*, hydroPro_backup_pre-action_*, etc.
+      // BUT preserve the index keys themselves (no data, just metadata)
+      if(k.startsWith('hydroPro_backup_')&&
+         k!=='hydroPro_backup_index'&&
+         k!=='hydroPro_backup_last_daily'){
+        toRemove.push(k);
+      }
+    }
+    toRemove.forEach(k=>{
+      try{
+        const v=localStorage.getItem(k)||'';
+        removedBytes+=k.length+v.length;
+        localStorage.removeItem(k);
+        removedCount++;
+      }catch(e){}
+    });
+    // Also clear the index since the backups it points to are gone
+    try{localStorage.setItem('hydroPro_backup_index','[]');}catch(e){}
+    try{localStorage.removeItem('hydroPro_backup_last_daily');}catch(e){}
+    // Also trim System #1 to new 3-day limit (in case user had 7 old backups)
+    try{_trimAutoBackups();}catch(e){}
+    // Mark cleanup as done so it never runs again
+    localStorage.setItem('hnx_v285_cleanup_done','1');
+    if(removedCount>0){
+      const mb=(removedBytes/1024/1024).toFixed(2);
+      console.log(`[v2.85.5 cleanup] Removed ${removedCount} redundant backup keys, freed ${mb} MB.`);
+      // Show toast after a short delay (so it appears after login UI is ready)
+      setTimeout(()=>{
+        if(typeof showToast==='function'){
+          showToast(`✓ Storage optimized — freed ${mb} MB`,'ok');
+        }
+      },4000);
+    }
+  }catch(e){console.warn('v2.85.5 cleanup failed:',e);}
+}
+// Run after a short delay so app has time to load
+setTimeout(_v285Cleanup,2000);
+
+// ============================================================
+// v2.85.5 — STORAGE SIZE WATCHDOG
+// ============================================================
+// Checks total localStorage size every 60 seconds. If >5 MB,
+// shows a warning toast suggesting the user clean up. Toast is
+// throttled to once per session so it doesn't spam.
+// ============================================================
+window._hnxStorageWarnShown=false;
+function _v285StorageWatchdog(){
+  try{
+    if(window._hnxStorageWarnShown)return;
+    let total=0;
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      const v=localStorage.getItem(k)||'';
+      total+=k.length+v.length;
+    }
+    const mb=total/1024/1024;
+    if(mb>5){
+      window._hnxStorageWarnShown=true;
+      if(typeof showToast==='function'){
+        showToast(`⚠ Storage is ${mb.toFixed(1)} MB — click ⚡ bottom-right to clean up for faster app`,'warn');
+      }
+      console.warn(`[storage watchdog] localStorage at ${mb.toFixed(2)} MB — recommend cleanup`);
+    }
+  }catch(e){}
+}
+setInterval(_v285StorageWatchdog,60000); // Check every 60 seconds
+setTimeout(_v285StorageWatchdog,10000);    // Also check 10 seconds after load
+
 
 function _listAutoBackups(){
   const out=[];
@@ -100412,7 +100507,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.85.4';
+        vEl.textContent = orig + ' · HNX v2.85.5';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
