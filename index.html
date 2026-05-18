@@ -19792,6 +19792,7 @@ const MODULES={
       {id:'attendance',label:'⏰ Attendance',perm:'manageHR'},
       {id:'reconcile',label:'🔄 Reconcile',perm:'manageHR',title:'Fingerprint import & reconciliation'},
       {id:'memos',label:'📋 Memos',perm:'manageHR'},
+      {id:'issue_tracker',label:'🐞 Issue Tracker',perm:null,title:'Cross-module issue tracker — log any issue with priority, owner, status. Filter by category, status, GH/dept.'},
       {id:'company_policies',label:'📁 Company Policies & Processes',perm:null,title:'Company-wide policies, SOPs, and processes organized by department. Imported from Google Drive folder structure.'}
     ]
   },
@@ -19803,6 +19804,7 @@ const MODULES={
     views:[
       {id:'payroll_ops',    label:'👷 Labor Payroll (Weekly)',      perm:'managePayroll', title:'Greenhouse & field workers · weekly cycle'},
       {id:'payroll_office', label:'🏢 Office Payroll (Bi-monthly)', perm:'managePayroll', title:'Admin, management & office staff · bi-monthly cycle'},
+      {id:'timecard_upload',label:'📥 Timecard Upload',            perm:'managePayroll', title:'Import biometric/timesheet CSV files'},
       {id:'payroll_history',label:'📊 History',                     perm:'managePayroll', title:'Past payroll runs · audit trail'},
       {id:'payroll_rates',  label:'🏛️ Rates & Tax',                  perm:'managePayroll', title:'Pay rates, tax brackets, deductions setup'}
     ]
@@ -69820,7 +69822,7 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.253-task-matrix-fix';  // ✨ STAGE CARDS — strong motion pass. User noted the motion needed to be more visible. (1) KEN BURNS ZOOM — each poster now has a slow background-size+position drift (16s alternating, 106%→114% scale, slight position pan), so the image itself feels alive even when other animations are subtle. (2) BIGGER AURA — opacity .7→.85, inset -20%→-25%, breathing scale .96-1.04→.92-1.08, gradient inner stop opacity bumped (.45→.7 green, .55→.85 gold, .45→.7 cyan). Now visibly pulsing rather than just shimmering. (3) FASTER SHINE — 5.5s→4s base, 3.5s→2.4s active. Brighter highlight band (.35→.5 opacity, .15→.18 sides; gold .2→.28, .45→.6). Added mid-keyframe so motion feels smoother. (4) MORE PARTICLES — 4-5 → 6-8 per card. Particle size 6px→8px, glow shadows 8/14px→12/22px (much brighter halo). Pulse animation amplitude .4→.3 to 1.2→1.4 (deeper breathing). (5) RING — 1.5px→1.8px, glow inset 16px→22px, color amplitude .4↔.85 (more dramatic), animation 2.4s→2s. (6) NEW: animated rim glow on every card via ::before pseudo-element with hue-rotate filter sweeping every 2.6s active / 4s done / 5s future — gives each card an outer breathing color halo independent of the inner aura. (7) TITLE PULSE — active card title now pulses opacity .85↔1 with text-shadow expanding 10px→18px every 1.6s. (8) Total motion sources per card: Ken Burns zoom + aura breath + shine sweep + ring breath (active) + 6-8 particles + outer rim sweep + title pulse (active) = 7 layered animations. Now clearly visible.
+const APP_VERSION='2.46.254-hr201-scope-fix';  // 🔧 v2.85.1 — Bug fix for "Open Full 201 File" button. The variable _hr201SelectedId was declared with `let` (block-scoped), so inline onclick="_hr201SelectedId=..." in the employee modal couldn't actually assign to it — the assignment was silently lost, and switchView('hr_201') always opened the empty list. Fixed by promoting to window._hr201SelectedId and adding a clean helper window._openFull201ForEmployee(empId) that the modal button now uses. All other internal references (renderHr201, back button, summary list row click, Open 201 button, matrix drill, asset table click) updated to use the window-scoped variable. Now clicking "📁 Open Full 201 File →" from the employee edit modal goes DIRECTLY to that employee's 201 detail page with all the drop-down sections, instead of landing on the unfiltered employee list. (Bug discovered May 18, 2026 in screenshots.)
 const APP_BUILD=1779820000;
 const APP_BUILD_DATE='2026-05-15';
 
@@ -85100,11 +85102,24 @@ function _hr201Detail(emp){
 
   ${_hr201ReviewsSection(emp)}
 
+  ${_hr201JDSection(emp)}
+
+  ${_hr201WaiversSection(emp)}
+
+  ${_hr201ContractSection(emp)}
+
+  ${_hr201TrashSection(emp)}
+
+  ${_hr201DepartureSection(emp)}
+
+  ${_hr201AdminConfigSection(emp)}
+
   <details class="hr201-section" open>
     <summary>🖨 Summary & Export <span class="hr201-badge">print · email · backup</span></summary>
     <div class="hr201-section-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
       <button class="btn btn-primary" onclick="_hr201PrintSummary('${emp.id}')">🖨 Print Full 201 Summary</button>
       <button class="btn btn-outline" onclick="_hr201EmailSummary('${emp.id}')">📧 Email Summary</button>
+      <button class="btn btn-outline" onclick="_hr201EmailSendMake('${emp.id}')">📨 Send via Make.com</button>
       <button class="btn btn-outline" onclick="_hr201ExportJSON('${emp.id}')">💾 Export JSON</button>
       <div style="font-size:11px;color:var(--text3);margin-left:auto;">Print includes profile, doc checklist, assets, incidents, reviews, memos.</div>
     </div>
@@ -85238,8 +85253,10 @@ window._hrAssetMarkReturned=function(empId,assetId){
 };
 
 window._hrAssetRemove=function(empId,assetId){
-  if(!confirm('Remove this asset record?'))return;
+  if(!confirm('Move this asset record to trash (recoverable for 30 days)?'))return;
   const all=_hrLoad(HR_ASSETS_KEY);
+  const item=(all[empId]||[]).find(x=>x.id===assetId);
+  if(item&&typeof _hr201TrashAdd==='function')_hr201TrashAdd(empId,'asset',item);
   all[empId]=(all[empId]||[]).filter(x=>x.id!==assetId);
   _hrSave(HR_ASSETS_KEY,all);
   renderHr201();
@@ -85282,8 +85299,10 @@ function _hr201MemosSection(emp){
   </details>`;
 }
 window._hr201MemoRemove=function(empId,memoId){
-  if(!confirm('Remove this memo from the 201 archive? (The original memo in the Memos module is not affected.)'))return;
+  if(!confirm('Move this memo to trash (recoverable for 30 days)?\n(The original memo in the Memos module is not affected.)'))return;
   const all=_hrLoad(HR_201_MEMOS_KEY);
+  const item=(all[empId]||[]).find(m=>m.id===memoId);
+  if(item&&typeof _hr201TrashAdd==='function')_hr201TrashAdd(empId,'memo',item);
   all[empId]=(all[empId]||[]).filter(m=>m.id!==memoId);
   _hrSave(HR_201_MEMOS_KEY,all);
   renderHr201();
@@ -85386,8 +85405,10 @@ window._hr201IncidentView=function(empId,incId){
   w.document.close();
 };
 window._hr201IncidentRemove=function(empId,incId){
-  if(!confirm('Remove this incident report?'))return;
+  if(!confirm('Move this incident report to trash (recoverable for 30 days)?'))return;
   const all=_hrLoad(HR_201_INCIDENTS_KEY);
+  const item=(all[empId]||[]).find(x=>x.id===incId);
+  if(item&&typeof _hr201TrashAdd==='function')_hr201TrashAdd(empId,'incident',item);
   all[empId]=(all[empId]||[]).filter(x=>x.id!==incId);
   _hrSave(HR_201_INCIDENTS_KEY,all);
   renderHr201();
@@ -85479,8 +85500,10 @@ window._hr201ReviewView=function(empId,rvId){
   w.document.close();
 };
 window._hr201ReviewRemove=function(empId,rvId){
-  if(!confirm('Remove this performance review?'))return;
+  if(!confirm('Move this review to trash (recoverable for 30 days)?'))return;
   const all=_hrLoad(HR_201_REVIEWS_KEY);
+  const item=(all[empId]||[]).find(x=>x.id===rvId);
+  if(item&&typeof _hr201TrashAdd==='function')_hr201TrashAdd(empId,'review',item);
   all[empId]=(all[empId]||[]).filter(x=>x.id!==rvId);
   _hrSave(HR_201_REVIEWS_KEY,all);
   renderHr201();
@@ -85643,7 +85666,1223 @@ window._hr201ExportJSON=function(empId){
   if(typeof showToast==='function')showToast('Exported 201 JSON','ok');
 };
 // ==============================================================
-// End v2.85 — Extended 201 File
+// ==============================================================
+// v2.85 — Features 1-6: JD / Waivers / Contract / Trash / Departure / Admin / Make.com
+// ==============================================================
+const HR_201_JD_KEY='hydroPro_hr_201_jd_v1';
+const HR_201_WAIVERS_KEY='hydroPro_hr_201_waivers_v1';
+const HR_201_CONTRACT_KEY='hydroPro_hr_201_contract_v1';
+const HR_201_TRASH_KEY='hydroPro_hr_201_trash_v1';
+const HR_201_REQDOCS_CONFIG_KEY='hydroPro_hr_201_reqdocs_config_v1';
+const HR_201_DEPARTURE_KEY='hydroPro_hr_201_departure_v1';
+const MAKE_WEBHOOK_201_KEY='hydroPro_make_webhook_201';
+
+// --- FEATURE 1: Job Description ---
+function _hr201JDSection(emp){
+  let jd={};
+  try{jd=(_hrLoad(HR_201_JD_KEY)[emp.id])||{};}catch(e){jd={};}
+  const isLocked=_hr201IsLocked(emp);
+  return `<details class="hr201-section">
+    <summary>📋 Job Description <span class="hr201-badge ${jd.signed?'ok':jd.title?'warn':''}">${jd.signed?'signed':jd.title?'draft':'not set'}</span></summary>
+    <div class="hr201-section-body">
+      ${isLocked?'<div style="background:rgba(239,83,80,0.08);border-left:3px solid var(--danger);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--danger);">🔒 201 file is LOCKED (employee departed). Read-only.</div>':''}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+        <div><label class="field-label">Job Title</label>
+          <input id="hrJDTitle_${emp.id}" class="input" value="${(jd.title||'').replace(/"/g,'&quot;')}" placeholder="e.g. Senior Hydroponic Technician" ${isLocked?'disabled':''}>
+        </div>
+        <div><label class="field-label">Reports To</label>
+          <input id="hrJDReports_${emp.id}" class="input" value="${(jd.reportsTo||'').replace(/"/g,'&quot;')}" placeholder="e.g. Production Supervisor" ${isLocked?'disabled':''}>
+        </div>
+        <div style="grid-column:span 2;"><label class="field-label">Job Summary</label>
+          <textarea id="hrJDSummary_${emp.id}" class="input" style="min-height:60px;font-family:inherit;" placeholder="Brief description of the role's purpose" ${isLocked?'disabled':''}>${(jd.summary||'').replace(/</g,'&lt;')}</textarea>
+        </div>
+        <div style="grid-column:span 2;"><label class="field-label">Key Responsibilities (one per line)</label>
+          <textarea id="hrJDResp_${emp.id}" class="input" style="min-height:90px;font-family:inherit;" placeholder="• Monitor crop health daily&#10;• Operate fertigation systems&#10;• Maintain greenhouse cleanliness" ${isLocked?'disabled':''}>${(jd.responsibilities||'').replace(/</g,'&lt;')}</textarea>
+        </div>
+        <div><label class="field-label">Issue Date</label>
+          <input id="hrJDDate_${emp.id}" type="date" class="input" value="${jd.issueDate||''}" ${isLocked?'disabled':''}>
+        </div>
+        <div><label class="field-label">Acknowledgment Status</label>
+          <select id="hrJDSigned_${emp.id}" class="input" ${isLocked?'disabled':''}>
+            <option value="">Not yet signed</option>
+            <option value="signed" ${jd.signed==='signed'?'selected':''}>Signed by employee</option>
+            <option value="pending" ${jd.signed==='pending'?'selected':''}>Pending signature</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        ${isLocked?'':`<button class="btn btn-primary" onclick="_hr201JDSave('${emp.id}')">💾 Save JD</button>`}
+        ${isLocked?'':`<label class="btn btn-outline" style="cursor:pointer;">📎 Attach Signed Scan<input type="file" accept="image/*,.pdf" style="display:none;" onchange="_hr201JDUploadScan('${emp.id}',this)"></label>`}
+        ${jd.scan?`<button class="btn btn-outline" onclick="_hr201JDViewScan('${emp.id}')">👁 View Signed Scan</button>`:''}
+        ${jd.scan&&!isLocked?`<button class="btn btn-outline" style="color:var(--danger);" onclick="_hr201JDRemoveScan('${emp.id}')">🗑 Remove Scan</button>`:''}
+        <button class="btn btn-outline" onclick="_hr201JDPrint('${emp.id}')">🖨 Print JD</button>
+        <div style="margin-left:auto;font-size:11px;color:var(--text3);">${jd.updatedAt?'Updated '+new Date(jd.updatedAt).toLocaleDateString()+' by '+(jd.updatedBy||'—'):'No JD set yet'}</div>
+      </div>
+    </div>
+  </details>`;
+}
+window._hr201JDSave=function(empId){
+  const all=_hrLoad(HR_201_JD_KEY);
+  const existing=all[empId]||{};
+  const jd={
+    title:(document.getElementById('hrJDTitle_'+empId).value||'').trim(),
+    reportsTo:(document.getElementById('hrJDReports_'+empId).value||'').trim(),
+    summary:(document.getElementById('hrJDSummary_'+empId).value||'').trim(),
+    responsibilities:(document.getElementById('hrJDResp_'+empId).value||'').trim(),
+    issueDate:document.getElementById('hrJDDate_'+empId).value||'',
+    signed:document.getElementById('hrJDSigned_'+empId).value||'',
+    scan:existing.scan||null,
+    updatedAt:Date.now(),
+    updatedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user'
+  };
+  all[empId]=jd;
+  try{_hrSave(HR_201_JD_KEY,all);}catch(e){alert('Storage full.');return;}
+  if(typeof showToast==='function')showToast('Job Description saved','ok');
+  renderHr201();
+};
+window._hr201JDUploadScan=function(empId,input){
+  const f=input.files&&input.files[0];if(!f)return;
+  if(f.size>2*1024*1024){alert('File too large (max 2 MB).');input.value='';return;}
+  const r=new FileReader();
+  r.onload=function(e){
+    const all=_hrLoad(HR_201_JD_KEY);
+    all[empId]=all[empId]||{};
+    all[empId].scan={dataUrl:e.target.result,name:f.name,type:f.type};
+    all[empId].updatedAt=Date.now();
+    try{_hrSave(HR_201_JD_KEY,all);renderHr201();}catch(err){alert('Storage full.');}
+  };
+  r.readAsDataURL(f);
+};
+window._hr201JDViewScan=function(empId){
+  const jd=(_hrLoad(HR_201_JD_KEY)[empId])||{};
+  if(!jd.scan){alert('No scan attached.');return;}
+  const w=window.open('','_blank');
+  if(!w){alert('Pop-up blocked.');return;}
+  const isPdf=(jd.scan.type||'').indexOf('pdf')>=0;
+  w.document.write(`<!doctype html><html><head><title>JD — ${jd.title||empId}</title></head>
+    <body style="margin:0;background:#222;display:flex;align-items:center;justify-content:center;height:100vh;">
+    ${isPdf?`<iframe src="${jd.scan.dataUrl}" style="width:95%;height:95%;border:0;"></iframe>`:`<img src="${jd.scan.dataUrl}" style="max-width:95%;max-height:95%;">`}
+    </body></html>`);
+  w.document.close();
+};
+window._hr201JDRemoveScan=function(empId){
+  if(!confirm('Remove the signed JD scan?'))return;
+  const all=_hrLoad(HR_201_JD_KEY);
+  if(all[empId]){all[empId].scan=null;all[empId].updatedAt=Date.now();}
+  _hrSave(HR_201_JD_KEY,all);
+  renderHr201();
+};
+window._hr201JDPrint=function(empId){
+  const emps=(typeof _hrLoadEmployees==='function')?_hrLoadEmployees():[];
+  const emp=emps.find(e=>e.id===empId);
+  if(!emp){alert('Employee not found.');return;}
+  const jd=(_hrLoad(HR_201_JD_KEY)[empId])||{};
+  if(!jd.title){alert('JD not yet set. Save the JD first.');return;}
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const respHtml=(jd.responsibilities||'').split('\n').filter(l=>l.trim()).map(l=>`<li>${esc(l.replace(/^[•\-\*]\s*/,''))}</li>`).join('');
+  const html=`<!doctype html><html><head><meta charset="utf-8"><title>JD — ${esc(emp.name)}</title>
+    <style>body{font-family:Arial,sans-serif;padding:30px;max-width:760px;margin:auto;color:#222;}h1{border-bottom:2px solid #2a5;padding-bottom:8px;}h2{font-size:13px;color:#2a5;text-transform:uppercase;letter-spacing:1px;margin-top:20px;border-bottom:1px solid #ccc;padding-bottom:3px;}.lbl{font-weight:700;display:inline-block;width:130px;color:#666;font-size:11px;text-transform:uppercase;}@media print{.no-print{display:none}}</style></head><body>
+    <button class="no-print" onclick="window.print()" style="float:right;padding:8px 14px;background:#2a5;color:white;border:0;border-radius:4px;cursor:pointer;">🖨 Print</button>
+    <h1>📋 Job Description</h1>
+    <div><span class="lbl">Employee:</span> ${esc(emp.name||emp.id)}</div>
+    <div><span class="lbl">Employee ID:</span> ${esc(emp.id)}</div>
+    <div><span class="lbl">Department:</span> ${esc(emp.dept||'—')}</div>
+    <div><span class="lbl">Job Title:</span> <strong>${esc(jd.title)}</strong></div>
+    <div><span class="lbl">Reports To:</span> ${esc(jd.reportsTo||'—')}</div>
+    <div><span class="lbl">Issue Date:</span> ${esc(jd.issueDate||'—')}</div>
+    <h2>Summary</h2><p>${esc(jd.summary||'—')}</p>
+    <h2>Key Responsibilities</h2>${respHtml?`<ul>${respHtml}</ul>`:'<p>—</p>'}
+    <div style="margin-top:60px;display:flex;justify-content:space-between;">
+      <div><div style="border-top:1px solid #000;padding-top:4px;width:240px;font-size:11px;">Employee Signature / Date</div></div>
+      <div><div style="border-top:1px solid #000;padding-top:4px;width:240px;font-size:11px;">HR Representative / Date</div></div>
+    </div>
+    <div style="margin-top:40px;font-size:9px;color:#999;text-align:center;border-top:1px solid #ddd;padding-top:8px;">
+      ABA Pardes Agritech Corp · CONFIDENTIAL · Generated ${new Date().toLocaleString()}
+    </div>
+  </body></html>`;
+  const w=window.open('','_blank');
+  if(!w){alert('Pop-up blocked.');return;}
+  w.document.write(html);w.document.close();
+};
+
+// --- FEATURE 2: Waivers ---
+function _hr201WaiversSection(emp){
+  let waivers=[];
+  try{waivers=(_hrLoad(HR_201_WAIVERS_KEY)[emp.id])||[];}catch(e){waivers=[];}
+  waivers=waivers.slice().sort((a,b)=>(b.signedDate||'').localeCompare(a.signedDate||''));
+  const isLocked=_hr201IsLocked(emp);
+  const rows=waivers.map(w=>`<tr>
+    <td style="font-size:12px;font-weight:600;">${(w.name||'').replace(/[<>]/g,'')}</td>
+    <td style="font-family:var(--mono);font-size:11px;">${w.signedDate||'—'}</td>
+    <td style="font-size:11px;">${w.expiryDate||'—'}</td>
+    <td><span style="font-size:11px;font-weight:700;color:${w.signed?'var(--ok)':'var(--warn)'};">${w.signed?'✓ SIGNED':'⏳ PENDING'}</span></td>
+    <td style="font-size:11px;color:var(--text3);">${(w.notes||'').replace(/[<>]/g,'').slice(0,60)}</td>
+    <td style="text-align:right;white-space:nowrap;">
+      ${w.scan?`<button class="btn btn-outline" style="font-size:10px;padding:3px 7px;" onclick="_hr201WaiverView('${emp.id}','${w.id}')">👁</button>`:''}
+      ${isLocked?'':`<button class="btn btn-outline" style="font-size:10px;padding:3px 7px;color:var(--danger);" onclick="_hr201WaiverRemove('${emp.id}','${w.id}')">🗑</button>`}
+    </td>
+  </tr>`).join('');
+  const signedCount=waivers.filter(w=>w.signed).length;
+  return `<details class="hr201-section">
+    <summary>📑 Signed Waivers <span class="hr201-badge ${signedCount===waivers.length&&waivers.length?'ok':waivers.length?'warn':''}">${signedCount}/${waivers.length} signed</span></summary>
+    <div class="hr201-section-body">
+      ${isLocked?'<div style="background:rgba(239,83,80,0.08);border-left:3px solid var(--danger);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--danger);">🔒 LOCKED (employee departed).</div>':`
+      <div style="display:grid;grid-template-columns:2fr 130px 130px 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:10px;">
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Waiver Type</div>
+          <select id="hrwName_${emp.id}" class="input">
+            <option value="">-- pick --</option>
+            <option>TrueVerifier Waiver</option>
+            <option>Polygraph / Lie-Detector Waiver</option>
+            <option>Non-Disclosure Agreement (NDA)</option>
+            <option>Confidentiality Agreement</option>
+            <option>Liability Waiver</option>
+            <option>Drug Test Consent</option>
+            <option>Background Check Consent</option>
+            <option>Photo / Media Release</option>
+            <option>Health Declaration</option>
+            <option>Custom (specify in notes)</option>
+          </select>
+        </div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Signed Date</div><input id="hrwDate_${emp.id}" type="date" class="input" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Expires (opt)</div><input id="hrwExp_${emp.id}" type="date" class="input"></div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Status</div><select id="hrwSigned_${emp.id}" class="input"><option value="1" selected>Signed</option><option value="0">Pending</option></select></div>
+        <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Notes</div><input id="hrwNotes_${emp.id}" class="input" placeholder="Witness, custom name, version"></div>
+        <div style="display:flex;gap:6px;flex-direction:column;">
+          <label class="btn btn-outline" style="font-size:11px;padding:5px 10px;cursor:pointer;text-align:center;">📎 Scan<input type="file" accept="image/*,.pdf" style="display:none;" onchange="_hr201WaiverSetScan('${emp.id}',this)"></label>
+          <button class="btn btn-primary" style="font-size:11px;padding:5px 10px;" onclick="_hr201WaiverAdd('${emp.id}')">➕ Add</button>
+        </div>
+      </div>`}
+      ${waivers.length?`<table class="fleet-table" style="width:100%;font-size:12px;">
+        <thead><tr><th>Waiver</th><th>Signed</th><th>Expires</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`:'<div style="text-align:center;color:var(--text3);font-size:12px;padding:10px;">No waivers recorded for this employee.</div>'}
+    </div>
+  </details>`;
+}
+let _hr201WaiverScanBuffer={};
+window._hr201WaiverSetScan=function(empId,input){
+  const f=input.files&&input.files[0];if(!f)return;
+  if(f.size>2*1024*1024){alert('File too large (max 2 MB).');input.value='';return;}
+  const r=new FileReader();
+  r.onload=function(e){_hr201WaiverScanBuffer[empId]={dataUrl:e.target.result,name:f.name,type:f.type};};
+  r.readAsDataURL(f);
+};
+window._hr201WaiverAdd=function(empId){
+  const name=(document.getElementById('hrwName_'+empId).value||'').trim();
+  if(!name){alert('Pick a waiver type.');return;}
+  const signedDate=document.getElementById('hrwDate_'+empId).value;
+  const expiryDate=document.getElementById('hrwExp_'+empId).value;
+  const signed=document.getElementById('hrwSigned_'+empId).value==='1';
+  const notes=(document.getElementById('hrwNotes_'+empId).value||'').trim();
+  const scanData=_hr201WaiverScanBuffer[empId];
+  const all=_hrLoad(HR_201_WAIVERS_KEY);
+  all[empId]=all[empId]||[];
+  all[empId].push({
+    id:'w_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),
+    name,signedDate,expiryDate,signed,notes,
+    scan:scanData||null,
+    addedAt:Date.now(),
+    addedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user'
+  });
+  try{_hrSave(HR_201_WAIVERS_KEY,all);}catch(e){alert('Storage full.');return;}
+  delete _hr201WaiverScanBuffer[empId];
+  if(typeof showToast==='function')showToast('Waiver added','ok');
+  renderHr201();
+};
+window._hr201WaiverView=function(empId,wId){
+  const all=_hrLoad(HR_201_WAIVERS_KEY);
+  const w=(all[empId]||[]).find(x=>x.id===wId);
+  if(!w||!w.scan){alert('No scan attached.');return;}
+  const win=window.open('','_blank');
+  if(!win){alert('Pop-up blocked.');return;}
+  const isPdf=(w.scan.type||'').indexOf('pdf')>=0;
+  win.document.write(`<!doctype html><html><head><title>Waiver — ${w.name}</title></head>
+    <body style="margin:0;background:#222;display:flex;align-items:center;justify-content:center;height:100vh;">
+    ${isPdf?`<iframe src="${w.scan.dataUrl}" style="width:95%;height:95%;border:0;"></iframe>`:`<img src="${w.scan.dataUrl}" style="max-width:95%;max-height:95%;">`}
+    </body></html>`);
+  win.document.close();
+};
+window._hr201WaiverRemove=function(empId,wId){
+  if(!confirm('Move this waiver to trash (recoverable for 30 days)?'))return;
+  const all=_hrLoad(HR_201_WAIVERS_KEY);
+  const item=(all[empId]||[]).find(x=>x.id===wId);
+  if(item){_hr201TrashAdd(empId,'waiver',item);}
+  all[empId]=(all[empId]||[]).filter(x=>x.id!==wId);
+  _hrSave(HR_201_WAIVERS_KEY,all);
+  renderHr201();
+};
+
+// --- FEATURE 3: Employment Contract ---
+function _hr201ContractSection(emp){
+  let c={};
+  try{c=(_hrLoad(HR_201_CONTRACT_KEY)[emp.id])||{};}catch(e){c={};}
+  const isLocked=_hr201IsLocked(emp);
+  return `<details class="hr201-section">
+    <summary>📜 Employment Contract <span class="hr201-badge ${c.scan?'ok':c.contractType?'warn':''}">${c.scan?'on file':c.contractType?'draft':'not set'}</span></summary>
+    <div class="hr201-section-body">
+      ${isLocked?'<div style="background:rgba(239,83,80,0.08);border-left:3px solid var(--danger);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--danger);">🔒 LOCKED (employee departed).</div>':''}
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
+        <div><label class="field-label">Contract Type</label>
+          <select id="hrCType_${emp.id}" class="input" ${isLocked?'disabled':''}>
+            <option value="">— pick —</option>
+            <option value="Regular" ${c.contractType==='Regular'?'selected':''}>Regular / Permanent</option>
+            <option value="Probationary" ${c.contractType==='Probationary'?'selected':''}>Probationary</option>
+            <option value="Trainee" ${c.contractType==='Trainee'?'selected':''}>Trainee</option>
+            <option value="Temporary" ${c.contractType==='Temporary'?'selected':''}>Temporary / Fixed-term</option>
+            <option value="Contractual" ${c.contractType==='Contractual'?'selected':''}>Contractual / Service</option>
+            <option value="Casual" ${c.contractType==='Casual'?'selected':''}>Casual / Project</option>
+          </select>
+        </div>
+        <div><label class="field-label">Contract Start</label>
+          <input id="hrCStart_${emp.id}" type="date" class="input" value="${c.startDate||''}" ${isLocked?'disabled':''}>
+        </div>
+        <div><label class="field-label">Contract End (if fixed)</label>
+          <input id="hrCEnd_${emp.id}" type="date" class="input" value="${c.endDate||''}" ${isLocked?'disabled':''}>
+        </div>
+        <div><label class="field-label">Probation End</label>
+          <input id="hrCProb_${emp.id}" type="date" class="input" value="${c.probationEnd||''}" ${isLocked?'disabled':''}>
+        </div>
+        <div><label class="field-label">Version / Amendment</label>
+          <input id="hrCVer_${emp.id}" class="input" value="${(c.version||'1.0').replace(/"/g,'&quot;')}" placeholder="e.g. 1.0, 2.0 (after raise)" ${isLocked?'disabled':''}>
+        </div>
+        <div><label class="field-label">Status</label>
+          <select id="hrCStatus_${emp.id}" class="input" ${isLocked?'disabled':''}>
+            <option value="active" ${c.status==='active'?'selected':''}>Active</option>
+            <option value="pending" ${c.status==='pending'?'selected':''}>Pending signature</option>
+            <option value="amended" ${c.status==='amended'?'selected':''}>Amended (superseded)</option>
+            <option value="expired" ${c.status==='expired'?'selected':''}>Expired</option>
+          </select>
+        </div>
+        <div style="grid-column:span 3;"><label class="field-label">Notes / Key Terms</label>
+          <textarea id="hrCNotes_${emp.id}" class="input" style="min-height:60px;font-family:inherit;" placeholder="Salary, allowances, special terms, witness names" ${isLocked?'disabled':''}>${(c.notes||'').replace(/</g,'&lt;')}</textarea>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        ${isLocked?'':`<button class="btn btn-primary" onclick="_hr201ContractSave('${emp.id}')">💾 Save Contract Info</button>`}
+        ${isLocked?'':`<label class="btn btn-outline" style="cursor:pointer;">📎 Attach Signed Contract<input type="file" accept="image/*,.pdf" style="display:none;" onchange="_hr201ContractUploadScan('${emp.id}',this)"></label>`}
+        ${c.scan?`<button class="btn btn-outline" onclick="_hr201ContractViewScan('${emp.id}')">👁 View Signed Contract</button>`:''}
+        ${c.scan&&!isLocked?`<button class="btn btn-outline" style="color:var(--danger);" onclick="_hr201ContractRemoveScan('${emp.id}')">🗑 Remove Scan</button>`:''}
+        <div style="margin-left:auto;font-size:11px;color:var(--text3);">${c.updatedAt?'Updated '+new Date(c.updatedAt).toLocaleDateString()+' by '+(c.updatedBy||'—'):'No contract data yet'}</div>
+      </div>
+    </div>
+  </details>`;
+}
+window._hr201ContractSave=function(empId){
+  const all=_hrLoad(HR_201_CONTRACT_KEY);
+  const existing=all[empId]||{};
+  all[empId]={
+    contractType:document.getElementById('hrCType_'+empId).value,
+    startDate:document.getElementById('hrCStart_'+empId).value,
+    endDate:document.getElementById('hrCEnd_'+empId).value,
+    probationEnd:document.getElementById('hrCProb_'+empId).value,
+    version:document.getElementById('hrCVer_'+empId).value,
+    status:document.getElementById('hrCStatus_'+empId).value,
+    notes:document.getElementById('hrCNotes_'+empId).value,
+    scan:existing.scan||null,
+    updatedAt:Date.now(),
+    updatedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user'
+  };
+  try{_hrSave(HR_201_CONTRACT_KEY,all);}catch(e){alert('Storage full.');return;}
+  if(typeof showToast==='function')showToast('Contract info saved','ok');
+  renderHr201();
+};
+window._hr201ContractUploadScan=function(empId,input){
+  const f=input.files&&input.files[0];if(!f)return;
+  if(f.size>2*1024*1024){alert('File too large (max 2 MB).');input.value='';return;}
+  const r=new FileReader();
+  r.onload=function(e){
+    const all=_hrLoad(HR_201_CONTRACT_KEY);
+    all[empId]=all[empId]||{};
+    all[empId].scan={dataUrl:e.target.result,name:f.name,type:f.type};
+    all[empId].updatedAt=Date.now();
+    try{_hrSave(HR_201_CONTRACT_KEY,all);renderHr201();}catch(err){alert('Storage full.');}
+  };
+  r.readAsDataURL(f);
+};
+window._hr201ContractViewScan=function(empId){
+  const c=(_hrLoad(HR_201_CONTRACT_KEY)[empId])||{};
+  if(!c.scan){alert('No scan attached.');return;}
+  const w=window.open('','_blank');
+  if(!w){alert('Pop-up blocked.');return;}
+  const isPdf=(c.scan.type||'').indexOf('pdf')>=0;
+  w.document.write(`<!doctype html><html><head><title>Contract — ${empId}</title></head>
+    <body style="margin:0;background:#222;display:flex;align-items:center;justify-content:center;height:100vh;">
+    ${isPdf?`<iframe src="${c.scan.dataUrl}" style="width:95%;height:95%;border:0;"></iframe>`:`<img src="${c.scan.dataUrl}" style="max-width:95%;max-height:95%;">`}
+    </body></html>`);
+  w.document.close();
+};
+window._hr201ContractRemoveScan=function(empId){
+  if(!confirm('Remove the signed contract scan?'))return;
+  const all=_hrLoad(HR_201_CONTRACT_KEY);
+  if(all[empId]){all[empId].scan=null;all[empId].updatedAt=Date.now();}
+  _hrSave(HR_201_CONTRACT_KEY,all);
+  renderHr201();
+};
+
+// --- FEATURE 4: Soft-delete trash (30-day) ---
+function _hr201TrashAdd(empId,kind,item){
+  const all=_hrLoad(HR_201_TRASH_KEY);
+  all[empId]=all[empId]||[];
+  all[empId].push({
+    id:'tr_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),
+    kind,item,
+    deletedAt:Date.now(),
+    deletedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user'
+  });
+  // Auto-purge items older than 30 days
+  const cutoff=Date.now()-30*24*3600*1000;
+  all[empId]=all[empId].filter(t=>t.deletedAt>=cutoff);
+  try{_hrSave(HR_201_TRASH_KEY,all);}catch(e){}
+}
+function _hr201TrashSection(emp){
+  let trash=[];
+  try{trash=(_hrLoad(HR_201_TRASH_KEY)[emp.id])||[];}catch(e){trash=[];}
+  const cutoff=Date.now()-30*24*3600*1000;
+  trash=trash.filter(t=>t.deletedAt>=cutoff).sort((a,b)=>b.deletedAt-a.deletedAt);
+  if(trash.length===0){
+    return `<details class="hr201-section">
+      <summary>🗑 Trash (30-day) <span class="hr201-badge">empty</span></summary>
+      <div class="hr201-section-body"><div style="text-align:center;color:var(--text3);font-size:12px;padding:14px;">Trash is empty. Deleted items appear here for 30 days, then are auto-purged.</div></div>
+    </details>`;
+  }
+  const rows=trash.map(t=>{
+    const daysLeft=Math.max(0,Math.ceil((cutoff+30*24*3600*1000-t.deletedAt-Date.now()+30*24*3600*1000)/(24*3600*1000))-30+30);
+    const realDaysLeft=Math.max(0,30-Math.floor((Date.now()-t.deletedAt)/(24*3600*1000)));
+    const label=t.item?(t.item.name||t.item.title||t.item.description||t.item.reason||'(item)'):'(item)';
+    return `<tr>
+      <td><span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--accent2);">${t.kind}</span></td>
+      <td style="font-size:12px;">${String(label).replace(/[<>]/g,'').slice(0,80)}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${new Date(t.deletedAt).toLocaleDateString()}</td>
+      <td style="font-family:var(--mono);font-size:11px;color:${realDaysLeft<7?'var(--danger)':'var(--text3)'};">${realDaysLeft}d left</td>
+      <td style="font-size:11px;color:var(--text3);">${t.deletedBy||'—'}</td>
+      <td style="text-align:right;">
+        <button class="btn btn-outline" style="font-size:10px;padding:3px 7px;color:var(--ok);" onclick="_hr201TrashRestore('${emp.id}','${t.id}')">↶ Restore</button>
+        <button class="btn btn-outline" style="font-size:10px;padding:3px 7px;color:var(--danger);" onclick="_hr201TrashPurge('${emp.id}','${t.id}')">🗑 Purge</button>
+      </td>
+    </tr>`;
+  }).join('');
+  return `<details class="hr201-section">
+    <summary>🗑 Trash (30-day) <span class="hr201-badge warn">${trash.length} item${trash.length!==1?'s':''}</span></summary>
+    <div class="hr201-section-body">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Deleted items kept for 30 days, then auto-purged. Restore or permanently purge below.</div>
+      <table class="fleet-table" style="width:100%;font-size:12px;">
+        <thead><tr><th>Type</th><th>Item</th><th>Deleted</th><th>Expires</th><th>By</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </details>`;
+}
+window._hr201TrashRestore=function(empId,trashId){
+  const all=_hrLoad(HR_201_TRASH_KEY);
+  const arr=all[empId]||[];
+  const entry=arr.find(t=>t.id===trashId);
+  if(!entry){alert('Item not found.');return;}
+  // Restore by kind
+  const k=entry.kind, item=entry.item;
+  if(k==='waiver'){
+    const w=_hrLoad(HR_201_WAIVERS_KEY);w[empId]=w[empId]||[];w[empId].push(item);_hrSave(HR_201_WAIVERS_KEY,w);
+  } else if(k==='incident'){
+    const inc=_hrLoad(HR_201_INCIDENTS_KEY);inc[empId]=inc[empId]||[];inc[empId].push(item);_hrSave(HR_201_INCIDENTS_KEY,inc);
+  } else if(k==='review'){
+    const rv=_hrLoad(HR_201_REVIEWS_KEY);rv[empId]=rv[empId]||[];rv[empId].push(item);_hrSave(HR_201_REVIEWS_KEY,rv);
+  } else if(k==='memo'){
+    const m=_hrLoad(HR_201_MEMOS_KEY);m[empId]=m[empId]||[];m[empId].push(item);_hrSave(HR_201_MEMOS_KEY,m);
+  } else if(k==='asset'){
+    const a=_hrLoad(HR_ASSETS_KEY);a[empId]=a[empId]||[];a[empId].push(item);_hrSave(HR_ASSETS_KEY,a);
+  }
+  // Remove from trash
+  all[empId]=arr.filter(t=>t.id!==trashId);
+  _hrSave(HR_201_TRASH_KEY,all);
+  if(typeof showToast==='function')showToast('Restored from trash','ok');
+  renderHr201();
+};
+window._hr201TrashPurge=function(empId,trashId){
+  if(!confirm('Permanently delete this item? This cannot be undone.'))return;
+  const all=_hrLoad(HR_201_TRASH_KEY);
+  all[empId]=(all[empId]||[]).filter(t=>t.id!==trashId);
+  _hrSave(HR_201_TRASH_KEY,all);
+  renderHr201();
+};
+
+// --- FEATURE 5: Lock 201 on departure + asset return prompt ---
+function _hr201IsLocked(emp){
+  if(!emp)return false;
+  const lockedStatuses=['Resigned','Released','Terminated','Archived'];
+  return lockedStatuses.includes(emp.status);
+}
+function _hr201DepartureSection(emp){
+  if(emp.status==='Active'||emp.status==='On Leave')return '';
+  // Show departure summary + asset return checklist
+  const assets=(_hrLoad(HR_ASSETS_KEY)[emp.id])||[];
+  const outstanding=assets.filter(a=>!a.returned);
+  return `<details class="hr201-section" open>
+    <summary>🔒 Departure & Final Clearance <span class="hr201-badge crit">${emp.status||'—'}${outstanding.length?' · '+outstanding.length+' asset'+(outstanding.length>1?'s':'')+' outstanding':''}</span></summary>
+    <div class="hr201-section-body">
+      <div style="background:rgba(239,83,80,0.08);border-left:3px solid var(--danger);padding:10px 14px;margin-bottom:12px;border-radius:6px;">
+        <div style="font-size:13px;font-weight:700;color:var(--danger);margin-bottom:4px;">🔒 This 201 file is LOCKED</div>
+        <div style="font-size:12px;color:var(--text2);line-height:1.6;">Status: <b>${emp.status}</b> · Last Day: <b>${emp.lastWorkingDay||'—'}</b> · Reason: <i>${(emp.statusReason||'—').replace(/[<>]/g,'')}</i></div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px;">To re-enable edits: change status back to Active in the employee record.</div>
+      </div>
+      ${outstanding.length?`
+      <div style="background:rgba(255,193,7,0.08);border-left:3px solid var(--warn);padding:10px 14px;margin-bottom:10px;border-radius:6px;">
+        <div style="font-size:13px;font-weight:700;color:var(--warn);margin-bottom:8px;">⚠ Asset Return Checklist (${outstanding.length} outstanding)</div>
+        ${outstanding.map(a=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px dashed var(--border);font-size:12px;">
+          <span>📦 <b>${(a.name||'').replace(/[<>]/g,'')}</b> · issued ${a.issuedDate||'—'} ${a.notes?'· <i style="color:var(--text3);">'+(a.notes||'').replace(/[<>]/g,'').slice(0,40)+'</i>':''}</span>
+          <button class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--ok);" onclick="_hrAssetMarkReturned('${emp.id}','${a.id}')">✓ Mark Returned</button>
+        </div>`).join('')}
+      </div>`:`<div style="background:rgba(76,175,80,0.08);border-left:3px solid var(--ok);padding:10px 14px;margin-bottom:10px;border-radius:6px;font-size:12px;color:var(--ok);"><b>✓ All assets returned.</b> Final clearance complete.</div>`}
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-primary" onclick="_hr201PrintSummary('${emp.id}')">🖨 Print Final 201</button>
+        <button class="btn btn-outline" onclick="_hr201ExportJSON('${emp.id}')">💾 Archive JSON</button>
+      </div>
+    </div>
+  </details>`;
+}
+
+// --- FEATURE 6: Admin config — required docs ---
+function _hr201AdminConfigSection(emp){
+  const user=(typeof getCurrentUser==='function')?(getCurrentUser()||{}):{};
+  const isAdmin=user.role==='admin';
+  if(!isAdmin)return '';
+  const config=_hrLoad(HR_201_REQDOCS_CONFIG_KEY);
+  return `<details class="hr201-section">
+    <summary>⚙️ Admin — Required Docs Config <span class="hr201-badge">admin only</span></summary>
+    <div class="hr201-section-body">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Customize which documents are required per employee type. Empty config = use built-in defaults.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        ${['Regular','Trainee','Temporary','Contractual'].map(t=>{
+          const customDocs=(config[t]||[]);
+          return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;">
+            <div style="font-weight:700;margin-bottom:8px;font-family:var(--mono);font-size:12px;">${t}</div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">${customDocs.length?customDocs.length+' custom requirements added':'Using built-in defaults ('+((HR_DOC_TEMPLATES[t]||[]).length)+' docs)'}</div>
+            <div style="max-height:140px;overflow-y:auto;font-size:11px;">
+              ${customDocs.map((d,i)=>`<div style="padding:4px 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px dashed var(--border);">
+                <span>${d.critical?'★ ':''}${(d.name||'').replace(/[<>]/g,'')}</span>
+                <button class="btn btn-outline" style="font-size:10px;padding:2px 6px;color:var(--danger);" onclick="_hr201AdminReqDocRemove('${t}',${i})">🗑</button>
+              </div>`).join('')}
+            </div>
+            <div style="display:flex;gap:4px;margin-top:8px;">
+              <input id="hrCfgName_${t}" class="input" placeholder="New required doc..." style="flex:1;font-size:11px;padding:5px 8px;">
+              <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;"><input type="checkbox" id="hrCfgCrit_${t}"> Critical</label>
+              <button class="btn btn-primary" style="font-size:11px;padding:5px 10px;" onclick="_hr201AdminReqDocAdd('${t}')">➕</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  </details>`;
+}
+window._hr201AdminReqDocAdd=function(empType){
+  const name=(document.getElementById('hrCfgName_'+empType).value||'').trim();
+  if(!name){alert('Enter a doc name.');return;}
+  const critical=document.getElementById('hrCfgCrit_'+empType).checked;
+  const config=_hrLoad(HR_201_REQDOCS_CONFIG_KEY);
+  config[empType]=config[empType]||[];
+  config[empType].push({id:'req_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),name,critical});
+  _hrSave(HR_201_REQDOCS_CONFIG_KEY,config);
+  if(typeof showToast==='function')showToast('Required doc added to '+empType,'ok');
+  renderHr201();
+};
+window._hr201AdminReqDocRemove=function(empType,idx){
+  if(!confirm('Remove this required doc?'))return;
+  const config=_hrLoad(HR_201_REQDOCS_CONFIG_KEY);
+  (config[empType]||[]).splice(idx,1);
+  _hrSave(HR_201_REQDOCS_CONFIG_KEY,config);
+  renderHr201();
+};
+// Override _hrDocsForEmployee to merge custom config with built-in templates
+const _hrDocsForEmployeeOrig=window._hrDocsForEmployee||_hrDocsForEmployee;
+window._hrDocsForEmployee=function(emp){
+  const type=emp.type||'Regular';
+  const base=(HR_DOC_TEMPLATES[type]||HR_DOC_TEMPLATES.Regular).slice();
+  const customConfig=(_hrLoad(HR_201_REQDOCS_CONFIG_KEY)[type])||[];
+  const custom=_hrLoad(HR_201_CUSTOM_KEY);
+  const perEmp=custom[emp.id]||[];
+  return base.concat(customConfig).concat(perEmp);
+};
+
+// --- FEATURE 6: Email via Make.com webhook ---
+window._hr201EmailSendMake=function(empId){
+  const webhook=localStorage.getItem(MAKE_WEBHOOK_201_KEY)||'';
+  if(!webhook){
+    const url=prompt('Enter the Make.com webhook URL for 201 email delivery:\n\n(Set up a Make scenario with an HTTP webhook trigger that sends an email with the JSON payload as the body. This URL is saved for future use.)\n\nLeave blank to cancel.');
+    if(!url||!/^https?:\/\//i.test(url))return;
+    localStorage.setItem(MAKE_WEBHOOK_201_KEY,url);
+    showToast('Webhook saved','ok');
+    return _hr201EmailSendMake(empId);
+  }
+  const emps=(typeof _hrLoadEmployees==='function')?_hrLoadEmployees():[];
+  const emp=emps.find(e=>e.id===empId);
+  if(!emp){alert('Employee not found.');return;}
+  const to=prompt('Send 201 summary to which email address?',emp.email||'');
+  if(!to)return;
+  const payload={
+    type:'201_summary',
+    to,
+    employeeId:emp.id,
+    employeeName:emp.name||emp.id,
+    department:emp.dept||'',
+    status:emp.status||'Active',
+    summary:{
+      docsOnFile:Object.keys((_hrLoad(HR_201_DOCS_KEY)[emp.id])||{}).filter(k=>((_hrLoad(HR_201_DOCS_KEY)[emp.id])||{})[k].present).length,
+      assets:(_hrLoad(HR_ASSETS_KEY)[emp.id]||[]).length,
+      memos:(_hrLoad(HR_201_MEMOS_KEY)[emp.id]||[]).length,
+      incidents:(_hrLoad(HR_201_INCIDENTS_KEY)[emp.id]||[]).length,
+      reviews:(_hrLoad(HR_201_REVIEWS_KEY)[emp.id]||[]).length,
+      waivers:(_hrLoad(HR_201_WAIVERS_KEY)[emp.id]||[]).length
+    },
+    sentBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user',
+    sentAt:new Date().toISOString(),
+    company:'ABA Pardes Agritech Corp'
+  };
+  fetch(webhook,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+    .then(r=>{
+      if(r.ok){if(typeof showToast==='function')showToast('Sent to '+to+' via Make.com','ok');}
+      else{alert('Make.com returned status '+r.status+'. Check the webhook.');}
+    })
+    .catch(err=>{alert('Failed to send: '+err.message+'\n\nWebhook URL: '+webhook+'\n\nReset webhook with: localStorage.removeItem("'+MAKE_WEBHOOK_201_KEY+'")');});
+};
+// ==============================================================
+// End v2.85 — Features 1-6
+// ==============================================================
+
+// ==============================================================
+// v2.85 — Feature 7: Issue Tracker (cross-module)
+// ==============================================================
+const ISSUE_TRACKER_KEY='hydroPro_issue_tracker_v1';
+const IT_CATEGORIES=[
+  {id:'production',label:'🏭 Production'},
+  {id:'maintenance',label:'🔧 Maintenance'},
+  {id:'irrigation',label:'💧 Irrigation'},
+  {id:'cooling',label:'❄️ Cooling'},
+  {id:'pests',label:'🐛 Pests / Disease'},
+  {id:'fungus',label:'🍄 Fungus / Mildew'},
+  {id:'infrastructure',label:'🏗 Infrastructure'},
+  {id:'safety',label:'⚠️ Safety'},
+  {id:'hr',label:'👥 HR / People'},
+  {id:'it',label:'💻 IT / Network'},
+  {id:'logistics',label:'🚚 Logistics'},
+  {id:'admin',label:'📋 Admin / Other'}
+];
+const IT_PRIORITIES=[
+  {id:'low',label:'Low',color:'var(--text3)'},
+  {id:'medium',label:'Medium',color:'var(--warn)'},
+  {id:'high',label:'High',color:'#ff7043'},
+  {id:'critical',label:'Critical',color:'var(--danger)'}
+];
+const IT_STATUSES=[
+  {id:'open',label:'Open',color:'var(--danger)'},
+  {id:'in_progress',label:'In Progress',color:'var(--warn)'},
+  {id:'waiting',label:'Waiting / Blocked',color:'#ff7043'},
+  {id:'resolved',label:'Resolved',color:'var(--ok)'},
+  {id:'closed',label:'Closed',color:'var(--text3)'}
+];
+function _itLoad(){try{return JSON.parse(localStorage.getItem(ISSUE_TRACKER_KEY)||'[]');}catch(e){return [];}}
+function _itSave(arr){try{localStorage.setItem(ISSUE_TRACKER_KEY,JSON.stringify(arr));}catch(e){alert('Storage full.');}}
+
+let _itFilter={status:'open_all',category:'all',priority:'all',location:'all'};
+
+window.renderIssueTracker=function(){
+  let view=document.getElementById('view-issue_tracker');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-issue_tracker';(document.getElementById('appMain')||document.body).appendChild(view);}
+  const all=_itLoad();
+  // Apply filters
+  let filtered=all.slice();
+  if(_itFilter.status==='open_all'){filtered=filtered.filter(i=>['open','in_progress','waiting'].includes(i.status));}
+  else if(_itFilter.status!=='all'){filtered=filtered.filter(i=>i.status===_itFilter.status);}
+  if(_itFilter.category!=='all')filtered=filtered.filter(i=>i.category===_itFilter.category);
+  if(_itFilter.priority!=='all')filtered=filtered.filter(i=>i.priority===_itFilter.priority);
+  if(_itFilter.location!=='all')filtered=filtered.filter(i=>i.location===_itFilter.location);
+  // Sort: critical first, then open, then date
+  const prioOrder={critical:0,high:1,medium:2,low:3};
+  const stOrder={open:0,in_progress:1,waiting:2,resolved:3,closed:4};
+  filtered.sort((a,b)=>{
+    const sd=(stOrder[a.status]||9)-(stOrder[b.status]||9);if(sd)return sd;
+    const pd=(prioOrder[a.priority]||9)-(prioOrder[b.priority]||9);if(pd)return pd;
+    return (b.createdAt||0)-(a.createdAt||0);
+  });
+  // Stats
+  const openCt=all.filter(i=>i.status==='open').length;
+  const inProgCt=all.filter(i=>i.status==='in_progress').length;
+  const critCt=all.filter(i=>i.priority==='critical'&&i.status!=='resolved'&&i.status!=='closed').length;
+  const resolvedCt=all.filter(i=>i.status==='resolved').length;
+  // Locations available
+  const allLocations=[...new Set(all.map(i=>i.location).filter(Boolean))].sort();
+
+  const rows=filtered.map(i=>{
+    const cat=IT_CATEGORIES.find(c=>c.id===i.category)||{label:i.category};
+    const prio=IT_PRIORITIES.find(p=>p.id===i.priority)||{label:i.priority,color:'var(--text3)'};
+    const st=IT_STATUSES.find(s=>s.id===i.status)||{label:i.status,color:'var(--text3)'};
+    const days=i.createdAt?Math.floor((Date.now()-i.createdAt)/(24*3600*1000)):0;
+    return `<tr style="cursor:pointer;" onclick="_itEditIssue('${i.id}')">
+      <td style="font-family:var(--mono);font-size:11px;">#${i.id.slice(-5)}</td>
+      <td><span style="font-size:11px;font-weight:700;color:${st.color};">${st.label.toUpperCase()}</span></td>
+      <td><span style="font-size:11px;color:${prio.color};font-weight:700;">${prio.label}</span></td>
+      <td style="font-size:11px;">${cat.label}</td>
+      <td style="font-size:11px;font-family:var(--mono);">${i.location||'—'}</td>
+      <td style="font-weight:600;">${(i.title||'').replace(/[<>]/g,'').slice(0,80)}</td>
+      <td style="font-size:11px;">${(i.owner||'unassigned').replace(/[<>]/g,'')}</td>
+      <td style="font-size:11px;font-family:var(--mono);color:${days>14?'var(--danger)':days>7?'var(--warn)':'var(--text3)'};">${days}d</td>
+      <td style="text-align:right;">
+        <button class="btn btn-outline" style="font-size:10px;padding:3px 7px;" onclick="event.stopPropagation();_itEditIssue('${i.id}')">✎</button>
+        <button class="btn btn-outline" style="font-size:10px;padding:3px 7px;color:var(--danger);" onclick="event.stopPropagation();_itDeleteIssue('${i.id}')">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  view.innerHTML=`<div class="section-title">🐞 Issue Tracker</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>🐞 Cross-module issue tracker:</strong> Log any issue from any greenhouse, project, or department. Assign priority, owner, status. Filter to focus on what matters. Issues persist across sessions and sync to cloud.
+    </div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Open</div><div class="fleet-stat-val ${openCt>0?'danger':''}">${openCt}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">In Progress</div><div class="fleet-stat-val ${inProgCt>0?'warn':''}">${inProgCt}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Critical (active)</div><div class="fleet-stat-val ${critCt>0?'danger':''}">${critCt}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Resolved</div><div class="fleet-stat-val green">${resolvedCt}</div></div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-top:14px;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+        <select class="cl-fac-select" onchange="_itFilter.status=this.value;renderIssueTracker();">
+          <option value="open_all" ${_itFilter.status==='open_all'?'selected':''}>Open + In Progress + Waiting</option>
+          <option value="all" ${_itFilter.status==='all'?'selected':''}>All statuses</option>
+          ${IT_STATUSES.map(s=>`<option value="${s.id}" ${_itFilter.status===s.id?'selected':''}>${s.label}</option>`).join('')}
+        </select>
+        <select class="cl-fac-select" onchange="_itFilter.category=this.value;renderIssueTracker();">
+          <option value="all">All categories</option>
+          ${IT_CATEGORIES.map(c=>`<option value="${c.id}" ${_itFilter.category===c.id?'selected':''}>${c.label}</option>`).join('')}
+        </select>
+        <select class="cl-fac-select" onchange="_itFilter.priority=this.value;renderIssueTracker();">
+          <option value="all">All priorities</option>
+          ${IT_PRIORITIES.map(p=>`<option value="${p.id}" ${_itFilter.priority===p.id?'selected':''}>${p.label}</option>`).join('')}
+        </select>
+        <select class="cl-fac-select" onchange="_itFilter.location=this.value;renderIssueTracker();">
+          <option value="all">All locations</option>
+          ${allLocations.map(l=>`<option value="${l}" ${_itFilter.location===l?'selected':''}>${l}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary" style="margin-left:auto;" onclick="_itEditIssue(null)">➕ New Issue</button>
+      </div>
+      ${filtered.length?`<div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;">
+        <thead><tr><th>ID</th><th>Status</th><th>Priority</th><th>Category</th><th>Location</th><th>Title</th><th>Owner</th><th>Age</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`:'<div style="text-align:center;padding:30px;color:var(--text3);">No issues match current filters. Click <b>➕ New Issue</b> to log one.</div>'}
+    </div>`;
+};
+window._itEditIssue=function(issueId){
+  const all=_itLoad();
+  const i=issueId?all.find(x=>x.id===issueId):null;
+  const isNew=!i;
+  const issue=i||{
+    id:'iss_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),
+    title:'',description:'',category:'production',priority:'medium',status:'open',
+    location:'',owner:'',
+    createdAt:Date.now(),
+    createdBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user',
+    history:[]
+  };
+  // Build modal
+  let modal=document.getElementById('itEditModal');
+  if(modal)modal.remove();
+  modal=document.createElement('div');
+  modal.id='itEditModal';
+  modal.className='modal-overlay open';
+  modal.innerHTML=`<div class="modal" style="max-width:720px;">
+    <div class="modal-header">
+      <div class="modal-title">${isNew?'➕ NEW ISSUE':'✎ ISSUE #'+issue.id.slice(-5)}</div>
+      <button class="modal-close" onclick="document.getElementById('itEditModal').remove();">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div style="grid-column:span 2;"><label class="field-label">Title *</label><input id="itTitle" class="input" value="${(issue.title||'').replace(/"/g,'&quot;')}" placeholder="Brief one-line summary"></div>
+        <div><label class="field-label">Category *</label><select id="itCategory" class="input">${IT_CATEGORIES.map(c=>`<option value="${c.id}" ${issue.category===c.id?'selected':''}>${c.label}</option>`).join('')}</select></div>
+        <div><label class="field-label">Location (GH, PRJ, dept, etc)</label><input id="itLocation" class="input" value="${(issue.location||'').replace(/"/g,'&quot;')}" placeholder="e.g. GH3, PRJ11, Office, Packaging"></div>
+        <div><label class="field-label">Priority</label><select id="itPriority" class="input">${IT_PRIORITIES.map(p=>`<option value="${p.id}" ${issue.priority===p.id?'selected':''}>${p.label}</option>`).join('')}</select></div>
+        <div><label class="field-label">Status</label><select id="itStatus" class="input">${IT_STATUSES.map(s=>`<option value="${s.id}" ${issue.status===s.id?'selected':''}>${s.label}</option>`).join('')}</select></div>
+        <div><label class="field-label">Owner / Assigned to</label><input id="itOwner" class="input" value="${(issue.owner||'').replace(/"/g,'&quot;')}" placeholder="Person responsible"></div>
+        <div><label class="field-label">Reported By</label><input id="itReporter" class="input" value="${(issue.reporter||issue.createdBy||'').replace(/"/g,'&quot;')}" placeholder="Who reported it"></div>
+        <div style="grid-column:span 2;"><label class="field-label">Description</label><textarea id="itDesc" class="input" style="min-height:90px;font-family:inherit;" placeholder="Details, root cause, current state...">${(issue.description||'').replace(/</g,'&lt;')}</textarea></div>
+        <div style="grid-column:span 2;"><label class="field-label">Resolution Notes (when resolved/closed)</label><textarea id="itResolution" class="input" style="min-height:60px;font-family:inherit;" placeholder="What was done to resolve it">${(issue.resolution||'').replace(/</g,'&lt;')}</textarea></div>
+      </div>
+      ${!isNew&&issue.history&&issue.history.length?`<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+        <div class="field-label">History (${issue.history.length} updates)</div>
+        <div style="max-height:120px;overflow-y:auto;font-size:11px;">
+          ${issue.history.slice().reverse().map(h=>`<div style="padding:4px 0;border-bottom:1px dashed var(--border);"><span style="color:var(--text3);">${new Date(h.at).toLocaleString()}</span> · <b>${h.user||'—'}</b> · ${(h.change||'').replace(/[<>]/g,'').slice(0,140)}</div>`).join('')}
+        </div>
+      </div>`:''}
+      <div style="display:flex;gap:10px;margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
+        <button class="btn btn-primary" onclick="_itSaveIssue('${issue.id}',${isNew})">💾 ${isNew?'Create Issue':'Save Changes'}</button>
+        ${!isNew?`<button class="btn btn-outline" style="color:var(--danger);" onclick="_itDeleteIssue('${issue.id}');">🗑 Delete</button>`:''}
+        <button class="btn btn-outline" onclick="document.getElementById('itEditModal').remove();">Cancel</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+};
+window._itSaveIssue=function(issueId,isNew){
+  const all=_itLoad();
+  let issue=isNew?{id:issueId,createdAt:Date.now(),history:[]}:(all.find(x=>x.id===issueId)||{id:issueId,history:[]});
+  const oldStatus=issue.status;
+  const newTitle=(document.getElementById('itTitle').value||'').trim();
+  if(!newTitle){alert('Title is required.');return;}
+  const newStatus=document.getElementById('itStatus').value;
+  issue.title=newTitle;
+  issue.description=document.getElementById('itDesc').value||'';
+  issue.resolution=document.getElementById('itResolution').value||'';
+  issue.category=document.getElementById('itCategory').value;
+  issue.priority=document.getElementById('itPriority').value;
+  issue.status=newStatus;
+  issue.location=(document.getElementById('itLocation').value||'').trim();
+  issue.owner=(document.getElementById('itOwner').value||'').trim();
+  issue.reporter=(document.getElementById('itReporter').value||'').trim();
+  issue.updatedAt=Date.now();
+  issue.updatedBy=((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user';
+  if(!isNew&&oldStatus&&oldStatus!==newStatus){
+    issue.history=issue.history||[];
+    issue.history.push({at:Date.now(),user:issue.updatedBy,change:'Status: '+oldStatus+' → '+newStatus});
+  }
+  if(isNew){all.push(issue);}
+  else{const idx=all.findIndex(x=>x.id===issueId);if(idx>=0)all[idx]=issue;}
+  _itSave(all);
+  document.getElementById('itEditModal').remove();
+  if(typeof showToast==='function')showToast(isNew?'Issue created':'Issue saved','ok');
+  renderIssueTracker();
+};
+window._itDeleteIssue=function(issueId){
+  if(!confirm('Delete this issue permanently?'))return;
+  const all=_itLoad().filter(x=>x.id!==issueId);
+  _itSave(all);
+  const m=document.getElementById('itEditModal');if(m)m.remove();
+  renderIssueTracker();
+};
+
+// ==============================================================
+// v2.85 — Feature 8: Timecard Upload (CSV → payroll prep)
+// ==============================================================
+const TIMECARD_RUNS_KEY='hydroPro_timecard_runs_v1';
+function _tcLoad(){try{return JSON.parse(localStorage.getItem(TIMECARD_RUNS_KEY)||'[]');}catch(e){return [];}}
+function _tcSave(arr){try{localStorage.setItem(TIMECARD_RUNS_KEY,JSON.stringify(arr));}catch(e){alert('Storage full.');}}
+
+window.renderTimecardUpload=function(){
+  let view=document.getElementById('view-timecard_upload');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-timecard_upload';(document.getElementById('appMain')||document.body).appendChild(view);}
+  const runs=_tcLoad().sort((a,b)=>(b.uploadedAt||0)-(a.uploadedAt||0));
+  const runsRows=runs.map(r=>{
+    const rowCount=(r.rows||[]).length;
+    return `<tr>
+      <td style="font-family:var(--mono);font-size:11px;">${new Date(r.uploadedAt).toLocaleString()}</td>
+      <td style="font-size:12px;">${(r.label||'').replace(/[<>]/g,'')}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${r.periodStart||'—'} → ${r.periodEnd||'—'}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:11px;">${rowCount}</td>
+      <td style="font-size:11px;">${r.uploadedBy||'—'}</td>
+      <td style="text-align:right;">
+        <button class="btn btn-outline" style="font-size:10px;padding:3px 7px;" onclick="_tcViewRun('${r.id}')">👁 View</button>
+        <button class="btn btn-outline" style="font-size:10px;padding:3px 7px;" onclick="_tcExportRun('${r.id}')">💾 CSV</button>
+        <button class="btn btn-outline" style="font-size:10px;padding:3px 7px;color:var(--danger);" onclick="_tcDeleteRun('${r.id}')">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+  view.innerHTML=`<div class="section-title">📥 Timecard Upload</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong>📥 Import timesheets from CSV:</strong> Upload biometric/timesheet exports (CSV) → parse → match to employees → review → save as a run. Runs are kept for payroll reference. Expected CSV columns: <b>Employee ID, Date, Time In, Time Out, Hours, Notes</b> (extra columns OK, missing columns will be defaulted).
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+      <div style="display:grid;grid-template-columns:1fr 130px 130px auto;gap:10px;align-items:end;margin-bottom:10px;">
+        <div><label class="field-label">Run Label</label><input id="tcLabel" class="input" placeholder="e.g. Office Apr 26 – May 10"></div>
+        <div><label class="field-label">Period Start</label><input id="tcStart" type="date" class="input"></div>
+        <div><label class="field-label">Period End</label><input id="tcEnd" type="date" class="input"></div>
+        <div><label class="btn btn-primary" style="cursor:pointer;text-align:center;display:inline-block;">📂 Pick CSV<input type="file" accept=".csv,.txt" style="display:none;" onchange="_tcParseCSV(this)"></label></div>
+      </div>
+      <div id="tcPreview" style="margin-top:10px;"></div>
+    </div>
+    <div class="section-title" style="margin-top:14px;">📜 Past Runs (${runs.length})</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
+      ${runs.length?`<table class="fleet-table" style="width:100%;font-size:12px;">
+        <thead><tr><th>Uploaded</th><th>Label</th><th>Period</th><th style="text-align:center;">Rows</th><th>By</th><th></th></tr></thead>
+        <tbody>${runsRows}</tbody>
+      </table>`:'<div style="text-align:center;padding:20px;color:var(--text3);">No timecard runs yet. Upload a CSV above to get started.</div>'}
+    </div>`;
+};
+let _tcPending=null;
+window._tcParseCSV=function(input){
+  const f=input.files&&input.files[0];
+  if(!f){return;}
+  if(f.size>5*1024*1024){alert('CSV too large (max 5 MB).');input.value='';return;}
+  const r=new FileReader();
+  r.onload=function(e){
+    const text=e.target.result;
+    const lines=text.split(/\r?\n/).filter(l=>l.trim());
+    if(lines.length<2){alert('CSV appears empty or has no data rows.');return;}
+    // Parse header
+    const headers=_tcSplit(lines[0]).map(h=>h.trim().toLowerCase());
+    // Try to find common column names
+    const colIdx={
+      empId:headers.findIndex(h=>/^(emp.*id|employee.*id|id|biometric.*id)$/i.test(h)),
+      empName:headers.findIndex(h=>/^(name|employee.*name|fullname)$/i.test(h)),
+      date:headers.findIndex(h=>/^(date|day|punch.*date)$/i.test(h)),
+      timeIn:headers.findIndex(h=>/^(time.*in|in.*time|clock.*in|am.*in|punch.*in)$/i.test(h)),
+      timeOut:headers.findIndex(h=>/^(time.*out|out.*time|clock.*out|pm.*out|punch.*out)$/i.test(h)),
+      hours:headers.findIndex(h=>/^(hours|hrs|worked|total)$/i.test(h)),
+      notes:headers.findIndex(h=>/^(notes?|remarks?|comments?)$/i.test(h))
+    };
+    const rows=[];
+    for(let li=1;li<lines.length;li++){
+      const parts=_tcSplit(lines[li]);
+      if(parts.length===0)continue;
+      rows.push({
+        empId:colIdx.empId>=0?(parts[colIdx.empId]||'').trim():'',
+        empName:colIdx.empName>=0?(parts[colIdx.empName]||'').trim():'',
+        date:colIdx.date>=0?(parts[colIdx.date]||'').trim():'',
+        timeIn:colIdx.timeIn>=0?(parts[colIdx.timeIn]||'').trim():'',
+        timeOut:colIdx.timeOut>=0?(parts[colIdx.timeOut]||'').trim():'',
+        hours:colIdx.hours>=0?(parts[colIdx.hours]||'').trim():'',
+        notes:colIdx.notes>=0?(parts[colIdx.notes]||'').trim():''
+      });
+    }
+    _tcPending={
+      filename:f.name,
+      headers,
+      colIdx,
+      rows
+    };
+    // Render preview
+    const matched=rows.filter(r=>r.empId||r.empName).length;
+    document.getElementById('tcPreview').innerHTML=`
+      <div style="background:var(--surface2);border:1px solid var(--accent);border-radius:8px;padding:12px;">
+        <div style="font-size:13px;font-weight:700;color:var(--accent);margin-bottom:8px;">📄 Parsed: ${f.name}</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">
+          ${rows.length} rows parsed · ${matched} have employee identifier ·
+          Detected columns: ${Object.entries(colIdx).filter(([k,v])=>v>=0).map(([k,v])=>k+'→'+headers[v]).join(', ')||'<i>none auto-detected</i>'}
+        </div>
+        <div style="max-height:200px;overflow-y:auto;font-size:11px;border:1px solid var(--border);border-radius:6px;">
+          <table class="fleet-table" style="width:100%;font-size:11px;">
+            <thead><tr><th>Emp ID</th><th>Name</th><th>Date</th><th>In</th><th>Out</th><th>Hrs</th><th>Notes</th></tr></thead>
+            <tbody>${rows.slice(0,50).map(r=>`<tr>
+              <td style="font-family:var(--mono);">${(r.empId||'').replace(/[<>]/g,'')}</td>
+              <td>${(r.empName||'').replace(/[<>]/g,'')}</td>
+              <td style="font-family:var(--mono);">${(r.date||'').replace(/[<>]/g,'')}</td>
+              <td style="font-family:var(--mono);">${(r.timeIn||'').replace(/[<>]/g,'')}</td>
+              <td style="font-family:var(--mono);">${(r.timeOut||'').replace(/[<>]/g,'')}</td>
+              <td style="font-family:var(--mono);">${(r.hours||'').replace(/[<>]/g,'')}</td>
+              <td>${(r.notes||'').replace(/[<>]/g,'').slice(0,40)}</td>
+            </tr>`).join('')}</tbody>
+          </table>
+          ${rows.length>50?`<div style="padding:6px;text-align:center;color:var(--text3);font-size:11px;">+ ${rows.length-50} more rows...</div>`:''}
+        </div>
+        <div style="margin-top:10px;display:flex;gap:10px;">
+          <button class="btn btn-primary" onclick="_tcSaveRun()">💾 Save Run</button>
+          <button class="btn btn-outline" onclick="_tcPending=null;document.getElementById('tcPreview').innerHTML='';">✕ Discard</button>
+        </div>
+      </div>`;
+  };
+  r.readAsText(f);
+};
+function _tcSplit(line){
+  // Simple CSV split that handles quoted strings
+  const out=[];
+  let cur='';
+  let inQuote=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(c==='"'){
+      if(inQuote&&line[i+1]==='"'){cur+='"';i++;}
+      else{inQuote=!inQuote;}
+    } else if(c===','&&!inQuote){
+      out.push(cur);cur='';
+    } else {
+      cur+=c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+window._tcSaveRun=function(){
+  if(!_tcPending){alert('Nothing to save. Pick a CSV first.');return;}
+  const label=(document.getElementById('tcLabel').value||'').trim()||_tcPending.filename;
+  const start=document.getElementById('tcStart').value;
+  const end=document.getElementById('tcEnd').value;
+  const all=_tcLoad();
+  all.push({
+    id:'tcr_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),
+    label,
+    filename:_tcPending.filename,
+    periodStart:start,
+    periodEnd:end,
+    rows:_tcPending.rows,
+    headers:_tcPending.headers,
+    uploadedAt:Date.now(),
+    uploadedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user'
+  });
+  _tcSave(all);
+  _tcPending=null;
+  if(typeof showToast==='function')showToast('Timecard run saved','ok');
+  renderTimecardUpload();
+};
+window._tcViewRun=function(runId){
+  const r=_tcLoad().find(x=>x.id===runId);
+  if(!r){alert('Run not found.');return;}
+  const w=window.open('','_blank');
+  if(!w){alert('Pop-up blocked.');return;}
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const rows=(r.rows||[]).map(rw=>`<tr>
+    <td>${esc(rw.empId)}</td><td>${esc(rw.empName)}</td><td>${esc(rw.date)}</td>
+    <td>${esc(rw.timeIn)}</td><td>${esc(rw.timeOut)}</td><td>${esc(rw.hours)}</td><td>${esc(rw.notes)}</td>
+  </tr>`).join('');
+  w.document.write(`<!doctype html><html><head><title>Timecard Run — ${esc(r.label)}</title>
+    <style>body{font-family:Arial,sans-serif;padding:20px;}table{width:100%;border-collapse:collapse;font-size:12px;}th,td{padding:6px 8px;border-bottom:1px solid #ddd;text-align:left;}th{background:#f4f4f4;}@media print{.no-print{display:none}}</style></head><body>
+    <button class="no-print" onclick="window.print()" style="float:right;padding:8px 14px;background:#2a5;color:white;border:0;border-radius:4px;cursor:pointer;">🖨 Print</button>
+    <h2>${esc(r.label)}</h2>
+    <p>Period: ${esc(r.periodStart||'—')} → ${esc(r.periodEnd||'—')} · Uploaded ${new Date(r.uploadedAt).toLocaleString()} by ${esc(r.uploadedBy||'—')} · ${(r.rows||[]).length} rows</p>
+    <table><thead><tr><th>Emp ID</th><th>Name</th><th>Date</th><th>In</th><th>Out</th><th>Hours</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table>
+  </body></html>`);
+  w.document.close();
+};
+window._tcExportRun=function(runId){
+  const r=_tcLoad().find(x=>x.id===runId);
+  if(!r){alert('Run not found.');return;}
+  const lines=['Employee ID,Name,Date,Time In,Time Out,Hours,Notes'];
+  (r.rows||[]).forEach(rw=>{
+    const q=v=>{v=String(v==null?'':v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+    lines.push([q(rw.empId),q(rw.empName),q(rw.date),q(rw.timeIn),q(rw.timeOut),q(rw.hours),q(rw.notes)].join(','));
+  });
+  const blob=new Blob([lines.join('\n')],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=(r.label||'timecard_run').replace(/[^a-z0-9_]/gi,'_')+'.csv';
+  a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+window._tcDeleteRun=function(runId){
+  if(!confirm('Delete this timecard run permanently?'))return;
+  const all=_tcLoad().filter(x=>x.id!==runId);
+  _tcSave(all);
+  renderTimecardUpload();
+};
+// ==============================================================
+// End v2.85 — Features 7-8
+// ==============================================================
+
+// ==============================================================
+// v2.85 — PERF DIAGNOSTIC PANEL (Alt+D to open)
+// Helps identify what's making the app slow
+// ==============================================================
+window._perfDiag=function(){
+  let modal=document.getElementById('perfDiagModal');
+  if(modal)modal.remove();
+  // === Measure localStorage ===
+  let totalBytes=0;
+  let keyStats=[];
+  let hydroProBytes=0;
+  let hydroProKeys=0;
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      const v=localStorage.getItem(k)||'';
+      const bytes=k.length+v.length;
+      totalBytes+=bytes;
+      if(k.startsWith('hydroPro_')){hydroProBytes+=bytes;hydroProKeys++;}
+      keyStats.push({key:k,bytes:bytes,size:v.length});
+    }
+  }catch(e){console.warn(e);}
+  keyStats.sort((a,b)=>b.bytes-a.bytes);
+  const totalMB=(totalBytes/(1024*1024)).toFixed(2);
+  const hydroMB=(hydroProBytes/(1024*1024)).toFixed(2);
+  // === Measure render speed ===
+  const t1=performance.now();
+  let renderTimes={};
+  try{
+    const t=performance.now();
+    if(typeof renderHr201==='function'){renderHr201();renderTimes.renderHr201=(performance.now()-t).toFixed(0);}
+  }catch(e){renderTimes.renderHr201='ERROR';}
+  // === Cloud sync status ===
+  let cloudInfo={};
+  try{
+    cloudInfo.lastPush=localStorage.getItem('hnx_cloud_last_push')||'never';
+    cloudInfo.lastPull=localStorage.getItem('hnx_cloud_last_pull')||'never';
+    cloudInfo.pushInterval=localStorage.getItem('hnx_cloud_push_interval')||'60s default';
+    cloudInfo.enabled=localStorage.getItem('hnx_cloud_enabled')||'unknown';
+  }catch(e){}
+  // === Storage warnings ===
+  const warnings=[];
+  if(totalBytes>9*1024*1024)warnings.push('⚠️ <b style="color:var(--danger);">localStorage near 10MB limit!</b> Browser will start throwing QuotaExceededError soon.');
+  if(totalBytes>4*1024*1024)warnings.push('⚠️ <b style="color:var(--warn);">localStorage over 4MB.</b> Reads/writes will be slow.');
+  if(hydroProKeys>500)warnings.push('⚠️ <b style="color:var(--warn);">Over 500 hydroPro_ keys.</b> Sync push will be slow.');
+  if(keyStats[0]&&keyStats[0].bytes>1*1024*1024)warnings.push('⚠️ <b style="color:var(--warn);">Single key >1MB:</b> '+keyStats[0].key+' ('+(keyStats[0].bytes/(1024*1024)).toFixed(2)+' MB)');
+
+  modal=document.createElement('div');
+  modal.id='perfDiagModal';
+  modal.className='modal-overlay open';
+  modal.innerHTML=`<div class="modal" style="max-width:840px;">
+    <div class="modal-header">
+      <div class="modal-title">⚡ PERFORMANCE DIAGNOSTIC</div>
+      <button class="modal-close" onclick="document.getElementById('perfDiagModal').remove();">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="fleet-stat-row">
+        <div class="fleet-stat-card"><div class="fleet-stat-label">Total localStorage</div><div class="fleet-stat-val ${totalBytes>4*1024*1024?'danger':totalBytes>2*1024*1024?'warn':'green'}">${totalMB} MB</div></div>
+        <div class="fleet-stat-card"><div class="fleet-stat-label">hydroPro_ data</div><div class="fleet-stat-val">${hydroMB} MB</div></div>
+        <div class="fleet-stat-card"><div class="fleet-stat-label">hydroPro_ keys</div><div class="fleet-stat-val ${hydroProKeys>500?'warn':''}">${hydroProKeys}</div></div>
+        <div class="fleet-stat-card"><div class="fleet-stat-label">renderHr201()</div><div class="fleet-stat-val ${renderTimes.renderHr201>500?'danger':renderTimes.renderHr201>100?'warn':'green'}">${renderTimes.renderHr201||'—'} ms</div></div>
+      </div>
+
+      ${warnings.length?`<div style="background:rgba(239,83,80,0.08);border-left:3px solid var(--danger);padding:12px 16px;margin:14px 0;border-radius:6px;">
+        <div style="font-size:13px;font-weight:700;margin-bottom:6px;">⚠ Performance Warnings</div>
+        <ul style="margin:0;padding-left:20px;font-size:12px;line-height:1.8;">${warnings.map(w=>'<li>'+w+'</li>').join('')}</ul>
+      </div>`:'<div style="background:rgba(76,175,80,0.08);border-left:3px solid var(--ok);padding:10px 14px;margin:14px 0;border-radius:6px;font-size:12px;color:var(--ok);">✓ No critical warnings detected</div>'}
+
+      <div class="section-title" style="margin-top:16px;">🌩 Cloud Sync Status</div>
+      <div style="background:var(--surface2);border-radius:8px;padding:12px;font-size:12px;font-family:var(--mono);">
+        Enabled: <b>${cloudInfo.enabled}</b><br>
+        Last push: <b>${cloudInfo.lastPush}</b><br>
+        Last pull: <b>${cloudInfo.lastPull}</b><br>
+        Push interval: <b>${cloudInfo.pushInterval}</b>
+      </div>
+
+      <div class="section-title" style="margin-top:16px;">📊 Top 20 Largest Keys</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:280px;overflow-y:auto;">
+        <table class="fleet-table" style="width:100%;font-size:11px;">
+          <thead style="position:sticky;top:0;background:var(--surface2);"><tr><th>#</th><th>Key</th><th style="text-align:right;">Size</th><th>Action</th></tr></thead>
+          <tbody>${keyStats.slice(0,20).map((s,i)=>{
+            const sizeStr=s.bytes>1024*1024?(s.bytes/(1024*1024)).toFixed(2)+' MB':(s.bytes/1024).toFixed(1)+' KB';
+            const color=s.bytes>1024*1024?'var(--danger)':s.bytes>100*1024?'var(--warn)':'var(--text2)';
+            return `<tr><td style="font-family:var(--mono);">${i+1}</td><td style="font-family:var(--mono);font-size:10px;">${s.key}</td><td style="text-align:right;font-family:var(--mono);color:${color};font-weight:700;">${sizeStr}</td><td><button class="btn btn-outline" style="font-size:10px;padding:2px 6px;color:var(--danger);" onclick="_perfDeleteKey('${s.key.replace(/'/g,"\\\\'")}')">🗑 Delete</button></td></tr>`;
+          }).join('')}</tbody>
+        </table>
+      </div>
+
+      <div class="section-title" style="margin-top:16px;">🚨 Emergency Actions</div>
+      <div style="background:rgba(239,83,80,0.05);border:1px solid var(--danger);border-radius:8px;padding:14px;display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-outline" onclick="_perfPauseCloudSync()" style="color:var(--warn);">⏸ Pause cloud sync</button>
+        <button class="btn btn-outline" onclick="_perfResumeCloudSync()" style="color:var(--ok);">▶ Resume cloud sync</button>
+        <button class="btn btn-outline" onclick="_perfClearAllScans()" style="color:var(--danger);">🗑 Clear ALL document scans (frees ~10 MB)</button>
+        <button class="btn btn-outline" onclick="_perfExportBackup()">💾 Export backup before clearing</button>
+        <button class="btn btn-outline" onclick="_perfPrintTo()">🖨 Print this diagnostic</button>
+        <button class="btn btn-outline" onclick="_perfDiag()">🔄 Refresh diagnostic</button>
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:var(--text3);line-height:1.6;">
+        <b>How to read this:</b> If total localStorage is over 4 MB, your app will run slowly. Scans (base64 PDFs/images) are the usual culprit — they can be 1-2 MB each. If sync push is slow, pause it temporarily to test if that's the cause. To rebuild without losing data, export the backup first.
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+};
+
+window._perfDeleteKey=function(key){
+  if(!confirm('Delete this localStorage key permanently?\n\nKey: '+key+'\n\nThis CANNOT be undone unless you have a backup.'))return;
+  localStorage.removeItem(key);
+  if(typeof showToast==='function')showToast('Deleted '+key,'ok');
+  _perfDiag(); // refresh
+};
+window._perfPauseCloudSync=function(){
+  localStorage.setItem('hnx_cloud_enabled','false');
+  // Try to cancel any running sync timer
+  try{if(window._hnxCloudTimer){clearInterval(window._hnxCloudTimer);window._hnxCloudTimer=null;}}catch(e){}
+  if(typeof showToast==='function')showToast('Cloud sync PAUSED. Reload page if still slow.','warn');
+  _perfDiag();
+};
+window._perfResumeCloudSync=function(){
+  localStorage.setItem('hnx_cloud_enabled','true');
+  if(typeof showToast==='function')showToast('Cloud sync RESUMED. Reload to restart timer.','ok');
+  _perfDiag();
+};
+window._perfClearAllScans=function(){
+  if(!confirm('Clear ALL document scans?\n\nThis removes base64 PDF/image data from:\n- HR 201 docs (hr_201_docs)\n- Incident scans\n- Performance review scans\n- Job description scans\n- Contract scans\n- Waiver scans\n\nEmployee profile data stays. Doc CHECKLISTS stay (just the scans are removed).\n\nThis can free 5-50 MB. CANNOT be undone — export backup first if needed.'))return;
+  let freed=0;
+  const before=JSON.stringify(localStorage).length;
+  // Walk through known scan-storing keys and strip scan/dataUrl fields
+  const scanKeys=[
+    'hydroPro_hr_201_docs',
+    'hydroPro_hr_201_incidents_v1',
+    'hydroPro_hr_201_reviews_v1',
+    'hydroPro_hr_201_jd_v1',
+    'hydroPro_hr_201_waivers_v1',
+    'hydroPro_hr_201_contract_v1',
+    'hydroPro_hr_201_trash_v1'
+  ];
+  scanKeys.forEach(k=>{
+    try{
+      const raw=localStorage.getItem(k);if(!raw)return;
+      const obj=JSON.parse(raw);
+      // Recursive scan-strip
+      function strip(o){
+        if(!o||typeof o!=='object')return;
+        if(Array.isArray(o)){o.forEach(strip);return;}
+        if(o.dataUrl)o.dataUrl=null;
+        if(o.scan&&typeof o.scan==='object'){if(o.scan.dataUrl)o.scan.dataUrl=null;}
+        Object.values(o).forEach(strip);
+      }
+      strip(obj);
+      localStorage.setItem(k,JSON.stringify(obj));
+    }catch(e){console.warn('strip failed',k,e);}
+  });
+  const after=JSON.stringify(localStorage).length;
+  freed=Math.round((before-after)/1024);
+  if(typeof showToast==='function')showToast('Freed ~'+freed+' KB. Reload page.','ok');
+  _perfDiag();
+};
+window._perfExportBackup=function(){
+  const dump={};
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    dump[k]=localStorage.getItem(k);
+  }
+  const blob=new Blob([JSON.stringify(dump,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download='hydronexis_backup_'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  if(typeof showToast==='function')showToast('Backup downloaded','ok');
+};
+window._perfPrintTo=function(){
+  window.print();
+};
+
+// Wire up Alt+D keyboard shortcut to open diagnostic
+(function installPerfShortcut(){
+  document.addEventListener('keydown',function(e){
+    if(e.altKey&&(e.key==='d'||e.key==='D')&&!e.ctrlKey&&!e.metaKey){
+      const tag=(document.activeElement&&document.activeElement.tagName||'').toLowerCase();
+      if(tag==='input'||tag==='textarea'||tag==='select')return;
+      e.preventDefault();
+      _perfDiag();
+    }
+  });
+})();
+
+// === Auto-detect storage thresholds and warn ===
+(function autoStorageMonitor(){
+  setTimeout(function checkStorage(){
+    try{
+      const bytes=JSON.stringify(localStorage).length;
+      if(bytes>7*1024*1024){
+        console.warn('⚠️ HNX: localStorage at '+(bytes/(1024*1024)).toFixed(2)+' MB — approaching browser limit!');
+        if(typeof showToast==='function'){
+          showToast('⚠ Storage near limit ('+(bytes/(1024*1024)).toFixed(1)+' MB). Press Alt+D for diagnostic.','warn');
+        }
+      }
+    }catch(e){}
+    setTimeout(checkStorage,5*60*1000); // re-check every 5 min
+  },10000);
+})();
+
+// === Add an Emergency Diag button bottom-right (always visible) ===
+(function addEmergencyButton(){
+  setTimeout(function(){
+    if(document.getElementById('perfDiagBtn'))return;
+    const btn=document.createElement('button');
+    btn.id='perfDiagBtn';
+    btn.innerHTML='⚡';
+    btn.title='Performance Diagnostic (Alt+D)';
+    btn.style.cssText='position:fixed;bottom:24px;right:80px;width:42px;height:42px;border-radius:50%;background:#ff9800;color:#fff;border:0;font-size:18px;cursor:pointer;box-shadow:0 4px 14px rgba(255,152,0,0.45);z-index:480;transition:transform .15s;';
+    btn.onmouseover=function(){this.style.transform='scale(1.1)';};
+    btn.onmouseout=function(){this.style.transform='';};
+    btn.onclick=function(){_perfDiag();};
+    document.body.appendChild(btn);
+  },2000);
+})();
+// ==============================================================
+// End v2.85 — PERF DIAGNOSTIC
+// ==============================================================
+
 // ==============================================================
 
 
@@ -85941,7 +87180,7 @@ window._hrMatrixDrill=function(dept,issueId,issueLabel){
   const comp=employees.filter(e=>ok(e));
   let host=document.getElementById('hrMatrixDrillModal');
   if(!host){host=document.createElement('div');host.id='hrMatrixDrillModal';host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;';document.body.appendChild(host);}
-  const ncRows=noncomp.map(e=>`<tr style="cursor:pointer;" onclick="_hr201SelectedId='${e.id}';document.getElementById('hrMatrixDrillModal').remove();switchView('hr_201');"><td>${(e.name||'').replace(/[<>]/g,'')}</td><td style="font-size:11px;">${e.type||'Regular'}</td><td style="font-size:11px;color:var(--text3);">Click to open 201 →</td></tr>`).join('');
+  const ncRows=noncomp.map(e=>`<tr style="cursor:pointer;" onclick="window._hr201SelectedId='${e.id}';document.getElementById('hrMatrixDrillModal').remove();switchView('hr_201');"><td>${(e.name||'').replace(/[<>]/g,'')}</td><td style="font-size:11px;">${e.type||'Regular'}</td><td style="font-size:11px;color:var(--text3);">Click to open 201 →</td></tr>`).join('');
   const cRows=comp.map(e=>`<tr><td>${(e.name||'').replace(/[<>]/g,'')}</td><td style="font-size:11px;">${e.type||'Regular'}</td></tr>`).join('');
   host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:680px;width:100%;max-height:90vh;overflow-y:auto;padding:22px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
@@ -85975,7 +87214,7 @@ window.renderHrAssets=function(){
   flat.sort((a,b)=>{if(a.returned!==b.returned)return a.returned?1:-1;return (b.issuedDate||'').localeCompare(a.issuedDate||'');});
   const outstanding=flat.filter(x=>!x.returned);
   const returned=flat.filter(x=>x.returned);
-  const rows=flat.map(a=>`<tr style="cursor:pointer;" onclick="_hr201SelectedId='${a.empId}';switchView('hr_201');">
+  const rows=flat.map(a=>`<tr style="cursor:pointer;" onclick="window._hr201SelectedId='${a.empId}';switchView('hr_201');">
     <td>${(a.empName||'').replace(/[<>]/g,'')}</td>
     <td style="font-size:11px;">${a.empDept||'—'}</td>
     <td>${(a.name||'').replace(/[<>]/g,'')}</td>
@@ -87642,6 +88881,8 @@ window._initLeaveBalancesAll=function(){
       if(v==='hr_onboarding')setTimeout(renderHrOnboarding,80);
       if(v==='hr_disciplinary')setTimeout(renderHrDisciplinary,80);
       if(v==='hr_leaves')setTimeout(renderHrLeaves,80);
+      if(v==='issue_tracker')setTimeout(renderIssueTracker,80);
+      if(v==='timecard_upload')setTimeout(renderTimecardUpload,80);
       return r;
     };
     window.switchView.__hrPlusHooked=true;
@@ -99162,7 +100403,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.85 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.85.2 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -99171,7 +100412,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.85';
+        vEl.textContent = orig + ' · HNX v2.85.2';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -99186,7 +100427,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.85 Diagnostics:\n\n' +
+        'HNX-EXT v2.85.2 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
@@ -128401,6 +129642,6 @@ body.hnx-mobile-locked { overflow: hidden; }
   console.log('[HNX] Payroll v2.82 — native SSS/PHIC/HDMF split + editable overrides + Office 11-25/26-10 — ready');
 })();
 </script>
-<!-- ===================== END HNX v2.85 ===================== -->
+<!-- ===================== END HNX v2.85.2 ===================== -->
 </body>
 </html>
