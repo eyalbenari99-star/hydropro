@@ -2816,14 +2816,14 @@ td[data-edit-pool]:hover{box-shadow:inset 0 0 0 2px var(--accent);}
 .sup-textarea::placeholder{color:var(--text3);}
 
 /* REPORT MODAL */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:500;display:none;align-items:flex-start;justify-content:center;overflow-y:auto;padding:20px;}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:500;display:none;align-items:center;justify-content:center;overflow-y:auto;padding:20px;}
 .modal-overlay.open{display:flex;}
-.modal{background:var(--surface);border:1px solid var(--border2);border-radius:16px;width:100%;max-width:900px;overflow:hidden;box-shadow:var(--shadow-lg);}
-.modal-header{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface2),var(--surface));}
+.modal{background:var(--surface);border:1px solid var(--border2);border-radius:16px;width:100%;max-width:900px;max-height:92vh;overflow:hidden;box-shadow:var(--shadow-lg);display:flex;flex-direction:column;}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface2),var(--surface));flex-shrink:0;position:sticky;top:0;z-index:2;}
 .modal-title{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--gold);letter-spacing:1.2px;}
 .modal-close{background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;padding:6px 10px;border-radius:7px;}
 .modal-close:hover{background:var(--surface3);color:var(--text);}
-.modal-body{padding:24px;max-height:72vh;overflow-y:auto;}
+.modal-body{padding:24px;overflow-y:auto;flex:1;min-height:0;}
 
 /* REPORT PRINT */
 #repContent{font-size:13px;color:var(--text);}
@@ -5466,13 +5466,20 @@ td.critical-blink,div.critical-blink,span.critical-blink,
           <select class="users-input" id="empDept"></select>
         </div>
         <div class="emp-field"><label class="field-label">Role Tier *</label>
-          <select class="users-input" id="empRole">
+          <select class="users-input" id="empRole" onchange="onEmpRoleChange()">
             <option value="Worker">Worker</option>
             <option value="Team Leader">Team Leader</option>
             <option value="Supervisor">Supervisor (multi-GH)</option>
+            <option value="Department Manager">Department Manager</option>
             <option value="Manager">Manager</option>
+            <option value="Senior Management">Senior Management (VP/CEO)</option>
             <option value="Admin">Admin Staff</option>
           </select>
+        </div>
+        <div class="emp-field" id="empDeptManagesWrap" style="display:none;">
+          <label class="field-label">Manages Department *</label>
+          <select class="users-input" id="empDeptManages"></select>
+          <div style="font-size:10px;color:var(--text3);margin-top:3px;">Which department this manager oversees</div>
         </div>
         <div class="emp-field"><label class="field-label">Employment Type *</label>
           <select class="users-input" id="empType">
@@ -5508,12 +5515,14 @@ td.critical-blink,div.critical-blink,span.critical-blink,
         <div style="font-size:11px;color:var(--text3);margin-top:8px;">After saving, you can generate the <b>Final Pay slip</b> (with pro-rated 13th month) from the employee's row in Payroll.</div>
       </div>
 
-      <!-- GH Assignment -->
-      <div class="emp-section-title">🏡 Greenhouse Assignment</div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">
-        <b>Production Worker/Team Leader:</b> assign to ONE greenhouse. <b>Supervisor:</b> can select multiple. <b>Others</b> (packaging, drivers, admin, etc.): leave unselected.
+      <!-- Greenhouse Assignment (Production Labor only) -->
+      <div id="empGHSection">
+        <div class="emp-section-title">🏡 Greenhouse / Project Assignment</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">
+          <b>Production Worker/Team Leader:</b> assign to ONE greenhouse. <b>Supervisor:</b> can select multiple. Leave all unchecked to mark as <b>General Production Labor</b> (not tied to a specific GH/PRJ).
+        </div>
+        <div id="empGHChips" class="emp-gh-chips"></div>
       </div>
-      <div id="empGHChips" class="emp-gh-chips"></div>
 
       <!-- Personal Details -->
       <div class="emp-section-title">📇 Personal Details</div>
@@ -5535,6 +5544,19 @@ td.critical-blink,div.critical-blink,span.critical-blink,
         </div>
       </div>
 
+      <!-- v2.84 — Family / Dependents -->
+      <div class="emp-section-title">👨‍👩‍👧 Family / Dependents</div>
+      <div class="emp-grid">
+        <div class="emp-field"><label class="field-label">Number of Children</label>
+          <input type="number" min="0" step="1" class="users-input" id="empNumChildren" placeholder="0" onchange="onEmpNumChildrenChange()" oninput="onEmpNumChildrenChange()">
+        </div>
+        <div class="emp-field" style="grid-column:span 2"><label class="field-label">Spouse Name (optional)</label>
+          <input type="text" class="users-input" id="empSpouseName" placeholder="If married">
+        </div>
+      </div>
+      <div id="empDependentsList" style="margin-top:8px;font-size:12px;color:var(--text2);"></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:6px;">For BIR tax exemption tracking. Enter each dependent's name + birthday so the system can compute ages automatically.</div>
+
       <!-- Government IDs -->
       <div class="emp-section-title">🆔 Government IDs (Philippines)</div>
       <div class="emp-grid">
@@ -5543,6 +5565,11 @@ td.critical-blink,div.critical-blink,span.critical-blink,
         <div class="emp-field"><label class="field-label">Pag-IBIG (HDMF) Number</label><input type="text" class="users-input" id="empHDMF" placeholder="XXXX-XXXX-XXXX"></div>
         <div class="emp-field"><label class="field-label">TIN (Tax ID)</label><input type="text" class="users-input" id="empTIN" placeholder="XXX-XXX-XXX-XXX"></div>
       </div>
+
+      <!-- v2.84 — 201 File Library -->
+      <div class="emp-section-title">📁 201 File — Documents Library</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Scanned documents, certificates, memos, performance reviews and other employee records. Stored privately, admin access only.</div>
+      <div id="emp201Summary" style="padding:12px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2);">Save the employee first, then open their 201 file from the Employee List.</div>
 
       <!-- Notes -->
       <div class="emp-section-title">📝 Notes</div>
@@ -20860,6 +20887,7 @@ const DEPARTMENTS=[
   {id:'HELPERS',           name:'Helpers',                        icon:'🤝'},
   {id:'DRIVERS',           name:'Drivers',                        icon:'🚗'},
   {id:'MAINTENANCE',       name:'Maintenance',                    icon:'🔧'},
+  {id:'CONSTRUCTION',      name:'Construction',                   icon:'🏗️'},
   {id:'GENERAL',           name:'General',                        icon:'👥'},
   {id:'CONTRACTUAL',       name:'Contractual',                    icon:'📄'},
   {id:'MANAGEMENT',        name:'Management',                     icon:'👔'},
@@ -21243,7 +21271,15 @@ function openEmployeeModal(empId){
       const o=document.createElement('option');o.value=d.id;o.textContent=d.icon+' '+d.name;ds.appendChild(o);
     });
   }
-  // Populate GH chips
+  // v2.84 — Also populate "Manages Department" dropdown
+  const dm=document.getElementById('empDeptManages');
+  if(dm&&dm.options.length===0){
+    const blank=document.createElement('option');blank.value='';blank.textContent='— pick department —';dm.appendChild(blank);
+    DEPARTMENTS.forEach(d=>{
+      const o=document.createElement('option');o.value=d.id;o.textContent=d.icon+' '+d.name;dm.appendChild(o);
+    });
+  }
+  // Populate GH chips (greenhouses + projects)
   const ghWrap=document.getElementById('empGHChips');
   ghWrap.innerHTML=GREENHOUSES.map(g=>`<button class="emp-gh-chip" data-gh="${g}" onclick="toggleEmpGH(this,'${g}')">${g}</button>`).join('');
 
@@ -21253,7 +21289,7 @@ function openEmployeeModal(empId){
   if(empId){
     const emp=employees.find(e=>e.id===empId);
     if(!emp){showToast('Employee not found','warn');return;}
-    title.textContent='✏️ EDIT EMPLOYEE';
+    title.textContent='✏️ EDIT — '+(emp.name||emp.id);
     delBtn.style.display='';
     document.getElementById('empId').value=emp.id;
     document.getElementById('empId').readOnly=true;
@@ -21265,6 +21301,8 @@ function openEmployeeModal(empId){
     document.getElementById('empRole').value=emp.role||'Worker';
     document.getElementById('empType').value=emp.type||'Regular';
     document.getElementById('empTitle').value=emp.title||'';
+    // v2.84 — Manages department
+    if(dm)dm.value=emp.deptManages||'';
     // Load Pro Level from Training certs (separate storage)
     try{
       const cert=(typeof getEmpCert==='function')?getEmpCert(emp.id):null;
@@ -21289,6 +21327,16 @@ function openEmployeeModal(empId){
     document.getElementById('empLastWorkingDay').value=emp.lastWorkingDay||'';
     document.getElementById('empStatusReason').value=emp.statusReason||'';
     onEmpStatusChange();
+    // v2.84 — Family/Dependents
+    document.getElementById('empNumChildren').value=(emp.numChildren!==undefined&&emp.numChildren!==null)?emp.numChildren:'';
+    document.getElementById('empSpouseName').value=emp.spouseName||'';
+    _editingDependents=Array.isArray(emp.dependents)?JSON.parse(JSON.stringify(emp.dependents)):[];
+    renderDependentsList();
+    // v2.84 — refresh visibility
+    onEmpRoleChange();
+    onEmpDeptChange();
+    // v2.84 — 201 Files summary
+    refreshEmp201Summary(emp.id);
     // Photo
     _editingEmpPhoto=emp.photo||null;
     updateEmpPhotoPreview();
@@ -21302,7 +21350,7 @@ function openEmployeeModal(empId){
     delBtn.style.display='none';
     document.getElementById('empId').value=nextEmployeeId();
     document.getElementById('empId').readOnly=false;
-    ['empName','empNickname','empBirthday','empTitle','empRate','empDateHired','empAddress','empPhone','empEmail','empEmergName','empEmergPhone','empEmergRel','empSSS','empPHIC','empHDMF','empTIN','empNotes','empLastWorkingDay','empStatusReason'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+    ['empName','empNickname','empBirthday','empTitle','empRate','empDateHired','empAddress','empPhone','empEmail','empEmergName','empEmergPhone','empEmergRel','empSSS','empPHIC','empHDMF','empTIN','empNotes','empLastWorkingDay','empStatusReason','empNumChildren','empSpouseName'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
     document.getElementById('empStatus').value='Active';
     onEmpStatusChange();
     document.getElementById('empDept').value='PROD_TRAINEES';
@@ -21311,9 +21359,17 @@ function openEmployeeModal(empId){
     document.getElementById('empCivilStatus').value='';
     document.getElementById('empLevel').value='1'; // New employees start at L1
     onEmpLevelChange();
+    if(dm)dm.value='';
+    _editingDependents=[];
+    renderDependentsList();
+    onEmpRoleChange();
+    onEmpDeptChange();
+    document.getElementById('emp201Summary').innerHTML='Save the employee first, then open their 201 file from the Employee List.';
     _editingEmpPhoto=null;
     updateEmpPhotoPreview();
   }
+  // Listen for dept change to update GH/Pro Level visibility
+  ds.onchange=onEmpDeptChange;
   modal.classList.add('open');
 }
 
@@ -21358,6 +21414,124 @@ function onEmpStatusChange(){
   if(!st||!block)return;
   const inactiveStatuses=['Resigned','Released','Terminated','Other','Archived'];
   block.style.display=inactiveStatuses.includes(st.value)?'block':'none';
+}
+
+// v2.84 — Department classification helpers
+const LABOR_TRAINING_DEPTS=['APTI_REGULAR','PROD_TRAINEES','PROD_LOGISTICS','PROD_EXTRA','PACKAGING','HELPERS','DRIVERS','MAINTENANCE','CONSTRUCTION','CONTRACTUAL'];
+const PRODUCTION_GH_DEPTS=['APTI_REGULAR','PROD_TRAINEES','PROD_EXTRA']; // departments that get GH/PRJ assignment
+function isLaborDept(deptId){ return LABOR_TRAINING_DEPTS.includes(deptId); }
+function isProductionDept(deptId){ return PRODUCTION_GH_DEPTS.includes(deptId); }
+
+// v2.84 — Role change: show/hide Manages-Department dropdown
+function onEmpRoleChange(){
+  const role=(document.getElementById('empRole')||{}).value||'';
+  const wrap=document.getElementById('empDeptManagesWrap');
+  if(!wrap)return;
+  wrap.style.display=(role==='Department Manager')?'block':'none';
+}
+
+// v2.84 — Department change: show/hide Pro Level and GH chips based on dept type
+function onEmpDeptChange(){
+  const dept=(document.getElementById('empDept')||{}).value||'';
+  // Pro Level — only for labor departments
+  const lvlSel=document.getElementById('empLevel');
+  if(lvlSel){
+    const lvlField=lvlSel.closest('.emp-field');
+    if(lvlField)lvlField.style.display=isLaborDept(dept)?'':'none';
+    // Also hide the level rate hint
+    const hint=document.getElementById('empLevelHint');
+    if(hint)hint.style.display=isLaborDept(dept)?'':'none';
+  }
+  // GH/PRJ chips — only for Production departments
+  const ghSec=document.getElementById('empGHSection');
+  if(ghSec)ghSec.style.display=isProductionDept(dept)?'':'none';
+}
+
+// v2.84 — Number of children → reconcile dependents list size
+let _editingDependents=[];
+function onEmpNumChildrenChange(){
+  const n=Math.max(0,parseInt((document.getElementById('empNumChildren')||{}).value||'0')||0);
+  if(!Array.isArray(_editingDependents))_editingDependents=[];
+  // Grow or shrink the list to match the count
+  while(_editingDependents.length<n){
+    _editingDependents.push({name:'',birthday:'',address:'',phone:''});
+  }
+  if(_editingDependents.length>n)_editingDependents.length=n;
+  renderDependentsList();
+}
+function renderDependentsList(){
+  const wrap=document.getElementById('empDependentsList');
+  if(!wrap)return;
+  if(!Array.isArray(_editingDependents)||_editingDependents.length===0){
+    wrap.innerHTML='<div style="font-size:11px;color:var(--text3);font-style:italic;">No dependents — set "Number of Children" above to add entries.</div>';
+    return;
+  }
+  wrap.innerHTML='<div style="display:flex;flex-direction:column;gap:8px;">'+_editingDependents.map((d,i)=>{
+    let age='';
+    if(d.birthday){
+      const b=new Date(d.birthday);
+      if(!isNaN(b)){
+        const diff=Date.now()-b.getTime();
+        age=Math.floor(diff/(365.25*24*3600*1000))+' yrs';
+      }
+    }
+    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;display:grid;grid-template-columns:1fr 130px 1fr 130px;gap:8px;align-items:end;">
+      <div><label class="field-label" style="font-size:10px;">Child #${i+1} Name</label><input type="text" class="users-input" value="${escapeHtml(d.name||'')}" onchange="_setDependentField(${i},'name',this.value)" placeholder="Full name"></div>
+      <div><label class="field-label" style="font-size:10px;">Birthday ${age?'· '+age:''}</label><input type="date" class="users-input" value="${d.birthday||''}" onchange="_setDependentField(${i},'birthday',this.value)"></div>
+      <div><label class="field-label" style="font-size:10px;">Address (optional)</label><input type="text" class="users-input" value="${escapeHtml(d.address||'')}" onchange="_setDependentField(${i},'address',this.value)" placeholder="If different from employee"></div>
+      <div><label class="field-label" style="font-size:10px;">Phone (optional)</label><input type="text" class="users-input" value="${escapeHtml(d.phone||'')}" onchange="_setDependentField(${i},'phone',this.value)" placeholder="+63..."></div>
+    </div>`;
+  }).join('')+'</div>';
+}
+function _setDependentField(idx,field,val){
+  if(!Array.isArray(_editingDependents))return;
+  if(!_editingDependents[idx])_editingDependents[idx]={};
+  _editingDependents[idx][field]=val;
+}
+
+// v2.84 — 201 Files (in-modal summary, full library via separate button)
+function refreshEmp201Summary(empId){
+  const wrap=document.getElementById('emp201Summary');
+  if(!wrap)return;
+  try{
+    const docs=(typeof load201Docs==='function')?(load201Docs()[empId]||{}):{};
+    const customDocs=(typeof load201Custom==='function')?(load201Custom()[empId]||[]):[];
+    const docCount=Object.keys(docs).filter(k=>docs[k]&&docs[k].present).length;
+    const customCount=customDocs.length;
+    const memos=(typeof load201Memos==='function')?(load201Memos()[empId]||[]):[];
+    const memoCount=memos.length;
+    wrap.innerHTML=`
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div style="display:flex;gap:18px;font-size:12px;color:var(--text2);">
+          <span><b style="color:var(--gold);">${docCount}</b> standard docs</span>
+          <span><b style="color:var(--accent2);">${customCount}</b> custom docs</span>
+          <span><b style="color:var(--info);">${memoCount}</b> memos archived</span>
+        </div>
+        <button class="btn btn-outline" style="font-size:11px;padding:6px 12px;" onclick="document.getElementById('empModal').classList.remove('open');setTimeout(function(){if(typeof _hr201SelectedId!=='undefined'){_hr201SelectedId='${empId}';}switchView('hr_201');},120);">📁 Open Full 201 File →</button>
+      </div>`;
+  }catch(e){
+    wrap.innerHTML='<div style="font-size:12px;color:var(--text3);">201 file module not initialized yet.</div>';
+  }
+}
+// Minimal loaders that mirror existing 201 module storage keys (safe even if module not loaded yet)
+function load201Docs(){try{return JSON.parse(localStorage.getItem('hydroPro_hr_201_docs')||'{}');}catch(e){return{};}}
+function load201Custom(){try{return JSON.parse(localStorage.getItem('hydroPro_hr_201_custom')||'{}');}catch(e){return{};}}
+function load201Memos(){try{return JSON.parse(localStorage.getItem('hydroPro_hr_201_memos_v1')||'{}');}catch(e){return{};}}
+function save201Memos(obj){localStorage.setItem('hydroPro_hr_201_memos_v1',JSON.stringify(obj||{}));}
+// Auto-archive an issued memo to the recipient's 201 file
+function archiveMemoTo201(empId,memoObj){
+  if(!empId||!memoObj)return;
+  const all=load201Memos();
+  if(!all[empId])all[empId]=[];
+  all[empId].push({
+    id:memoObj.id||('memo_'+Date.now().toString(36)),
+    type:memoObj.kind||memoObj.type||'memo',
+    amount:memoObj.amount||0,
+    reason:memoObj.reason||memoObj.note||'',
+    date:memoObj.date||memoObj.createdAt||new Date().toISOString(),
+    addedAt:Date.now()
+  });
+  save201Memos(all);
 }
 
 function toggleEmpGH(btn,gh){
@@ -21433,6 +21607,11 @@ function saveEmployee(){
   if(name.indexOf(',')===-1){if(!confirm('Name should be in LASTNAME, FIRSTNAME format. Save anyway?'))return;}
   // Check ID collision (new only)
   if(!_editingEmpId&&employees.some(e=>e.id===id)){showToast('Employee ID already exists','warn');return;}
+  // v2.84 — Department Manager must pick a department they manage
+  if(role==='Department Manager'){
+    const mgDept=(document.getElementById('empDeptManages')||{}).value||'';
+    if(!mgDept){showToast('Department Manager — pick which department they manage','warn');return;}
+  }
   // Collect GH assignments
   const ghChips=document.querySelectorAll('#empGHChips .emp-gh-chip.active');
   const ghAssigned=Array.from(ghChips).map(c=>c.dataset.gh);
@@ -21470,6 +21649,12 @@ function saveEmployee(){
     notes:document.getElementById('empNotes').value.trim(),
     lastWorkingDay:document.getElementById('empLastWorkingDay')?document.getElementById('empLastWorkingDay').value:'',
     statusReason:document.getElementById('empStatusReason')?document.getElementById('empStatusReason').value.trim():'',
+    // v2.84 — Manages dept (when role = Department Manager)
+    deptManages:(document.getElementById('empDeptManages')&&document.getElementById('empRole').value==='Department Manager')?document.getElementById('empDeptManages').value:'',
+    // v2.84 — Family / Dependents
+    numChildren:parseInt(document.getElementById('empNumChildren').value)||0,
+    spouseName:(document.getElementById('empSpouseName')||{}).value?document.getElementById('empSpouseName').value.trim():'',
+    dependents:Array.isArray(_editingDependents)?_editingDependents.filter(d=>d&&(d.name||d.birthday)):[],
     updatedAt:Date.now(),
     updatedBy:(getCurrentUser()||{}).username||'unknown'
   };
@@ -29195,6 +29380,73 @@ const TRAINING_LEVELS=[
   {id:5, name:'Production Supervisor / Team Leader',      focus:'Management, delegation, strategic planning, and advanced crop health diagnosis.',                    color:'#ffc107'}
 ];
 
+// v2.84 — Per-department training ladders. Each labor department has its own L1-L5 names/focus.
+// Default fallback = the existing Production ladder above.
+const TRAINING_LEVELS_BY_DEPT={
+  'APTI_REGULAR': TRAINING_LEVELS,
+  'PROD_TRAINEES': TRAINING_LEVELS,
+  'PROD_EXTRA': TRAINING_LEVELS,
+  'PROD_LOGISTICS': [
+    {id:1, name:'Loader / Helper',          focus:'Loading, unloading, basic handling.',                          color:'#4caf50'},
+    {id:2, name:'Picker / Stocker',          focus:'Order picking, stock placement, FIFO discipline.',              color:'#42a5f5'},
+    {id:3, name:'Route Specialist',          focus:'Independent runs, customer delivery, paperwork.',               color:'#ab47bc'},
+    {id:4, name:'Lead Logistics Coord.',     focus:'Route planning, multi-vehicle coordination.',                   color:'#ff7043'},
+    {id:5, name:'Logistics Manager',         focus:'Fleet oversight, KPI tracking, vendor relations.',              color:'#ffc107'}
+  ],
+  'PACKAGING': [
+    {id:1, name:'Packaging Helper',          focus:'Bag assembly, basic packing, cleaning the line.',               color:'#4caf50'},
+    {id:2, name:'Line Operator',             focus:'Operating sealers, weight checks, label application.',          color:'#42a5f5'},
+    {id:3, name:'QC / Packer',               focus:'Quality control of finished bags, reject handling.',            color:'#ab47bc'},
+    {id:4, name:'Lead Packer',               focus:'Line balancing, training new helpers, downtime troubleshooting.', color:'#ff7043'},
+    {id:5, name:'Packaging Supervisor',      focus:'Daily targets, shift planning, supplier coordination.',         color:'#ffc107'}
+  ],
+  'HELPERS': [
+    {id:1, name:'General Helper',            focus:'Whatever needs doing — flexible support across operations.',    color:'#4caf50'},
+    {id:2, name:'Skilled Helper',            focus:'Familiar with multiple workflows, can sub for absent workers.', color:'#42a5f5'},
+    {id:3, name:'Multi-Skill Helper',        focus:'Trained in 3+ workflows, can run a station independently.',     color:'#ab47bc'},
+    {id:4, name:'Senior Helper / Trainer',   focus:'Trains new helpers, leads small ad-hoc teams.',                 color:'#ff7043'},
+    {id:5, name:'Helper Coordinator',        focus:'Allocates helpers across departments daily.',                   color:'#ffc107'}
+  ],
+  'DRIVERS': [
+    {id:1, name:'Driver Apprentice',         focus:'Learning routes with a senior driver. Vehicle care basics.',    color:'#4caf50'},
+    {id:2, name:'Solo Driver',               focus:'Authorized for solo runs on known routes.',                     color:'#42a5f5'},
+    {id:3, name:'Senior Driver',             focus:'All routes, customer service, basic vehicle troubleshooting.',  color:'#ab47bc'},
+    {id:4, name:'Lead Driver',               focus:'Schedules other drivers, handles complex multi-stop routes.',   color:'#ff7043'},
+    {id:5, name:'Fleet Coordinator',         focus:'Manages fleet maintenance, fuel, insurance, compliance.',       color:'#ffc107'}
+  ],
+  'MAINTENANCE': [
+    {id:1, name:'Maintenance Apprentice',    focus:'Basic tools, cleaning, simple repairs under supervision.',      color:'#4caf50'},
+    {id:2, name:'Mechanical Tech',           focus:'Pump/fan/motor repair, plumbing basics, leak fixing.',          color:'#42a5f5'},
+    {id:3, name:'Electrical/Plumbing Tech',  focus:'Wiring, sensors, controllers, irrigation systems.',             color:'#ab47bc'},
+    {id:4, name:'Lead Maintenance Tech',     focus:'Preventive maintenance schedules, supplier coordination.',      color:'#ff7043'},
+    {id:5, name:'Maintenance Manager',       focus:'Budget, CAPEX projects, contractor management.',                color:'#ffc107'}
+  ],
+  'CONSTRUCTION': [
+    {id:1, name:'Construction Helper',       focus:'Mixing, hauling, basic site cleanup, tool fetching.',           color:'#4caf50'},
+    {id:2, name:'Mason / Carpenter',         focus:'Block laying, framing, formwork basics.',                       color:'#42a5f5'},
+    {id:3, name:'Skilled Tradesman',         focus:'Welding, finishing, roofing, advanced framing.',                color:'#ab47bc'},
+    {id:4, name:'Site Foreman',              focus:'Day-to-day site management, materials tracking.',               color:'#ff7043'},
+    {id:5, name:'Project Manager',           focus:'Multi-site oversight, blueprints, budgets, contractors.',       color:'#ffc107'}
+  ],
+  'CONTRACTUAL': [
+    {id:1, name:'Apprentice Contractor',     focus:'New contractor, supervised work.',                              color:'#4caf50'},
+    {id:2, name:'Independent Contractor',    focus:'Trusted to work independently on standard tasks.',              color:'#42a5f5'},
+    {id:3, name:'Specialist Contractor',     focus:'Specialized skill recognized — preferred for complex jobs.',    color:'#ab47bc'},
+    {id:4, name:'Lead Contractor',           focus:'Brings their own crew for larger jobs.',                        color:'#ff7043'},
+    {id:5, name:'Master Contractor',         focus:'Long-term partner, multi-project relationship.',                color:'#ffc107'}
+  ]
+};
+// Helper to get the right ladder for a department (falls back to Production default)
+function getTrainingLevelsForDept(deptId){
+  return TRAINING_LEVELS_BY_DEPT[deptId]||TRAINING_LEVELS;
+}
+// Get the level name/focus for a (dept, level) pair
+function getLevelInfoForDept(deptId,levelId){
+  const ladder=getTrainingLevelsForDept(deptId);
+  return ladder.find(l=>l.id===levelId)||null;
+}
+
+
 const TRAINING_TASKS=[
   // === LEVEL 1 ===
   {id:'L1_GH_MONITOR', level:1, title:'Monitoring after entering the Greenhouse', critical:false, steps:[
@@ -29504,6 +29756,8 @@ function renderTrainMatrix(){
   // Filter
   let filtered=employees.filter(e=>{
     if(e.status&&e.status!=='Active')return false;
+    // v2.84 — Only labor departments have Pro Levels; exclude office staff
+    if(typeof isLaborDept==='function'&&!isLaborDept(e.dept))return false;
     return true;
   });
   if(_trainFilterLevel!=='all'){
@@ -29619,9 +29873,13 @@ function renderTrainMatrix(){
         <option value="all" ${_trainFilterLevel==='all'?'selected':''}>All Levels</option>
         ${TRAINING_LEVELS.map(l=>`<option value="${l.id}" ${_trainFilterLevel===String(l.id)?'selected':''}>Level ${l.id}: ${l.name.split('/')[0].trim()}</option>`).join('')}
       </select>
-      <select class="cl-fac-select" onchange="_trainFilterDept=this.value;renderTrainMatrix();">
-        <option value="all" ${_trainFilterDept==='all'?'selected':''}>All Departments</option>
-        ${depts.map(d=>`<option value="${d}" ${_trainFilterDept===d?'selected':''}>${d}</option>`).join('')}
+      <select class="cl-fac-select" onchange="_trainFilterDept=this.value;renderTrainMatrix();" title="Filter by department — only labor departments shown (Office staff have no Pro Level)">
+        <option value="all" ${_trainFilterDept==='all'?'selected':''}>All Labor Departments</option>
+        ${(typeof LABOR_TRAINING_DEPTS!=='undefined'?LABOR_TRAINING_DEPTS:depts).map(d=>{
+          const info=(typeof DEPARTMENTS!=='undefined'&&Array.isArray(DEPARTMENTS))?DEPARTMENTS.find(x=>x.id===d):null;
+          const label=info?(info.icon+' '+info.name):d;
+          return `<option value="${d}" ${_trainFilterDept===d?'selected':''}>${label}</option>`;
+        }).join('')}
       </select>
       <select class="cl-fac-select" onchange="_trainFilterGH=this.value;renderTrainMatrix();">
         <option value="all" ${_trainFilterGH==='all'?'selected':''}>All GHs</option>
@@ -54397,6 +54655,16 @@ function _saveMemoInternal(newStatus){
   }
   saveMemos();
   audit('memo_save',`Memo ${m.id} saved as ${newStatus}: ${m.title}`);
+  // v2.84 — Auto-archive to 201 file when memo is finalized (status='pending')
+  try{
+    if(newStatus==='pending'&&typeof archiveMemoTo201==='function'){
+      // Memos can affect multiple employees; archive to each
+      const empIds=Array.isArray(m.employees)?m.employees:(m.employee?[m.employee]:(m.empId?[m.empId]:[]));
+      empIds.forEach(eid=>{
+        if(eid)archiveMemoTo201(eid,m);
+      });
+    }
+  }catch(e){console.warn('memo→201 archive failed',e);}
   closeMemoModal();
   renderMemos();
   showToast(newStatus==='pending'?'✓ Memo saved & pending signatures':'✓ Memo saved as draft','ok');
@@ -98423,7 +98691,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const b = document.createElement('div');
     b.id = 'hnxExtBadge';
     b.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:.12em;color:#80e885;background:rgba(2,8,18,.85);border:1px solid rgba(102,187,106,.45);border-radius:999px;padding:4px 10px;text-transform:uppercase;cursor:pointer;user-select:none';
-    b.textContent = '✓ HNX-EXT v2.83 · click for diag';
+    b.textContent = '✓ HNX-EXT v2.84 · click for diag';
     b.title = 'HydroNexis-AI Extensions Pack — click for diagnostics + force inject';
     // Also stamp the master topbar version pill so user can see at a glance
     function stampTopbar(){
@@ -98432,7 +98700,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.83';
+        vEl.textContent = orig + ' · HNX v2.84';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -98447,7 +98715,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       const myBlock = document.getElementById('hnxBrainEnhanceBlock');
       const modKey = (window.currentModule || (typeof currentModule !== 'undefined' ? currentModule : '') || '').toLowerCase();
       const action = confirm(
-        'HNX-EXT v2.83 Diagnostics:\n\n' +
+        'HNX-EXT v2.84 Diagnostics:\n\n' +
         '─── BASIC ───\n' +
         'MODULES accessible: ' + (typeof MODULES !== 'undefined') + '\n' +
         'renderModuleHeader patched: ' + !!window._hnxRMHPatched + '\n' +
@@ -127662,6 +127930,6 @@ body.hnx-mobile-locked { overflow: hidden; }
   console.log('[HNX] Payroll v2.82 — native SSS/PHIC/HDMF split + editable overrides + Office 11-25/26-10 — ready');
 })();
 </script>
-<!-- ===================== END HNX v2.83 ===================== -->
+<!-- ===================== END HNX v2.84 ===================== -->
 </body>
 </html>
