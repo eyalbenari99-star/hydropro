@@ -21507,7 +21507,7 @@ function refreshEmp201Summary(empId){
           <span><b style="color:var(--accent2);">${customCount}</b> custom docs</span>
           <span><b style="color:var(--info);">${memoCount}</b> memos archived</span>
         </div>
-        <button class="btn btn-outline" style="font-size:11px;padding:6px 12px;" onclick="document.getElementById('empModal').classList.remove('open');setTimeout(function(){if(typeof _hr201SelectedId!=='undefined'){_hr201SelectedId='${empId}';}switchView('hr_201');},120);">📁 Open Full 201 File →</button>
+        <button class="btn btn-outline" style="font-size:11px;padding:6px 12px;" onclick="_openFull201ForEmployee('${empId}')">📁 Open Full 201 File →</button>
       </div>`;
   }catch(e){
     wrap.innerHTML='<div style="font-size:12px;color:var(--text3);">201 file module not initialized yet.</div>';
@@ -21533,6 +21533,23 @@ function archiveMemoTo201(empId,memoObj){
   });
   save201Memos(all);
 }
+
+// v2.85.1 — Reliable handler for "Open Full 201 File" button in employee modal
+window._openFull201ForEmployee=function(empId){
+  // 1. Close the employee modal
+  const modal=document.getElementById('empModal');
+  if(modal)modal.classList.remove('open');
+  // 2. Set the selected employee on window so renderHr201 will pick it up
+  window._hr201SelectedId=empId;
+  // 3. Switch to the 201 view (which will call renderHr201)
+  setTimeout(function(){
+    if(typeof switchView==='function'){
+      switchView('hr_201');
+    } else if(typeof renderHr201==='function'){
+      renderHr201();
+    }
+  },120);
+};
 
 function toggleEmpGH(btn,gh){
   btn.classList.toggle('active');
@@ -84912,17 +84929,18 @@ function _hrEmpStatus(emp,docs,docState){
   return {status,missingCrit,missingNonCrit,present,total:docs.length,missingFields};
 }
 
-let _hr201SelectedId=null;
+// v2.85.1 — Made global on window so inline onclick handlers (e.g. from employee modal) can set it
+window._hr201SelectedId=null;
 
 window.renderHr201=function(){
   let view=document.getElementById('view-hr_201');
   if(!view){view=document.createElement('div');view.className='view';view.id='view-hr_201';(document.getElementById('appMain')||document.body).appendChild(view);}
   /* v2.46.158 force-active removed — switchView owns view activation, watchdog enforces */
   const employees=_hrLoadEmployees();
-  if(_hr201SelectedId){
-    const emp=employees.find(e=>e.id===_hr201SelectedId);
+  if(window._hr201SelectedId){
+    const emp=employees.find(e=>e.id===window._hr201SelectedId);
     if(emp){view.innerHTML=_hr201Detail(emp);return;}
-    _hr201SelectedId=null;
+    window._hr201SelectedId=null;
   }
   // Compute summary status per employee
   const allDocs=_hrLoad(HR_201_DOCS_KEY);
@@ -84945,7 +84963,7 @@ window.renderHr201=function(){
     const e=s.emp;const st=s.status;
     const color=st.status==='critical'?'var(--danger)':st.status==='warning'?'var(--warn)':'var(--ok)';
     const icon=st.status==='critical'?'✕':st.status==='warning'?'⚠':'✓';
-    return `<tr style="cursor:pointer;border-left:3px solid ${color};transition:background 0.15s;" onmouseover="this.style.background='var(--surface3)';" onmouseout="this.style.background='';" onclick="_hr201SelectedId='${e.id}';renderHr201();">
+    return `<tr style="cursor:pointer;border-left:3px solid ${color};transition:background 0.15s;" onmouseover="this.style.background='var(--surface3)';" onmouseout="this.style.background='';" onclick="window._hr201SelectedId='${e.id}';renderHr201();">
       <td style="font-weight:600;">${(e.name||'').replace(/[<>]/g,'')}</td>
       <td style="font-size:11px;font-family:var(--mono);">${e.dept||'—'}</td>
       <td style="font-size:11px;">${e.type||'Regular'}</td>
@@ -84954,7 +84972,7 @@ window.renderHr201=function(){
       <td style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--ok);">${st.present}/${st.total}</td>
       <td style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--danger);">${st.missingCrit}</td>
       <td style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--warn);">${st.missingNonCrit}</td>
-      <td style="text-align:right;"><button class="btn btn-primary" style="font-size:11px;padding:5px 12px;" onclick="event.stopPropagation();_hr201SelectedId='${e.id}';renderHr201();">📁 Open 201 →</button></td>
+      <td style="text-align:right;"><button class="btn btn-primary" style="font-size:11px;padding:5px 12px;" onclick="event.stopPropagation();window._hr201SelectedId='${e.id}';renderHr201();">📁 Open 201 →</button></td>
     </tr>`;
   }).join('');
 
@@ -85015,7 +85033,7 @@ function _hr201Detail(emp){
   const fieldRows=st.missingFields.map(f=>`<li>${f.label}${f.critical?' <span style="color:var(--danger);font-weight:700;">[CRITICAL]</span>':''}</li>`).join('');
 
   return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
-    <button class="btn btn-outline" onclick="_hr201SelectedId=null;renderHr201();">← All employees</button>
+    <button class="btn btn-outline" onclick="window._hr201SelectedId=null;renderHr201();">← All employees</button>
     <div style="font-size:18px;font-weight:700;">📁 ${(emp.name||'').replace(/[<>]/g,'')} <span style="font-size:11px;color:var(--text3);font-family:var(--mono);">· ${emp.dept||''} · ${emp.type||'Regular'}</span></div>
     <div></div>
   </div>
