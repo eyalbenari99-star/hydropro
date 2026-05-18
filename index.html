@@ -69825,7 +69825,7 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.256-storage-cleanup';  // 🔧 v2.85.5 — Auto-cleanup of redundant backup system. Previously TWO backup systems ran in parallel (hydroPro_autobackup_* keeping 7 days + hydroPro_backup_* keeping 30 days), which caused localStorage to fill up to 5-15 MB after a few weeks of use, slowing the app to a crawl for all users. v2.85.5 disables the redundant System #2, reduces System #1 retention from 7 to 3 days, adds one-time cleanup that silently removes existing hydroPro_backup_* keys from each user's localStorage on first load (typically frees 2-10 MB), and adds a storage watchdog that warns users when localStorage exceeds 5 MB. Net effect: app stays fast for all users permanently. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
+const APP_VERSION='2.46.257-loop-fix';  // 🔧 v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
 const APP_BUILD=1779820000;
 const APP_BUILD_DATE='2026-05-15';
 
@@ -83760,25 +83760,29 @@ function _getSeenBuild(){try{return Number(localStorage.getItem(SEEN_BUILD_KEY)|
 function _setSeenBuild(b){try{localStorage.setItem(SEEN_BUILD_KEY,String(b));}catch(e){}}
 
 // === LOOP DETECTION & KILL-SWITCH ===
-// If the page loads more than 3 times within 60 seconds, we treat it as a reload
-// loop and DISABLE all auto-update logic for the rest of the session. The user
-// can still manually click "Reload Now" if they want, but no auto-checks will fire.
+// v2.85.5 — Made detector less aggressive to prevent false triggers.
+// OLD: 4 loads in 60s, 24h lockout, broken "/fix.html" button (didn't exist).
+// NEW: 6 loads in 60s, 30min lockout, working "Clear & Continue" button.
+// Hard-refreshes (Cmd+Shift+R) are normal user behavior and should NOT trigger this.
 const LOOP_DETECT_KEY='hydroPro_reload_log';
 const LOOP_KILL_KEY='hydroPro_loop_kill';
+const LOOP_THRESHOLD=6;          // v2.85.5: was 4 — too aggressive
+const LOOP_WINDOW_MS=60000;      // 60s window
+const LOOP_LOCKOUT_MS=30*60*1000; // v2.85.5: was 24h — way too long
 function _logPageLoad(){
   try{
     const now=Date.now();
     let log=[];
     try{log=JSON.parse(sessionStorage.getItem(LOOP_DETECT_KEY)||'[]');}catch(e){}
-    log=log.filter(t=>now-t<60000);   // keep last minute only
+    log=log.filter(t=>now-t<LOOP_WINDOW_MS);   // keep last minute only
     log.push(now);
     sessionStorage.setItem(LOOP_DETECT_KEY,JSON.stringify(log));
-    // 4+ loads in 60s = loop. Kill auto-updates AND show a recovery banner.
-    if(log.length>=4){
+    // 6+ loads in 60s = loop. Kill auto-updates AND show a recovery banner.
+    if(log.length>=LOOP_THRESHOLD){
       localStorage.setItem(LOOP_KILL_KEY,String(now));
       _addonUpdateFound=true;   // suppress all further version checks
       _showLoopRecoveryBanner();
-      console.warn('[hydroPro] reload loop detected — auto-updates disabled this session');
+      console.warn('[hydroPro] reload loop detected — auto-updates disabled for 30 min');
     }
   }catch(e){}
 }
@@ -83788,10 +83792,10 @@ function _showLoopRecoveryBanner(){
     if(document.getElementById('loopRecoveryBanner'))return;
     const b=document.createElement('div');
     b.id='loopRecoveryBanner';
-    b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:99998;background:#b71c1c;color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,0.5);font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-weight:600;';
-    b.innerHTML=`⚠️ <span>Reload loop detected — auto-updates have been turned off. To get the latest version safely, click below.</span>
-      <a href="/fix.html" style="background:#fff;color:#b71c1c;text-decoration:none;padding:7px 14px;border-radius:6px;font-weight:700;font-size:12px;">Open Cache Repair</a>
-      <button onclick="document.getElementById('loopRecoveryBanner').remove();" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:7px 12px;border-radius:6px;cursor:pointer;font-weight:600;font-size:12px;">✕</button>`;
+    b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:99998;background:#b71c1c;color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,0.5);font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-weight:600;flex-wrap:wrap;';
+    b.innerHTML=`⚠️ <span>Reload loop detected — auto-updates paused for 30 minutes.</span>
+      <button onclick="try{localStorage.removeItem('hydroPro_loop_kill');sessionStorage.removeItem('hydroPro_reload_log');}catch(e){}document.getElementById('loopRecoveryBanner').remove();location.reload();" style="background:#fff;color:#b71c1c;border:none;padding:7px 14px;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;">🔄 Clear & Continue</button>
+      <button onclick="document.getElementById('loopRecoveryBanner').remove();" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:7px 12px;border-radius:6px;cursor:pointer;font-weight:600;font-size:12px;">✕ Dismiss</button>`;
     document.body.insertBefore(b,document.body.firstChild);
   };
   if(document.body)showIt();
@@ -83799,22 +83803,25 @@ function _showLoopRecoveryBanner(){
 }
 // Run on every page load
 _logPageLoad();
-// If a previous session set the kill-flag within the last 24h, leave auto-updates off
+// If a previous session set the kill-flag within the last 30 min, leave auto-updates off
 try{
   const killTs=Number(localStorage.getItem(LOOP_KILL_KEY)||0);
-  if(killTs&&Date.now()-killTs<24*60*60*1000){
+  if(killTs&&Date.now()-killTs<LOOP_LOCKOUT_MS){
     _addonUpdateFound=true;
     setTimeout(_showLoopRecoveryBanner,500);
+  } else if(killTs){
+    // Lockout expired — clean up the stale kill-flag so banner doesn't show next session
+    try{localStorage.removeItem(LOOP_KILL_KEY);}catch(e){}
   }
 }catch(e){}
 
 async function _checkVersionUpdate(){
   if(_addonUpdateChecking||_addonUpdateFound)return;
   if(/^file:/i.test(window.location.protocol||''))return;
-  // Respect kill-switch
+  // Respect kill-switch (v2.85.5: 30 min lockout, was 24h)
   try{
     const killTs=Number(localStorage.getItem(LOOP_KILL_KEY)||0);
-    if(killTs&&Date.now()-killTs<24*60*60*1000)return;
+    if(killTs&&Date.now()-killTs<LOOP_LOCKOUT_MS)return;
   }catch(e){}
   _addonUpdateChecking=true;
   try{
@@ -100507,7 +100514,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.85.5';
+        vEl.textContent = orig + ' · HNX v2.85.6';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
