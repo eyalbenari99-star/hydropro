@@ -69822,7 +69822,7 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.254-hr201-scope-fix';  // 🔧 v2.85.1 — Bug fix for "Open Full 201 File" button. The variable _hr201SelectedId was declared with `let` (block-scoped), so inline onclick="_hr201SelectedId=..." in the employee modal couldn't actually assign to it — the assignment was silently lost, and switchView('hr_201') always opened the empty list. Fixed by promoting to window._hr201SelectedId and adding a clean helper window._openFull201ForEmployee(empId) that the modal button now uses. All other internal references (renderHr201, back button, summary list row click, Open 201 button, matrix drill, asset table click) updated to use the window-scoped variable. Now clicking "📁 Open Full 201 File →" from the employee edit modal goes DIRECTLY to that employee's 201 detail page with all the drop-down sections, instead of landing on the unfiltered employee list. (Bug discovered May 18, 2026 in screenshots.)
+const APP_VERSION='2.46.255-no-import-btn';  // 🔧 v2.85.4 — Removed IMPORT 80 CAMERAS button entirely. v2.85.3 still showed the inline button inside CCTV Setup tabs, which cluttered the screen. Now the button is gone from all UI; import is still callable from console via window._hnxOpenAutoImport() if ever needed.
 const APP_BUILD=1779820000;
 const APP_BUILD_DATE='2026-05-15';
 
@@ -100412,7 +100412,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.85.2';
+        vEl.textContent = orig + ' · HNX v2.85.4';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -110732,47 +110732,14 @@ streams:
     }
   };
 
-  // Inject a giant button when on CCTV Setup · plus floating button (CCTV Setup only)
+  // v2.85.4 — REMOVED the inline button entirely. Import is still available via
+  // window._hnxOpenAutoImport() from console, but no UI button is rendered anywhere.
+  // Also clean up any old floating buttons that may still be in the DOM from older versions.
   function _hnxInjectImportButton(){
-    // Detect if we're on CCTV Setup view at all
-    const isOnCctvSetup = !!(
-      document.querySelector('.hnx-it-tabs') ||
-      document.querySelector('[class*="cctv-setup"]') ||
-      document.querySelector('.nav-tab.active')?.textContent?.toLowerCase().includes('cctv') ||
-      (document.title && document.title.toLowerCase().includes('cctv')) ||
-      document.body.textContent.includes('CCTV Setup · IT Control Panel')
-    );
-    const existingFloat = document.getElementById('hnxImpFloatBtn');
-
-    if(isOnCctvSetup){
-      // Show floating button ONLY when on CCTV Setup (inside Main & IT)
-      if(!existingFloat){
-        const fb = document.createElement('button');
-        fb.id = 'hnxImpFloatBtn';
-        fb.style.cssText = 'position:fixed;top:80px;right:20px;z-index:9990;padding:12px 20px;font-family:Orbitron,sans-serif;font-weight:800;font-size:12px;letter-spacing:.06em;background:linear-gradient(135deg,#66bb6a,#388e3c);color:#fff;border:2px solid #80e885;border-radius:8px;cursor:pointer;box-shadow:0 0 20px rgba(102,187,106,.60),0 4px 10px rgba(0,0,0,.40);animation:hnxImpPulse 2.2s ease-in-out infinite';
-        fb.innerHTML = '🚀 IMPORT 80 CAMERAS';
-        fb.title = 'One-click import 80 cameras from your spreadsheet';
-        fb.onclick = () => window._hnxOpenAutoImport();
-        document.body.appendChild(fb);
-      }
-    } else {
-      // Remove floating button when navigating away from CCTV Setup
-      if(existingFloat) existingFloat.remove();
-    }
-
-    // Plus the inline button in tabs area if it exists
-    if(!document.getElementById('hnxImpBigBtn')){
-      const anchor = document.querySelector('.hnx-it-tabs');
-      if(anchor){
-        const btn = document.createElement('button');
-        btn.id = 'hnxImpBigBtn';
-        btn.style.cssText = 'margin-left:auto;padding:8px 16px;font-family:Orbitron,sans-serif;font-weight:800;font-size:11.5px;letter-spacing:.06em;background:linear-gradient(135deg,#66bb6a,#388e3c);color:#fff;border:1px solid #80e885;border-radius:6px;cursor:pointer;box-shadow:0 0 14px rgba(102,187,106,.50);animation:hnxImpPulse 2.2s ease-in-out infinite';
-        btn.innerHTML = '🚀 IMPORT 80 CAMERAS';
-        btn.title = 'One-click import 80 cameras';
-        btn.onclick = () => window._hnxOpenAutoImport();
-        anchor.appendChild(btn);
-      }
-    }
+    const oldFloat = document.getElementById('hnxImpFloatBtn');
+    if(oldFloat) oldFloat.remove();
+    const oldBig = document.getElementById('hnxImpBigBtn');
+    if(oldBig) oldBig.remove();
   }
   setInterval(_hnxInjectImportButton, 1500);
 
