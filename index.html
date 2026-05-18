@@ -86701,14 +86701,26 @@ window._perfDiag=function(){
     const t=performance.now();
     if(typeof renderHr201==='function'){renderHr201();renderTimes.renderHr201=(performance.now()-t).toFixed(0);}
   }catch(e){renderTimes.renderHr201='ERROR';}
-  // === Cloud sync status ===
+  // === Cloud sync status (v2.85.6 — fixed: reads ACTUAL keys used by the real sync code) ===
   let cloudInfo={};
   try{
-    cloudInfo.lastPush=localStorage.getItem('hnx_cloud_last_push')||'never';
-    cloudInfo.lastPull=localStorage.getItem('hnx_cloud_last_pull')||'never';
-    cloudInfo.pushInterval=localStorage.getItem('hnx_cloud_push_interval')||'60s default';
-    cloudInfo.enabled=localStorage.getItem('hnx_cloud_enabled')||'unknown';
-  }catch(e){}
+    // Real keys (from hnx-cloud-js script): hnx_cloud_token + hnx_cloud_last
+    const hasToken=!!localStorage.getItem('hnx_cloud_token');
+    const lastSync=localStorage.getItem('hnx_cloud_last');
+    cloudInfo.connected=hasToken?'✅ YES (token saved)':'❌ NO (not logged in)';
+    cloudInfo.lastSync=lastSync||'never (no push/pull yet)';
+    cloudInfo.pushInterval='60s automatic';
+    // Live state from the HNX_Cloud module if loaded
+    if(window.HNX_Cloud&&window.HNX_Cloud.state){
+      cloudInfo.online=window.HNX_Cloud.state.online?'✅ Online':'❌ Offline';
+      cloudInfo.syncing=window.HNX_Cloud.state.syncing?'⏳ Syncing now…':'idle';
+      cloudInfo.lastError=window.HNX_Cloud.state.error||'none';
+    } else {
+      cloudInfo.online='unknown (HNX_Cloud not loaded)';
+      cloudInfo.syncing='unknown';
+      cloudInfo.lastError='unknown';
+    }
+  }catch(e){cloudInfo.error=e.message;}
   // === Storage warnings ===
   const warnings=[];
   if(totalBytes>9*1024*1024)warnings.push('⚠️ <b style="color:var(--danger);">localStorage near 10MB limit!</b> Browser will start throwing QuotaExceededError soon.');
@@ -86739,10 +86751,17 @@ window._perfDiag=function(){
 
       <div class="section-title" style="margin-top:16px;">🌩 Cloud Sync Status</div>
       <div style="background:var(--surface2);border-radius:8px;padding:12px;font-size:12px;font-family:var(--mono);">
-        Enabled: <b>${cloudInfo.enabled}</b><br>
-        Last push: <b>${cloudInfo.lastPush}</b><br>
-        Last pull: <b>${cloudInfo.lastPull}</b><br>
-        Push interval: <b>${cloudInfo.pushInterval}</b>
+        Connected: <b>${cloudInfo.connected||'unknown'}</b><br>
+        Last sync: <b>${cloudInfo.lastSync||'unknown'}</b><br>
+        Network: <b>${cloudInfo.online||'unknown'}</b><br>
+        State: <b>${cloudInfo.syncing||'unknown'}</b><br>
+        Last error: <b>${cloudInfo.lastError||'none'}</b><br>
+        Auto-push: <b>${cloudInfo.pushInterval||'60s'}</b>
+      </div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-outline" onclick="_perfTestPush()" style="color:var(--ok);font-size:11px;">⬆ Test Push Now</button>
+        <button class="btn btn-outline" onclick="_perfTestPull()" style="color:var(--ok);font-size:11px;">⬇ Test Pull Now</button>
+        <button class="btn btn-outline" onclick="_perfShowCloudState()" style="font-size:11px;">📊 Show Live State</button>
       </div>
 
       <div class="section-title" style="margin-top:16px;">📊 Top 20 Largest Keys</div>
@@ -86791,6 +86810,72 @@ window._perfResumeCloudSync=function(){
   localStorage.setItem('hnx_cloud_enabled','true');
   if(typeof showToast==='function')showToast('Cloud sync RESUMED. Reload to restart timer.','ok');
   _perfDiag();
+};
+
+// v2.85.6 — Cloud sync test functions
+window._perfTestPush=function(){
+  if(!window.HNX_Cloud){
+    alert('❌ Cloud sync module not loaded.\n\nThis means the cloud sync feature is missing from this build.');
+    return;
+  }
+  if(!localStorage.getItem('hnx_cloud_token')){
+    alert('❌ Not connected to cloud.\n\nClick the "Cloud" badge in the top-right corner of the page to log in first.');
+    return;
+  }
+  if(typeof showToast==='function')showToast('⏳ Pushing all data to cloud…','info');
+  window.HNX_Cloud.push()
+    .then(function(res){
+      if(typeof showToast==='function')showToast('✅ Push successful! Data saved to cloud.','ok');
+      console.log('[cloud push] success:',res);
+      setTimeout(_perfDiag,500);  // refresh diagnostic
+    })
+    .catch(function(err){
+      if(typeof showToast==='function')showToast('❌ Push failed: '+err.message,'err');
+      console.error('[cloud push] failed:',err);
+      alert('❌ Push failed:\n\n'+err.message+'\n\nCheck console for details.');
+    });
+};
+window._perfTestPull=function(){
+  if(!window.HNX_Cloud){
+    alert('❌ Cloud sync module not loaded.');
+    return;
+  }
+  if(!localStorage.getItem('hnx_cloud_token')){
+    alert('❌ Not connected to cloud.\n\nClick the "Cloud" badge in the top-right to log in first.');
+    return;
+  }
+  if(!confirm('⚠ Pull will OVERWRITE your local data with whatever is in the cloud.\n\nThis is normally what you want, but if you have unsaved changes only on this browser, push them FIRST (use "Test Push Now").\n\nContinue with pull?')){
+    return;
+  }
+  if(typeof showToast==='function')showToast('⏳ Pulling data from cloud…','info');
+  window.HNX_Cloud.pull()
+    .then(function(res){
+      const keyCount=res&&res.data?Object.keys(res.data).length:0;
+      if(typeof showToast==='function')showToast('✅ Pull successful! Got '+keyCount+' keys. Reload page to see changes.','ok');
+      console.log('[cloud pull] success:',res);
+      setTimeout(_perfDiag,500);
+    })
+    .catch(function(err){
+      if(typeof showToast==='function')showToast('❌ Pull failed: '+err.message,'err');
+      console.error('[cloud pull] failed:',err);
+      alert('❌ Pull failed:\n\n'+err.message);
+    });
+};
+window._perfShowCloudState=function(){
+  if(!window.HNX_Cloud){
+    alert('❌ Cloud sync module not loaded.');
+    return;
+  }
+  const state=window.HNX_Cloud.state||{};
+  const token=localStorage.getItem('hnx_cloud_token');
+  const last=localStorage.getItem('hnx_cloud_last');
+  alert('☁ CLOUD SYNC LIVE STATE\n\n'+
+    'Token saved: '+(token?'YES ('+token.substring(0,12)+'…)':'NO')+'\n'+
+    'Last sync timestamp: '+(last||'never')+'\n'+
+    'Online: '+(state.online?'yes':'no')+'\n'+
+    'Currently syncing: '+(state.syncing?'yes':'no')+'\n'+
+    'Last sync (ms): '+(state.lastSync||'never')+'\n'+
+    'Last error: '+(state.error||'none'));
 };
 window._perfClearAllScans=function(){
   if(!confirm('Clear ALL document scans?\n\nThis removes base64 PDF/image data from:\n- HR 201 docs (hr_201_docs)\n- Incident scans\n- Performance review scans\n- Job description scans\n- Contract scans\n- Waiver scans\n\nEmployee profile data stays. Doc CHECKLISTS stay (just the scans are removed).\n\nThis can free 5-50 MB. CANNOT be undone — export backup first if needed.'))return;
