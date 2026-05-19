@@ -100623,7 +100623,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p8';
+        vEl.textContent = orig + ' · HNX v2.86-p10';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -133563,6 +133563,390 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.86-p8-it-recurring ===================== -->
+
+<!-- ===================== HNX v2.86-p10-fix-recurring (INLINE) ===================== -->
+<script>
+/* ==============================================================================
+   HNX v2.86 P10 — Fix P8 + proper IT integration into existing hub
+   --------------------------------------------------------------------------
+   What this does:
+   1. UNHOOKS the P8 custom IT Recurring renderer (was off-pattern)
+   2. ADDS 22 IT tasks to the global RECURRING_TASKS array (proper schema)
+   3. EXTENDS RECURRING_TASKS items with optional photoReq + autoCall fields
+   4. PATCHES renderRecurringHub() to recognize 'it_recurring' view + add IT chip
+   5. WRAPS markRecurringDone to support:
+        - Photo required modal (if task.photoReq)
+        - Status modal (OK/Warning/Fail) with auto-raise IT call on fail
+   6. HOOKS switchView for it_recurring → properly calls renderRecurringHub()
+
+   Result: IT Recurring Tasks looks IDENTICAL to Maintenance/Irrigation/Logistics
+           Photo + auto-call features now available to ALL modules
+   ============================================================================== */
+(function HNX_v286_P10_FixRecurring() {
+  const VER = 'v2.86-p10-fix';
+  function log(...a){ console.log(`[${VER}]`, ...a); }
+  function warn(...a){ console.warn(`[${VER}]`, ...a); }
+
+  // ── 22 IT tasks in proper RECURRING_TASKS schema ──
+  // Weekly tasks spread Mon-Fri so they appear in "Today" view rotating
+  const IT_TASKS = [
+    // Weekly (5) - spread Mon-Fri
+    { id:'it_cctv_health',      name:'📹 CCTV health sweep — all cameras online',          freq:'once_per_week', owner:'IT', icon:'📹', cat:'IT-CCTV',     priority:'high',   schedule:{Mon:'site'},                                photoReq:false, autoCall:true,  module:'it' },
+    { id:'it_backup_verify',    name:'💾 Backup verification — test 1 restore',           freq:'once_per_week', owner:'IT', icon:'💾', cat:'IT-Servers',  priority:'high',   schedule:{Tue:'site'},                                photoReq:false, autoCall:true,  module:'it' },
+    { id:'it_disk_audit',       name:'💿 Disk space audit — DVRs/servers/NAS',            freq:'once_per_week', owner:'IT', icon:'💿', cat:'IT-Servers',  priority:'medium', schedule:{Wed:'site'},                                photoReq:false, autoCall:true,  module:'it' },
+    { id:'it_network_uptime',   name:'📊 Network uptime review',                          freq:'once_per_week', owner:'IT', icon:'📊', cat:'IT-Network',  priority:'medium', schedule:{Thu:'site'},                                photoReq:false, autoCall:false, module:'it' },
+    { id:'it_critical_alerts',  name:'🔍 Critical alerts review',                         freq:'once_per_week', owner:'IT', icon:'🔍', cat:'IT-Security', priority:'medium', schedule:{Fri:'site'},                                photoReq:false, autoCall:false, module:'it' },
+    // Monthly (7) - empty schedule (shown in Month/Stats)
+    { id:'it_server_patches',   name:'🔧 Server patches — Windows updates + restart',     freq:'monthly',       owner:'IT', icon:'🔧', cat:'IT-Servers',  priority:'medium', schedule:{},                                          photoReq:false, autoCall:false, module:'it' },
+    { id:'it_ups_battery',      name:'🔋 UPS battery load test',                          freq:'monthly',       owner:'IT', icon:'🔋', cat:'IT-Security', priority:'high',   schedule:{},                                          photoReq:true,  autoCall:true,  module:'it' },
+    { id:'it_cctv_lens',        name:'🧹 CCTV lens cleaning (outdoor cams)',              freq:'monthly',       owner:'IT', icon:'🧹', cat:'IT-CCTV',     priority:'medium', schedule:{},                                          photoReq:true,  autoCall:false, module:'it' },
+    { id:'it_server_room_hvac', name:'🌡 Server room HVAC + dust check',                  freq:'monthly',       owner:'IT', icon:'🌡', cat:'IT-Servers',  priority:'high',   schedule:{},                                          photoReq:true,  autoCall:true,  module:'it' },
+    { id:'it_av_db',            name:'🛡 Antivirus DB check on endpoints',                freq:'monthly',       owner:'IT', icon:'🛡', cat:'IT-Security', priority:'medium', schedule:{},                                          photoReq:false, autoCall:false, module:'it' },
+    { id:'it_user_audit',       name:'👤 User account audit — disable inactive',          freq:'monthly',       owner:'IT', icon:'👤', cat:'IT-Users',    priority:'medium', schedule:{},                                          photoReq:false, autoCall:false, module:'it' },
+    { id:'it_net_firmware',     name:'📡 Network firmware check — switches/APs',           freq:'monthly',       owner:'IT', icon:'📡', cat:'IT-Network',  priority:'medium', schedule:{},                                          photoReq:false, autoCall:false, module:'it' },
+    // Quarterly (5)
+    { id:'it_firewall_audit',   name:'🔥 Firewall rule audit — remove stale rules',       freq:'quarterly',     owner:'IT', icon:'🔥', cat:'IT-Security', priority:'medium', schedule:{},                                          photoReq:false, autoCall:false, module:'it' },
+    { id:'it_restore_drill',    name:'🔄 Full backup restore drill — 1 critical system',  freq:'quarterly',     owner:'IT', icon:'🔄', cat:'IT-Servers',  priority:'high',   schedule:{},                                          photoReq:true,  autoCall:true,  module:'it' },
+    { id:'it_cctv_coverage',    name:'📹 CCTV coverage review — blind spots?',            freq:'quarterly',     owner:'IT', icon:'📹', cat:'IT-CCTV',     priority:'medium', schedule:{},                                          photoReq:true,  autoCall:false, module:'it' },
+    { id:'it_cable_inspect',    name:'🔌 Cable inspection in racks',                      freq:'quarterly',     owner:'IT', icon:'🔌', cat:'IT-Network',  priority:'low',    schedule:{},                                          photoReq:true,  autoCall:false, module:'it' },
+    { id:'it_lifecycle_inv',    name:'💼 Hardware lifecycle inventory',                   freq:'quarterly',     owner:'IT', icon:'💼', cat:'IT-Devices',  priority:'low',    schedule:{},                                          photoReq:false, autoCall:false, module:'it' },
+    // Semi-annual (3)
+    { id:'it_dr_test',          name:'⚡ Full DR test — failover + failback',             freq:'semi_annual',   owner:'IT', icon:'⚡', cat:'IT-Servers',  priority:'high',   schedule:{},                                          photoReq:true,  autoCall:true,  module:'it' },
+    { id:'it_gen_test',         name:'🔌 Generator / UPS extended test',                  freq:'semi_annual',   owner:'IT', icon:'🔌', cat:'IT-Security', priority:'high',   schedule:{},                                          photoReq:true,  autoCall:true,  module:'it' },
+    { id:'it_phys_security',    name:'🔒 Physical security audit — IT room access logs',  freq:'semi_annual',   owner:'IT', icon:'🔒', cat:'IT-Security', priority:'medium', schedule:{},                                          photoReq:false, autoCall:false, module:'it' },
+    // Annual (2)
+    { id:'it_budget_plan',      name:'💰 IT budget review & next-year plan',              freq:'annual',        owner:'IT', icon:'💰', cat:'IT-Users',    priority:'low',    schedule:{},                                          photoReq:false, autoCall:false, module:'it' },
+    { id:'it_docs_refresh',     name:'📚 Documentation refresh — diagrams, IPs, runbooks', freq:'annual',        owner:'IT', icon:'📚', cat:'IT-Users',    priority:'low',    schedule:{},                                          photoReq:false, autoCall:false, module:'it' }
+  ];
+
+  // ── Push IT tasks into RECURRING_TASKS (idempotent) ──
+  function pushITTasks() {
+    if (!Array.isArray(window.RECURRING_TASKS)) {
+      warn('window.RECURRING_TASKS not ready — will retry');
+      return false;
+    }
+    let added = 0;
+    IT_TASKS.forEach(it => {
+      if (window.RECURRING_TASKS.findIndex(t => t.id === it.id) === -1) {
+        window.RECURRING_TASKS.push(it);
+        added++;
+      }
+    });
+    if (added) log(`Pushed ${added} IT tasks into RECURRING_TASKS (now ${window.RECURRING_TASKS.length} total)`);
+    return true;
+  }
+
+  // ── Patch renderRecurringHub to recognize 'it_recurring' view ──
+  // Strategy: wrap the original, set _recurringModuleFilter='it' before call when in it_recurring,
+  // then patch the chips DOM afterward to include IT chip.
+  function patchRenderRecurringHub() {
+    if (typeof window.renderRecurringHub !== 'function') return false;
+    if (window.renderRecurringHub._hnxP10Wrapped) return true;
+
+    const orig = window.renderRecurringHub;
+    window.renderRecurringHub = function() {
+      // If we're in it_recurring view, set the filter before original runs.
+      // The original's VIEW_TO_MODULE doesn't include 'it_recurring', so moduleViewKey
+      // will be null and the original won't OVERWRITE our filter. 
+      const cv = window.currentView || '';
+      if (cv === 'it_recurring') {
+        window._recurringModuleFilter = 'it';
+      }
+      const result = orig.apply(this, arguments);
+      // After render, inject IT chip into the module chips bar if visible
+      setTimeout(() => injectITChip(cv), 50);
+      return result;
+    };
+    window.renderRecurringHub._hnxP10Wrapped = true;
+    log('renderRecurringHub wrapped');
+    return true;
+  }
+
+  function injectITChip(cv) {
+    // Don't inject in production-only or other module-specific views (chips already hidden there)
+    if (cv && cv !== 'prod_recurring' && cv !== 'it_recurring') return;
+
+    // Find the module chips bar (it has buttons with text "Production", "Maintenance", etc.)
+    const buttons = document.querySelectorAll('button[onclick*="_setRecurringModuleFilter"]');
+    if (!buttons.length) return;
+
+    // Check if IT chip already exists
+    for (const b of buttons) {
+      if (b.getAttribute('onclick') && b.getAttribute('onclick').includes("'it'")) return; // already injected
+    }
+
+    // Build IT chip mimicking the existing chips' style
+    const curMod = window._recurringModuleFilter || 'production';
+    const active = (curMod === 'it');
+    const color = '#67c5ff';
+    const itCount = (window.RECURRING_TASKS || []).filter(t => {
+      try { return window.getTaskModule(t) === 'it'; } catch(e){ return false; }
+    }).length;
+
+    const chip = document.createElement('button');
+    chip.setAttribute('onclick', "_setRecurringModuleFilter('it')");
+    chip.style.cssText = `padding:6px 12px;border:1px solid ${active?color:'var(--border)'};border-radius:18px;background:${active?'rgba(255,255,255,0.04)':'transparent'};color:${active?color:'var(--text2)'};font-size:12px;font-weight:${active?'800':'600'};cursor:pointer;font-family:var(--sans);box-shadow:${active?'0 0 8px '+color+'33':'none'};transition:all 0.15s;`;
+    chip.innerHTML = `🖥 IT <span style="opacity:.65;font-family:var(--mono);font-size:11px;">(${itCount})</span>`;
+
+    // Insert after the last existing chip
+    const lastChip = buttons[buttons.length - 1];
+    if (lastChip.parentNode) {
+      lastChip.parentNode.insertBefore(chip, lastChip.nextSibling);
+    }
+  }
+
+  // ── Override switchView to handle it_recurring ──
+  function hookSwitchView() {
+    if (typeof window.switchView !== 'function') return false;
+    if (window.switchView._hnxP10Wrapped) return true;
+    const orig = window.switchView;
+    window.switchView = function(viewId, ...rest) {
+      // Set filter BEFORE the original runs (which renders the view)
+      if (viewId === 'it_recurring') {
+        window._recurringModuleFilter = 'it';
+      }
+      const result = orig.apply(this, [viewId, ...rest]);
+      // After view switch, call renderRecurringHub for IT (since the original system's
+      // switchView only triggers renderRecurringHub for maint/irr/log_recurring)
+      if (viewId === 'it_recurring') {
+        setTimeout(() => {
+          if (typeof window.renderRecurringHub === 'function') {
+            try { window.renderRecurringHub(); } catch(e) { warn('renderRecurringHub failed:', e); }
+          }
+        }, 80);
+      }
+      return result;
+    };
+    window.switchView._hnxP10Wrapped = true;
+    log('switchView wrapped for it_recurring');
+    return true;
+  }
+
+  // ── Wrap markRecurringDone for photoReq + autoCall ──
+  function wrapMarkRecurringDone() {
+    if (typeof window.markRecurringDone !== 'function') return false;
+    if (window.markRecurringDone._hnxP10Wrapped) return true;
+
+    const orig = window.markRecurringDone;
+    window.markRecurringDone = function(taskId, gh, opts) {
+      opts = opts || {};
+      const task = (window.RECURRING_TASKS || []).find(t => t.id === taskId);
+
+      // If task requires photo or supports autoCall, and we don't already have a status set,
+      // open the enhanced modal first.
+      // Skip modal if caller already provided status (e.g. from internal SOP completion code).
+      const needsModal = task && (task.photoReq || task.autoCall) && !opts._hnxP10HandledModal;
+      if (needsModal) {
+        openEnhancedMarkDoneModal(task, gh, (result) => {
+          if (!result) return; // user cancelled
+          // Call original with enriched opts
+          const enriched = Object.assign({}, opts, result, { _hnxP10HandledModal: true });
+          orig.call(window, taskId, gh, enriched);
+          // Auto-raise IT call if status=fail and autoCall enabled
+          if (result.status === 'fail' && task.autoCall) {
+            autoRaiseITCall(task, gh, result);
+          }
+        });
+        return null; // pending modal
+      }
+      return orig.call(window, taskId, gh, opts);
+    };
+    window.markRecurringDone._hnxP10Wrapped = true;
+    log('markRecurringDone wrapped');
+    return true;
+  }
+
+  // ── Enhanced modal: status + count + notes + photo ──
+  function ensureModal() {
+    if (document.getElementById('hnxP10Modal')) return;
+    injectModalStyles();
+    const m = document.createElement('div');
+    m.id = 'hnxP10Modal';
+    m.innerHTML = `<div class="p10m-card" id="hnxP10Card"></div>`;
+    m.addEventListener('click', (e) => { if (e.target === m) closeModal(); });
+    document.body.appendChild(m);
+  }
+  function closeModal() {
+    document.getElementById('hnxP10Modal')?.classList.remove('show');
+  }
+  function injectModalStyles() {
+    if (document.getElementById('hnxP10ModalStyles')) return;
+    const s = document.createElement('style');
+    s.id = 'hnxP10ModalStyles';
+    s.textContent = `
+      #hnxP10Modal{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:100003;display:none;align-items:center;justify-content:center;padding:20px;}
+      #hnxP10Modal.show{display:flex;}
+      .p10m-card{background:#0a1a14;border:2px solid #2eaa2e;border-radius:12px;padding:22px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;color:#9fffaf;font-family:JetBrains Mono,monospace;}
+      .p10m-title{font-size:17px;font-weight:800;color:#fff;margin-bottom:6px;}
+      .p10m-meta{font-size:11px;color:#7aa9aa;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;}
+      .p10m-field{margin-bottom:12px;}
+      .p10m-field > label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#7aa9aa;margin-bottom:5px;font-weight:600;}
+      .p10m-input,.p10m-textarea{width:100%;background:#06120a;border:1.5px solid #2eaa2e;color:#9fffaf;padding:8px 10px;border-radius:6px;font:inherit;font-size:13px;box-sizing:border-box;}
+      .p10m-textarea{min-height:70px;resize:vertical;}
+      .p10m-pills{display:flex;gap:8px;flex-wrap:wrap;}
+      .p10m-pill{padding:7px 14px;border-radius:18px;border:1.5px solid;cursor:pointer;font-weight:700;user-select:none;font-size:12px;transition:opacity .15s;}
+      .p10m-pill.off{opacity:.4;}
+      .p10m-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
+      .p10m-btn{padding:8px 14px;border-radius:6px;border:1.5px solid;background:transparent;color:inherit;font:inherit;font-size:12px;cursor:pointer;font-weight:700;}
+      .p10m-btn.primary{background:#2eaa2e;color:#000;border-color:#2eaa2e;}
+      .p10m-btn.primary:hover{filter:brightness(1.15);}
+      .p10m-warn{background:rgba(255,156,51,.1);border:1.5px solid #ff9c33;color:#ffb84d;padding:10px;border-radius:6px;font-size:12px;margin-bottom:10px;}
+    `;
+    document.head.appendChild(s);
+  }
+
+  function openEnhancedMarkDoneModal(task, gh, callback) {
+    ensureModal();
+    const card = document.getElementById('hnxP10Card');
+    card.innerHTML = `
+      <div class="p10m-title">✓ Mark Done: ${(task.name||'').replace(/[<>]/g,'')}</div>
+      <div class="p10m-meta">${task.id} · ${task.cat||''} · ${task.freq||''}${gh?' · '+gh:''}</div>
+
+      <div class="p10m-field">
+        <label>Status *</label>
+        <div class="p10m-pills">
+          <span class="p10m-pill" data-st="ok"      style="border-color:#2eaa2e;color:#2eaa2e;background:rgba(46,170,46,.15);">✅ OK</span>
+          <span class="p10m-pill" data-st="warning" style="border-color:#ff9c33;color:#ff9c33;background:rgba(255,156,51,.15);">⚠️ Warning</span>
+          <span class="p10m-pill" data-st="fail"    style="border-color:#ff5555;color:#ff5555;background:rgba(255,85,85,.15);">🔴 Fail</span>
+        </div>
+      </div>
+
+      <div class="p10m-field">
+        <label>Count / measurement (optional)</label>
+        <input type="text" id="p10m_count" class="p10m-input" placeholder="e.g. 18/20 cameras online, 92% disk free">
+      </div>
+
+      <div class="p10m-field">
+        <label>Notes (optional)</label>
+        <textarea id="p10m_notes" class="p10m-textarea" placeholder="Observations, issues, next steps"></textarea>
+      </div>
+
+      <div class="p10m-field">
+        <label>📷 Photo${task.photoReq?' *':''} (URL or data: URI)</label>
+        <input type="text" id="p10m_photo" class="p10m-input" placeholder="${task.photoReq?'Required':'Optional'} — paste URL or skip">
+      </div>
+
+      ${task.autoCall ? '<div class="p10m-warn">🔗 If marked <strong>Fail</strong>, an IT call will be auto-raised in the Task Board.</div>' : ''}
+
+      <div class="p10m-actions">
+        <button class="p10m-btn primary" id="p10m_save">✓ Submit</button>
+        <button class="p10m-btn" id="p10m_cancel">Cancel</button>
+      </div>
+    `;
+    document.getElementById('hnxP10Modal').classList.add('show');
+
+    let chosen = 'ok';
+    function paint() {
+      document.querySelectorAll('.p10m-pill').forEach(p => p.classList.toggle('off', p.dataset.st !== chosen));
+    }
+    paint();
+    document.querySelectorAll('.p10m-pill').forEach(p => {
+      p.onclick = () => { chosen = p.dataset.st; paint(); };
+    });
+
+    document.getElementById('p10m_cancel').onclick = () => { closeModal(); callback(null); };
+    document.getElementById('p10m_save').onclick = () => {
+      const photo = document.getElementById('p10m_photo').value.trim();
+      if (task.photoReq && !photo) { alert('Photo required for this task.'); return; }
+      const result = {
+        status: chosen === 'ok' ? 'done' : chosen,  // 'done' = OK in existing system
+        statusRich: chosen,                          // keep the rich status separately
+        count: document.getElementById('p10m_count').value.trim(),
+        note: document.getElementById('p10m_notes').value.trim(),
+        photo: photo || null
+      };
+      closeModal();
+      callback(result);
+    };
+  }
+
+  // ── Auto-raise IT call when fail + autoCall ──
+  function autoRaiseITCall(task, gh, result) {
+    try {
+      const ISSUES_KEY = 'hydroPro_issues_v2';
+      const all = JSON.parse(localStorage.getItem(ISSUES_KEY) || '[]');
+      const u = (typeof getCurrentUser === 'function' ? getCurrentUser() : null);
+      const username = u ? (u.username || 'unknown') : 'unknown';
+      const userFullName = u ? (u.name || username) : username;
+      const now = Date.now();
+
+      const call = {
+        id: 'IT-' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '-' + Math.floor(Math.random()*900+100),
+        module: 'it',
+        type: 'call',
+        it_category: task.cat || null,
+        title: `🔴 Recurring FAIL: ${task.name}`,
+        description: `Auto-raised from IT Recurring Tasks.\n\nTask: ${task.name}\nFrequency: ${task.freq}\nWhere: ${gh||'site-wide'}\n\nStatus: FAIL\nCount/measurement: ${result.count||'—'}\nNotes: ${result.note||'(none)'}\nPhoto: ${result.photo||'(none)'}\n\nReported by: ${userFullName}`,
+        priority: 'urgent',
+        status: 'open',
+        createdBy: username,
+        createdByName: userFullName,
+        created_at: now,
+        assignedTo: null, assignedToName: null,
+        filed_for: null,
+        awaiting_approval_since: null,
+        rejection_count: 0,
+        manager_escalated: false,
+        approval_history: [],
+        attachments: result.photo ? [result.photo] : [],
+        history: [{ action:'created', by: username, at: now, source:'recurring_task_fail', sourceTaskId: task.id, sourceGh: gh||null }]
+      };
+      all.push(call);
+      localStorage.setItem(ISSUES_KEY, JSON.stringify(all));
+      try { if (typeof toast === 'function') toast(`🔴 IT call auto-raised: ${call.id}`); } catch(e){}
+      log(`Auto-raised IT call ${call.id} from recurring fail`);
+    } catch(e) {
+      warn('autoRaiseITCall failed:', e);
+    }
+  }
+
+  // ── Disable P8 custom UI by clearing the it_recurring view body if our P8 rendered there ──
+  // After P10 takes over, switchView('it_recurring') calls renderRecurringHub() which manages the view.
+  function disableP8Render() {
+    // Clear any stale P8 content
+    const body = document.getElementById('hnx-it_recurring-body');
+    if (body && body.parentNode) {
+      // Replace it with a placeholder that renderRecurringHub will fill in
+      body.parentNode.innerHTML = '';
+    }
+    // Note: We don't unhook P8's switchView wrapper completely (would require complex unwinding)
+    // Instead, our P10 hook runs AFTER P8 and overrides the rendered content.
+  }
+
+  // ── Main ──
+  function run() {
+    let tries = 0;
+    const iv = setInterval(() => {
+      tries++;
+      const ok1 = pushITTasks();
+      const ok2 = patchRenderRecurringHub();
+      const ok3 = hookSwitchView();
+      const ok4 = wrapMarkRecurringDone();
+      if ((ok1 && ok2 && ok3 && ok4) || tries > 30) {
+        clearInterval(iv);
+        if (ok1 && ok2 && ok3 && ok4) {
+          log('✅ P10 fully active — IT integrated into existing recurring hub');
+          // If currently on it_recurring, re-render via the unified hub
+          const active = document.querySelector('.view.active');
+          if (active && active.id === 'view-it_recurring' && typeof window.renderRecurringHub === 'function') {
+            window._recurringModuleFilter = 'it';
+            setTimeout(() => window.renderRecurringHub(), 100);
+          }
+        } else {
+          warn('P10 init incomplete after retries:', { ok1, ok2, ok3, ok4 });
+        }
+      }
+    }, 300);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run);
+  } else {
+    setTimeout(run, 700);
+  }
+})();
+</script>
+<!-- ===================== END HNX v2.86-p10-fix-recurring ===================== -->
 
 </body>
 </html>
