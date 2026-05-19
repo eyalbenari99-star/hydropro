@@ -100622,7 +100622,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p18';
+        vEl.textContent = orig + ' · HNX v2.86-p20';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -134337,6 +134337,763 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.86-p16-it-pulse-tiles ===================== -->
+
+<!-- ===================== HNX v2.86-p19-it-daily-checklist (INLINE) ===================== -->
+<script>
+/* ==============================================================================
+   HNX v2.86 P19 — IT Daily Checklist (functional)
+   ----
+   - 14 pre-loaded daily items split into Morning / Afternoon / EOD
+   - Each item: OK / Warning / Fail status + count/measurement + notes + photo
+   - File-upload items (e.g. attendance from fingerprint device)
+   - Auto-raise IT call on FAIL (with full context)
+   - Fingerprint device config wizard (captures device info for future direct integration)
+   - localStorage cloud-synced via HNX_SYNCED_KEYS
+   ============================================================================== */
+(function HNX_v286_P19_ITDailyChecklist() {
+  const VER = 'v2.86-p19-dck';
+  const ITCLR = '#67c5ff';
+  function log(...a){ console.log('['+VER+']',...a); }
+  function warn(...a){ console.warn('['+VER+']',...a); }
+
+  const ITEMS_KEY = 'hydroPro_it_checklist_items_v1';
+  const LOG_KEY   = 'hydroPro_it_checklist_log_v1';
+  const DEV_CFG_KEY = 'hydroPro_attendance_device_v1';
+  [ITEMS_KEY, LOG_KEY, DEV_CFG_KEY].forEach(k => {
+    try { if(Array.isArray(window.HNX_SYNCED_KEYS) && window.HNX_SYNCED_KEYS.indexOf(k)===-1) window.HNX_SYNCED_KEYS.push(k); } catch(e){}
+  });
+
+  const DEFAULT_ITEMS = [
+    // Morning
+    { id:'ck_cctv_online',   label:'All CCTV cameras online',          icon:'📹', section:'morning',   type:'count',  photoReq:false, autoCallOnFail:true,  hint:'Count of cameras showing live feed (e.g. 18/20)' },
+    { id:'ck_dvr_recording', label:'All DVRs recording (verify last night)', icon:'📺', section:'morning', type:'check', photoReq:false, autoCallOnFail:true,  hint:'Open DVR app, confirm last-night recordings exist' },
+    { id:'ck_server_temp',   label:'Server room temperature OK',       icon:'🌡', section:'morning',   type:'count',  photoReq:false, autoCallOnFail:true,  hint:'Reading from server-room thermometer (°C)' },
+    { id:'ck_internet',      label:'Internet uptime check',            icon:'🌐', section:'morning',   type:'check',  photoReq:false, autoCallOnFail:true,  hint:'Speedtest or check router uptime' },
+    { id:'ck_backup_run',    label:'Confirm last-night backup ran',    icon:'💾', section:'morning',   type:'check',  photoReq:false, autoCallOnFail:true,  hint:'Check backup log, verify completed' },
+    { id:'ck_radios_charged',label:'Radios charged & ready',           icon:'📻', section:'morning',   type:'count',  photoReq:false, autoCallOnFail:false, hint:'Count fully-charged radios' },
+    { id:'ck_rfid_readers',  label:'RFID readers operational',         icon:'🆔', section:'morning',   type:'check',  photoReq:false, autoCallOnFail:true,  hint:'Tap test card at each reader' },
+    { id:'ck_attendance_file',label:'Upload yesterday\'s attendance file', icon:'📁', section:'morning', type:'file', photoReq:false, autoCallOnFail:false, hint:'Export from fingerprint device → upload here' },
+    // Afternoon
+    { id:'ck_user_issues',   label:'Review user-reported IT issues',   icon:'🔍', section:'afternoon', type:'check',  photoReq:false, autoCallOnFail:false, hint:'Check helpdesk inbox & user reports' },
+    { id:'ck_security_alerts',label:'Check security alerts',           icon:'🛡', section:'afternoon', type:'check',  photoReq:false, autoCallOnFail:true,  hint:'Review camera alerts / access logs' },
+    { id:'ck_network_load',  label:'Network usage check',              icon:'📊', section:'afternoon', type:'check',  photoReq:false, autoCallOnFail:false, hint:'Look at switch/AP traffic — flag any spike' },
+    // End of day
+    { id:'ck_backup_tonight',label:'Tonight\'s backup scheduled',      icon:'💾', section:'eod',       type:'check',  photoReq:false, autoCallOnFail:true,  hint:'Verify backup task is queued / armed' },
+    { id:'ck_lock_it_room',  label:'Lock IT room',                     icon:'🔒', section:'eod',       type:'check',  photoReq:true,  autoCallOnFail:false, hint:'Photo of locked door' },
+    { id:'ck_power_down',    label:'Power down non-essential PCs',     icon:'📴', section:'eod',       type:'check',  photoReq:false, autoCallOnFail:false, hint:'Turn off office PCs (keep servers running)' }
+  ];
+
+  function uid(p){return p+'-'+Date.now()+'-'+Math.floor(Math.random()*899+100);}
+  function esc(s){return String(s==null?'':s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'})[c]);}
+  function load(k,f){try{const v=JSON.parse(localStorage.getItem(k)||'null');return v===null?f:v;}catch(e){return f;}}
+  function save(k,v){try{localStorage.setItem(k,JSON.stringify(v));try{if(typeof window.hnxScheduleSync==='function')window.hnxScheduleSync(k);}catch(e){}return true;}catch(e){warn(e);return false;}}
+  function curUser(){try{const u=(typeof getCurrentUser==='function'?getCurrentUser():null);return u?{username:u.username||'unknown',name:u.name||u.username||'unknown'}:{username:'unknown',name:'unknown'};}catch(e){return{username:'unknown',name:'unknown'};}}
+  function todayKey(){return new Date().toISOString().slice(0,10);}
+  function notify(m){try{if(typeof toast==='function')toast(m);}catch(e){}}
+
+  function getItems(){
+    let items = load(ITEMS_KEY,null);
+    if(!items){ items = DEFAULT_ITEMS.slice(); save(ITEMS_KEY,items); }
+    // Merge in any new default items not yet in user's saved list
+    DEFAULT_ITEMS.forEach(def => {
+      if(!items.some(x => x.id===def.id)) items.push(def);
+    });
+    return items;
+  }
+
+  function getTodayLog(){
+    const log = load(LOG_KEY,{});
+    if(!log[todayKey()]) log[todayKey()] = {};
+    return log;
+  }
+
+  // Auto-raise IT call when status=fail and autoCallOnFail
+  function autoRaiseCall(item, entry){
+    try {
+      const ISSUES_KEY = 'hydroPro_issues_v2';
+      const all = JSON.parse(localStorage.getItem(ISSUES_KEY) || '[]');
+      const u = curUser();
+      const now = Date.now();
+      const call = {
+        id: 'IT-DCK-'+ new Date().toISOString().slice(0,10).replace(/-/g,'')+'-'+Math.floor(Math.random()*900+100),
+        module: 'it', type: 'call',
+        it_category: 'IT-Other',
+        title: '🔴 Daily Checklist FAIL: '+item.label,
+        description: 'Auto-raised from IT Daily Checklist.\n\nItem: '+item.label+'\nSection: '+item.section+'\nDate: '+todayKey()+'\n\nStatus: FAIL\nCount/measurement: '+(entry.count||'—')+'\nNotes: '+(entry.notes||'(none)')+'\nReported by: '+u.name,
+        priority:'urgent', status:'open',
+        createdBy: u.username, createdByName: u.name, created_at: now,
+        assignedTo:null, assignedToName:null, filed_for:null,
+        awaiting_approval_since:null, rejection_count:0, manager_escalated:false,
+        approval_history:[],
+        attachments: entry.photo ? [entry.photo] : [],
+        history: [{action:'created', by:u.username, at:now, source:'daily_checklist_fail', sourceItemId:item.id}]
+      };
+      all.push(call);
+      localStorage.setItem(ISSUES_KEY, JSON.stringify(all));
+      try{if(typeof window.hnxScheduleSync==='function')window.hnxScheduleSync(ISSUES_KEY);}catch(e){}
+      notify('🔴 IT call auto-raised: '+call.id);
+    } catch(e){ warn('auto-raise fail:',e); }
+  }
+
+  function injectStyles(){
+    if(document.getElementById('hnxP19Styles')) return;
+    const s=document.createElement('style'); s.id='hnxP19Styles';
+    s.textContent = `
+      .p19-wrap{padding:14px;font-family:var(--mono);color:var(--text);}
+      .p19-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);}
+      .p19-title{font-size:18px;font-weight:800;color:${ITCLR};display:flex;align-items:center;gap:8px;}
+      .p19-sub{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-weight:600;}
+      .p19-btn{padding:7px 12px;border-radius:6px;border:1.5px solid ${ITCLR};background:transparent;color:${ITCLR};font-family:var(--mono);font-size:11px;font-weight:700;cursor:pointer;}
+      .p19-btn:hover{background:${ITCLR}22;}
+      .p19-btn.primary{background:${ITCLR};color:#000;}
+      .p19-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px;}
+      .p19-kpi-card{padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;text-align:center;}
+      .p19-kpi-num{font-size:22px;font-weight:800;color:${ITCLR};font-family:var(--mono);}
+      .p19-kpi-lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-top:2px;}
+      .p19-section{margin-top:18px;}
+      .p19-section-title{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;font-weight:700;margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid var(--border);}
+      .p19-item{background:var(--surface);border:1px solid var(--border);border-radius:9px;border-left:3px solid var(--border);padding:11px 13px;margin-bottom:8px;transition:all .2s;}
+      .p19-item.ok{border-left-color:#2eaa2e;}
+      .p19-item.warning{border-left-color:#ff9c33;}
+      .p19-item.fail{border-left-color:#ff5555;background:linear-gradient(90deg,rgba(255,85,85,0.05),transparent 70%);}
+      .p19-item-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+      .p19-item-icon{font-size:18px;}
+      .p19-item-label{font-weight:700;font-size:13px;color:var(--text);flex:1;}
+      .p19-item-hint{font-size:10px;color:var(--text3);margin-bottom:8px;margin-left:26px;}
+      .p19-item-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center;}
+      .p19-pill{padding:5px 10px;border-radius:14px;border:1.5px solid;cursor:pointer;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.4px;user-select:none;transition:opacity .15s;}
+      .p19-pill.off{opacity:.35;}
+      .p19-pill[data-st="ok"]{border-color:#2eaa2e;color:#2eaa2e;background:rgba(46,170,46,0.1);}
+      .p19-pill[data-st="warning"]{border-color:#ff9c33;color:#ff9c33;background:rgba(255,156,51,0.1);}
+      .p19-pill[data-st="fail"]{border-color:#ff5555;color:#ff5555;background:rgba(255,85,85,0.1);}
+      .p19-input,.p19-textarea{background:#06120a;border:1.5px solid ${ITCLR};color:#cfe8ff;padding:5px 8px;border-radius:5px;font-family:var(--mono);font-size:11px;}
+      .p19-input.compact{width:140px;}
+      .p19-textarea{width:100%;min-height:48px;resize:vertical;margin-top:5px;}
+      .p19-file-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;}
+      .p19-file-status{font-size:11px;color:#2eaa2e;}
+      .p19-progress-bar{height:8px;background:var(--surface);border-radius:4px;overflow:hidden;margin-bottom:14px;border:1px solid var(--border);}
+      .p19-progress-fill{height:100%;background:linear-gradient(90deg,#2eaa2e,${ITCLR});transition:width .4s;}
+    `;
+    document.head.appendChild(s);
+  }
+
+  function render(){
+    const body=document.getElementById('hnx-it_daily_checklist-body');
+    if(!body){return;}
+    injectStyles();
+    const items=getItems();
+    const log=getTodayLog();
+    const today=log[todayKey()];
+    const total=items.length;
+    let done=0, ok=0, warning=0, fail=0;
+    items.forEach(it=>{
+      const e=today[it.id];
+      if(e&&e.status){done++; if(e.status==='ok')ok++; else if(e.status==='warning')warning++; else if(e.status==='fail')fail++;}
+    });
+    const pct=total?Math.round((done/total)*100):0;
+
+    function sectionHeader(key,label,icon){
+      const inSec=items.filter(x=>x.section===key);
+      const doneInSec=inSec.filter(x=>today[x.id]&&today[x.id].status).length;
+      return `<div class="p19-section-title">${icon} ${label} (${doneInSec}/${inSec.length})</div>`;
+    }
+    function itemCard(it){
+      const e=today[it.id]||{};
+      const st=e.status||'';
+      const cls=st?st:'';
+      return `<div class="p19-item ${cls}" data-id="${esc(it.id)}">
+        <div class="p19-item-head">
+          <span class="p19-item-icon">${it.icon}</span>
+          <span class="p19-item-label">${esc(it.label)}</span>
+          ${it.autoCallOnFail?'<span style="font-size:9px;color:#ff5555;border:1px solid #ff5555;padding:2px 5px;border-radius:3px;">AUTO-CALL ON FAIL</span>':''}
+        </div>
+        ${it.hint?`<div class="p19-item-hint">${esc(it.hint)}</div>`:''}
+        ${it.type==='file' ? `
+          <div class="p19-file-row">
+            <input type="file" id="ck_file_${it.id}" style="display:none;" onchange="hnxCkUploadFile('${esc(it.id)}', this)">
+            <button class="p19-btn" onclick="document.getElementById('ck_file_${it.id}').click()">📎 Choose file</button>
+            ${e.fileName?`<span class="p19-file-status">✓ ${esc(e.fileName)} · uploaded ${new Date(e.uploadedAt).toLocaleTimeString()}</span>`:'<span style="font-size:10px;color:var(--text3);">No file yet</span>'}
+            <button class="p19-btn" onclick="hnxCkOpenWizard()" style="margin-left:auto;">🔌 Configure direct connection</button>
+          </div>
+          <textarea class="p19-textarea" placeholder="Notes (optional)" onblur="hnxCkSaveNotes('${esc(it.id)}', this.value)">${esc(e.notes||'')}</textarea>
+        ` : `
+          <div class="p19-item-row">
+            <span class="p19-pill ${st&&st!=='ok'?'off':''}" data-st="ok"      onclick="hnxCkSetStatus('${esc(it.id)}','ok')">✅ OK</span>
+            <span class="p19-pill ${st&&st!=='warning'?'off':''}" data-st="warning" onclick="hnxCkSetStatus('${esc(it.id)}','warning')">⚠️ Warning</span>
+            <span class="p19-pill ${st&&st!=='fail'?'off':''}" data-st="fail"    onclick="hnxCkSetStatus('${esc(it.id)}','fail')">🔴 Fail</span>
+            ${it.type==='count' ? `<input class="p19-input compact" placeholder="count/value" value="${esc(e.count||'')}" onblur="hnxCkSaveCount('${esc(it.id)}', this.value)">` : ''}
+          </div>
+          <textarea class="p19-textarea" placeholder="Notes (optional)${it.photoReq?' · photo required on Fail':''}" onblur="hnxCkSaveNotes('${esc(it.id)}', this.value)">${esc(e.notes||'')}</textarea>
+        `}
+        ${e.completedBy?`<div style="font-size:10px;color:var(--text3);margin-top:4px;">Completed by ${esc(e.completedBy)} at ${new Date(e.completedAt).toLocaleTimeString()}</div>`:''}
+      </div>`;
+    }
+
+    body.innerHTML = `<div class="p19-wrap">
+      <div class="p19-head">
+        <div>
+          <div class="p19-title">☑️ IT Daily Checklist</div>
+          <div class="p19-sub">${todayKey()} · ${done}/${total} done (${pct}%) · ${fail} fail · ${warning} warning</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="p19-btn" onclick="hnxCkOpenWizard()">🔌 Fingerprint Device</button>
+          <button class="p19-btn" onclick="hnxCkOpenHistory()">📋 History</button>
+          <button class="p19-btn primary" onclick="hnxCkRender()">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="p19-progress-bar"><div class="p19-progress-fill" style="width:${pct}%;"></div></div>
+      <div class="p19-kpi">
+        <div class="p19-kpi-card"><div class="p19-kpi-num">${done}/${total}</div><div class="p19-kpi-lbl">Completed</div></div>
+        <div class="p19-kpi-card"><div class="p19-kpi-num" style="color:#2eaa2e;">${ok}</div><div class="p19-kpi-lbl">OK</div></div>
+        <div class="p19-kpi-card"><div class="p19-kpi-num" style="color:#ff9c33;">${warning}</div><div class="p19-kpi-lbl">Warning</div></div>
+        <div class="p19-kpi-card"><div class="p19-kpi-num" style="color:#ff5555;">${fail}</div><div class="p19-kpi-lbl">Fail</div></div>
+      </div>
+      <div class="p19-section">
+        ${sectionHeader('morning','🌅 Morning','')}
+        ${items.filter(x=>x.section==='morning').map(itemCard).join('')}
+      </div>
+      <div class="p19-section">
+        ${sectionHeader('afternoon','☀️ Afternoon','')}
+        ${items.filter(x=>x.section==='afternoon').map(itemCard).join('')}
+      </div>
+      <div class="p19-section">
+        ${sectionHeader('eod','🌙 End of Day','')}
+        ${items.filter(x=>x.section==='eod').map(itemCard).join('')}
+      </div>
+    </div>`;
+  }
+
+  window.hnxCkRender = render;
+
+  window.hnxCkSetStatus = function(itemId, status){
+    const items=getItems(); const item=items.find(x=>x.id===itemId); if(!item) return;
+    const log=getTodayLog(); const day=log[todayKey()];
+    if(!day[itemId]) day[itemId] = {};
+    const e=day[itemId];
+    e.status=status;
+    const u=curUser(); e.completedBy=u.name; e.completedAt=Date.now();
+    save(LOG_KEY,log);
+    if(status==='fail' && item.autoCallOnFail){
+      autoRaiseCall(item, e);
+    }
+    render();
+  };
+  window.hnxCkSaveCount = function(itemId, val){
+    const log=getTodayLog(); const day=log[todayKey()];
+    if(!day[itemId]) day[itemId]={};
+    day[itemId].count=val; save(LOG_KEY,log);
+  };
+  window.hnxCkSaveNotes = function(itemId, val){
+    const log=getTodayLog(); const day=log[todayKey()];
+    if(!day[itemId]) day[itemId]={};
+    day[itemId].notes=val; save(LOG_KEY,log);
+  };
+  window.hnxCkUploadFile = function(itemId, input){
+    const file = input.files && input.files[0];
+    if(!file) return;
+    if(file.size > 5*1024*1024){ alert('File too large (max 5 MB). Use a smaller export or set up direct integration.'); return; }
+    const log=getTodayLog(); const day=log[todayKey()];
+    if(!day[itemId]) day[itemId]={};
+    const u=curUser();
+    day[itemId].fileName=file.name; day[itemId].fileSize=file.size; day[itemId].uploadedAt=Date.now(); day[itemId].uploadedBy=u.name;
+    day[itemId].status='ok'; day[itemId].completedBy=u.name; day[itemId].completedAt=Date.now();
+    save(LOG_KEY,log);
+    notify('📁 '+file.name+' received');
+    render();
+  };
+
+  window.hnxCkOpenWizard = function(){
+    const cfg = load(DEV_CFG_KEY, {});
+    const html = `<div style="background:#0a1a23;border:2px solid ${ITCLR};border-radius:12px;padding:20px;max-width:560px;width:100%;color:#cfe8ff;font-family:var(--mono);max-height:90vh;overflow-y:auto;">
+      <div style="font-size:16px;font-weight:800;color:${ITCLR};margin-bottom:14px;">🔌 Fingerprint Device — Direct Integration Wizard</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:14px;">Capture your device info here. Until direct integration is configured, the daily attendance file can be uploaded manually via the checklist.</div>
+      <div style="margin-bottom:10px;"><label style="display:block;font-size:10px;text-transform:uppercase;color:var(--text3);margin-bottom:3px;">Device brand</label>
+        <select id="dev_brand" style="width:100%;background:#06120a;border:1.5px solid ${ITCLR};color:#cfe8ff;padding:7px;border-radius:5px;font-family:var(--mono);font-size:12px;">
+          <option value="zkteco" ${cfg.brand==='zkteco'?'selected':''}>ZKTeco</option>
+          <option value="suprema" ${cfg.brand==='suprema'?'selected':''}>Suprema</option>
+          <option value="anviz" ${cfg.brand==='anviz'?'selected':''}>Anviz</option>
+          <option value="hikvision" ${cfg.brand==='hikvision'?'selected':''}>Hikvision</option>
+          <option value="other" ${cfg.brand==='other'?'selected':''}>Other</option>
+        </select></div>
+      <div style="margin-bottom:10px;"><label style="display:block;font-size:10px;text-transform:uppercase;color:var(--text3);margin-bottom:3px;">Model</label>
+        <input id="dev_model" style="width:100%;background:#06120a;border:1.5px solid ${ITCLR};color:#cfe8ff;padding:7px;border-radius:5px;font-family:var(--mono);font-size:12px;" placeholder="e.g. K40, BioStation 2" value="${esc(cfg.model||'')}"></div>
+      <div style="margin-bottom:10px;"><label style="display:block;font-size:10px;text-transform:uppercase;color:var(--text3);margin-bottom:3px;">Connection type</label>
+        <select id="dev_conn" style="width:100%;background:#06120a;border:1.5px solid ${ITCLR};color:#cfe8ff;padding:7px;border-radius:5px;font-family:var(--mono);font-size:12px;">
+          <option value="network" ${cfg.conn==='network'?'selected':''}>TCP/IP (network)</option>
+          <option value="usb" ${cfg.conn==='usb'?'selected':''}>USB export</option>
+          <option value="cloud" ${cfg.conn==='cloud'?'selected':''}>Cloud / vendor API</option>
+        </select></div>
+      <div style="margin-bottom:10px;"><label style="display:block;font-size:10px;text-transform:uppercase;color:var(--text3);margin-bottom:3px;">Device IP / endpoint (if known)</label>
+        <input id="dev_ip" style="width:100%;background:#06120a;border:1.5px solid ${ITCLR};color:#cfe8ff;padding:7px;border-radius:5px;font-family:var(--mono);font-size:12px;" placeholder="e.g. 192.168.1.201:4370" value="${esc(cfg.ip||'')}"></div>
+      <div style="margin-bottom:14px;"><label style="display:block;font-size:10px;text-transform:uppercase;color:var(--text3);margin-bottom:3px;">Notes</label>
+        <textarea id="dev_notes" style="width:100%;background:#06120a;border:1.5px solid ${ITCLR};color:#cfe8ff;padding:7px;border-radius:5px;font-family:var(--mono);font-size:12px;min-height:60px;">${esc(cfg.notes||'')}</textarea></div>
+      <div style="background:rgba(103,197,255,0.06);border:1px solid ${ITCLR};border-radius:6px;padding:10px;margin-bottom:14px;font-size:11px;color:#cfe8ff;">
+        <strong>Next steps after saving:</strong><br>
+        ➊ Direct TCP polling requires a small bridge service (Cloudflare Worker or Node script) — needs your device IP reachable from the internet, OR a local middleware.<br>
+        ➋ For now, export attendance daily and upload via the checklist (📁 button).<br>
+        ➌ Once we have your device details we can build a vendor-specific connector.
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button onclick="hnxCkSaveDevice()" style="padding:8px 14px;background:${ITCLR};color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-family:var(--mono);">✓ Save device info</button>
+        <button onclick="hnxCkCloseWizard()" style="padding:8px 14px;background:transparent;color:${ITCLR};border:1.5px solid ${ITCLR};border-radius:6px;cursor:pointer;font-family:var(--mono);">Cancel</button>
+      </div>
+    </div>`;
+    // Modal wrapper
+    let m = document.getElementById('hnxP19Wizard');
+    if(!m){ m=document.createElement('div'); m.id='hnxP19Wizard'; m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:100005;display:flex;align-items:center;justify-content:center;padding:18px;'; m.addEventListener('click',e=>{if(e.target===m)hnxCkCloseWizard();}); document.body.appendChild(m); }
+    m.innerHTML = html;
+    m.style.display = 'flex';
+  };
+  window.hnxCkCloseWizard = function(){ const m=document.getElementById('hnxP19Wizard'); if(m)m.style.display='none'; };
+  window.hnxCkSaveDevice = function(){
+    const cfg = {
+      brand: document.getElementById('dev_brand').value,
+      model: document.getElementById('dev_model').value.trim(),
+      conn:  document.getElementById('dev_conn').value,
+      ip:    document.getElementById('dev_ip').value.trim(),
+      notes: document.getElementById('dev_notes').value.trim(),
+      updatedAt: Date.now(),
+      updatedBy: curUser().name
+    };
+    save(DEV_CFG_KEY, cfg);
+    hnxCkCloseWizard();
+    notify('🔌 Device info saved. Manual upload still available daily.');
+  };
+
+  window.hnxCkOpenHistory = function(){
+    const log=load(LOG_KEY,{});
+    const dates=Object.keys(log).sort().reverse().slice(0,30);
+    const items=getItems();
+    let html=`<div style="background:#0a1a23;border:2px solid ${ITCLR};border-radius:12px;padding:20px;max-width:760px;width:100%;color:#cfe8ff;font-family:var(--mono);max-height:90vh;overflow-y:auto;">
+      <div style="font-size:16px;font-weight:800;color:${ITCLR};margin-bottom:14px;">📋 Checklist History (last ${dates.length} days)</div>`;
+    if(dates.length===0){html+='<div style="color:var(--text3);padding:20px;text-align:center;">No history yet.</div>';}
+    else {
+      dates.forEach(d=>{
+        const day=log[d]||{};
+        const total=items.length; let done=0,fail=0;
+        items.forEach(it=>{if(day[it.id]&&day[it.id].status){done++; if(day[it.id].status==='fail')fail++;}});
+        const pct=Math.round((done/total)*100);
+        html+=`<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between;">
+          <span style="font-weight:700;">${d}</span>
+          <span>${done}/${total} (${pct}%) · ${fail?'<span style="color:#ff5555;">'+fail+' fail</span>':'no fails'}</span>
+        </div>`;
+      });
+    }
+    html+=`<div style="margin-top:14px;"><button onclick="hnxCkCloseWizard()" style="padding:8px 14px;background:${ITCLR};color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-family:var(--mono);">Close</button></div></div>`;
+    let m = document.getElementById('hnxP19Wizard');
+    if(!m){ m=document.createElement('div'); m.id='hnxP19Wizard'; m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:100005;display:flex;align-items:center;justify-content:center;padding:18px;'; m.addEventListener('click',e=>{if(e.target===m)hnxCkCloseWizard();}); document.body.appendChild(m); }
+    m.innerHTML = html; m.style.display='flex';
+  };
+
+  function hookSwitchView(){
+    if(typeof window.switchView !== 'function') return false;
+    if(window.switchView._hnxP19Wrapped) return true;
+    const orig = window.switchView;
+    window.switchView = function(viewId){
+      const result = orig.apply(this, arguments);
+      if(viewId === 'it_daily_checklist'){
+        setTimeout(() => { try{render();}catch(e){warn(e);} }, 120);
+      }
+      return result;
+    };
+    window.switchView._hnxP19Wrapped = true;
+    return true;
+  }
+
+  function run(){
+    let tries=0;
+    const iv=setInterval(()=>{
+      tries++;
+      const ok=hookSwitchView();
+      if(ok||tries>30){
+        clearInterval(iv);
+        if(ok){
+          log('✅ P19 ready');
+          const active=document.querySelector('.view.active');
+          if(active && active.id==='view-it_daily_checklist') setTimeout(render,200);
+        }
+      }
+    },300);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',run);
+  else setTimeout(run,1600);
+})();
+</script>
+<!-- ===================== END HNX v2.86-p19-it-daily-checklist ===================== -->
+
+<!-- ===================== HNX v2.86-p20-it-matrix-v2 (INLINE) ===================== -->
+<script>
+/* ==============================================================================
+   HNX v2.86 P20 — GH & Fer IT Matrix v2 (redesigned)
+   ----
+   - Locations as COLUMNS across the top (+Add location)
+   - Groups as expandable ROWS with item sub-rows (+Add item to group)
+   - Default items per group (Sensors: EC/pH/Temp/Light/CO2/O2/Humidity/Wind/Pool Level, etc.)
+   - Click any cell → menu: Set count OR Raise IT call for this item at this location
+   - New storage key v2 (keeps v1 data intact for safety)
+   ============================================================================== */
+(function HNX_v286_P20_ITMatrixV2() {
+  const VER = 'v2.86-p20-mx2';
+  const ITCLR = '#67c5ff';
+  function log(...a){ console.log('['+VER+']',...a); }
+  function warn(...a){ console.warn('['+VER+']',...a); }
+
+  const KEY = 'hydroPro_it_matrix_v2';
+  try { if(Array.isArray(window.HNX_SYNCED_KEYS) && window.HNX_SYNCED_KEYS.indexOf(KEY)===-1) window.HNX_SYNCED_KEYS.push(KEY); } catch(e){}
+
+  const DEFAULT_LOCATIONS = ['GH1','GH2','GH3','GH4','GH5','GH6','GH7','GH8','GH9','GH10','Fer Room 1','Fer Room 2','Fer Room 3','Server Room','Office','IT Room'];
+
+  const DEFAULT_GROUPS = {
+    cctv:    { label:'CCTV',         icon:'📹', items:['Indoor Camera','Outdoor Camera','PTZ Camera','Dome Camera','Bullet Camera'] },
+    network: { label:'Network',      icon:'📡', items:['Switch','Router','Access Point','Patch Panel','Modem','PoE Injector','Fiber Converter'] },
+    sensors: { label:'Sensors',      icon:'🌡', items:['EC','pH','Temperature','Light','CO2','Oxygen','Humidity','Wind','Pool Level','Pressure','Flow Meter'] },
+    phones:  { label:'Phones',       icon:'📞', items:['Office Phone','Mobile Phone','Radio','Intercom'] },
+    pcs:     { label:'PCs / Peripherals', icon:'💻', items:['Laptop','Desktop','Monitor','Keyboard','Mouse','Printer','Charger','Scanner','Webcam','Speakers','Headset'] },
+    cabling: { label:'Cabling',      icon:'🔌', items:['Ethernet (CAT6)','HDMI','VGA','USB','Power Cord','Fiber Optic'] },
+    other:   { label:'Other',        icon:'⚙',  items:[] }
+  };
+
+  function uid(p){return p+'-'+Date.now()+'-'+Math.floor(Math.random()*899+100);}
+  function esc(s){return String(s==null?'':s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'})[c]);}
+  function load(k,f){try{const v=JSON.parse(localStorage.getItem(k)||'null');return v===null?f:v;}catch(e){return f;}}
+  function save(k,v){try{localStorage.setItem(k,JSON.stringify(v));try{if(typeof window.hnxScheduleSync==='function')window.hnxScheduleSync(k);}catch(e){}return true;}catch(e){warn(e);return false;}}
+  function curUser(){try{const u=(typeof getCurrentUser==='function'?getCurrentUser():null);return u?{username:u.username||'unknown',name:u.name||u.username||'unknown'}:{username:'unknown',name:'unknown'};}catch(e){return{username:'unknown',name:'unknown'};}}
+  function notify(m){try{if(typeof toast==='function')toast(m);}catch(e){}}
+
+  function loadState(){
+    let s = load(KEY, null);
+    if(!s){
+      s = {
+        locations: DEFAULT_LOCATIONS.slice(),
+        groups: JSON.parse(JSON.stringify(DEFAULT_GROUPS)),
+        counts: {},        // counts[location][groupId][item] = number
+        expanded: {},      // expanded[groupId] = true/false
+        version: 2
+      };
+      save(KEY, s);
+    } else {
+      // Merge in any new default groups/items
+      if(!s.locations) s.locations = DEFAULT_LOCATIONS.slice();
+      if(!s.groups) s.groups = JSON.parse(JSON.stringify(DEFAULT_GROUPS));
+      Object.keys(DEFAULT_GROUPS).forEach(gid => {
+        if(!s.groups[gid]) s.groups[gid] = JSON.parse(JSON.stringify(DEFAULT_GROUPS[gid]));
+      });
+      if(!s.counts) s.counts = {};
+      if(!s.expanded) s.expanded = {};
+    }
+    return s;
+  }
+  function saveState(s){ save(KEY, s); }
+
+  function injectStyles(){
+    if(document.getElementById('hnxP20Styles')) return;
+    const st = document.createElement('style'); st.id='hnxP20Styles';
+    st.textContent = `
+      .p20-wrap{padding:14px;font-family:var(--mono);color:var(--text);}
+      .p20-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);}
+      .p20-title{font-size:18px;font-weight:800;color:${ITCLR};}
+      .p20-sub{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-top:3px;}
+      .p20-btn{padding:7px 12px;border-radius:6px;border:1.5px solid ${ITCLR};background:transparent;color:${ITCLR};font-family:var(--mono);font-size:11px;font-weight:700;cursor:pointer;}
+      .p20-btn:hover{background:${ITCLR}22;}
+      .p20-btn.primary{background:${ITCLR};color:#000;}
+      .p20-btn.sm{padding:4px 8px;font-size:10px;}
+      .p20-tbl-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:8px;background:var(--surface);}
+      .p20-tbl{border-collapse:collapse;font-size:11px;font-family:var(--mono);min-width:100%;}
+      .p20-tbl th,.p20-tbl td{border:1px solid var(--border);padding:6px 8px;text-align:center;vertical-align:middle;white-space:nowrap;}
+      .p20-tbl thead th{background:#0a1a23;color:${ITCLR};font-size:10px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;z-index:2;}
+      .p20-tbl .p20-group-row{background:rgba(103,197,255,0.07);font-weight:800;cursor:pointer;}
+      .p20-tbl .p20-group-row:hover{background:rgba(103,197,255,0.12);}
+      .p20-tbl .p20-group-row td.label-cell{text-align:left;color:${ITCLR};font-size:12px;font-weight:800;}
+      .p20-tbl .p20-item-row td.label-cell{text-align:left;color:var(--text2);font-weight:500;padding-left:24px;font-size:11px;}
+      .p20-tbl .p20-item-row{background:rgba(0,0,0,0.15);}
+      .p20-tbl .p20-add-row td{background:rgba(0,0,0,0.2);font-size:10px;color:var(--text3);text-align:left;padding-left:24px;cursor:pointer;font-style:italic;}
+      .p20-tbl .p20-add-row td:hover{color:${ITCLR};background:rgba(103,197,255,0.05);}
+      .p20-tbl .p20-total-col{background:#0a1a23;font-weight:800;color:${ITCLR};}
+      .p20-tbl .p20-total-row{background:#0a1a23;font-weight:800;}
+      .p20-tbl .p20-total-row td{color:${ITCLR};}
+      .p20-cell{cursor:pointer;}
+      .p20-cell:hover{background:rgba(103,197,255,0.12);outline:1px solid ${ITCLR};}
+      .p20-cell.zero{color:var(--text3);font-weight:400;}
+      .p20-cell:not(.zero){font-weight:700;color:#cfe8ff;}
+      .p20-loc-add{background:rgba(103,197,255,0.08)!important;color:${ITCLR}!important;cursor:pointer;}
+      .p20-loc-add:hover{background:rgba(103,197,255,0.15)!important;}
+      .p20-expand-arrow{display:inline-block;width:10px;transition:transform .15s;}
+      .p20-expand-arrow.open{transform:rotate(90deg);}
+      .p20-actions{display:flex;gap:6px;flex-wrap:wrap;}
+      #hnxP20Modal{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:100005;display:none;align-items:center;justify-content:center;padding:18px;}
+      #hnxP20Modal.show{display:flex;}
+      .p20m-card{background:#0a1a23;border:2px solid ${ITCLR};border-radius:12px;padding:18px;max-width:480px;width:100%;color:#cfe8ff;font-family:var(--mono);}
+      .p20m-title{font-size:15px;font-weight:800;color:${ITCLR};margin-bottom:12px;}
+      .p20m-row{margin-bottom:10px;}
+      .p20m-row label{display:block;font-size:10px;text-transform:uppercase;color:var(--text3);margin-bottom:3px;}
+      .p20m-input{width:100%;background:#06120a;border:1.5px solid ${ITCLR};color:#cfe8ff;padding:7px;border-radius:5px;font-family:var(--mono);font-size:12px;box-sizing:border-box;}
+    `;
+    document.head.appendChild(st);
+  }
+
+  function ensureModal(){
+    if(document.getElementById('hnxP20Modal')) return;
+    injectStyles();
+    const m=document.createElement('div'); m.id='hnxP20Modal';
+    m.innerHTML='<div class="p20m-card" id="hnxP20Card"></div>';
+    m.addEventListener('click',e=>{if(e.target===m)closeModal();});
+    document.body.appendChild(m);
+  }
+  function openModal(html){ ensureModal(); document.getElementById('hnxP20Card').innerHTML=html; document.getElementById('hnxP20Modal').classList.add('show'); }
+  function closeModal(){const m=document.getElementById('hnxP20Modal');if(m)m.classList.remove('show');}
+  window.hnxP20CloseModal = closeModal;
+
+  function getCount(s, loc, gid, item){
+    return (s.counts[loc] && s.counts[loc][gid] && s.counts[loc][gid][item]) || 0;
+  }
+  function setCount(s, loc, gid, item, n){
+    if(!s.counts[loc]) s.counts[loc]={};
+    if(!s.counts[loc][gid]) s.counts[loc][gid]={};
+    s.counts[loc][gid][item] = Math.max(0, n);
+  }
+  function groupTotal(s, loc, gid){
+    if(!s.counts[loc] || !s.counts[loc][gid]) return 0;
+    let t=0; Object.keys(s.counts[loc][gid]).forEach(item => t += s.counts[loc][gid][item]||0);
+    return t;
+  }
+  function itemTotal(s, gid, item){
+    let t=0; s.locations.forEach(loc => t += getCount(s,loc,gid,item));
+    return t;
+  }
+  function groupGrandTotal(s, gid){
+    let t=0; s.locations.forEach(loc => t += groupTotal(s,loc,gid));
+    return t;
+  }
+  function locTotal(s, loc){
+    let t=0; Object.keys(s.groups).forEach(gid => t += groupTotal(s,loc,gid));
+    return t;
+  }
+
+  function render(){
+    const body = document.getElementById('hnx-it_gh_fer_matrix-body');
+    if(!body) return;
+    injectStyles();
+    const s = loadState();
+
+    const headLocs = s.locations.map(l => `<th>${esc(l)}</th>`).join('');
+    let rows = '';
+    Object.keys(s.groups).forEach(gid => {
+      const g = s.groups[gid];
+      const expanded = !!s.expanded[gid];
+      // Group row
+      const groupRow = s.locations.map(loc => {
+        const v = groupTotal(s,loc,gid);
+        return `<td class="p20-cell ${v===0?'zero':''}" onclick="hnxP20CellMenu('${esc(loc)}','${esc(gid)}',null)">${v}</td>`;
+      }).join('');
+      rows += `<tr class="p20-group-row" onclick="hnxP20ToggleGroup('${esc(gid)}')">
+        <td class="label-cell"><span class="p20-expand-arrow ${expanded?'open':''}">▶</span> ${g.icon} ${esc(g.label)}</td>
+        ${groupRow}
+        <td class="p20-total-col">${groupGrandTotal(s,gid)}</td>
+      </tr>`;
+      // Item rows (when expanded)
+      if(expanded){
+        g.items.forEach(item => {
+          const itemRow = s.locations.map(loc => {
+            const v = getCount(s,loc,gid,item);
+            return `<td class="p20-cell ${v===0?'zero':''}" onclick="hnxP20CellMenu('${esc(loc)}','${esc(gid)}','${esc(item)}')">${v}</td>`;
+          }).join('');
+          rows += `<tr class="p20-item-row">
+            <td class="label-cell">↳ ${esc(item)}</td>
+            ${itemRow}
+            <td class="p20-total-col">${itemTotal(s,gid,item)}</td>
+          </tr>`;
+        });
+        rows += `<tr class="p20-add-row" onclick="hnxP20AddItem('${esc(gid)}')">
+          <td colspan="${s.locations.length+2}">+ Add item to ${esc(g.label)} (e.g. custom sensor type)</td>
+        </tr>`;
+      }
+    });
+
+    // TOTAL row
+    const totalRow = s.locations.map(loc => `<td>${locTotal(s,loc)}</td>`).join('');
+    let grandTotal=0; s.locations.forEach(loc => grandTotal += locTotal(s,loc));
+
+    body.innerHTML = `<div class="p20-wrap">
+      <div class="p20-head">
+        <div>
+          <div class="p20-title">💧 GH &amp; Fertigation IT Matrix</div>
+          <div class="p20-sub">${grandTotal} IT devices · ${s.locations.length} locations · ${Object.keys(s.groups).length} groups · click any cell to edit · expand groups for item-level detail</div>
+        </div>
+        <div class="p20-actions">
+          <button class="p20-btn" onclick="hnxP20AddLocation()">+ Add Location</button>
+          <button class="p20-btn" onclick="hnxP20Render()">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="p20-tbl-wrap">
+        <table class="p20-tbl">
+          <thead>
+            <tr>
+              <th style="text-align:left;min-width:180px;">Group / Item</th>
+              ${headLocs}
+              <th class="p20-total-col">TOTAL</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+            <tr class="p20-total-row">
+              <td class="label-cell">TOTAL</td>
+              ${totalRow}
+              <td class="p20-total-col">${grandTotal}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+  window.hnxP20Render = render;
+
+  window.hnxP20ToggleGroup = function(gid){
+    const s = loadState();
+    s.expanded[gid] = !s.expanded[gid];
+    saveState(s); render();
+  };
+
+  window.hnxP20CellMenu = function(loc, gid, item){
+    event && event.stopPropagation();
+    const s = loadState();
+    const g = s.groups[gid];
+    const label = item ? (g.icon+' '+g.label+' › '+item) : (g.icon+' '+g.label+' (group total)');
+    const cur = item ? getCount(s,loc,gid,item) : groupTotal(s,loc,gid);
+    openModal(`
+      <div class="p20m-title">${esc(loc)} · ${esc(label)}</div>
+      <div class="p20m-row">
+        <label>Count of items at this location</label>
+        <input type="number" id="p20_count" class="p20m-input" value="${cur}" min="0" ${item?'':'disabled'}>
+        ${!item?'<div style="font-size:10px;color:var(--text3);margin-top:4px;">Group totals are calculated from item counts. Expand the group to edit individual items.</div>':''}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:14px;">
+        ${item?`<button class="p20-btn primary" onclick="hnxP20SaveCount('${esc(loc)}','${esc(gid)}','${esc(item)}')">✓ Save count</button>`:''}
+        ${item?`<button class="p20-btn" onclick="hnxP20RaiseCall('${esc(loc)}','${esc(gid)}','${esc(item)}')">📞 Raise IT call for this</button>`:`<button class="p20-btn" onclick="hnxP20RaiseCall('${esc(loc)}','${esc(gid)}',null)">📞 Raise IT call for ${esc(g.label)} at ${esc(loc)}</button>`}
+        <button class="p20-btn" onclick="hnxP20CloseModal()">Cancel</button>
+      </div>
+    `);
+  };
+
+  window.hnxP20SaveCount = function(loc,gid,item){
+    const v = Math.max(0, Number(document.getElementById('p20_count').value)||0);
+    const s = loadState();
+    setCount(s,loc,gid,item,v);
+    saveState(s); closeModal(); render(); notify('💧 Count saved');
+  };
+
+  window.hnxP20RaiseCall = function(loc, gid, item){
+    closeModal();
+    const s = loadState();
+    const g = s.groups[gid];
+    const moduleId = gid==='sensors'?'irrigation':gid==='phones'?'it':'it';
+    const sourceLabel = (item ? (g.label+' › '+item) : g.label) + ' at ' + loc;
+    if(typeof window.openCallModal === 'function'){
+      window.openCallModal(moduleId, sourceLabel);
+      // Pre-fill subject
+      setTimeout(() => {
+        const subj = document.getElementById('callSubject');
+        if(subj){
+          subj.value = `${g.icon} ${item||g.label} issue at ${loc}`;
+        }
+        const desc = document.getElementById('callDesc');
+        if(desc){
+          desc.value = `Issue with ${item?(g.label+' › '+item):g.label} at ${loc}. Reported from GH & Fer Matrix.\n\nLocation: ${loc}\nGroup: ${g.label}\nItem: ${item||'(group level)'}\n`;
+        }
+      }, 200);
+    } else {
+      alert('Raise Call not available right now. Please use the 📞 Raise Call button at the top.');
+    }
+  };
+
+  window.hnxP20AddLocation = function(){
+    openModal(`
+      <div class="p20m-title">+ Add Location</div>
+      <div class="p20m-row">
+        <label>Location name</label>
+        <input type="text" id="p20_loc_name" class="p20m-input" placeholder="e.g. GH11, Warehouse, Greenhouse North">
+      </div>
+      <div style="display:flex;gap:6px;margin-top:14px;">
+        <button class="p20-btn primary" onclick="hnxP20SaveLocation()">✓ Add</button>
+        <button class="p20-btn" onclick="hnxP20CloseModal()">Cancel</button>
+      </div>
+    `);
+    setTimeout(()=>{document.getElementById('p20_loc_name').focus();},80);
+  };
+  window.hnxP20SaveLocation = function(){
+    const name = document.getElementById('p20_loc_name').value.trim();
+    if(!name){alert('Name required');return;}
+    const s = loadState();
+    if(s.locations.indexOf(name)>=0){alert('Location already exists');return;}
+    s.locations.push(name);
+    saveState(s); closeModal(); render(); notify('📍 '+name+' added');
+  };
+
+  window.hnxP20AddItem = function(gid){
+    event && event.stopPropagation();
+    const s = loadState();
+    const g = s.groups[gid];
+    openModal(`
+      <div class="p20m-title">+ Add item to ${esc(g.label)}</div>
+      <div class="p20m-row">
+        <label>Item name</label>
+        <input type="text" id="p20_item_name" class="p20m-input" placeholder="${gid==='sensors'?'e.g. Soil Moisture, ORP':gid==='pcs'?'e.g. Tablet, External Drive':gid==='cctv'?'e.g. Fisheye, Thermal':'New item'}">
+        <div style="font-size:10px;color:var(--text3);margin-top:4px;">This item will be added as a sub-row under ${g.icon} ${g.label} for every location.</div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:14px;">
+        <button class="p20-btn primary" onclick="hnxP20SaveItem('${esc(gid)}')">✓ Add</button>
+        <button class="p20-btn" onclick="hnxP20CloseModal()">Cancel</button>
+      </div>
+    `);
+    setTimeout(()=>{document.getElementById('p20_item_name').focus();},80);
+  };
+  window.hnxP20SaveItem = function(gid){
+    const name = document.getElementById('p20_item_name').value.trim();
+    if(!name){alert('Name required');return;}
+    const s = loadState();
+    if(!s.groups[gid].items) s.groups[gid].items=[];
+    if(s.groups[gid].items.indexOf(name)>=0){alert('Item already exists in this group');return;}
+    s.groups[gid].items.push(name);
+    s.expanded[gid] = true;
+    saveState(s); closeModal(); render(); notify('+ '+name+' added to '+s.groups[gid].label);
+  };
+
+  // Hook switchView — render AFTER P13 so we override P13's render
+  function hookSwitchView(){
+    if(typeof window.switchView !== 'function') return false;
+    if(window.switchView._hnxP20Wrapped) return true;
+    const orig = window.switchView;
+    window.switchView = function(viewId){
+      const result = orig.apply(this, arguments);
+      if(viewId === 'it_gh_fer_matrix'){
+        // Render at 250ms — after P13's 100ms render so we win
+        setTimeout(() => { try{render();}catch(e){warn(e);} }, 250);
+      }
+      return result;
+    };
+    window.switchView._hnxP20Wrapped = true;
+    return true;
+  }
+
+  function run(){
+    let tries=0;
+    const iv=setInterval(()=>{
+      tries++;
+      const ok=hookSwitchView();
+      if(ok||tries>30){
+        clearInterval(iv);
+        if(ok){
+          log('✅ P20 ready');
+          const active=document.querySelector('.view.active');
+          if(active && active.id==='view-it_gh_fer_matrix') setTimeout(render,300);
+        }
+      }
+    },300);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',run);
+  else setTimeout(run,1700);
+})();
+</script>
+<!-- ===================== END HNX v2.86-p20-it-matrix-v2 ===================== -->
 
 </body>
 </html>
