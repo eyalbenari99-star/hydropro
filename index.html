@@ -100623,7 +100623,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p11';
+        vEl.textContent = orig + ' · HNX v2.86-p13';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -132914,6 +132914,644 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.86-p11-it-recurring-minimal ===================== -->
+
+<!-- ===================== HNX v2.86-p12-module-meta-fix (INLINE) ===================== -->
+<script>
+/* HNX v2.86 P12 — adds 'it' entry to MODULE_META so renderRecurringHub
+   doesn't crash with TypeError when filter='it'. Tiny fix. */
+(function HNX_v286_P12_ModuleMetaFix() {
+  const VER = 'v2.86-p12-meta';
+  function tryFix() {
+    if (window.MODULE_META && typeof window.MODULE_META === 'object') {
+      if (!window.MODULE_META.it) {
+        window.MODULE_META.it = { label:'IT', icon:'🖥', color:'#67c5ff' };
+        console.log(`[${VER}] Added 'it' to MODULE_META`);
+      }
+      return true;
+    }
+    return false;
+  }
+  function run() {
+    let tries = 0;
+    const iv = setInterval(() => {
+      tries++;
+      if (tryFix() || tries > 30) {
+        clearInterval(iv);
+        // If currently on it_recurring, re-render now that MODULE_META has 'it'
+        const active = document.querySelector('.view.active');
+        if (active && active.id === 'view-it_recurring' && typeof window.renderRecurringHub === 'function') {
+          window._recurringModuleFilter = 'it';
+          setTimeout(() => window.renderRecurringHub(), 100);
+        }
+      }
+    }, 300);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run);
+  } else {
+    setTimeout(run, 900);
+  }
+})();
+</script>
+<!-- ===================== END HNX v2.86-p12-module-meta-fix ===================== -->
+
+<!-- ===================== HNX v2.86-p13-it-suite (INLINE) ===================== -->
+<script>
+/* ==============================================================================
+   HNX v2.86 P13 — IT Suite: 5 remaining IT modules in one patch
+   Modules: Calendar · Item Request · Spare Parts · GH&Fer Matrix · RFID Setup
+   Strategy: single switchView wrapper + 5 renderer functions, each with CRUD UI.
+   All data cloud-synced via HNX_SYNCED_KEYS registration.
+   ============================================================================== */
+(function HNX_v286_P13_ITSuite() {
+  const VER = 'v2.86-p13-it';
+  const COLOR_IT = '#67c5ff';
+  function log(...a){ console.log(`[${VER}]`, ...a); }
+  function warn(...a){ console.warn(`[${VER}]`, ...a); }
+
+  // ── shared utils ──
+  function uid(p){return p+'-'+Date.now()+'-'+Math.floor(Math.random()*899+100);}
+  function esc(s){return String(s==null?'':s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'})[c]);}
+  function fmtDate(ts){if(!ts)return'—';const d=new Date(ts);if(isNaN(d))return String(ts);return d.toLocaleDateString();}
+  function fmtDateTime(ts){if(!ts)return'—';const d=new Date(ts);if(isNaN(d))return String(ts);return d.toLocaleString();}
+  function curUser(){try{const u=(typeof getCurrentUser==='function'?getCurrentUser():null);return u?{username:u.username||'unknown',name:u.name||u.username||'unknown',level:u.level||1}:{username:'unknown',name:'unknown',level:1};}catch(e){return{username:'unknown',name:'unknown',level:1};}}
+  function isManager(){return curUser().level>=3;}
+  function load(k,f){try{const v=JSON.parse(localStorage.getItem(k)||'null');return v===null?f:v;}catch(e){return f;}}
+  function save(k,v){try{localStorage.setItem(k,JSON.stringify(v));try{if(typeof window.hnxScheduleSync==='function')window.hnxScheduleSync(k);}catch(e){}return true;}catch(e){warn('save fail',k,e);return false;}}
+  function regKey(k){try{if(Array.isArray(window.HNX_SYNCED_KEYS)&&window.HNX_SYNCED_KEYS.indexOf(k)===-1){window.HNX_SYNCED_KEYS.push(k);log('cloud-key:',k);}}catch(e){}}
+  function notify(m){try{if(typeof toast==='function')toast(m);else log(m);}catch(e){log(m);}}
+
+  // ── shared CSS for IT-suite cards & modal ──
+  function injectStyles(){
+    if(document.getElementById('hnxP13Styles'))return;
+    const s=document.createElement('style');s.id='hnxP13Styles';
+    s.textContent=`
+      .p13-wrap{padding:14px;font-family:var(--mono);color:var(--text);max-width:100%;}
+      .p13-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);}
+      .p13-title{font-size:18px;font-weight:800;color:${COLOR_IT};display:flex;align-items:center;gap:8px;}
+      .p13-sub{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-weight:600;}
+      .p13-btn{padding:8px 14px;border-radius:6px;border:1.5px solid ${COLOR_IT};background:transparent;color:${COLOR_IT};font-family:var(--mono);font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.3px;transition:all .15s;}
+      .p13-btn:hover{background:${COLOR_IT}22;}
+      .p13-btn.primary{background:${COLOR_IT};color:#000;}
+      .p13-btn.primary:hover{filter:brightness(1.15);}
+      .p13-btn.danger{border-color:#ff5555;color:#ff5555;}
+      .p13-btn.danger:hover{background:#ff555522;}
+      .p13-btn.warn{border-color:#ff9c33;color:#ff9c33;}
+      .p13-btn.warn:hover{background:#ff9c3322;}
+      .p13-btn.ok{border-color:#2eaa2e;color:#2eaa2e;}
+      .p13-btn.ok:hover{background:#2eaa2e22;}
+      .p13-btn.sm{padding:5px 9px;font-size:11px;}
+      .p13-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center;}
+      .p13-pill{padding:5px 11px;border-radius:14px;font-size:11px;font-weight:700;display:inline-block;}
+      .p13-grid{display:grid;gap:10px;}
+      .p13-card{padding:13px;background:var(--surface);border:1px solid var(--border);border-radius:9px;border-left:3px solid ${COLOR_IT};}
+      .p13-card.urgent{border-left-color:#ff5555;}
+      .p13-card.warn{border-left-color:#ff9c33;}
+      .p13-card.ok{border-left-color:#2eaa2e;}
+      .p13-row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+      .p13-row-title{font-weight:800;font-size:14px;color:var(--text);}
+      .p13-row-meta{font-size:11px;color:var(--text3);}
+      .p13-empty{padding:32px;text-align:center;color:var(--text3);font-size:13px;border:2px dashed var(--border);border-radius:10px;}
+      .p13-input,.p13-textarea,.p13-select{width:100%;background:#06120a;border:1.5px solid ${COLOR_IT};color:#cfe8ff;padding:7px 9px;border-radius:5px;font-family:var(--mono);font-size:12px;box-sizing:border-box;}
+      .p13-textarea{min-height:60px;resize:vertical;}
+      .p13-field{margin-bottom:10px;}
+      .p13-field label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:3px;font-weight:600;}
+      .p13-actions{display:flex;gap:6px;flex-wrap:wrap;}
+      #hnxP13Modal{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:100004;display:none;align-items:center;justify-content:center;padding:18px;}
+      #hnxP13Modal.show{display:flex;}
+      .p13m-card{background:#0a1a23;border:2px solid ${COLOR_IT};border-radius:12px;padding:20px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;color:#cfe8ff;font-family:var(--mono);}
+      .p13m-title{font-size:16px;font-weight:800;color:${COLOR_IT};margin-bottom:14px;}
+      .p13-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px;}
+      .p13-kpi-card{padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;text-align:center;}
+      .p13-kpi-num{font-size:22px;font-weight:800;color:${COLOR_IT};font-family:var(--mono);}
+      .p13-kpi-lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-top:2px;}
+      .p13-matrix{border-collapse:collapse;width:100%;font-size:12px;}
+      .p13-matrix th,.p13-matrix td{border:1px solid var(--border);padding:8px;text-align:center;}
+      .p13-matrix th{background:var(--surface);color:var(--text2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;}
+      .p13-matrix td.loc{text-align:left;font-weight:700;background:var(--surface);color:${COLOR_IT};font-size:11px;}
+      .p13-matrix td.cell{cursor:pointer;font-weight:700;}
+      .p13-matrix td.cell:hover{background:${COLOR_IT}22;}
+      .p13-matrix td.cell.zero{color:var(--text3);font-weight:400;}
+    `;
+    document.head.appendChild(s);
+  }
+
+  // ── shared modal ──
+  function ensureModal(){
+    if(document.getElementById('hnxP13Modal'))return;
+    injectStyles();
+    const m=document.createElement('div');m.id='hnxP13Modal';
+    m.innerHTML='<div class="p13m-card" id="hnxP13Card"></div>';
+    m.addEventListener('click',e=>{if(e.target===m)closeModal();});
+    document.body.appendChild(m);
+  }
+  function openModal(html){
+    ensureModal();
+    document.getElementById('hnxP13Card').innerHTML=html;
+    document.getElementById('hnxP13Modal').classList.add('show');
+  }
+  function closeModal(){const m=document.getElementById('hnxP13Modal');if(m)m.classList.remove('show');}
+  window.hnxP13CloseModal=closeModal;
+
+  // ============================================================
+  // MODULE 1: IT CALENDAR
+  // ============================================================
+  const CAL_KEY='hydroPro_it_calendar_v1';
+  regKey(CAL_KEY);
+  const CAL_TYPES=[
+    {id:'visit',label:'Site Visit',color:'#67c5ff'},
+    {id:'maint',label:'Maintenance Window',color:'#ff9c33'},
+    {id:'deploy',label:'Deployment',color:'#2eaa2e'},
+    {id:'training',label:'Training',color:'#ab47bc'},
+    {id:'vendor',label:'Vendor',color:'#ec407a'},
+    {id:'other',label:'Other',color:'#cfd8dc'}
+  ];
+  function typeMeta(id){return CAL_TYPES.find(t=>t.id===id)||CAL_TYPES[CAL_TYPES.length-1];}
+  function renderCalendar(){
+    const body=document.getElementById('hnx-it_calendar-body');
+    if(!body){warn('hnx-it_calendar-body not found');return;}
+    injectStyles();
+    const events=load(CAL_KEY,[]);
+    const now=new Date();now.setHours(0,0,0,0);
+    const future=events.filter(e=>{try{return new Date(e.date+'T'+(e.time||'00:00'))>=now;}catch(_){return false;}}).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+    const past=events.filter(e=>{try{return new Date(e.date+'T'+(e.time||'00:00'))<now;}catch(_){return false;}}).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+    const weekCutoff=new Date();weekCutoff.setDate(weekCutoff.getDate()+7);
+    const monthCutoff=new Date();monthCutoff.setDate(monthCutoff.getDate()+30);
+    const thisWeek=future.filter(e=>new Date(e.date)<=weekCutoff);
+    const thisMonth=future.filter(e=>{const d=new Date(e.date);return d>weekCutoff&&d<=monthCutoff;});
+    const later=future.filter(e=>new Date(e.date)>monthCutoff);
+    function evCard(e){
+      const tm=typeMeta(e.type);
+      const dt=new Date(e.date+'T'+(e.time||'00:00'));
+      const statusClr=e.status==='done'?'#2eaa2e':e.status==='cancelled'?'#ff5555':e.status==='in_progress'?'#ff9c33':COLOR_IT;
+      return `<div class="p13-card" style="border-left-color:${tm.color};">
+        <div class="p13-row">
+          <div style="flex:1;min-width:220px;">
+            <div class="p13-row-title">${esc(e.title)}</div>
+            <div class="p13-row-meta" style="margin-top:3px;">📅 ${fmtDate(dt)} ${e.time?'· ⏰ '+esc(e.time):''}${e.endTime?' – '+esc(e.endTime):''}${e.location?' · 📍 '+esc(e.location):''}${e.assignedTo?' · 👤 '+esc(e.assignedTo):''}</div>
+            ${e.notes?`<div class="p13-row-meta" style="margin-top:6px;color:var(--text2);">${esc(e.notes)}</div>`:''}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;">
+            <span class="p13-pill" style="background:${tm.color}22;color:${tm.color};">${tm.label}</span>
+            <span class="p13-pill" style="background:${statusClr}22;color:${statusClr};">${(e.status||'scheduled').replace('_',' ').toUpperCase()}</span>
+          </div>
+        </div>
+        <div class="p13-actions" style="margin-top:10px;">
+          <button class="p13-btn sm" onclick="hnxCalEdit('${esc(e.id)}')">✏ Edit</button>
+          ${e.status!=='done'?`<button class="p13-btn sm ok" onclick="hnxCalSetStatus('${esc(e.id)}','done')">✓ Done</button>`:''}
+          ${e.status!=='in_progress'&&e.status!=='done'?`<button class="p13-btn sm warn" onclick="hnxCalSetStatus('${esc(e.id)}','in_progress')">▶ Start</button>`:''}
+          ${e.status!=='cancelled'?`<button class="p13-btn sm" onclick="hnxCalSetStatus('${esc(e.id)}','cancelled')">✕ Cancel</button>`:''}
+          <button class="p13-btn sm danger" onclick="hnxCalDel('${esc(e.id)}')">🗑 Delete</button>
+        </div>
+      </div>`;
+    }
+    function group(title,arr){if(!arr.length)return'';return`<div style="margin-top:14px;"><div class="p13-sub" style="margin-bottom:6px;">${title} (${arr.length})</div><div class="p13-grid">${arr.map(evCard).join('')}</div></div>`;}
+    body.innerHTML=`<div class="p13-wrap">
+      <div class="p13-head">
+        <div>
+          <div class="p13-title">📅 IT Calendar</div>
+          <div class="p13-sub">${events.length} events · ${future.length} upcoming · ${thisWeek.length} this week</div>
+        </div>
+        <div class="p13-actions">
+          <button class="p13-btn primary" onclick="hnxCalAdd()">➕ New Event</button>
+        </div>
+      </div>
+      ${future.length===0&&past.length===0?'<div class="p13-empty">No IT events yet. Click ➕ New Event to schedule one.</div>':''}
+      ${group('🔥 THIS WEEK',thisWeek)}
+      ${group('📅 NEXT 30 DAYS',thisMonth)}
+      ${group('⏳ LATER',later)}
+      ${past.length?group('📋 PAST '+(past.length>20?'(showing 20)':''),past.slice(0,20)):''}
+    </div>`;
+  }
+  function calForm(ev){
+    ev=ev||{title:'',type:'visit',date:new Date().toISOString().slice(0,10),time:'09:00',endTime:'',location:'',assignedTo:'',notes:'',status:'scheduled'};
+    return `<div class="p13m-title">${ev.id?'✏ Edit':'➕ New'} IT Event</div>
+      <div class="p13-field"><label>Title *</label><input id="cal_title" class="p13-input" value="${esc(ev.title)}" placeholder="e.g. Server rack maintenance"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Type</label><select id="cal_type" class="p13-select">${CAL_TYPES.map(t=>`<option value="${t.id}" ${ev.type===t.id?'selected':''}>${t.label}</option>`).join('')}</select></div>
+        <div class="p13-field"><label>Status</label><select id="cal_status" class="p13-select">${['scheduled','in_progress','done','cancelled'].map(s=>`<option value="${s}" ${ev.status===s?'selected':''}>${s.replace('_',' ').toUpperCase()}</option>`).join('')}</select></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Date *</label><input type="date" id="cal_date" class="p13-input" value="${esc(ev.date)}"></div>
+        <div class="p13-field"><label>Start Time</label><input type="time" id="cal_time" class="p13-input" value="${esc(ev.time)}"></div>
+        <div class="p13-field"><label>End Time</label><input type="time" id="cal_endTime" class="p13-input" value="${esc(ev.endTime||'')}"></div>
+      </div>
+      <div class="p13-field"><label>Location</label><input id="cal_location" class="p13-input" value="${esc(ev.location)}" placeholder="e.g. Server Room, GH3, Office"></div>
+      <div class="p13-field"><label>Assigned To</label><input id="cal_assignedTo" class="p13-input" value="${esc(ev.assignedTo)}" placeholder="Name of IT staff or vendor"></div>
+      <div class="p13-field"><label>Notes</label><textarea id="cal_notes" class="p13-textarea" placeholder="Optional details">${esc(ev.notes)}</textarea></div>
+      <div class="p13-actions" style="margin-top:8px;"><button class="p13-btn primary" onclick="hnxCalSave('${esc(ev.id||'')}')">${ev.id?'✓ Update':'✓ Create'}</button><button class="p13-btn" onclick="hnxP13CloseModal()">Cancel</button></div>`;
+  }
+  window.hnxCalAdd=function(){openModal(calForm());};
+  window.hnxCalEdit=function(id){const e=load(CAL_KEY,[]).find(x=>x.id===id);if(e)openModal(calForm(e));};
+  window.hnxCalSave=function(id){
+    const t=document.getElementById('cal_title').value.trim();
+    if(!t){alert('Title is required.');return;}
+    const date=document.getElementById('cal_date').value;
+    if(!date){alert('Date is required.');return;}
+    const all=load(CAL_KEY,[]);
+    const u=curUser();const now=Date.now();
+    const data={
+      title:t,type:document.getElementById('cal_type').value,status:document.getElementById('cal_status').value,
+      date,time:document.getElementById('cal_time').value,endTime:document.getElementById('cal_endTime').value,
+      location:document.getElementById('cal_location').value.trim(),assignedTo:document.getElementById('cal_assignedTo').value.trim(),
+      notes:document.getElementById('cal_notes').value.trim()
+    };
+    if(id){const i=all.findIndex(x=>x.id===id);if(i>=0){all[i]=Object.assign(all[i],data,{updatedAt:now,updatedBy:u.username});}}
+    else{all.push(Object.assign(data,{id:uid('cal'),createdAt:now,createdBy:u.username,createdByName:u.name}));}
+    save(CAL_KEY,all);closeModal();renderCalendar();notify('📅 Event '+(id?'updated':'created'));
+  };
+  window.hnxCalSetStatus=function(id,s){const all=load(CAL_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;all[i].status=s;all[i].updatedAt=Date.now();save(CAL_KEY,all);renderCalendar();notify('Status → '+s);};
+  window.hnxCalDel=function(id){if(!confirm('Delete this event?'))return;const all=load(CAL_KEY,[]).filter(x=>x.id!==id);save(CAL_KEY,all);renderCalendar();notify('📅 Event deleted');};
+
+  // ============================================================
+  // MODULE 2: IT ITEM REQUEST
+  // ============================================================
+  const REQ_KEY='hydroPro_it_requests_v1';
+  regKey(REQ_KEY);
+  const REQ_CATS=['Laptop','Monitor','Cable','Peripheral','Software','Phone','Accessory','Network Equipment','Other'];
+  const REQ_URG=[{id:'low',label:'Low',clr:'#cfd8dc'},{id:'medium',label:'Medium',clr:'#ff9c33'},{id:'high',label:'High',clr:'#ff5555'},{id:'urgent',label:'URGENT',clr:'#ff0044'}];
+  const REQ_STATUS=[{id:'pending',label:'Pending Approval',clr:'#ff9c33'},{id:'approved',label:'Approved',clr:'#2eaa2e'},{id:'rejected',label:'Rejected',clr:'#ff5555'},{id:'ordered',label:'Ordered',clr:'#67c5ff'},{id:'fulfilled',label:'Fulfilled',clr:'#9ccc65'},{id:'cancelled',label:'Cancelled',clr:'#cfd8dc'}];
+  function reqStatusMeta(id){return REQ_STATUS.find(x=>x.id===id)||REQ_STATUS[0];}
+  function reqUrgMeta(id){return REQ_URG.find(x=>x.id===id)||REQ_URG[1];}
+  function renderRequests(){
+    const body=document.getElementById('hnx-it_materials-body');
+    if(!body){warn('hnx-it_materials-body not found');return;}
+    injectStyles();
+    const all=load(REQ_KEY,[]);
+    const pending=all.filter(r=>r.status==='pending');
+    const active=all.filter(r=>['approved','ordered'].includes(r.status));
+    const done=all.filter(r=>['fulfilled','rejected','cancelled'].includes(r.status));
+    function rCard(r){
+      const sm=reqStatusMeta(r.status);const um=reqUrgMeta(r.urgency);
+      const canApprove=isManager()&&r.status==='pending';
+      return `<div class="p13-card${r.urgency==='urgent'?' urgent':r.urgency==='high'?' warn':''}">
+        <div class="p13-row">
+          <div style="flex:1;min-width:220px;">
+            <div class="p13-row-title">${esc(r.item)} <span style="font-weight:400;color:var(--text3);">× ${r.qty||1}</span></div>
+            <div class="p13-row-meta" style="margin-top:3px;">📦 ${esc(r.category||'—')} · 👤 ${esc(r.requesterName||r.requester||'—')} · ${fmtDate(r.createdAt)}${r.estimatedCost?' · 💰 '+esc(r.estimatedCost):''}</div>
+            ${r.justification?`<div class="p13-row-meta" style="margin-top:6px;color:var(--text2);"><strong>Why:</strong> ${esc(r.justification)}</div>`:''}
+            ${r.vendor?`<div class="p13-row-meta" style="margin-top:3px;">🏪 ${esc(r.vendor)}</div>`:''}
+            ${r.rejectedReason?`<div class="p13-row-meta" style="margin-top:3px;color:#ff5555;"><strong>Rejected:</strong> ${esc(r.rejectedReason)}</div>`:''}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;">
+            <span class="p13-pill" style="background:${um.clr}22;color:${um.clr};">${um.label}</span>
+            <span class="p13-pill" style="background:${sm.clr}22;color:${sm.clr};">${sm.label.toUpperCase()}</span>
+          </div>
+        </div>
+        <div class="p13-actions" style="margin-top:10px;">
+          ${canApprove?`<button class="p13-btn sm ok" onclick="hnxReqApprove('${esc(r.id)}')">✓ Approve</button>`:''}
+          ${canApprove?`<button class="p13-btn sm danger" onclick="hnxReqReject('${esc(r.id)}')">✕ Reject</button>`:''}
+          ${r.status==='approved'?`<button class="p13-btn sm warn" onclick="hnxReqSetStatus('${esc(r.id)}','ordered')">📦 Mark Ordered</button>`:''}
+          ${r.status==='ordered'?`<button class="p13-btn sm ok" onclick="hnxReqSetStatus('${esc(r.id)}','fulfilled')">📬 Mark Fulfilled</button>`:''}
+          <button class="p13-btn sm" onclick="hnxReqEdit('${esc(r.id)}')">✏ Edit</button>
+          ${r.status!=='cancelled'&&r.status!=='fulfilled'?`<button class="p13-btn sm" onclick="hnxReqSetStatus('${esc(r.id)}','cancelled')">✕ Cancel</button>`:''}
+          ${isManager()?`<button class="p13-btn sm danger" onclick="hnxReqDel('${esc(r.id)}')">🗑 Delete</button>`:''}
+        </div>
+      </div>`;
+    }
+    function group(title,arr){if(!arr.length)return'';return`<div style="margin-top:14px;"><div class="p13-sub" style="margin-bottom:6px;">${title} (${arr.length})</div><div class="p13-grid">${arr.map(rCard).join('')}</div></div>`;}
+    body.innerHTML=`<div class="p13-wrap">
+      <div class="p13-head">
+        <div>
+          <div class="p13-title">📦 IT Item Requests</div>
+          <div class="p13-sub">${all.length} total · ${pending.length} awaiting approval · ${active.length} active</div>
+        </div>
+        <div class="p13-actions"><button class="p13-btn primary" onclick="hnxReqAdd()">➕ New Request</button></div>
+      </div>
+      <div class="p13-kpi">
+        <div class="p13-kpi-card"><div class="p13-kpi-num">${pending.length}</div><div class="p13-kpi-lbl">Pending</div></div>
+        <div class="p13-kpi-card"><div class="p13-kpi-num" style="color:#2eaa2e;">${all.filter(r=>r.status==='approved').length}</div><div class="p13-kpi-lbl">Approved</div></div>
+        <div class="p13-kpi-card"><div class="p13-kpi-num" style="color:#67c5ff;">${all.filter(r=>r.status==='ordered').length}</div><div class="p13-kpi-lbl">Ordered</div></div>
+        <div class="p13-kpi-card"><div class="p13-kpi-num" style="color:#9ccc65;">${all.filter(r=>r.status==='fulfilled').length}</div><div class="p13-kpi-lbl">Fulfilled</div></div>
+        <div class="p13-kpi-card"><div class="p13-kpi-num" style="color:#ff5555;">${all.filter(r=>r.status==='rejected').length}</div><div class="p13-kpi-lbl">Rejected</div></div>
+      </div>
+      ${all.length===0?'<div class="p13-empty">No item requests yet. Click ➕ New Request to file one.</div>':''}
+      ${group('⏳ PENDING APPROVAL',pending)}
+      ${group('🚀 ACTIVE',active)}
+      ${group('📋 COMPLETED / ARCHIVED',done.slice(0,30))}
+    </div>`;
+  }
+  function reqForm(r){
+    r=r||{item:'',qty:1,category:'Cable',justification:'',urgency:'medium',status:'pending',vendor:'',estimatedCost:'',notes:''};
+    return `<div class="p13m-title">${r.id?'✏ Edit':'➕ New'} IT Item Request</div>
+      <div class="p13-field"><label>Item *</label><input id="req_item" class="p13-input" value="${esc(r.item)}" placeholder="e.g. Dell 24-inch monitor"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Quantity</label><input type="number" id="req_qty" class="p13-input" value="${esc(r.qty)}" min="1"></div>
+        <div class="p13-field"><label>Category</label><select id="req_category" class="p13-select">${REQ_CATS.map(c=>`<option value="${c}" ${r.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Urgency</label><select id="req_urgency" class="p13-select">${REQ_URG.map(u=>`<option value="${u.id}" ${r.urgency===u.id?'selected':''}>${u.label}</option>`).join('')}</select></div>
+        <div class="p13-field"><label>Estimated Cost (₱)</label><input id="req_estimatedCost" class="p13-input" value="${esc(r.estimatedCost)}" placeholder="optional"></div>
+      </div>
+      <div class="p13-field"><label>Justification *</label><textarea id="req_justification" class="p13-textarea" placeholder="Why is this needed?">${esc(r.justification)}</textarea></div>
+      <div class="p13-field"><label>Vendor (optional)</label><input id="req_vendor" class="p13-input" value="${esc(r.vendor||'')}" placeholder="Preferred supplier"></div>
+      ${isManager()?`<div class="p13-field"><label>Status</label><select id="req_status" class="p13-select">${REQ_STATUS.map(s=>`<option value="${s.id}" ${r.status===s.id?'selected':''}>${s.label}</option>`).join('')}</select></div>`:''}
+      <div class="p13-actions"><button class="p13-btn primary" onclick="hnxReqSave('${esc(r.id||'')}')">${r.id?'✓ Update':'✓ Submit'}</button><button class="p13-btn" onclick="hnxP13CloseModal()">Cancel</button></div>`;
+  }
+  window.hnxReqAdd=function(){openModal(reqForm());};
+  window.hnxReqEdit=function(id){const r=load(REQ_KEY,[]).find(x=>x.id===id);if(r)openModal(reqForm(r));};
+  window.hnxReqSave=function(id){
+    const item=document.getElementById('req_item').value.trim();if(!item){alert('Item required');return;}
+    const just=document.getElementById('req_justification').value.trim();if(!just){alert('Justification required');return;}
+    const u=curUser();const all=load(REQ_KEY,[]);const now=Date.now();
+    const data={item,qty:Number(document.getElementById('req_qty').value)||1,category:document.getElementById('req_category').value,
+      urgency:document.getElementById('req_urgency').value,justification:just,
+      vendor:document.getElementById('req_vendor').value.trim(),estimatedCost:document.getElementById('req_estimatedCost').value.trim()};
+    if(document.getElementById('req_status'))data.status=document.getElementById('req_status').value;
+    if(id){const i=all.findIndex(x=>x.id===id);if(i>=0){all[i]=Object.assign(all[i],data,{updatedAt:now});}}
+    else{all.push(Object.assign({id:uid('req'),requester:u.username,requesterName:u.name,createdAt:now,status:'pending'},data));}
+    save(REQ_KEY,all);closeModal();renderRequests();notify('📦 Request '+(id?'updated':'submitted'));
+  };
+  window.hnxReqApprove=function(id){const all=load(REQ_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;const u=curUser();all[i].status='approved';all[i].approvedBy=u.username;all[i].approvedByName=u.name;all[i].approvedAt=Date.now();save(REQ_KEY,all);renderRequests();notify('✓ Request approved');};
+  window.hnxReqReject=function(id){const reason=prompt('Rejection reason:');if(!reason)return;const all=load(REQ_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;const u=curUser();all[i].status='rejected';all[i].rejectedReason=reason;all[i].rejectedBy=u.username;all[i].rejectedAt=Date.now();save(REQ_KEY,all);renderRequests();notify('✕ Request rejected');};
+  window.hnxReqSetStatus=function(id,s){const all=load(REQ_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;all[i].status=s;if(s==='fulfilled')all[i].fulfilledAt=Date.now();all[i].updatedAt=Date.now();save(REQ_KEY,all);renderRequests();notify('Status → '+s);};
+  window.hnxReqDel=function(id){if(!confirm('Delete this request?'))return;save(REQ_KEY,load(REQ_KEY,[]).filter(x=>x.id!==id));renderRequests();notify('📦 Request deleted');};
+
+  // ============================================================
+  // MODULE 3: IT SPARE PARTS
+  // ============================================================
+  const PARTS_KEY='hydroPro_it_spares_v1';
+  regKey(PARTS_KEY);
+  const PARTS_CATS=['Cables','HDD/SSD','Batteries','RAM','Power Supply','Network','Camera','Mouse/Keyboard','Monitor Parts','Adapters','Other'];
+  function renderParts(){
+    const body=document.getElementById('hnx-it_parts-body');
+    if(!body){warn('hnx-it_parts-body not found');return;}
+    injectStyles();
+    const all=load(PARTS_KEY,[]);
+    const low=all.filter(p=>p.minQty>0&&p.qty<p.minQty);
+    const out=all.filter(p=>p.qty===0);
+    function pCard(p){
+      const isLow=p.minQty>0&&p.qty<p.minQty;const isOut=p.qty===0;
+      const cls=isOut?'urgent':isLow?'warn':'';
+      return `<div class="p13-card ${cls}">
+        <div class="p13-row">
+          <div style="flex:1;min-width:200px;">
+            <div class="p13-row-title">${esc(p.name)}</div>
+            <div class="p13-row-meta" style="margin-top:3px;">🏷 ${esc(p.category||'—')}${p.partNumber?' · P/N: '+esc(p.partNumber):''}${p.location?' · 📍 '+esc(p.location):''}${p.vendor?' · 🏪 '+esc(p.vendor):''}</div>
+            ${p.notes?`<div class="p13-row-meta" style="margin-top:5px;color:var(--text2);">${esc(p.notes)}</div>`:''}
+            ${p.lastRestockedAt?`<div class="p13-row-meta" style="margin-top:3px;">📦 Last restocked: ${fmtDate(p.lastRestockedAt)}${p.lastRestockedBy?' by '+esc(p.lastRestockedBy):''}</div>`:''}
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:5px;min-width:120px;">
+            <div style="font-size:28px;font-weight:800;color:${isOut?'#ff5555':isLow?'#ff9c33':'#2eaa2e'};font-family:var(--mono);">${p.qty}</div>
+            <div class="p13-sub">${p.minQty>0?'min: '+p.minQty:'no min'}</div>
+            <div style="display:flex;gap:3px;">
+              <button class="p13-btn sm" onclick="hnxPartAdjust('${esc(p.id)}',-1)">−</button>
+              <button class="p13-btn sm" onclick="hnxPartAdjust('${esc(p.id)}',1)">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="p13-actions" style="margin-top:10px;">
+          <button class="p13-btn sm" onclick="hnxPartRestock('${esc(p.id)}')">📦 Restock</button>
+          <button class="p13-btn sm" onclick="hnxPartEdit('${esc(p.id)}')">✏ Edit</button>
+          <button class="p13-btn sm danger" onclick="hnxPartDel('${esc(p.id)}')">🗑 Delete</button>
+        </div>
+      </div>`;
+    }
+    body.innerHTML=`<div class="p13-wrap">
+      <div class="p13-head">
+        <div>
+          <div class="p13-title">🔩 IT Spare Parts</div>
+          <div class="p13-sub">${all.length} items · ${low.length} low stock · ${out.length} out of stock</div>
+        </div>
+        <div class="p13-actions"><button class="p13-btn primary" onclick="hnxPartAdd()">➕ Add Item</button></div>
+      </div>
+      <div class="p13-kpi">
+        <div class="p13-kpi-card"><div class="p13-kpi-num">${all.length}</div><div class="p13-kpi-lbl">Total Items</div></div>
+        <div class="p13-kpi-card"><div class="p13-kpi-num" style="color:#ff9c33;">${low.length}</div><div class="p13-kpi-lbl">Low Stock</div></div>
+        <div class="p13-kpi-card"><div class="p13-kpi-num" style="color:#ff5555;">${out.length}</div><div class="p13-kpi-lbl">Out of Stock</div></div>
+        <div class="p13-kpi-card"><div class="p13-kpi-num" style="color:#2eaa2e;">${all.length-low.length-out.length}</div><div class="p13-kpi-lbl">In Stock</div></div>
+      </div>
+      ${all.length===0?'<div class="p13-empty">No spare parts tracked yet. Click ➕ Add Item to get started.</div>':''}
+      ${low.length?`<div style="margin-top:14px;"><div class="p13-sub" style="margin-bottom:6px;color:#ff9c33;">⚠ LOW / OUT OF STOCK (${low.length})</div><div class="p13-grid">${low.map(pCard).join('')}</div></div>`:''}
+      ${all.length?`<div style="margin-top:14px;"><div class="p13-sub" style="margin-bottom:6px;">📦 ALL ITEMS (${all.length})</div><div class="p13-grid">${all.filter(p=>!low.includes(p)).map(pCard).join('')}</div></div>`:''}
+    </div>`;
+  }
+  function partForm(p){
+    p=p||{name:'',category:'Cables',qty:0,minQty:0,location:'',notes:'',partNumber:'',vendor:'',costPer:''};
+    return `<div class="p13m-title">${p.id?'✏ Edit':'➕ Add'} Spare Part</div>
+      <div class="p13-field"><label>Name *</label><input id="part_name" class="p13-input" value="${esc(p.name)}" placeholder="e.g. CAT6 RJ45 cable 3m"></div>
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Category</label><select id="part_category" class="p13-select">${PARTS_CATS.map(c=>`<option value="${c}" ${p.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
+        <div class="p13-field"><label>Part Number</label><input id="part_partNumber" class="p13-input" value="${esc(p.partNumber||'')}"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Quantity</label><input type="number" id="part_qty" class="p13-input" value="${esc(p.qty)}" min="0"></div>
+        <div class="p13-field"><label>Min Qty</label><input type="number" id="part_minQty" class="p13-input" value="${esc(p.minQty)}" min="0"></div>
+        <div class="p13-field"><label>Cost / unit</label><input id="part_costPer" class="p13-input" value="${esc(p.costPer||'')}" placeholder="₱"></div>
+      </div>
+      <div class="p13-field"><label>Location</label><input id="part_location" class="p13-input" value="${esc(p.location)}" placeholder="e.g. IT Room Shelf B"></div>
+      <div class="p13-field"><label>Vendor</label><input id="part_vendor" class="p13-input" value="${esc(p.vendor||'')}"></div>
+      <div class="p13-field"><label>Notes</label><textarea id="part_notes" class="p13-textarea">${esc(p.notes||'')}</textarea></div>
+      <div class="p13-actions"><button class="p13-btn primary" onclick="hnxPartSave('${esc(p.id||'')}')">${p.id?'✓ Update':'✓ Add'}</button><button class="p13-btn" onclick="hnxP13CloseModal()">Cancel</button></div>`;
+  }
+  window.hnxPartAdd=function(){openModal(partForm());};
+  window.hnxPartEdit=function(id){const p=load(PARTS_KEY,[]).find(x=>x.id===id);if(p)openModal(partForm(p));};
+  window.hnxPartSave=function(id){
+    const n=document.getElementById('part_name').value.trim();if(!n){alert('Name required');return;}
+    const all=load(PARTS_KEY,[]);const u=curUser();
+    const data={name:n,category:document.getElementById('part_category').value,partNumber:document.getElementById('part_partNumber').value.trim(),
+      qty:Math.max(0,Number(document.getElementById('part_qty').value)||0),minQty:Math.max(0,Number(document.getElementById('part_minQty').value)||0),
+      costPer:document.getElementById('part_costPer').value.trim(),location:document.getElementById('part_location').value.trim(),
+      vendor:document.getElementById('part_vendor').value.trim(),notes:document.getElementById('part_notes').value.trim()};
+    if(id){const i=all.findIndex(x=>x.id===id);if(i>=0)all[i]=Object.assign(all[i],data,{updatedAt:Date.now()});}
+    else all.push(Object.assign({id:uid('part'),createdAt:Date.now(),createdBy:u.username},data));
+    save(PARTS_KEY,all);closeModal();renderParts();notify('🔩 Part '+(id?'updated':'added'));
+  };
+  window.hnxPartAdjust=function(id,delta){const all=load(PARTS_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;all[i].qty=Math.max(0,(all[i].qty||0)+delta);all[i].updatedAt=Date.now();save(PARTS_KEY,all);renderParts();};
+  window.hnxPartRestock=function(id){const qty=prompt('How many units restocked?');if(!qty)return;const n=Number(qty);if(isNaN(n)||n<=0){alert('Invalid qty');return;}const all=load(PARTS_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;const u=curUser();all[i].qty=(all[i].qty||0)+n;all[i].lastRestockedAt=Date.now();all[i].lastRestockedBy=u.name;save(PARTS_KEY,all);renderParts();notify('📦 Restocked +'+n);};
+  window.hnxPartDel=function(id){if(!confirm('Delete this item?'))return;save(PARTS_KEY,load(PARTS_KEY,[]).filter(x=>x.id!==id));renderParts();notify('🔩 Item deleted');};
+
+  // ============================================================
+  // MODULE 4: GH & FERTIGATION MATRIX
+  // ============================================================
+  const MATRIX_KEY='hydroPro_it_matrix_v1';
+  regKey(MATRIX_KEY);
+  const MATRIX_LOCS=['GH1','GH2','GH3','GH4','GH5','GH6','GH7','GH8','GH9','GH10','Fer Room 1','Fer Room 2','Fer Room 3','Server Room','Office','IT Room'];
+  const MATRIX_TYPES=[{id:'cctv',label:'CCTV',icon:'📹'},{id:'network',label:'Network',icon:'📡'},{id:'sensors',label:'Sensors',icon:'🌡'},{id:'phones',label:'Phones',icon:'📞'},{id:'computers',label:'PCs',icon:'💻'},{id:'other',label:'Other',icon:'⚙'}];
+  function renderGhFerMatrix(){
+    const body=document.getElementById('hnx-it_gh_fer_matrix-body');
+    if(!body){warn('hnx-it_gh_fer_matrix-body not found');return;}
+    injectStyles();
+    const data=load(MATRIX_KEY,{});
+    let total=0;
+    MATRIX_LOCS.forEach(l=>{MATRIX_TYPES.forEach(t=>{total+=(data[l]&&data[l][t.id])||0;});});
+    body.innerHTML=`<div class="p13-wrap">
+      <div class="p13-head">
+        <div>
+          <div class="p13-title">💧 GH & Fertigation IT Matrix</div>
+          <div class="p13-sub">${total} IT devices across ${MATRIX_LOCS.length} locations · click any cell to edit</div>
+        </div>
+        <div class="p13-actions"><button class="p13-btn" onclick="hnxMatrixReset()">↻ Reset</button></div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="p13-matrix">
+          <thead><tr><th style="text-align:left;">Location</th>${MATRIX_TYPES.map(t=>`<th>${t.icon}<br>${t.label}</th>`).join('')}<th>Total</th></tr></thead>
+          <tbody>
+            ${MATRIX_LOCS.map(loc=>{
+              const row=data[loc]||{};let rt=0;
+              return `<tr>
+                <td class="loc">${esc(loc)}</td>
+                ${MATRIX_TYPES.map(t=>{const v=row[t.id]||0;rt+=v;return `<td class="cell ${v===0?'zero':''}" onclick="hnxMatrixSet('${esc(loc)}','${t.id}')">${v}</td>`;}).join('')}
+                <td style="font-weight:800;color:${COLOR_IT};">${rt}</td>
+              </tr>`;
+            }).join('')}
+            <tr style="background:var(--surface);font-weight:800;">
+              <td class="loc">TOTAL</td>
+              ${MATRIX_TYPES.map(t=>{let s=0;MATRIX_LOCS.forEach(l=>{s+=(data[l]&&data[l][t.id])||0;});return `<td style="color:${COLOR_IT};">${s}</td>`;}).join('')}
+              <td style="color:${COLOR_IT};font-size:14px;">${total}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+  window.hnxMatrixSet=function(loc,type){
+    const data=load(MATRIX_KEY,{});const cur=(data[loc]&&data[loc][type])||0;
+    const newVal=prompt(`${loc} · ${MATRIX_TYPES.find(t=>t.id===type).label}\n\nCurrent: ${cur}\nEnter new count:`,String(cur));
+    if(newVal===null)return;const n=Math.max(0,Number(newVal)||0);
+    if(!data[loc])data[loc]={};data[loc][type]=n;data[loc]._updatedAt=Date.now();save(MATRIX_KEY,data);renderGhFerMatrix();
+  };
+  window.hnxMatrixReset=function(){if(!confirm('Reset entire matrix to zero?'))return;save(MATRIX_KEY,{});renderGhFerMatrix();notify('💧 Matrix reset');};
+
+  // ============================================================
+  // MODULE 5: RFID SETUP
+  // ============================================================
+  const RFID_KEY='hydroPro_it_rfid_v1';
+  regKey(RFID_KEY);
+  const RFID_TYPES=['Employee','Equipment','Vehicle','Inventory','Asset','Visitor','Other'];
+  const RFID_STATUS=[{id:'active',label:'Active',clr:'#2eaa2e'},{id:'inactive',label:'Inactive',clr:'#cfd8dc'},{id:'lost',label:'Lost',clr:'#ff5555'},{id:'replaced',label:'Replaced',clr:'#ff9c33'}];
+  function rfidStatusMeta(id){return RFID_STATUS.find(x=>x.id===id)||RFID_STATUS[0];}
+  function renderRfid(){
+    const body=document.getElementById('hnx-it_rfid-body');
+    if(!body){warn('hnx-it_rfid-body not found');return;}
+    injectStyles();
+    const all=load(RFID_KEY,[]);
+    const filter=window._hnxRfidFilter||'';
+    const filtered=filter?all.filter(t=>(t.tag_id||'').toLowerCase().includes(filter.toLowerCase())||(t.asset_name||'').toLowerCase().includes(filter.toLowerCase())):all;
+    function tCard(t){
+      const sm=rfidStatusMeta(t.status);
+      return `<div class="p13-card">
+        <div class="p13-row">
+          <div style="flex:1;min-width:220px;">
+            <div class="p13-row-title">🆔 ${esc(t.tag_id)} <span style="font-weight:400;color:var(--text3);">→ ${esc(t.asset_name||'(unassigned)')}</span></div>
+            <div class="p13-row-meta" style="margin-top:3px;">${esc(t.asset_type||'—')}${t.asset_id?' · ID: '+esc(t.asset_id):''}${t.location?' · 📍 '+esc(t.location):''}${t.assignedTo?' · 👤 '+esc(t.assignedTo):''}</div>
+            ${t.lastSeen?`<div class="p13-row-meta" style="margin-top:3px;">👁 Last seen: ${fmtDateTime(t.lastSeen)}${t.lastSeenBy?' at '+esc(t.lastSeenBy):''}</div>`:''}
+            ${t.notes?`<div class="p13-row-meta" style="margin-top:6px;color:var(--text2);">${esc(t.notes)}</div>`:''}
+          </div>
+          <span class="p13-pill" style="background:${sm.clr}22;color:${sm.clr};align-self:flex-start;">${sm.label.toUpperCase()}</span>
+        </div>
+        <div class="p13-actions" style="margin-top:10px;">
+          <button class="p13-btn sm" onclick="hnxRfidSeen('${esc(t.id)}')">👁 Log Seen</button>
+          <button class="p13-btn sm" onclick="hnxRfidEdit('${esc(t.id)}')">✏ Edit</button>
+          ${t.status==='active'?`<button class="p13-btn sm danger" onclick="hnxRfidSetStatus('${esc(t.id)}','lost')">⚠ Mark Lost</button>`:''}
+          <button class="p13-btn sm danger" onclick="hnxRfidDel('${esc(t.id)}')">🗑 Delete</button>
+        </div>
+      </div>`;
+    }
+    body.innerHTML=`<div class="p13-wrap">
+      <div class="p13-head">
+        <div>
+          <div class="p13-title">🆔 RFID Setup</div>
+          <div class="p13-sub">${all.length} tags · ${all.filter(t=>t.status==='active').length} active · ${all.filter(t=>t.status==='lost').length} lost</div>
+        </div>
+        <div class="p13-actions"><button class="p13-btn primary" onclick="hnxRfidAdd()">➕ Register Tag</button></div>
+      </div>
+      <div class="p13-toolbar">
+        <input class="p13-input" style="max-width:300px;" placeholder="🔍 Search by tag ID or asset name..." value="${esc(filter)}" oninput="window._hnxRfidFilter=this.value;hnxRfidRender();">
+        ${filter?`<button class="p13-btn sm" onclick="window._hnxRfidFilter='';hnxRfidRender();">✕ Clear</button>`:''}
+      </div>
+      ${all.length===0?'<div class="p13-empty">No RFID tags registered yet. Click ➕ Register Tag to add one.</div>':filtered.length===0?'<div class="p13-empty">No tags match the filter.</div>':`<div class="p13-grid">${filtered.map(tCard).join('')}</div>`}
+    </div>`;
+  }
+  function rfidForm(t){
+    t=t||{tag_id:'',asset_type:'Equipment',asset_name:'',asset_id:'',location:'',status:'active',assignedTo:'',notes:''};
+    return `<div class="p13m-title">${t.id?'✏ Edit':'➕ Register'} RFID Tag</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Tag ID *</label><input id="rfid_tag_id" class="p13-input" value="${esc(t.tag_id)}" placeholder="e.g. RFID-001"></div>
+        <div class="p13-field"><label>Status</label><select id="rfid_status" class="p13-select">${RFID_STATUS.map(s=>`<option value="${s.id}" ${t.status===s.id?'selected':''}>${s.label}</option>`).join('')}</select></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;">
+        <div class="p13-field"><label>Asset Type</label><select id="rfid_asset_type" class="p13-select">${RFID_TYPES.map(c=>`<option value="${c}" ${t.asset_type===c?'selected':''}>${c}</option>`).join('')}</select></div>
+        <div class="p13-field"><label>Asset Name</label><input id="rfid_asset_name" class="p13-input" value="${esc(t.asset_name)}" placeholder="e.g. Forklift #2, John Doe, GH3 sensor box"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Asset ID</label><input id="rfid_asset_id" class="p13-input" value="${esc(t.asset_id||'')}" placeholder="optional"></div>
+        <div class="p13-field"><label>Location</label><input id="rfid_location" class="p13-input" value="${esc(t.location||'')}"></div>
+      </div>
+      <div class="p13-field"><label>Assigned To</label><input id="rfid_assignedTo" class="p13-input" value="${esc(t.assignedTo||'')}" placeholder="Person responsible"></div>
+      <div class="p13-field"><label>Notes</label><textarea id="rfid_notes" class="p13-textarea">${esc(t.notes||'')}</textarea></div>
+      <div class="p13-actions"><button class="p13-btn primary" onclick="hnxRfidSave('${esc(t.id||'')}')">${t.id?'✓ Update':'✓ Register'}</button><button class="p13-btn" onclick="hnxP13CloseModal()">Cancel</button></div>`;
+  }
+  window.hnxRfidAdd=function(){openModal(rfidForm());};
+  window.hnxRfidEdit=function(id){const t=load(RFID_KEY,[]).find(x=>x.id===id);if(t)openModal(rfidForm(t));};
+  window.hnxRfidSave=function(id){
+    const tagId=document.getElementById('rfid_tag_id').value.trim();if(!tagId){alert('Tag ID required');return;}
+    const all=load(RFID_KEY,[]);
+    if(!id&&all.some(x=>x.tag_id===tagId)){alert('A tag with this ID already exists.');return;}
+    const u=curUser();
+    const data={tag_id:tagId,asset_type:document.getElementById('rfid_asset_type').value,asset_name:document.getElementById('rfid_asset_name').value.trim(),
+      asset_id:document.getElementById('rfid_asset_id').value.trim(),location:document.getElementById('rfid_location').value.trim(),
+      status:document.getElementById('rfid_status').value,assignedTo:document.getElementById('rfid_assignedTo').value.trim(),
+      notes:document.getElementById('rfid_notes').value.trim()};
+    if(id){const i=all.findIndex(x=>x.id===id);if(i>=0)all[i]=Object.assign(all[i],data,{updatedAt:Date.now()});}
+    else all.push(Object.assign({id:uid('rfid'),createdAt:Date.now(),createdBy:u.username},data));
+    save(RFID_KEY,all);closeModal();renderRfid();notify('🆔 Tag '+(id?'updated':'registered'));
+  };
+  window.hnxRfidSeen=function(id){const all=load(RFID_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;const u=curUser();all[i].lastSeen=Date.now();all[i].lastSeenBy=u.name;save(RFID_KEY,all);renderRfid();notify('👁 Seen logged');};
+  window.hnxRfidSetStatus=function(id,s){const all=load(RFID_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;all[i].status=s;all[i].updatedAt=Date.now();save(RFID_KEY,all);renderRfid();notify('Status → '+s);};
+  window.hnxRfidDel=function(id){if(!confirm('Delete this tag?'))return;save(RFID_KEY,load(RFID_KEY,[]).filter(x=>x.id!==id));renderRfid();notify('🆔 Tag deleted');};
+  window.hnxRfidRender=renderRfid;
+
+  // ============================================================
+  // SWITCHVIEW HOOK — one wrapper for all 5 modules
+  // ============================================================
+  const RENDERERS={
+    'it_calendar':renderCalendar,
+    'it_materials':renderRequests,
+    'it_parts':renderParts,
+    'it_gh_fer_matrix':renderGhFerMatrix,
+    'it_rfid':renderRfid
+  };
+  function hookSwitchView(){
+    if(typeof window.switchView!=='function')return false;
+    if(window.switchView._hnxP13Wrapped)return true;
+    const orig=window.switchView;
+    window.switchView=function(viewId){
+      const result=orig.apply(this,arguments);
+      if(RENDERERS[viewId]){
+        setTimeout(()=>{try{RENDERERS[viewId]();}catch(e){warn('render '+viewId+' fail:',e);}},120);
+      }
+      return result;
+    };
+    window.switchView._hnxP13Wrapped=true;
+    log('switchView hooked for 5 IT views');
+    return true;
+  }
+
+  function run(){
+    let tries=0;
+    const iv=setInterval(()=>{
+      tries++;
+      const ok=hookSwitchView();
+      if(ok||tries>30){
+        clearInterval(iv);
+        if(ok){
+          log('✅ P13 ready — 5 IT modules: Calendar, Requests, Parts, Matrix, RFID');
+          // Re-render currently-active view if it's one of ours
+          const active=document.querySelector('.view.active');
+          if(active){
+            const vid=active.id.replace('view-','');
+            if(RENDERERS[vid])setTimeout(()=>{try{RENDERERS[vid]();}catch(e){warn('re-render fail:',e);}},200);
+          }
+        } else warn('P13 init incomplete after 30 retries');
+      }
+    },300);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);
+  else setTimeout(run,1000);
+})();
+</script>
+<!-- ===================== END HNX v2.86-p13-it-suite ===================== -->
 
 </body>
 </html>
