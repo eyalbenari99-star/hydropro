@@ -100599,7 +100599,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.85.7d-cloudfix';
+        vEl.textContent = orig + ' · HNX v2.85.8-topbar';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -129798,7 +129798,389 @@ body.hnx-mobile-locked { overflow: hidden; }
 </script>
 <!-- ===================== END HNX v2.85.2 ===================== -->
 
-<!-- ===================== HNX v2.85.7d-cloudfix (INLINE) ===================== -->
+<!-- ===================== HNX v2.85.8-topbar-reorg ===================== -->
+<!-- Top bar reorganization: 15 buttons → 3 visible + ⋮ dropdown menu -->
+<!-- Eyal+Claude 2026-05-19 -->
+<script id="hnx-topbar-reorg">
+(function () {
+  'use strict';
+  if (window.__HNX_TOPBAR_REORG__) return;
+  window.__HNX_TOPBAR_REORG__ = true;
+
+  const VERSION = 'v2.85.8-topbar-reorg';
+  const log = function () { console.log.apply(console, ['[TopbarReorg]'].concat([].slice.call(arguments))); };
+
+  // Items to move into the ⋮ menu. Each entry:
+  //   id:      the existing button's id (we will hide it after copying its onclick)
+  //   label:   what to show in the menu
+  //   group:   'data' | 'view' | 'system'
+  //   icon:    emoji prefix
+  //   inject:  optional function to find a non-id'd button (e.g. Monitors)
+  const MENU_ITEMS = [
+    // ---- DATA ----
+    { id: 'btnExport',    label: 'Export JSON',    group: 'data', icon: '⬇' },
+    { id: 'btnImport',    label: 'Import JSON',    group: 'data', icon: '⬆' },
+    { id: 'autoSaveBtn',  label: 'Auto-Save',      group: 'data', icon: '🔗' },
+    { id: null, label: 'Public URL', group: 'data', icon: '🔗',
+      findBtn: function () {
+        const all = document.querySelectorAll('button');
+        for (let i = 0; i < all.length; i++) {
+          const t = (all[i].textContent || '').trim();
+          if (t === '🔗 Public URL' || t === 'Public URL' || /^🔗\s*Public URL$/.test(t)) {
+            // only top-bar instances, not the in-page ones
+            if (all[i].closest('.topbar, .hnx-tbar, header')) return all[i];
+          }
+        }
+        return null;
+      }
+    },
+
+    // ---- VIEW ----
+    { id: null, label: 'Multi-Monitor', group: 'view', icon: '🖥',
+      findBtn: function () {
+        const all = document.querySelectorAll('button[onclick]');
+        for (let i = 0; i < all.length; i++) {
+          const oc = all[i].getAttribute('onclick') || '';
+          if (oc.indexOf('openMultiMonitorLauncher') >= 0) return all[i];
+        }
+        return null;
+      }
+    },
+
+    // ---- SYSTEM ----
+    { id: null, label: 'Settings', group: 'system', icon: '⚙️',
+      findBtn: function () {
+        const t = document.querySelector('.topbar, .hnx-tbar, header');
+        if (!t) return null;
+        const all = t.querySelectorAll('button, [role="button"]');
+        for (let i = 0; i < all.length; i++) {
+          const tt = (all[i].title || '').toLowerCase();
+          const tx = (all[i].textContent || '').trim();
+          if ((tt.indexOf('setting') >= 0 || tx === '⚙' || tx === '⚙️') &&
+              !all[i].id) {
+            return all[i];
+          }
+        }
+        return null;
+      }
+    },
+    { id: null, label: 'Notifications', group: 'system', icon: '🔔',
+      findBtn: function () {
+        const t = document.querySelector('.topbar, .hnx-tbar, header');
+        if (!t) return null;
+        const all = t.querySelectorAll('button, [role="button"]');
+        for (let i = 0; i < all.length; i++) {
+          const tt = (all[i].title || '').toLowerCase();
+          const tx = (all[i].textContent || '').trim();
+          if ((tt.indexOf('notif') >= 0 || tx === '🔔' || tx === '🔔︎') &&
+              !all[i].id) {
+            return all[i];
+          }
+        }
+        return null;
+      }
+    }
+  ];
+
+  // ---------- Styles ----------
+  function injectStyles() {
+    if (document.getElementById('hnx-topbar-reorg-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'hnx-topbar-reorg-styles';
+    s.textContent = `
+      .hnx-tb-more {
+        flex-shrink: 0;
+        padding: 6px 10px;
+        background: var(--surface2, rgba(20,32,24,.9));
+        color: var(--text2, #a5d6a7);
+        border: 1px solid var(--border, rgba(102,187,106,.3));
+        border-radius: 6px;
+        font-size: 16px;
+        line-height: 1;
+        cursor: pointer;
+        font-family: inherit;
+        margin-left: 4px;
+        transition: background .15s, border-color .15s;
+      }
+      .hnx-tb-more:hover {
+        background: rgba(102,187,106,.15);
+        border-color: rgba(102,187,106,.6);
+      }
+      .hnx-tb-cloud-dot {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 14px;
+        height: 14px;
+        margin: 0 2px 0 6px;
+        cursor: pointer;
+      }
+      .hnx-tb-cloud-dot .d {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #66bb6a;
+        box-shadow: 0 0 5px rgba(102,187,106,.7);
+        transition: background .2s;
+      }
+      .hnx-tb-cloud-dot .d.off { background: #666; box-shadow: none; }
+      .hnx-tb-cloud-dot .d.err { background: #ff5252; box-shadow: 0 0 5px rgba(255,82,82,.7); }
+      .hnx-tb-cloud-dot .d.sync { background: #ffc107; animation: hnxDotPulse 1s infinite; }
+      @keyframes hnxDotPulse {
+        0%,100% { opacity: 1; }
+        50% { opacity: .4; }
+      }
+
+      .hnx-tb-menu {
+        position: fixed;
+        background: linear-gradient(180deg, rgba(20,32,24,.98), rgba(8,16,12,.98));
+        border: 1px solid rgba(102,187,106,.4);
+        border-radius: 8px;
+        padding: 6px 0;
+        min-width: 200px;
+        z-index: 99997;
+        box-shadow: 0 8px 24px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.04);
+        font-family: var(--mono, 'JetBrains Mono', monospace);
+        font-size: 12px;
+        animation: hnxMenuIn .12s ease-out;
+      }
+      @keyframes hnxMenuIn {
+        from { opacity: 0; transform: translateY(-4px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      .hnx-tb-menu-group {
+        padding: 4px 0;
+      }
+      .hnx-tb-menu-group + .hnx-tb-menu-group {
+        border-top: 1px solid rgba(102,187,106,.15);
+      }
+      .hnx-tb-menu-label {
+        padding: 4px 14px 4px;
+        font-size: 9.5px;
+        letter-spacing: .12em;
+        color: #6a8ea3;
+        text-transform: uppercase;
+      }
+      .hnx-tb-menu-item {
+        padding: 8px 14px;
+        color: #a5d6a7;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        user-select: none;
+      }
+      .hnx-tb-menu-item:hover {
+        background: rgba(102,187,106,.12);
+        color: #80e885;
+      }
+      .hnx-tb-menu-item:active {
+        background: rgba(102,187,106,.22);
+      }
+      .hnx-tb-menu-item .ic {
+        width: 16px;
+        text-align: center;
+        font-size: 14px;
+      }
+      .hnx-tb-menu-item.hnx-disabled {
+        opacity: .4;
+        cursor: not-allowed;
+      }
+    `;
+    document.head.appendChild(s);
+  }
+
+  // ---------- Resolve all buttons ----------
+  // Returns array of {label, group, icon, sourceBtn} for buttons that exist & are visible
+  function resolveItems() {
+    const out = [];
+    for (let i = 0; i < MENU_ITEMS.length; i++) {
+      const def = MENU_ITEMS[i];
+      let src = null;
+      if (def.id) src = document.getElementById(def.id);
+      else if (def.findBtn) src = def.findBtn();
+      if (!src) continue;
+      // Only include visible/displayed buttons
+      const cs = window.getComputedStyle(src);
+      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+      out.push({
+        label: def.label,
+        group: def.group,
+        icon: def.icon,
+        sourceBtn: src
+      });
+    }
+    return out;
+  }
+
+  // ---------- Build menu DOM ----------
+  let menuEl = null;
+  function closeMenu() {
+    if (menuEl) { menuEl.remove(); menuEl = null; }
+    document.removeEventListener('click', onDocClick, true);
+    document.removeEventListener('keydown', onEsc, true);
+  }
+  function onDocClick(e) {
+    if (!menuEl) return;
+    if (menuEl.contains(e.target)) return;
+    if (e.target.classList && e.target.classList.contains('hnx-tb-more')) return;
+    closeMenu();
+  }
+  function onEsc(e) { if (e.key === 'Escape') closeMenu(); }
+
+  function openMenu(anchorBtn) {
+    closeMenu();
+    const items = resolveItems();
+    if (!items.length) {
+      log('No items resolved — nothing to show in menu');
+      return;
+    }
+
+    menuEl = document.createElement('div');
+    menuEl.className = 'hnx-tb-menu';
+
+    const groups = [
+      { id: 'data',   label: 'Data' },
+      { id: 'view',   label: 'View' },
+      { id: 'system', label: 'System' }
+    ];
+
+    groups.forEach(function (g) {
+      const groupItems = items.filter(function (it) { return it.group === g.id; });
+      if (!groupItems.length) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'hnx-tb-menu-group';
+      wrap.innerHTML = '<div class="hnx-tb-menu-label">' + g.label + '</div>';
+      groupItems.forEach(function (it) {
+        const row = document.createElement('div');
+        row.className = 'hnx-tb-menu-item';
+        row.innerHTML = '<span class="ic">' + it.icon + '</span><span>' + it.label + '</span>';
+        row.onclick = function () {
+          closeMenu();
+          // Fire the original button's click
+          try { it.sourceBtn.click(); }
+          catch (e) { log('Click forward failed:', e); }
+        };
+        wrap.appendChild(row);
+      });
+      menuEl.appendChild(wrap);
+    });
+
+    document.body.appendChild(menuEl);
+
+    // Position menu just below the anchor button, aligned to its right edge
+    const r = anchorBtn.getBoundingClientRect();
+    const mw = menuEl.offsetWidth;
+    let left = r.right - mw;
+    let top  = r.bottom + 6;
+    if (left < 8) left = 8;
+    if (left + mw > window.innerWidth - 8) left = window.innerWidth - mw - 8;
+    menuEl.style.left = left + 'px';
+    menuEl.style.top  = top + 'px';
+
+    setTimeout(function () {
+      document.addEventListener('click', onDocClick, true);
+      document.addEventListener('keydown', onEsc, true);
+    }, 0);
+  }
+
+  // ---------- Reorganize the bar ----------
+  function reorganize() {
+    const items = resolveItems();
+    if (!items.length) return false;
+
+    // 1. Hide the source buttons (don't remove — keeps event handlers + permissions intact)
+    items.forEach(function (it) {
+      if (it.sourceBtn.dataset.hnxHidden) return;
+      it.sourceBtn.dataset.hnxOrigDisplay = it.sourceBtn.style.display || '';
+      it.sourceBtn.style.display = 'none';
+      it.sourceBtn.dataset.hnxHidden = '1';
+    });
+
+    // 2. Inject ⋮ button next to Manager Summary (or fall back to topbar end)
+    const topbar = document.querySelector('.topbar, .hnx-tbar, header');
+    if (!topbar) return false;
+
+    if (!document.getElementById('hnxTbMore')) {
+      const moreBtn = document.createElement('button');
+      moreBtn.id = 'hnxTbMore';
+      moreBtn.className = 'hnx-tb-more';
+      moreBtn.innerHTML = '⋮';
+      moreBtn.title = 'More actions';
+      moreBtn.onclick = function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (menuEl) closeMenu();
+        else openMenu(moreBtn);
+      };
+
+      // Try to insert right after the Manager Summary button
+      const anchor = document.getElementById('btnMgrSummary') || document.getElementById('btnReport');
+      if (anchor && anchor.parentNode) {
+        // Insert AFTER all our hidden buttons (last hidden sibling), before user pill
+        const userPill = topbar.querySelector('.user-pill, #userPill');
+        if (userPill && userPill.parentNode === anchor.parentNode) {
+          userPill.parentNode.insertBefore(moreBtn, userPill);
+        } else {
+          anchor.parentNode.appendChild(moreBtn);
+        }
+      } else {
+        topbar.appendChild(moreBtn);
+      }
+    }
+
+    // 3. Replace the existing #hnx-cloud-badge with a tiny dot (if it exists)
+    //    The cloud-fix patch updates the badge; we just style it down.
+    const badge = document.getElementById('hnx-cloud-badge');
+    if (badge && !badge.dataset.hnxCompact) {
+      badge.dataset.hnxCompact = '1';
+      badge.style.padding = '4px 6px';
+      badge.style.gap = '0';
+      badge.style.minWidth = '0';
+      const lbl = badge.querySelector('.lbl');
+      if (lbl) lbl.style.display = 'none'; // hide text, keep dot
+      // Tooltip will still work via the cloud-fix patch
+    }
+
+    return true;
+  }
+
+  // ---------- Boot: try repeatedly until topbar exists ----------
+  injectStyles();
+  let tries = 0;
+  const timer = setInterval(function () {
+    tries++;
+    const ok = reorganize();
+    if (ok || tries > 60) {
+      clearInterval(timer);
+      if (ok) log('Topbar reorganized after', tries, 'tries.');
+      else log('Gave up after', tries, 'tries — topbar not found.');
+    }
+  }, 250);
+
+  // Also re-run if the topbar gets re-rendered (e.g. after login)
+  const reRun = function () { setTimeout(reorganize, 100); };
+  document.addEventListener('hnxTopbarUpdate', reRun);
+  window.addEventListener('hashchange', reRun);
+
+  // Expose for debugging / manual re-run
+  window.HNX_TopbarReorg = {
+    version: VERSION,
+    rerun:   reorganize,
+    openMenu: function () {
+      const b = document.getElementById('hnxTbMore');
+      if (b) openMenu(b);
+    },
+    closeMenu: closeMenu
+  };
+
+  log('Top bar reorg ' + VERSION + ' loaded.');
+})();
+</script>
+<!-- ===================== END HNX v2.85.8-topbar-reorg ===================== -->
+
+<!-- ===================== HNX v2.85.7e-cloudfix (INLINE) ===================== -->
 <!-- Cloud sync auto-fix patch · Eyal+Claude 2026-05-19 · INLINE VERSION -->
 <!-- Self-contained: no external file needed. Auto-runs cloud sync self-test. -->
 <!-- Shows top banner (green=OK, yellow=needs login, red=fail). -->
@@ -129806,7 +130188,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 (function () {
   'use strict';
 
-  const PATCH_VERSION = 'v2.85.7d-cloudfix';
+  const PATCH_VERSION = 'v2.85.7e-cloudfix';
   const WORKER_URL    = 'https://hnx-sync.eyalbenari99.workers.dev';
   const CLOUD_USER    = 'eyal';
   const TOK_KEY       = 'hnx_cloud_token';
@@ -130129,19 +130511,18 @@ body.hnx-mobile-locked { overflow: hidden; }
   }
 
   // ---------- Cosmetic: fix the "Cloud OFF" top-bar indicator ----------
-  // The app has an old indicator (#hnxSyncIndicator) tied to an unused
-  // Firebase system. We re-render it to show our REAL cloud status.
+  // Targets TWO separate indicators that exist in the app:
+  //   1) #hnxSyncIndicator (old Firebase-style; appears in topbar)
+  //   2) #hnx-cloud-badge  (newer pill in top-right; tied to hnx-cloud-js)
+  // Both read different states; we override BOTH with our real cloud status.
   function refreshIndicator() {
     try {
-      const el = document.getElementById('hnxSyncIndicator');
-      if (!el) return false;
-
       const token   = localStorage.getItem(TOK_KEY);
       const lastIso = localStorage.getItem(LAST_KEY);
       const online  = navigator.onLine !== false;
 
+      // ---- Compute friendly status text ----
       let icon, text, color, title;
-
       if (!online) {
         icon = '⚠'; text = 'Offline'; color = '#ffca52';
         title = 'Cloud sync · offline (no network)';
@@ -130166,31 +130547,49 @@ body.hnx-mobile-locked { overflow: hidden; }
         } else {
           const h = Math.floor(ageMin / 60);
           icon = '◌'; text = 'Synced ' + h + 'h'; color = '#ffca52';
-          title = 'Cloud sync · last sync ' + h + ' hours ago · refresh recommended';
+          title = 'Cloud sync · last sync ' + h + ' hours ago';
         }
       }
 
-      el.innerHTML =
-        '<span style="color:' + color + '">' + icon + '</span> ' +
-        '<span style="color:' + color + ';font-weight:700">' + text + '</span>';
-      el.title = title;
+      let updatedAny = false;
 
-      // Make it clickable: re-run cloud test
-      if (!el.__hnxFixWired) {
-        const orig = el.onclick;
-        el.onclick = function (e) {
-          if (e) { e.preventDefault(); e.stopPropagation(); }
-          log('Indicator clicked → re-running cloud sync test');
-          if (window.HNX_CloudFix && window.HNX_CloudFix.rerun) {
-            window.HNX_CloudFix.rerun();
-          } else if (typeof orig === 'function') {
-            orig.call(el, e);
-          }
-        };
-        el.__hnxFixWired = true;
+      // ---- Target 1: #hnxSyncIndicator (old topbar element) ----
+      const el1 = document.getElementById('hnxSyncIndicator');
+      if (el1) {
+        el1.innerHTML =
+          '<span style="color:' + color + '">' + icon + '</span> ' +
+          '<span style="color:' + color + ';font-weight:700">' + text + '</span>';
+        el1.title = title;
+        if (!el1.__hnxFixWired) {
+          el1.onclick = function (e) {
+            if (e) { e.preventDefault(); e.stopPropagation(); }
+            log('Indicator-1 clicked → re-running cloud sync test');
+            if (window.HNX_CloudFix && window.HNX_CloudFix.rerun) {
+              window.HNX_CloudFix.rerun();
+            }
+          };
+          el1.__hnxFixWired = true;
+        }
+        updatedAny = true;
       }
 
-      return true;
+      // ---- Target 2: #hnx-cloud-badge (top-right pill, the visible one) ----
+      const el2 = document.getElementById('hnx-cloud-badge');
+      if (el2) {
+        const dot = el2.querySelector('.dot');
+        const lbl = el2.querySelector('.lbl');
+        if (lbl) lbl.textContent = text;
+        if (dot) {
+          dot.className = 'dot';
+          if (!online) dot.classList.add('off');
+          else if (!token) dot.classList.add('off');
+          // synced → no extra class, dot stays default green
+        }
+        el2.title = title;
+        updatedAny = true;
+      }
+
+      return updatedAny;
     } catch (e) {
       err('refreshIndicator failed:', e);
       return false;
@@ -130235,6 +130634,6 @@ body.hnx-mobile-locked { overflow: hidden; }
   };
 })();
 </script>
-<!-- ===================== END HNX v2.85.7d-cloudfix ===================== -->
+<!-- ===================== END HNX v2.85.7e-cloudfix ===================== -->
 </body>
 </html>
