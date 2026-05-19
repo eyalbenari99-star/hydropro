@@ -100623,7 +100623,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p14';
+        vEl.textContent = orig + ' · HNX v2.86-p15';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -133701,6 +133701,246 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.86-p14-raise-call-module-picker ===================== -->
+
+<!-- ===================== HNX v2.86-p15-dept-issue-categories (INLINE) ===================== -->
+<script>
+/* ==============================================================================
+   HNX v2.86 P15 — Dept-specific issue categories + expanded module picker
+   ----
+   Expands P14's picker from 8 to 14 departments (matches matrix columns).
+   When a dept is selected, the "Equipment/Issue category" dropdown loads
+   that dept's relevant issue types (e.g. Accounting → Payroll/Memos/201/etc.)
+   ============================================================================== */
+(function HNX_v286_P15_DeptIssueCategories() {
+  const VER = 'v2.86-p15-dic';
+  function log(...a){ console.log('['+VER+']',...a); }
+  function warn(...a){ console.warn('['+VER+']',...a); }
+
+  // All 14 depts from the matrix
+  const MODULES = [
+    // Operations
+    { id: 'production',  label: 'Production',         icon: '🌱', group:'operations', dept:'production'      },
+    { id: 'maintenance', label: 'Maintenance',        icon: '🔧', group:'operations', dept:'maintenance'     },
+    { id: 'irrigation',  label: 'Irrigation',         icon: '💧', group:'operations', dept:'maintenance', subsystem:'Irrigation' },
+    { id: 'quality',     label: 'Quality Control',    icon: '✅', group:'operations', dept:'quality_control' },
+    { id: 'inventory',   label: 'Inventory',          icon: '📊', group:'operations', dept:'inventory'       },
+    { id: 'packaging',   label: 'Packaging',          icon: '📦', group:'operations', dept:'packaging'       },
+    { id: 'logistics',   label: 'Logistics / Fleet',  icon: '🚚', group:'operations', dept:'drivers_helpers' },
+    { id: 'security',    label: 'Security',           icon: '🛡', group:'operations', dept:'security_guards' },
+    // Office
+    { id: 'management',  label: 'Management',         icon: '👔', group:'office',     dept:'management'      },
+    { id: 'admin',       label: 'Admin',              icon: '🏢', group:'office',     dept:'admin'           },
+    { id: 'hr',          label: 'HR',                 icon: '🤝', group:'office',     dept:'hr'              },
+    { id: 'accounting',  label: 'Accounting',         icon: '💰', group:'office',     dept:'accounting'      },
+    { id: 'marketing',   label: 'Marketing & Sales',  icon: '📢', group:'office',     dept:'marketing'       },
+    { id: 'it',          label: 'IT',                 icon: '🖥', group:'office',     dept:'admin'           }
+  ];
+
+  // Dept → issue categories shown in the "Issue category" dropdown
+  const ISSUE_CATEGORIES = {
+    production: [
+      'Crop quality issue','Yield problem','Pest / disease detected','Pollination issue',
+      'Crew shortage','Harvest delay','Seedling problem','Crop rotation request',
+      'Greenhouse environment','Scheduling change','Other production issue'
+    ],
+    maintenance: [
+      'Equipment repair needed','Preventive maintenance','Inspection due','Spare parts needed',
+      'Technician request','Emergency repair','Cooling pad','Side windows','Big fans',
+      'Roof / structure','Doors / locks','Other maintenance'
+    ],
+    irrigation: [
+      'pH out of range','EC out of range','Water flow issue','Drum level low','Pool level',
+      'Sensor failure','Pump problem','Pipe leak','Filter blocked','Schedule change',
+      'Nutrient mix','Dosing issue','Other irrigation'
+    ],
+    quality: [
+      'Failed inspection','Standards update needed','Equipment calibration','Defect / non-conformance',
+      'Lab test pending','QC report request','Sample collection','Compliance question','Other QC'
+    ],
+    inventory: [
+      'Stock count discrepancy','Receiving issue','Shrinkage / loss','System error',
+      'Re-order needed','Damaged goods','Storage problem','Misplaced items','Vendor problem','Other inventory'
+    ],
+    packaging: [
+      'Supply shortage','Equipment issue','Labeling problem','Quality complaint',
+      'Schedule change','Crew shortage','Packing materials','Customer rejection','Other packaging'
+    ],
+    logistics: [
+      'Vehicle breakdown','Driver issue','Delivery problem','Fuel / refueling',
+      'Route change','Loading / unloading','Vehicle maintenance due','Documentation','Customer complaint','Other logistics'
+    ],
+    security: [
+      'Incident report','Access control issue','Camera blind spot','Guard schedule',
+      'Visitor problem','Lost & found','Alarm / alert','Suspicious activity','After-hours issue','Other security'
+    ],
+    management: [
+      'Decision needed','Approval pending','Report request','Strategy discussion',
+      'Budget approval','Hiring approval','Escalation','Policy change','Cross-dept conflict','Other management'
+    ],
+    admin: [
+      'Office supplies','Document request','Filing / records','Visitor coordination',
+      'Mail / courier','Meeting room booking','Printing / copying','Travel arrangement',
+      'Letterhead / forms','Other admin'
+    ],
+    hr: [
+      'Leave / vacation request','Attendance issue','Hiring / vacancy','Employee complaint',
+      'Training / certification','ID / badge / access card','Memos / discipline','Benefits inquiry',
+      'Termination / resignation','Performance review','Onboarding new hire','Payslip issue','Other HR'
+    ],
+    accounting: [
+      'Payroll question','Memos / Deductions','201 file update','Checks pending for purchasing',
+      'Vendor invoice (AP)','Customer payment (AR)','Reimbursement request','Tax / BIR filing',
+      'Bank reconciliation','Budget query','Expense report','Petty cash','Audit query','Other accounting'
+    ],
+    marketing: [
+      'Order issue','Customer query','Pricing question','Promotion / campaign',
+      'Sample request','Customer complaint','New customer inquiry','Marketing material',
+      'Social media','Trade show','Other marketing'
+    ],
+    it: [
+      'CCTV / camera issue','Network / internet down','Computer / laptop problem','Printer issue',
+      'Software / app problem','Phone / radio issue','User access / password','Email problem',
+      'Backup / data recovery','Server / DVR issue','Sensor / IoT device','Cabling issue','Other IT'
+    ]
+  };
+
+  function mod(id){ return MODULES.find(m=>m.id===id); }
+  function inferModule(s){
+    if(!s) return null;
+    s = String(s);
+    if(s==='it'||s.indexOf('it_')===0) return 'it';
+    if(s.indexOf('irr_')===0||s.indexOf('irrigation')>=0) return 'irrigation';
+    if(s.indexOf('maint')===0||s.indexOf('maintenance')>=0) return 'maintenance';
+    if(s.indexOf('prod')===0||s.indexOf('production')>=0) return 'production';
+    if(s.indexOf('fleet')>=0||s==='logistics') return 'logistics';
+    if(s==='hr'||s.indexOf('hr_')===0||s==='attendance') return 'hr';
+    if(s==='payroll'||s==='reconcile'||s==='accounting') return 'accounting';
+    if(s==='security') return 'security';
+    if(s==='packaging') return 'packaging';
+    if(s==='inventory') return 'inventory';
+    if(s==='quality'||s==='quality_control'||s==='qc') return 'quality';
+    if(s==='marketing'||s==='sales') return 'marketing';
+    if(s==='management') return 'management';
+    if(s==='admin') return 'admin';
+    return null;
+  }
+
+  // Rebuild the P14 picker to include all 14 modules
+  function rebuildPicker(){
+    const picker = document.getElementById('callP14ModulePicker');
+    if(!picker) return false;
+    if(picker._hnxP15Rebuilt) return true;
+    const cur = picker.value || 'production';
+    picker.innerHTML = MODULES.map(m=>'<option value="'+m.id+'">'+m.icon+' '+m.label+'</option>').join('');
+    picker.value = MODULES.find(x=>x.id===cur) ? cur : 'production';
+    picker._hnxP15Rebuilt = true;
+    log('Picker rebuilt with 14 depts');
+    return true;
+  }
+
+  // Populate the equipment-category dropdown with this dept's issue types
+  function loadCategoriesFor(modId){
+    const ec = document.getElementById('callEquipCat');
+    if(!ec) return;
+    const cats = ISSUE_CATEGORIES[modId] || ISSUE_CATEGORIES.it;
+    ec.innerHTML = '<option value="">— Pick an issue type —</option>' +
+      cats.map(c=>'<option value="'+c+'">'+c+'</option>').join('');
+    // Also clear any pre-set category in the draft
+    try { if(window._callDraft) window._callDraft.equipmentCategory = ''; } catch(e){}
+  }
+
+  // Override P14's switch to ALSO update categories
+  function wrapSwitch(){
+    if(typeof window.hnxP14SwitchModule !== 'function') return false;
+    if(window.hnxP14SwitchModule._hnxP15Wrapped) return true;
+    const orig = window.hnxP14SwitchModule;
+
+    // Rebuild internal MODULES table inside P14 by replacing the function entirely
+    // (P14's function only knows 8 modules; we provide a new function that handles all 14)
+    window.hnxP14SwitchModule = function(modId){
+      const m = mod(modId);
+      if(!m){ warn('unknown module:',modId); return; }
+      if(!window._callDraft){ warn('no _callDraft'); return; }
+
+      window._callDraft.sourceModule = modId;
+      window._callDraft.sourceLabel  = m.label;
+      window._callDraft.group        = m.group;
+      window._callDraft.department   = m.dept;
+      window._callDraft.area         = m.area || '';
+      if(m.subsystem) window._callDraft.subsystem = m.subsystem;
+
+      const sp = document.getElementById('callSourceLine');
+      if(sp) sp.textContent = 'Routing: ' + m.icon + ' ' + m.label;
+
+      document.querySelectorAll('.call-group-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.g === m.group);
+      });
+
+      try { if(typeof window._renderDeptOptions === 'function') window._renderDeptOptions(); } catch(e){}
+      try { if(typeof window._renderAreaPicker  === 'function') window._renderAreaPicker();  } catch(e){}
+
+      setTimeout(() => {
+        const deptSel = document.getElementById('callDept');
+        if(deptSel && deptSel.value !== m.dept){
+          deptSel.value = m.dept;
+          try { if(typeof window.onCallDeptChange === 'function') window.onCallDeptChange(m.dept); } catch(e){}
+        }
+        // Load issue categories for this dept
+        loadCategoriesFor(modId);
+      }, 60);
+    };
+    window.hnxP14SwitchModule._hnxP15Wrapped = true;
+    log('switch function replaced (14 depts + categories)');
+    return true;
+  }
+
+  // Wrap openCallModal to ensure picker is rebuilt + categories load on open
+  function wrapOpenCall(){
+    if(typeof window.openCallModal !== 'function') return false;
+    if(window.openCallModal._hnxP15Wrapped) return true;
+    const orig = window.openCallModal;
+    window.openCallModal = function(sourceModuleId, sourceLabel){
+      const result = orig.apply(this, arguments);
+      setTimeout(() => {
+        rebuildPicker();
+        const picker = document.getElementById('callP14ModulePicker');
+        if(picker){
+          const inferred = inferModule(sourceModuleId) || 'production';
+          picker.value = inferred;
+          try { window.hnxP14SwitchModule(inferred); } catch(e){ warn('initial switch:',e); }
+        }
+      }, 120);
+      return result;
+    };
+    window.openCallModal._hnxP15Wrapped = true;
+    log('openCallModal wrapped for P15');
+    return true;
+  }
+
+  function run(){
+    let tries = 0;
+    const iv = setInterval(() => {
+      tries++;
+      // Wait until P14 has set up
+      const haveP14 = typeof window.hnxP14SwitchModule === 'function';
+      let okSwitch = false, okOpen = false;
+      if(haveP14){
+        okSwitch = wrapSwitch();
+        okOpen   = wrapOpenCall();
+        if(document.getElementById('callP14ModulePicker')) rebuildPicker();
+      }
+      if((okSwitch && okOpen) || tries > 50){
+        clearInterval(iv);
+        if(okSwitch && okOpen) log('✅ P15 ready — 14 depts + dept-specific categories');
+        else warn('P15 init incomplete after retries');
+      }
+    }, 300);
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+  else setTimeout(run, 1400);
+})();
+</script>
+<!-- ===================== END HNX v2.86-p15-dept-issue-categories ===================== -->
 
 </body>
 </html>
