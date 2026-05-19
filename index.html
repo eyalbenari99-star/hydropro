@@ -100623,7 +100623,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p7';
+        vEl.textContent = orig + ' · HNX v2.86-p12';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -132807,6 +132807,153 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.86-p7-it-task-board ===================== -->
+
+<!-- ===================== HNX v2.86-p11-it-recurring-minimal (INLINE) ===================== -->
+<script>
+/* ==============================================================================
+   HNX v2.86 P11 — IT Recurring Tasks (MINIMUM SAFE patch)
+   --------------------------------------------------------------------------
+   Lessons learned from P10:
+   - Do NOT wrap renderRecurringHub
+   - Do NOT wrap markRecurringDone
+   - Do NOT inject DOM chips
+   - Just push tasks + hook switchView. That's it.
+
+   What this does:
+   1. Push 22 IT tasks to window.RECURRING_TASKS (idempotent)
+   2. Hook switchView so it_recurring → renderRecurringHub() runs with filter='it'
+
+   Risk: minimal. Tasks live alongside existing maintenance/irrigation/logistics tasks.
+   ============================================================================== */
+(function HNX_v286_P11_ITRecurringMinimal() {
+  const VER = 'v2.86-p11-min';
+  function log(...a){ console.log(`[${VER}]`, ...a); }
+  function warn(...a){ console.warn(`[${VER}]`, ...a); }
+
+  const IT_TASKS = [
+    { id:'it_cctv_health',     name:'📹 CCTV health sweep — all cameras online',      freq:'once_per_week', owner:'IT', icon:'📹', cat:'IT-CCTV',     priority:'high',   schedule:{Mon:'site'}, module:'it' },
+    { id:'it_backup_verify',   name:'💾 Backup verification — test 1 restore',       freq:'once_per_week', owner:'IT', icon:'💾', cat:'IT-Servers',  priority:'high',   schedule:{Tue:'site'}, module:'it' },
+    { id:'it_disk_audit',      name:'💿 Disk space audit — DVRs/servers/NAS',        freq:'once_per_week', owner:'IT', icon:'💿', cat:'IT-Servers',  priority:'medium', schedule:{Wed:'site'}, module:'it' },
+    { id:'it_network_uptime',  name:'📊 Network uptime review',                       freq:'once_per_week', owner:'IT', icon:'📊', cat:'IT-Network',  priority:'medium', schedule:{Thu:'site'}, module:'it' },
+    { id:'it_critical_alerts', name:'🔍 Critical alerts review',                      freq:'once_per_week', owner:'IT', icon:'🔍', cat:'IT-Security', priority:'medium', schedule:{Fri:'site'}, module:'it' },
+    { id:'it_server_patches',  name:'🔧 Server patches — Windows updates + restart',  freq:'monthly',       owner:'IT', icon:'🔧', cat:'IT-Servers',  priority:'medium', schedule:{}, module:'it' },
+    { id:'it_ups_battery',     name:'🔋 UPS battery load test',                       freq:'monthly',       owner:'IT', icon:'🔋', cat:'IT-Security', priority:'high',   schedule:{}, module:'it' },
+    { id:'it_cctv_lens',       name:'🧹 CCTV lens cleaning (outdoor cams)',           freq:'monthly',       owner:'IT', icon:'🧹', cat:'IT-CCTV',     priority:'medium', schedule:{}, module:'it' },
+    { id:'it_server_room_hvac',name:'🌡 Server room HVAC + dust check',               freq:'monthly',       owner:'IT', icon:'🌡', cat:'IT-Servers',  priority:'high',   schedule:{}, module:'it' },
+    { id:'it_av_db',           name:'🛡 Antivirus DB check on endpoints',             freq:'monthly',       owner:'IT', icon:'🛡', cat:'IT-Security', priority:'medium', schedule:{}, module:'it' },
+    { id:'it_user_audit',      name:'👤 User account audit — disable inactive',       freq:'monthly',       owner:'IT', icon:'👤', cat:'IT-Users',    priority:'medium', schedule:{}, module:'it' },
+    { id:'it_net_firmware',    name:'📡 Network firmware check — switches/APs',        freq:'monthly',       owner:'IT', icon:'📡', cat:'IT-Network',  priority:'medium', schedule:{}, module:'it' },
+    { id:'it_firewall_audit',  name:'🔥 Firewall rule audit — remove stale rules',    freq:'quarterly',     owner:'IT', icon:'🔥', cat:'IT-Security', priority:'medium', schedule:{}, module:'it' },
+    { id:'it_restore_drill',   name:'🔄 Full backup restore drill',                   freq:'quarterly',     owner:'IT', icon:'🔄', cat:'IT-Servers',  priority:'high',   schedule:{}, module:'it' },
+    { id:'it_cctv_coverage',   name:'📹 CCTV coverage review — blind spots?',         freq:'quarterly',     owner:'IT', icon:'📹', cat:'IT-CCTV',     priority:'medium', schedule:{}, module:'it' },
+    { id:'it_cable_inspect',   name:'🔌 Cable inspection in racks',                   freq:'quarterly',     owner:'IT', icon:'🔌', cat:'IT-Network',  priority:'low',    schedule:{}, module:'it' },
+    { id:'it_lifecycle_inv',   name:'💼 Hardware lifecycle inventory',                freq:'quarterly',     owner:'IT', icon:'💼', cat:'IT-Devices',  priority:'low',    schedule:{}, module:'it' },
+    { id:'it_dr_test',         name:'⚡ Full DR test — failover + failback',          freq:'semi_annual',   owner:'IT', icon:'⚡', cat:'IT-Servers',  priority:'high',   schedule:{}, module:'it' },
+    { id:'it_gen_test',        name:'🔌 Generator / UPS extended test',               freq:'semi_annual',   owner:'IT', icon:'🔌', cat:'IT-Security', priority:'high',   schedule:{}, module:'it' },
+    { id:'it_phys_security',   name:'🔒 Physical security audit',                     freq:'semi_annual',   owner:'IT', icon:'🔒', cat:'IT-Security', priority:'medium', schedule:{}, module:'it' },
+    { id:'it_budget_plan',     name:'💰 IT budget review & next-year plan',           freq:'annual',        owner:'IT', icon:'💰', cat:'IT-Users',    priority:'low',    schedule:{}, module:'it' },
+    { id:'it_docs_refresh',    name:'📚 Documentation refresh',                       freq:'annual',        owner:'IT', icon:'📚', cat:'IT-Users',    priority:'low',    schedule:{}, module:'it' }
+  ];
+
+  function pushITTasks() {
+    if (!Array.isArray(window.RECURRING_TASKS)) return false;
+    let added = 0;
+    IT_TASKS.forEach(it => {
+      if (window.RECURRING_TASKS.findIndex(t => t.id === it.id) === -1) {
+        window.RECURRING_TASKS.push(it);
+        added++;
+      }
+    });
+    if (added) log(`Added ${added} IT tasks to RECURRING_TASKS (total: ${window.RECURRING_TASKS.length})`);
+    return true;
+  }
+
+  function hookSwitchView() {
+    if (typeof window.switchView !== 'function') return false;
+    if (window.switchView._hnxP11Wrapped) return true;
+    const orig = window.switchView;
+    window.switchView = function(viewId) {
+      if (viewId === 'it_recurring') {
+        window._recurringModuleFilter = 'it';
+      }
+      const result = orig.apply(this, arguments);
+      if (viewId === 'it_recurring') {
+        setTimeout(() => {
+          if (typeof window.renderRecurringHub === 'function') {
+            try { window.renderRecurringHub(); } catch(e) { warn('renderRecurringHub failed:', e); }
+          }
+        }, 100);
+      }
+      return result;
+    };
+    window.switchView._hnxP11Wrapped = true;
+    log('switchView hooked for it_recurring');
+    return true;
+  }
+
+  function run() {
+    let tries = 0;
+    const iv = setInterval(() => {
+      tries++;
+      const ok1 = pushITTasks();
+      const ok2 = hookSwitchView();
+      if ((ok1 && ok2) || tries > 30) {
+        clearInterval(iv);
+        if (ok1 && ok2) {
+          log('✅ P11 ready — IT tasks live in existing recurring hub');
+        }
+      }
+    }, 300);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run);
+  } else {
+    setTimeout(run, 800);
+  }
+})();
+</script>
+<!-- ===================== END HNX v2.86-p11-it-recurring-minimal ===================== -->
+
+<!-- ===================== HNX v2.86-p12-module-meta-fix (INLINE) ===================== -->
+<script>
+/* HNX v2.86 P12 — adds 'it' entry to MODULE_META so renderRecurringHub
+   doesn't crash with TypeError when filter='it'. Tiny fix. */
+(function HNX_v286_P12_ModuleMetaFix() {
+  const VER = 'v2.86-p12-meta';
+  function tryFix() {
+    if (window.MODULE_META && typeof window.MODULE_META === 'object') {
+      if (!window.MODULE_META.it) {
+        window.MODULE_META.it = { label:'IT', icon:'🖥', color:'#67c5ff' };
+        console.log(`[${VER}] Added 'it' to MODULE_META`);
+      }
+      return true;
+    }
+    return false;
+  }
+  function run() {
+    let tries = 0;
+    const iv = setInterval(() => {
+      tries++;
+      if (tryFix() || tries > 30) {
+        clearInterval(iv);
+        // If currently on it_recurring, re-render now that MODULE_META has 'it'
+        const active = document.querySelector('.view.active');
+        if (active && active.id === 'view-it_recurring' && typeof window.renderRecurringHub === 'function') {
+          window._recurringModuleFilter = 'it';
+          setTimeout(() => window.renderRecurringHub(), 100);
+        }
+      }
+    }, 300);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run);
+  } else {
+    setTimeout(run, 900);
+  }
+})();
+</script>
+<!-- ===================== END HNX v2.86-p12-module-meta-fix ===================== -->
 
 </body>
 </html>
