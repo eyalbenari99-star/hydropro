@@ -19850,18 +19850,29 @@ const MODULES={
     ]
   },
   // IT module — re-enabled as standalone in v2.86-p2 (split from Maintenance & IT)
-  // Caller-approval workflow added via v2.86-p1 helpers (hnxApproveIssue / hnxRejectIssue / etc.)
+  // Expanded in v2.86-p6 to mirror Maintenance structure, IT-flavored
   it:{
     icon:'🖥',
     name:'IT',
-    description:'IT: CCTV, radios, IT devices, computers/printers/TVs, PRJ11 devices, network. Tickets follow caller-approval flow (tech marks Ready → caller confirms → close).',
+    description:'IT module: task board, PM calendar, item requests, devices, call matrix, recurring tasks, daily checklist, open calls, CCTV/RFID setup. Caller-approval workflow.',
     views:[
-      {id:'it_dash',label:'🎯 Dashboard',perm:'viewMaintenance',title:'IT module overview · open tickets · pending approvals · KPIs'},
-      {id:'it_cctv',label:'📹 CCTV',perm:'viewMaintenance',title:'CCTV cameras, DVR/NVR, viewing'},
-      {id:'it_radios',label:'📻 Radios',perm:'viewMaintenance',title:'Radios and communication devices'},
-      {id:'it_devices',label:'🖥️ IT Devices',perm:'viewMaintenance',title:'Computers, printers, TVs, monitors, network equipment'},
-      {id:'it_prj11',label:'🏭 PRJ11 Devices',perm:'viewMaintenance',title:'PRJ11-specific IT devices'},
-      {id:'it_calls',label:'📞 IT Calls',perm:'viewMaintenance',title:'IT-module open calls · Pending Approvals · Approve/Reject'}
+      {id:'it_dash',           label:'🎯 Dashboard',          perm:'viewMaintenance',title:'IT module overview · open tickets · pending approvals · KPIs'},
+      {id:'it_tasks',          label:'✅ IT Task Board',      perm:'viewMaintenance',title:'Daily IT tasks with status & photos'},
+      {id:'it_calendar',       label:'📅 IT Calendar',        perm:'viewMaintenance',title:'IT PM schedule · device maintenance · network audits'},
+      {id:'it_materials',      label:'📦 IT Item Request',    perm:'viewMaintenance',title:'IT items needed from inventory — cables, accessories, replacement parts'},
+      {id:'it_devices',        label:'🖥️ IT Devices',         perm:'viewMaintenance',title:'Computers, printers, TVs, monitors, network equipment'},
+      {id:'it_parts',          label:'🔩 IT Spare Parts',     perm:'viewMaintenance',title:'IT spare parts inventory · cables · adapters · components'},
+      {id:'it_matrix',         label:'📊 IT Call Matrix',     perm:'viewMaintenance',title:'IT open calls by Subject × Department'},
+      {id:'it_recurring',      label:'🔥 IT Recurring Tasks', perm:'viewMaintenance',title:'IT recurring tasks · device cleaning · backup checks · network audits'},
+      {id:'it_daily_checklist',label:'☑️ IT Daily Checklist', perm:'viewMaintenance',title:'Daily IT checks · CCTV health · network · servers · power'},
+      {id:'it_calls',          label:'📞 IT Open Calls',      perm:'viewMaintenance',title:'IT-module open calls · Pending Approvals · Approve/Reject'},
+      {id:'it_tech_per_gh',    label:'🔧 IT Issues per GH',   perm:'viewMaintenance',title:'IT issues per greenhouse and fertigation room'},
+      {id:'it_gh_fer_matrix',  label:'💧 GH & Fer Matrix',    perm:'viewMaintenance',title:'IT equipment matrix · GH × Fertigation rooms · cameras, devices, radios'},
+      {id:'it_cctv',           label:'📹 CCTV',               perm:'viewMaintenance',title:'CCTV cameras live view'},
+      {id:'it_cctv_wall',      label:'📺 DVR & CCTV Wall',    perm:'viewMaintenance',title:'Visual of all DVRs and CCTV cameras · master CCTV wall'},
+      {id:'it_radios',         label:'📻 Radios',             perm:'viewMaintenance',title:'Radios and communication devices'},
+      {id:'it_prj11',          label:'🏭 PRJ11 Devices',      perm:'viewMaintenance',title:'PRJ11-specific IT devices'},
+      {id:'it_rfid',           label:'🆔 RFID Setup',         perm:'viewMaintenance',title:'RFID setup, tag registry, reader configuration, RFID matrix by location'}
     ]
   },
   irrigation:{
@@ -100612,7 +100623,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.85.11-setup';
+        vEl.textContent = orig + ' · HNX v2.86-p6';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -100997,16 +101008,9 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
         add(r.parentMod, { id: r.brainId, label: r.label, perm: cfg ? cfg.perm : null, title: 'AI Brain Command for ' + (cfg?cfg.name:r.parentMod) });
       }
     }); */
-    if(MODULES.maintenance){
-      /* maint_brain registration disabled — replaced by enhanced HydroNexis Brain
-      add('maintenance', {
-        id: 'maint_brain',
-        label: '🧠 AI Brain Command',
-        perm: 'viewMaintenance',
-        title: 'Maintenance & IT central AI command center · live equipment health · predictive failures · open calls · PM schedule · parts inventory · CCTV status · system health overview'
-      });
-      */
-      add('maintenance', {
+    if(MODULES.it){
+      /* CCTV Setup moved from Maintenance to IT in v2.86-p6 */
+      add('it', {
         id: 'it_cctv_setup',
         label: '🎥 CCTV Setup',
         perm: 'viewMaintenance',
@@ -131372,6 +131376,704 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.86-p2-itmaint-ui ===================== -->
+
+<!-- ===================== HNX v2.86-p3p4p5 (INLINE) ===================== -->
+<script>
+/* ==============================================================================
+   HNX v2.86 P3+P4+P5 — Combined patch
+   --------------------------------------------------------------------------
+   P3 Maintenance approval workflow (mirror IT)
+       - Injects "Pending Approvals" panel into view-maint_open_calls
+       - Reuses approval modal from P2
+   P4 Enhanced KPIs
+       - Avg approval time, rejection rate, daily reminder count
+       - Added to IT Dashboard + Maintenance Open Calls header
+   P5 Daily reminder scheduler
+       - Runs on load + every 30 min
+       - Shows toast when reminders fire
+       - Uses hnxCheckDailyReminders from P1
+   Idempotent. Safe alongside all prior patches.
+   ============================================================================== */
+(function HNX_v286_P3P4P5() {
+  const VER = 'v2.86-p3p4p5';
+  function log(...a){ console.log(`[${VER}]`, ...a); }
+  function warn(...a){ console.warn(`[${VER}]`, ...a); }
+
+  // ── Shared utilities ──
+  const ISSUES_KEY = 'hydroPro_issues_v2';
+
+  function readIssues() {
+    try { return JSON.parse(localStorage.getItem(ISSUES_KEY) || '[]'); }
+    catch(e) { return []; }
+  }
+
+  function fmtAgo(ts) {
+    if (!ts) return '—';
+    const diff = Date.now() - ts;
+    const h = Math.floor(diff/3600000);
+    const d = Math.floor(h/24);
+    if (d > 0) return `${d}d ago`;
+    if (h > 0) return `${h}h ago`;
+    return `${Math.floor(diff/60000)}m ago`;
+  }
+
+  function fmtDuration(ms) {
+    if (!ms || ms < 0) return '—';
+    const h = Math.floor(ms/3600000);
+    const d = Math.floor(h/24);
+    if (d > 0) return `${d}d ${h%24}h`;
+    if (h > 0) return `${h}h`;
+    return `${Math.floor(ms/60000)}m`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // P4 — KPI computations
+  // ─────────────────────────────────────────────────────────────────────
+  function computeKPIs(moduleFilter) {
+    const issues = readIssues();
+    const scope = moduleFilter ? issues.filter(i => i.module === moduleFilter) : issues;
+
+    const open = scope.filter(i => ['open','assigned','in_progress'].includes(i.status));
+    const pending = scope.filter(i => i.status === 'resolved');
+    const closed = scope.filter(i => i.status === 'approved');
+    const total = scope.length;
+
+    // Avg approval time: ready_to_close → approved
+    let approvalTimes = [];
+    closed.forEach(iss => {
+      if (!Array.isArray(iss.history)) return;
+      const ready = iss.history.find(h => h && (h.action === 'ready_to_close' || h.action === 'status_resolved'));
+      const appr  = iss.history.find(h => h && h.action === 'approved');
+      if (ready && appr && appr.at > ready.at) approvalTimes.push(appr.at - ready.at);
+    });
+    const avgApproval = approvalTimes.length
+      ? approvalTimes.reduce((s,n) => s+n, 0) / approvalTimes.length
+      : null;
+
+    // Rejection rate
+    let totalApproveRejectEvents = 0;
+    let totalRejections = 0;
+    scope.forEach(iss => {
+      if (!Array.isArray(iss.approval_history)) return;
+      iss.approval_history.forEach(ev => {
+        if (ev.type === 'approved' || ev.type === 'rejected' || ev.type === 'manager_closed') totalApproveRejectEvents++;
+        if (ev.type === 'rejected') totalRejections++;
+      });
+    });
+    const rejectionRate = totalApproveRejectEvents > 0
+      ? (totalRejections / totalApproveRejectEvents) * 100
+      : 0;
+
+    // Reminders sent (last 7 days)
+    let remindersThisWeek = 0;
+    const weekAgo = Date.now() - 7*24*3600000;
+    scope.forEach(iss => {
+      if (!Array.isArray(iss.approval_history)) return;
+      iss.approval_history.forEach(ev => {
+        if (ev.type === 'reminder_sent' && ev.at > weekAgo) remindersThisWeek++;
+      });
+    });
+
+    // Oldest pending
+    let oldestPending = null;
+    pending.forEach(iss => {
+      if (!oldestPending || (iss.awaiting_approval_since||0) < (oldestPending.awaiting_approval_since||0)) {
+        oldestPending = iss;
+      }
+    });
+
+    return {
+      total, open: open.length, pending: pending.length, closed: closed.length,
+      avgApproval, rejectionRate, remindersThisWeek,
+      oldestPendingAge: oldestPending && oldestPending.awaiting_approval_since
+        ? Date.now() - oldestPending.awaiting_approval_since : null
+    };
+  }
+
+  // Enhance IT Dashboard with KPI cards
+  function enhanceITDashboardKPIs() {
+    const host = document.getElementById('hnxItDashBody');
+    if (!host || !host.querySelector('.it-dash-grid')) return;
+    const grid = host.querySelector('.it-dash-grid');
+
+    // Remove any previous KPI extension
+    grid.querySelectorAll('.hnx-p4-kpi').forEach(el => el.remove());
+
+    const k = computeKPIs('it');
+    const extraCards = `
+      <div class="it-dash-card hnx-p4-kpi" style="border-left:3px solid #4a90e2;">
+        <div class="it-dash-card-title">⏱ Avg Approval Time</div>
+        <div class="it-dash-card-value" style="color:#67c5ff;font-size:24px;">${fmtDuration(k.avgApproval)}</div>
+        <div class="it-dash-card-sub">From "ready" to caller approval</div>
+      </div>
+      <div class="it-dash-card hnx-p4-kpi" style="border-left:3px solid ${k.rejectionRate > 20 ? '#ff5555' : '#2eaa2e'};">
+        <div class="it-dash-card-title">📉 Rejection Rate</div>
+        <div class="it-dash-card-value" style="color:${k.rejectionRate > 20 ? '#ff5555' : '#9fffaf'};">${k.rejectionRate.toFixed(0)}%</div>
+        <div class="it-dash-card-sub">${k.rejectionRate > 20 ? 'Elevated — review fixes' : 'Healthy rate'}</div>
+      </div>
+      <div class="it-dash-card hnx-p4-kpi" style="border-left:3px solid #ff9c33;">
+        <div class="it-dash-card-title">🔔 Reminders (7d)</div>
+        <div class="it-dash-card-value" style="color:#ffb84d;">${k.remindersThisWeek}</div>
+        <div class="it-dash-card-sub">Auto-nudges sent to callers</div>
+      </div>
+      <div class="it-dash-card hnx-p4-kpi" style="border-left:3px solid ${k.oldestPendingAge && k.oldestPendingAge > 3*24*3600000 ? '#ff5555' : '#666'};">
+        <div class="it-dash-card-title">⌛ Oldest Pending</div>
+        <div class="it-dash-card-value" style="color:${k.oldestPendingAge && k.oldestPendingAge > 3*24*3600000 ? '#ff5555' : '#aaa'};font-size:22px;">${fmtDuration(k.oldestPendingAge)}</div>
+        <div class="it-dash-card-sub">${k.oldestPendingAge && k.oldestPendingAge > 3*24*3600000 ? 'Needs attention!' : 'Awaiting confirmation'}</div>
+      </div>
+    `;
+    grid.insertAdjacentHTML('beforeend', extraCards);
+    log('IT dashboard KPIs enhanced');
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // P3 — Maintenance approval workflow injection
+  // ─────────────────────────────────────────────────────────────────────
+  function injectMaintApprovalPanel() {
+    const view = document.getElementById('view-maint_open_calls');
+    if (!view) {
+      warn('view-maint_open_calls not found');
+      return;
+    }
+
+    // Idempotent: remove old panel and re-render
+    const old = document.getElementById('hnxMaintApprovalPanel');
+    if (old) old.remove();
+
+    const u = (typeof getCurrentUser === 'function' ? getCurrentUser() : null);
+    const username = (u && u.username) || 'unknown';
+
+    const issues = readIssues();
+    const maintIssues = issues.filter(i => i.module === 'maintenance' || (!i.module));
+    const myPending = maintIssues.filter(i => i.status === 'resolved' && i.createdBy === username);
+    const allPending = maintIssues.filter(i => i.status === 'resolved');
+    const open = maintIssues.filter(i => ['open','assigned','in_progress'].includes(i.status));
+    const k = computeKPIs('maintenance');
+
+    const panel = document.createElement('div');
+    panel.id = 'hnxMaintApprovalPanel';
+    panel.innerHTML = `
+      <div class="it-section-title" style="border-bottom:1px solid var(--border,#1a3a2a);">🔧 Maintenance · Pending Approvals & KPIs</div>
+
+      <div class="it-dash-grid" style="padding:14px 20px;">
+        <div class="it-dash-card">
+          <div class="it-dash-card-title">Open Tickets</div>
+          <div class="it-dash-card-value">${open.length}</div>
+          <div class="it-dash-card-sub">Active maintenance calls</div>
+        </div>
+        <div class="it-dash-card" style="border-left:3px solid #ff9c33;">
+          <div class="it-dash-card-title">⏳ Pending Approval</div>
+          <div class="it-dash-card-value" style="color:#ff9c33;">${allPending.length}</div>
+          <div class="it-dash-card-sub">${myPending.length} for you</div>
+        </div>
+        <div class="it-dash-card" style="border-left:3px solid #4a90e2;">
+          <div class="it-dash-card-title">⏱ Avg Approval Time</div>
+          <div class="it-dash-card-value" style="color:#67c5ff;font-size:24px;">${fmtDuration(k.avgApproval)}</div>
+          <div class="it-dash-card-sub">"ready" → approved</div>
+        </div>
+        <div class="it-dash-card" style="border-left:3px solid ${k.rejectionRate > 20 ? '#ff5555' : '#2eaa2e'};">
+          <div class="it-dash-card-title">📉 Rejection Rate</div>
+          <div class="it-dash-card-value" style="color:${k.rejectionRate > 20 ? '#ff5555' : '#9fffaf'};">${k.rejectionRate.toFixed(0)}%</div>
+          <div class="it-dash-card-sub">${k.remindersThisWeek} reminders this week</div>
+        </div>
+      </div>
+
+      <div class="it-section-title">⏳ My Pending Approvals (${myPending.length})</div>
+      <div class="hnx-pending-list">
+        ${myPending.length ? myPending.map(i => renderPendingItem(i, true)).join('') : '<div class="hnx-empty">No tickets waiting for your approval.</div>'}
+      </div>
+
+      <div class="it-section-title">📋 All Team Pending (${allPending.length})</div>
+      <div class="hnx-pending-list">
+        ${allPending.length ? allPending.map(i => renderPendingItem(i, false)).join('') : '<div class="hnx-empty">No pending approvals across the maintenance team.</div>'}
+      </div>
+
+      <div class="it-section-title">🔧 Open Maintenance Tickets (${open.length})</div>
+      <div class="hnx-pending-list">
+        ${open.length ? open.map(i => renderPendingItem(i, false)).join('') : '<div class="hnx-empty">No open maintenance tickets.</div>'}
+      </div>
+    `;
+    view.insertBefore(panel, view.firstChild);
+    log('Maintenance approval panel injected');
+  }
+
+  function renderPendingItem(i, showAction) {
+    const safeTitle = (i.title || '(no title)').replace(/[<>]/g,'');
+    return `
+      <div class="hnx-pending-item" onclick="window._hnxOpenApprovalModal && window._hnxOpenApprovalModal('${i.id}')">
+        <div class="hnx-pi-info">
+          <div class="hnx-pi-title">${safeTitle}</div>
+          <div class="hnx-pi-meta">
+            ${i.priority ? `<span style="color:#ff9c33;">[${i.priority.toUpperCase()}]</span> · ` : ''}
+            ${i.id} · Filed by ${i.createdByName || i.createdBy || 'unknown'}${i.filed_for ? ` for ${i.filed_for}` : ''}
+            · ${i.awaiting_approval_since ? `Pending ${fmtAgo(i.awaiting_approval_since)}` : `Status: ${i.status}`}
+            ${(i.rejection_count > 0) ? ` · <span style="color:#ff8888;">${i.rejection_count} rejection(s)</span>` : ''}
+          </div>
+        </div>
+        ${showAction ? `<button class="hnx-pi-action" onclick="event.stopPropagation();window._hnxOpenApprovalModal('${i.id}')">Review</button>` : ''}
+      </div>
+    `;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // P5 — Daily reminder scheduler
+  // ─────────────────────────────────────────────────────────────────────
+  function runReminderCheck() {
+    if (typeof window.hnxCheckDailyReminders !== 'function') {
+      warn('hnxCheckDailyReminders not available (P1 not loaded?)');
+      return 0;
+    }
+    const sent = window.hnxCheckDailyReminders();
+    if (sent > 0) {
+      showReminderToast(sent);
+      log(`P5 scheduler: ${sent} daily reminder(s) sent`);
+      // Refresh visible panels
+      try {
+        if (document.getElementById('view-it_calls')?.classList.contains('active')) {
+          if (typeof window._hnxRenderITCalls === 'function') window._hnxRenderITCalls();
+        }
+        if (document.getElementById('view-maint_open_calls')?.classList.contains('active')) {
+          injectMaintApprovalPanel();
+        }
+        if (typeof window._hnxUpdatePendingBadge === 'function') window._hnxUpdatePendingBadge();
+      } catch(e){}
+    }
+    return sent;
+  }
+
+  function showReminderToast(count) {
+    try {
+      const t = document.createElement('div');
+      t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#3a1f00;color:#ffb84d;border:2px solid #ff9c33;padding:12px 18px;border-radius:8px;font-family:monospace;font-size:13px;z-index:99999;box-shadow:0 4px 16px rgba(0,0,0,0.5);max-width:320px;';
+      t.innerHTML = `🔔 <strong>${count}</strong> reminder${count>1?'s':''} sent to caller${count>1?'s':''} about pending approval${count>1?'s':''}`;
+      document.body.appendChild(t);
+      setTimeout(() => { t.style.transition='opacity .4s'; t.style.opacity='0'; }, 6000);
+      setTimeout(() => t.remove(), 6500);
+    } catch(e) {}
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Hook switchView to inject Maint panel when needed + refresh IT KPIs
+  // ─────────────────────────────────────────────────────────────────────
+  function hookSwitchView() {
+    if (typeof window.switchView !== 'function') return false;
+    if (window.switchView._hnxP3P4P5Wrapped) return true;
+    const orig = window.switchView;
+    window.switchView = function(viewId, ...rest) {
+      const result = orig.apply(this, [viewId, ...rest]);
+      try {
+        if (viewId === 'maint_open_calls') {
+          setTimeout(injectMaintApprovalPanel, 100);
+        }
+        if (viewId === 'it_dash') {
+          setTimeout(enhanceITDashboardKPIs, 150);
+        }
+      } catch(e) { warn('post-switch failed:', e); }
+      return result;
+    };
+    window.switchView._hnxP3P4P5Wrapped = true;
+    log('switchView hooked for P3/P4');
+    return true;
+  }
+
+  // ── Main ──
+  function run() {
+    // Hook switchView (retry if not ready)
+    if (!hookSwitchView()) {
+      let tries = 0;
+      const iv = setInterval(() => {
+        tries++;
+        if (hookSwitchView() || tries > 20) clearInterval(iv);
+      }, 250);
+    }
+
+    // P5 scheduler: run once on load (after small delay), then every 30 min
+    setTimeout(runReminderCheck, 3000);
+    setInterval(runReminderCheck, 30 * 60 * 1000); // 30 minutes
+
+    // If already on relevant view, render immediately
+    setTimeout(() => {
+      const active = document.querySelector('.view.active');
+      if (active && active.id === 'view-maint_open_calls') injectMaintApprovalPanel();
+      if (active && active.id === 'view-it_dash') enhanceITDashboardKPIs();
+    }, 800);
+
+    log('✅ P3+P4+P5 ready — Maintenance approvals, KPIs, daily reminder scheduler all active');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run);
+  } else {
+    setTimeout(run, 300);
+  }
+})();
+</script>
+<!-- ===================== END HNX v2.86-p3p4p5 ===================== -->
+
+<!-- ===================== HNX v2.86-p6 (INLINE) ===================== -->
+<script>
+/* ==============================================================================
+   HNX v2.86 P6 — IT module full expansion (mirror Maintenance, IT-flavored)
+   --------------------------------------------------------------------------
+   New IT views: it_tasks, it_calendar, it_materials, it_parts, it_matrix,
+                 it_recurring, it_daily_checklist, it_tech_per_gh,
+                 it_gh_fer_matrix, it_cctv_wall, it_rfid
+   --------------------------------------------------------------------------
+   Strategy:
+   - For data-driven views (matrix, tech_per_gh): filter existing data by module='it'
+   - For cctv_wall: route to existing master_cctv_wall
+   - For new structural views (tasks, calendar, materials, parts, recurring,
+     daily_checklist, gh_fer_matrix, rfid): show a clean "Build queue" placeholder
+     with a "Use Maintenance counterpart" button + sample IT-flavored content
+   Idempotent. Safe alongside all prior patches.
+   ============================================================================== */
+(function HNX_v286_P6() {
+  const VER = 'v2.86-p6';
+  function log(...a){ console.log(`[${VER}]`, ...a); }
+  function warn(...a){ console.warn(`[${VER}]`, ...a); }
+
+  // ── New IT view IDs to ensure containers for ──
+  const NEW_IT_VIEWS = [
+    'it_tasks','it_calendar','it_materials','it_parts','it_matrix',
+    'it_recurring','it_daily_checklist','it_tech_per_gh','it_gh_fer_matrix',
+    'it_cctv_wall','it_rfid'
+  ];
+
+  function ensureContainers() {
+    // Anchor: insert after the existing IT views
+    const anchor = document.getElementById('view-it_prj11') ||
+                   document.getElementById('view-it_dash') ||
+                   document.getElementById('view-it_calls');
+    if (!anchor) {
+      warn('No IT view anchor found — cannot create containers');
+      return;
+    }
+    const parent = anchor.parentNode;
+
+    NEW_IT_VIEWS.forEach(id => {
+      if (document.getElementById('view-' + id)) return; // already exists
+      const div = document.createElement('div');
+      div.className = 'view';
+      div.id = 'view-' + id;
+      div.innerHTML = `<div id="hnx-${id}-body"><div class="hnx-empty">Loading ${id}…</div></div>`;
+      parent.appendChild(div);
+    });
+    log(`Created ${NEW_IT_VIEWS.length} new IT view containers`);
+  }
+
+  // ── Renderer registry ──
+  const renderers = {};
+
+  // Helper: header bar with optional "see Maintenance counterpart" button
+  function viewHeader(title, subtitle, maintCounterpart) {
+    const btn = maintCounterpart
+      ? `<button class="it-dash-btn" style="margin-left:auto;font-size:11px;padding:6px 12px;" onclick="switchView('${maintCounterpart}')">↗ Open Maintenance version</button>`
+      : '';
+    return `<div class="it-section-title" style="display:flex;align-items:center;gap:14px;padding:18px 20px 12px;border-bottom:1px solid var(--border,#1a3a2a);">
+      <div><div style="font-size:14px;font-weight:800;color:#9fffaf;">${title}</div>
+      <div style="font-size:11px;color:#7aa9aa;text-transform:none;letter-spacing:0;margin-top:2px;">${subtitle}</div></div>${btn}
+    </div>`;
+  }
+
+  // Helper: "build queue" placeholder for views not yet built
+  function buildQueuePlaceholder(viewName, sampleItems, maintCounterpart) {
+    return `
+      ${viewHeader(viewName, 'IT-specific view · in build queue', maintCounterpart)}
+      <div style="padding:20px;">
+        <div style="background:#1a2a1a;border:1.5px dashed #4a8a4a;border-radius:8px;padding:24px;color:#9fffaf;font-family:monospace;">
+          <div style="font-size:16px;font-weight:700;margin-bottom:10px;">🚧 ${viewName} for IT — Build Queue</div>
+          <div style="font-size:13px;line-height:1.7;color:#a8c8b8;margin-bottom:14px;">
+            This IT-specific view is on the build queue. The dashboard placeholder below shows the planned content. In the meantime, the Maintenance version handles the underlying data — IT items will surface there too.
+          </div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:#7aa9aa;margin-bottom:8px;">Planned content:</div>
+          <ul style="margin:0;padding-left:18px;line-height:1.7;font-size:12px;color:#9fffaf;">
+            ${sampleItems.map(s => `<li>${s}</li>`).join('')}
+          </ul>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Helper: filter issues by module ──
+  function getITIssues() {
+    try {
+      const all = JSON.parse(localStorage.getItem('hydroPro_issues_v2') || '[]');
+      return all.filter(i => i.module === 'it');
+    } catch(e) { return []; }
+  }
+
+  // ── it_matrix · IT Call Matrix (real renderer using IT issue data) ──
+  renderers.it_matrix = function() {
+    const body = document.getElementById('hnx-it_matrix-body');
+    if (!body) return;
+    const issues = getITIssues();
+    const open = issues.filter(i => ['open','assigned','in_progress','resolved'].includes(i.status));
+
+    // Group by department → subject
+    const depts = {};
+    open.forEach(i => {
+      const dept = (i.department || i.facilityId || 'Unassigned').toString();
+      const subj = (i.subject || i.title || i.category || 'General').toString().slice(0,40);
+      if (!depts[dept]) depts[dept] = {};
+      if (!depts[dept][subj]) depts[dept][subj] = [];
+      depts[dept][subj].push(i);
+    });
+
+    let rows = '';
+    Object.keys(depts).sort().forEach(d => {
+      const subjects = depts[d];
+      Object.keys(subjects).sort().forEach(s => {
+        const items = subjects[s];
+        const urgent = items.filter(i => i.priority === 'critical' || i.priority === 'urgent').length;
+        rows += `<tr style="border-bottom:1px solid var(--border,#1a3a2a);">
+          <td style="padding:10px 14px;font-weight:700;color:#9fffaf;">${d}</td>
+          <td style="padding:10px 14px;color:#a8c8b8;">${s}</td>
+          <td style="padding:10px 14px;text-align:center;color:#67c5ff;font-weight:700;">${items.length}</td>
+          <td style="padding:10px 14px;text-align:center;color:${urgent>0?'#ff5555':'#777'};font-weight:700;">${urgent}</td>
+          <td style="padding:10px 14px;text-align:right;"><button class="hnx-pi-action" style="font-size:11px;" onclick="switchView('it_calls')">View →</button></td>
+        </tr>`;
+      });
+    });
+
+    body.innerHTML = `
+      ${viewHeader('📊 IT Call Matrix', `${open.length} open IT calls grouped by Department × Subject`, 'maint_matrix')}
+      <div style="padding:14px 20px;">
+        ${open.length ? `
+          <table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:12px;background:var(--surface2,#0e2118);border-radius:8px;overflow:hidden;border:1.5px solid var(--border,#1a3a2a);">
+            <thead style="background:rgba(46,170,46,.1);">
+              <tr>
+                <th style="padding:10px 14px;text-align:left;color:#9fffaf;text-transform:uppercase;letter-spacing:.5px;font-size:11px;">Department</th>
+                <th style="padding:10px 14px;text-align:left;color:#9fffaf;text-transform:uppercase;letter-spacing:.5px;font-size:11px;">Subject</th>
+                <th style="padding:10px 14px;text-align:center;color:#9fffaf;text-transform:uppercase;letter-spacing:.5px;font-size:11px;">Total</th>
+                <th style="padding:10px 14px;text-align:center;color:#9fffaf;text-transform:uppercase;letter-spacing:.5px;font-size:11px;">🔴 Urgent</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        ` : '<div class="hnx-empty">No open IT calls. All clear. ✅</div>'}
+      </div>
+    `;
+  };
+
+  // ── it_tech_per_gh · IT issues per GH (real renderer with module filter) ──
+  renderers.it_tech_per_gh = function() {
+    const body = document.getElementById('hnx-it_tech_per_gh-body');
+    if (!body) return;
+    const issues = getITIssues().filter(i => ['open','assigned','in_progress','resolved'].includes(i.status));
+
+    // Group by facility/GH
+    const byGH = {};
+    issues.forEach(i => {
+      const gh = (i.facilityId || i.gh || 'Unknown').toString();
+      if (!byGH[gh]) byGH[gh] = [];
+      byGH[gh].push(i);
+    });
+
+    const cards = Object.keys(byGH).sort().map(gh => {
+      const items = byGH[gh];
+      const urgent = items.filter(i => i.priority==='critical'||i.priority==='urgent').length;
+      return `<div class="it-dash-card" style="border-left:3px solid ${urgent>0?'#ff5555':'#4a90e2'};">
+        <div class="it-dash-card-title">${gh}</div>
+        <div class="it-dash-card-value">${items.length}</div>
+        <div class="it-dash-card-sub">${urgent>0?`🔴 ${urgent} urgent`:'No urgent issues'}</div>
+      </div>`;
+    }).join('');
+
+    body.innerHTML = `
+      ${viewHeader('🔧 IT Issues per GH & Fertigation Room', `${issues.length} active IT issues across ${Object.keys(byGH).length} location(s)`, 'maint_tech_per_gh')}
+      <div class="it-dash-grid">${cards || '<div class="hnx-empty">No active IT issues per location.</div>'}</div>
+      <div style="padding:14px 20px;">
+        <button class="it-dash-btn" onclick="switchView('it_calls')">📞 View all IT calls →</button>
+      </div>
+    `;
+  };
+
+  // ── it_cctv_wall · Route to existing master_cctv_wall ──
+  renderers.it_cctv_wall = function() {
+    const body = document.getElementById('hnx-it_cctv_wall-body');
+    if (!body) return;
+    body.innerHTML = `
+      ${viewHeader('📺 DVR & CCTV Wall', 'Master visual of all DVRs and CCTV cameras', null)}
+      <div style="padding:20px;">
+        <div style="background:#1a2a1a;border:1.5px solid #2eaa2e;border-radius:8px;padding:20px;color:#9fffaf;font-family:monospace;text-align:center;">
+          <div style="font-size:14px;margin-bottom:12px;">The master CCTV wall view shows all your DVRs and cameras across all sites.</div>
+          <button class="it-dash-btn" onclick="switchView('master_cctv_wall')" style="font-size:14px;padding:12px 24px;">📺 Open Master CCTV Wall →</button>
+          <div style="margin-top:16px;font-size:11px;color:#7aa9aa;">You can also go to CCTV Setup to configure DVRs and map cameras.</div>
+          <button class="it-dash-btn" onclick="switchView('it_cctv_setup')" style="font-size:12px;padding:8px 18px;margin-top:8px;">🎥 CCTV Setup →</button>
+        </div>
+      </div>
+    `;
+  };
+
+  // ── Build-queue placeholders for views not yet built ──
+  renderers.it_tasks = function() {
+    document.getElementById('hnx-it_tasks-body').innerHTML = buildQueuePlaceholder(
+      '✅ IT Task Board',
+      [
+        'Daily IT tasks (server checks, backup verification, network audits)',
+        'Status filtering: open / in progress / blocked / done',
+        'Photo attachments for proof-of-work',
+        'Auto-tagging: hardware repair / software install / user support / network',
+        'Per-tech filter — see only tasks assigned to you'
+      ],
+      'maint_tasks'
+    );
+  };
+
+  renderers.it_calendar = function() {
+    document.getElementById('hnx-it_calendar-body').innerHTML = buildQueuePlaceholder(
+      '📅 IT Calendar',
+      [
+        'Recurring schedule: monthly server reboots, quarterly backup tests',
+        'CCTV DVR maintenance windows',
+        'Network audit dates · firewall rule reviews',
+        'License renewals (Windows, antivirus, software)',
+        'Hardware lifecycle reminders (battery replacement, etc.)'
+      ],
+      'maint_calendar'
+    );
+  };
+
+  renderers.it_materials = function() {
+    document.getElementById('hnx-it_materials-body').innerHTML = buildQueuePlaceholder(
+      '📦 IT Item Request',
+      [
+        'Cables: Cat6, HDMI, USB, power',
+        'Adapters & converters (HDMI→VGA, USB-C hubs)',
+        'Replacement parts: keyboards, mice, monitors',
+        'Network gear: switches, access points, PoE injectors',
+        'CCTV consumables: storage drives, mounting brackets'
+      ],
+      'maint_materials'
+    );
+  };
+
+  renderers.it_parts = function() {
+    document.getElementById('hnx-it_parts-body').innerHTML = buildQueuePlaceholder(
+      '🔩 IT Spare Parts',
+      [
+        'Cable inventory by type & length',
+        'Spare keyboards / mice / monitors stock',
+        'CCTV camera & DVR replacement stock',
+        'Radio chargers & batteries',
+        'Network spares (POE injectors, switches, AP)',
+        'Auto-decrement when used in service log'
+      ],
+      'maint_parts'
+    );
+  };
+
+  renderers.it_recurring = function() {
+    document.getElementById('hnx-it_recurring-body').innerHTML = buildQueuePlaceholder(
+      '🔥 IT Recurring Tasks',
+      [
+        'Weekly CCTV health check — verify all cameras online',
+        'Weekly backup verification — test restore from last backup',
+        'Monthly server patch check',
+        'Monthly UPS battery test',
+        'Quarterly firewall rule audit',
+        'Quarterly cable inspection in racks',
+        'Annual full DR test'
+      ],
+      'maint_recurring'
+    );
+  };
+
+  renderers.it_daily_checklist = function() {
+    document.getElementById('hnx-it_daily_checklist-body').innerHTML = buildQueuePlaceholder(
+      '☑️ IT Daily Checklist',
+      [
+        'Morning: all CCTV cameras online (count)',
+        'Morning: all DVRs recording (verify last night)',
+        'Morning: server room temperature OK',
+        'Morning: internet uptime check',
+        'Afternoon: review any new user-reported IT issues',
+        'End of day: confirm backup ran successfully',
+        'End of day: lock IT room'
+      ],
+      null
+    );
+  };
+
+  renderers.it_gh_fer_matrix = function() {
+    document.getElementById('hnx-it_gh_fer_matrix-body').innerHTML = buildQueuePlaceholder(
+      '💧 GH & Fertigation IT Matrix',
+      [
+        'Each GH × IT equipment type (cameras, sensors, radios, PRJ11 controllers)',
+        'Each Fertigation room × IT equipment matrix',
+        'Status per cell: ✅ OK · ⚠️ flagged · 🔴 down',
+        'Click any cell → raise IT call linked to that location',
+        'Sync with Irrigation module Rooms Equipment Matrix for shared IT gear'
+      ],
+      'maint_irr_rooms'
+    );
+  };
+
+  renderers.it_rfid = function() {
+    document.getElementById('hnx-it_rfid-body').innerHTML = buildQueuePlaceholder(
+      '🆔 RFID Setup & Matrix',
+      [
+        'RFID reader registry — IDs, locations, status',
+        'Tag registry — assigned to crates / workers / vehicles',
+        'Reader configuration & test logs',
+        'RFID matrix: Readers × Tags last-seen heatmap',
+        'Integration with attendance, crate tracking, asset tagging',
+        'Alert if reader offline > 5 min'
+      ],
+      null
+    );
+  };
+
+  // ── Hook switchView so renderers fire on navigation ──
+  function hookSwitchView() {
+    if (typeof window.switchView !== 'function') return false;
+    if (window.switchView._hnxP6Wrapped) return true;
+    const orig = window.switchView;
+    window.switchView = function(viewId, ...rest) {
+      const result = orig.apply(this, [viewId, ...rest]);
+      try {
+        if (renderers[viewId]) setTimeout(() => renderers[viewId](), 80);
+      } catch(e) { warn('p6 render fail:', e); }
+      return result;
+    };
+    window.switchView._hnxP6Wrapped = true;
+    log('switchView hooked for P6 renderers');
+    return true;
+  }
+
+  // ── Main ──
+  function run() {
+    ensureContainers();
+
+    if (!hookSwitchView()) {
+      let tries = 0;
+      const iv = setInterval(() => {
+        tries++;
+        if (hookSwitchView() || tries > 20) clearInterval(iv);
+      }, 250);
+    }
+
+    // If currently on one of our views, render now
+    setTimeout(() => {
+      const active = document.querySelector('.view.active');
+      if (active && active.id && active.id.startsWith('view-it_')) {
+        const id = active.id.replace('view-','');
+        if (renderers[id]) renderers[id]();
+      }
+    }, 600);
+
+    log('✅ P6 ready — IT module expanded with 11 new tabs');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run);
+  } else {
+    setTimeout(run, 400);
+  }
+})();
+</script>
+<!-- ===================== END HNX v2.86-p6 ===================== -->
 
 </body>
 </html>
