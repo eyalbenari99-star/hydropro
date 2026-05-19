@@ -91878,8 +91878,10 @@ window._seedExportAll=function(){
 function _buildToolsMenu(){
   const items=[
     {icon:'🖥',label:'Operations Wall',hint:'Big-screen ops dashboard',action:'openOpsWall()'},
+    {icon:'🪟',label:'Monitors',hint:'Multi-window launcher',action:'(typeof openMultiMonitorLauncher===\"function\"&&openMultiMonitorLauncher())'},
     {icon:'📋',label:'Daily Summary',hint:'End-of-shift report',action:'openDailySummaryModal()'},
     {icon:'📊',label:'Custom Reports',hint:'Build, save, schedule reports',action:'openReportsHub()'},
+    {icon:'📈',label:'Manager Summary',hint:'Aggregate KPI report',action:'(typeof openManagerSummary===\"function\"&&openManagerSummary())'},
     {icon:'💾',label:'Backup &amp; Restore',hint:'Save / restore data',action:'openBackupRestoreModal()'},
     {icon:'🔄',label:'Check for Updates',hint:'Manually check for new version',action:'_checkVersionUpdate&&_checkVersionUpdate()'}
   ];
@@ -91887,7 +91889,7 @@ function _buildToolsMenu(){
   let isAdmin=false;
   try{const u=(typeof getCurrentUser==='function')?getCurrentUser():null;isAdmin=u&&(u.role==='admin'||u.role==='admin_secondary');}catch(e){}
   if(isAdmin){
-    items.splice(3,0,{icon:'📞',label:'Call Routing Rules',hint:'Auto-assign calls per department',action:'openCallRoutingAdmin()'});
+    items.splice(5,0,{icon:'📞',label:'Call Routing Rules',hint:'Auto-assign calls per department',action:'openCallRoutingAdmin()'});
   }
   return items.map(it=>`<button onclick="document.getElementById('toolsMenuPopover').remove();${it.action}" style="display:flex;align-items:center;gap:12px;width:100%;padding:10px 14px;background:none;border:none;color:var(--text);text-align:left;cursor:pointer;font-family:var(--sans);font-size:13px;border-radius:6px;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">
     <span style="font-size:18px;flex-shrink:0;">${it.icon}</span>
@@ -100609,7 +100611,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.85.10-twoline';
+        vEl.textContent = orig + ' · HNX v2.85.11-setup';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -130322,21 +130324,21 @@ body.hnx-mobile-locked { overflow: hidden; }
     margin: 0 !important;
   }
 
-  /* The new ⋮ trigger button */
+  /* The new ⋮ trigger button — restyled v2.85.11 as 🛠 SETUP to match TOOLS button */
   .hnx-tb8-trigger {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
+    gap: 6px;
+    padding: 6px 12px;
     background: rgba(20, 32, 24, 0.6);
     color: #a5d6a7;
     border: 1px solid rgba(102, 187, 106, 0.3);
     border-radius: 8px;
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 22px;
+    font-size: 13px;
     font-weight: 700;
+    letter-spacing: 0.5px;
     line-height: 1;
     cursor: pointer;
     flex-shrink: 0;
@@ -130453,11 +130455,8 @@ body.hnx-mobile-locked { overflow: hidden; }
     return false;
   }
 
-  // Build menu items
+  // Build menu items — REPORTS + VIEW groups moved to TOOLS menu in v2.85.11
   const MENU = [
-    { group: '📊 Reports' },
-    { ico: '📊', label: 'Manager Summary', meta: 'mobile', action: function () { clickHidden('#btnMgrSummary'); } },
-
     { group: '📤 Data' },
     { ico: '⬇',  label: 'Export',     action: function () { clickHidden('#btnExport'); } },
     { ico: '⬆',  label: 'Import',     action: function () { clickHidden('#btnImport'); } },
@@ -130469,12 +130468,6 @@ body.hnx-mobile-locked { overflow: hidden; }
           '#hnxPublicUrlBtn',
           'button[title*="Public URL"]'
         ]) || (typeof openPublicUrlModal === 'function' && openPublicUrlModal());
-    }},
-
-    { group: '🖥 View' },
-    { ico: '🖥', label: 'Monitors',   action: function () {
-        clickAny(['button[onclick*="openMultiMonitorLauncher"]'])
-          || (typeof openMultiMonitorLauncher === 'function' && openMultiMonitorLauncher());
     }},
 
     { group: '⚙️ System' },
@@ -130580,8 +130573,8 @@ body.hnx-mobile-locked { overflow: hidden; }
     const trig = document.createElement('button');
     trig.id = 'hnx-tb8-trigger';
     trig.className = 'hnx-tb8-trigger';
-    trig.innerHTML = '⋮';
-    trig.title = 'More actions (Data / View / System)';
+    trig.innerHTML = '<span style="font-size:14px;">🛠</span><span>SETUP</span>';
+    trig.title = 'Setup — Data, Settings, Cloud sync';
     trig.onclick = function (e) {
       e.preventDefault();
       e.stopPropagation();
