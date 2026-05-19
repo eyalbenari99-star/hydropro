@@ -5196,10 +5196,26 @@ td.critical-blink,div.critical-blink,span.critical-blink,
   <div id="versionIndicator" style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:4px 8px;background:var(--surface2);border-radius:6px;white-space:nowrap;cursor:pointer;border:1px solid var(--border);" title="App version — click to force check for updates" onclick="manualCheckForUpdate()">v—</div>
   <button class="btn btn-primary ml-auto" id="btnReport" onclick="showReport()" style="flex-shrink:0;">📄 Report</button>
   <button class="btn btn-primary" id="btnMgrSummary" onclick="openManagerSummary()" style="flex-shrink:0;">📊 Manager Summary</button>
-  <button class="btn btn-outline" id="btnExport" onclick="exportJSON()" style="flex-shrink:0;" title="Download data as JSON">⬇ Export</button>
-  <button class="btn btn-outline" id="btnImport" onclick="document.getElementById('importFile').click()" style="flex-shrink:0;" title="Import JSON">⬆ Import</button>
-  <button class="btn btn-outline" id="autoSaveBtn" onclick="toggleAutoSave()" style="flex-shrink:0;" title="Auto-save to a folder (Chrome/Edge)">🔗 Auto-Save</button>
-  <button class="btn btn-outline" onclick="openMultiMonitorLauncher()" style="flex-shrink:0;" title="Open views in separate windows for multi-monitor setup">🖥 Monitors</button>
+
+  <!-- ===== HNX v2.85.8 Top-bar dropdown menu (replaces 4 buttons + houses moved items) ===== -->
+  <div id="hnxTopMenu" style="position:relative;display:inline-block;flex-shrink:0;">
+    <button id="hnxTopMenuBtn" class="btn btn-outline"
+      style="padding:6px 10px;font-size:16px;line-height:1;font-weight:700;"
+      title="More options" aria-label="More options" aria-haspopup="true" aria-expanded="false"
+      onclick="window._hnxToggleTopMenu&&window._hnxToggleTopMenu(event)">⋮</button>
+    <div id="hnxTopMenuDropdown" role="menu"
+      style="display:none;position:absolute;right:0;top:calc(100% + 6px);min-width:240px;
+      background:var(--surface2,#0d1b16);border:1px solid var(--border,rgba(102,187,106,.35));
+      border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,0.6);z-index:9990;
+      padding:6px;font-family:var(--mono);font-size:12px;">
+    </div>
+  </div>
+
+  <!-- Original buttons kept in DOM (hidden) so existing references still work -->
+  <button class="btn btn-outline" id="btnExport" onclick="exportJSON()" style="display:none;" title="Download data as JSON">⬇ Export</button>
+  <button class="btn btn-outline" id="btnImport" onclick="document.getElementById('importFile').click()" style="display:none;" title="Import JSON">⬆ Import</button>
+  <button class="btn btn-outline" id="autoSaveBtn" onclick="toggleAutoSave()" style="display:none;" title="Auto-save to a folder (Chrome/Edge)">🔗 Auto-Save</button>
+  <button class="btn btn-outline" id="hnxMonitorsBtn" onclick="openMultiMonitorLauncher()" style="display:none;" title="Open views in separate windows">🖥 Monitors</button>
   <input type="file" id="importFile" accept=".json" style="display:none;" onchange="importJSON(this)">
   <div class="user-pill" id="userPill" onclick="openMyProfile()" title="My Profile">
     <div>
@@ -129798,388 +129814,6 @@ body.hnx-mobile-locked { overflow: hidden; }
 </script>
 <!-- ===================== END HNX v2.85.2 ===================== -->
 
-<!-- ===================== HNX v2.85.8-topbar-reorg ===================== -->
-<!-- Top bar reorganization: 15 buttons → 3 visible + ⋮ dropdown menu -->
-<!-- Eyal+Claude 2026-05-19 -->
-<script id="hnx-topbar-reorg">
-(function () {
-  'use strict';
-  if (window.__HNX_TOPBAR_REORG__) return;
-  window.__HNX_TOPBAR_REORG__ = true;
-
-  const VERSION = 'v2.85.8-topbar-reorg';
-  const log = function () { console.log.apply(console, ['[TopbarReorg]'].concat([].slice.call(arguments))); };
-
-  // Items to move into the ⋮ menu. Each entry:
-  //   id:      the existing button's id (we will hide it after copying its onclick)
-  //   label:   what to show in the menu
-  //   group:   'data' | 'view' | 'system'
-  //   icon:    emoji prefix
-  //   inject:  optional function to find a non-id'd button (e.g. Monitors)
-  const MENU_ITEMS = [
-    // ---- DATA ----
-    { id: 'btnExport',    label: 'Export JSON',    group: 'data', icon: '⬇' },
-    { id: 'btnImport',    label: 'Import JSON',    group: 'data', icon: '⬆' },
-    { id: 'autoSaveBtn',  label: 'Auto-Save',      group: 'data', icon: '🔗' },
-    { id: null, label: 'Public URL', group: 'data', icon: '🔗',
-      findBtn: function () {
-        const all = document.querySelectorAll('button');
-        for (let i = 0; i < all.length; i++) {
-          const t = (all[i].textContent || '').trim();
-          if (t === '🔗 Public URL' || t === 'Public URL' || /^🔗\s*Public URL$/.test(t)) {
-            // only top-bar instances, not the in-page ones
-            if (all[i].closest('.topbar, .hnx-tbar, header')) return all[i];
-          }
-        }
-        return null;
-      }
-    },
-
-    // ---- VIEW ----
-    { id: null, label: 'Multi-Monitor', group: 'view', icon: '🖥',
-      findBtn: function () {
-        const all = document.querySelectorAll('button[onclick]');
-        for (let i = 0; i < all.length; i++) {
-          const oc = all[i].getAttribute('onclick') || '';
-          if (oc.indexOf('openMultiMonitorLauncher') >= 0) return all[i];
-        }
-        return null;
-      }
-    },
-
-    // ---- SYSTEM ----
-    { id: null, label: 'Settings', group: 'system', icon: '⚙️',
-      findBtn: function () {
-        const t = document.querySelector('.topbar, .hnx-tbar, header');
-        if (!t) return null;
-        const all = t.querySelectorAll('button, [role="button"]');
-        for (let i = 0; i < all.length; i++) {
-          const tt = (all[i].title || '').toLowerCase();
-          const tx = (all[i].textContent || '').trim();
-          if ((tt.indexOf('setting') >= 0 || tx === '⚙' || tx === '⚙️') &&
-              !all[i].id) {
-            return all[i];
-          }
-        }
-        return null;
-      }
-    },
-    { id: null, label: 'Notifications', group: 'system', icon: '🔔',
-      findBtn: function () {
-        const t = document.querySelector('.topbar, .hnx-tbar, header');
-        if (!t) return null;
-        const all = t.querySelectorAll('button, [role="button"]');
-        for (let i = 0; i < all.length; i++) {
-          const tt = (all[i].title || '').toLowerCase();
-          const tx = (all[i].textContent || '').trim();
-          if ((tt.indexOf('notif') >= 0 || tx === '🔔' || tx === '🔔︎') &&
-              !all[i].id) {
-            return all[i];
-          }
-        }
-        return null;
-      }
-    }
-  ];
-
-  // ---------- Styles ----------
-  function injectStyles() {
-    if (document.getElementById('hnx-topbar-reorg-styles')) return;
-    const s = document.createElement('style');
-    s.id = 'hnx-topbar-reorg-styles';
-    s.textContent = `
-      .hnx-tb-more {
-        flex-shrink: 0;
-        padding: 6px 10px;
-        background: var(--surface2, rgba(20,32,24,.9));
-        color: var(--text2, #a5d6a7);
-        border: 1px solid var(--border, rgba(102,187,106,.3));
-        border-radius: 6px;
-        font-size: 16px;
-        line-height: 1;
-        cursor: pointer;
-        font-family: inherit;
-        margin-left: 4px;
-        transition: background .15s, border-color .15s;
-      }
-      .hnx-tb-more:hover {
-        background: rgba(102,187,106,.15);
-        border-color: rgba(102,187,106,.6);
-      }
-      .hnx-tb-cloud-dot {
-        flex-shrink: 0;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 14px;
-        height: 14px;
-        margin: 0 2px 0 6px;
-        cursor: pointer;
-      }
-      .hnx-tb-cloud-dot .d {
-        width: 9px;
-        height: 9px;
-        border-radius: 50%;
-        background: #66bb6a;
-        box-shadow: 0 0 5px rgba(102,187,106,.7);
-        transition: background .2s;
-      }
-      .hnx-tb-cloud-dot .d.off { background: #666; box-shadow: none; }
-      .hnx-tb-cloud-dot .d.err { background: #ff5252; box-shadow: 0 0 5px rgba(255,82,82,.7); }
-      .hnx-tb-cloud-dot .d.sync { background: #ffc107; animation: hnxDotPulse 1s infinite; }
-      @keyframes hnxDotPulse {
-        0%,100% { opacity: 1; }
-        50% { opacity: .4; }
-      }
-
-      .hnx-tb-menu {
-        position: fixed;
-        background: linear-gradient(180deg, rgba(20,32,24,.98), rgba(8,16,12,.98));
-        border: 1px solid rgba(102,187,106,.4);
-        border-radius: 8px;
-        padding: 6px 0;
-        min-width: 200px;
-        z-index: 99997;
-        box-shadow: 0 8px 24px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.04);
-        font-family: var(--mono, 'JetBrains Mono', monospace);
-        font-size: 12px;
-        animation: hnxMenuIn .12s ease-out;
-      }
-      @keyframes hnxMenuIn {
-        from { opacity: 0; transform: translateY(-4px); }
-        to   { opacity: 1; transform: translateY(0); }
-      }
-      .hnx-tb-menu-group {
-        padding: 4px 0;
-      }
-      .hnx-tb-menu-group + .hnx-tb-menu-group {
-        border-top: 1px solid rgba(102,187,106,.15);
-      }
-      .hnx-tb-menu-label {
-        padding: 4px 14px 4px;
-        font-size: 9.5px;
-        letter-spacing: .12em;
-        color: #6a8ea3;
-        text-transform: uppercase;
-      }
-      .hnx-tb-menu-item {
-        padding: 8px 14px;
-        color: #a5d6a7;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        user-select: none;
-      }
-      .hnx-tb-menu-item:hover {
-        background: rgba(102,187,106,.12);
-        color: #80e885;
-      }
-      .hnx-tb-menu-item:active {
-        background: rgba(102,187,106,.22);
-      }
-      .hnx-tb-menu-item .ic {
-        width: 16px;
-        text-align: center;
-        font-size: 14px;
-      }
-      .hnx-tb-menu-item.hnx-disabled {
-        opacity: .4;
-        cursor: not-allowed;
-      }
-    `;
-    document.head.appendChild(s);
-  }
-
-  // ---------- Resolve all buttons ----------
-  // Returns array of {label, group, icon, sourceBtn} for buttons that exist & are visible
-  function resolveItems() {
-    const out = [];
-    for (let i = 0; i < MENU_ITEMS.length; i++) {
-      const def = MENU_ITEMS[i];
-      let src = null;
-      if (def.id) src = document.getElementById(def.id);
-      else if (def.findBtn) src = def.findBtn();
-      if (!src) continue;
-      // Only include visible/displayed buttons
-      const cs = window.getComputedStyle(src);
-      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
-      out.push({
-        label: def.label,
-        group: def.group,
-        icon: def.icon,
-        sourceBtn: src
-      });
-    }
-    return out;
-  }
-
-  // ---------- Build menu DOM ----------
-  let menuEl = null;
-  function closeMenu() {
-    if (menuEl) { menuEl.remove(); menuEl = null; }
-    document.removeEventListener('click', onDocClick, true);
-    document.removeEventListener('keydown', onEsc, true);
-  }
-  function onDocClick(e) {
-    if (!menuEl) return;
-    if (menuEl.contains(e.target)) return;
-    if (e.target.classList && e.target.classList.contains('hnx-tb-more')) return;
-    closeMenu();
-  }
-  function onEsc(e) { if (e.key === 'Escape') closeMenu(); }
-
-  function openMenu(anchorBtn) {
-    closeMenu();
-    const items = resolveItems();
-    if (!items.length) {
-      log('No items resolved — nothing to show in menu');
-      return;
-    }
-
-    menuEl = document.createElement('div');
-    menuEl.className = 'hnx-tb-menu';
-
-    const groups = [
-      { id: 'data',   label: 'Data' },
-      { id: 'view',   label: 'View' },
-      { id: 'system', label: 'System' }
-    ];
-
-    groups.forEach(function (g) {
-      const groupItems = items.filter(function (it) { return it.group === g.id; });
-      if (!groupItems.length) return;
-      const wrap = document.createElement('div');
-      wrap.className = 'hnx-tb-menu-group';
-      wrap.innerHTML = '<div class="hnx-tb-menu-label">' + g.label + '</div>';
-      groupItems.forEach(function (it) {
-        const row = document.createElement('div');
-        row.className = 'hnx-tb-menu-item';
-        row.innerHTML = '<span class="ic">' + it.icon + '</span><span>' + it.label + '</span>';
-        row.onclick = function () {
-          closeMenu();
-          // Fire the original button's click
-          try { it.sourceBtn.click(); }
-          catch (e) { log('Click forward failed:', e); }
-        };
-        wrap.appendChild(row);
-      });
-      menuEl.appendChild(wrap);
-    });
-
-    document.body.appendChild(menuEl);
-
-    // Position menu just below the anchor button, aligned to its right edge
-    const r = anchorBtn.getBoundingClientRect();
-    const mw = menuEl.offsetWidth;
-    let left = r.right - mw;
-    let top  = r.bottom + 6;
-    if (left < 8) left = 8;
-    if (left + mw > window.innerWidth - 8) left = window.innerWidth - mw - 8;
-    menuEl.style.left = left + 'px';
-    menuEl.style.top  = top + 'px';
-
-    setTimeout(function () {
-      document.addEventListener('click', onDocClick, true);
-      document.addEventListener('keydown', onEsc, true);
-    }, 0);
-  }
-
-  // ---------- Reorganize the bar ----------
-  function reorganize() {
-    const items = resolveItems();
-    if (!items.length) return false;
-
-    // 1. Hide the source buttons (don't remove — keeps event handlers + permissions intact)
-    items.forEach(function (it) {
-      if (it.sourceBtn.dataset.hnxHidden) return;
-      it.sourceBtn.dataset.hnxOrigDisplay = it.sourceBtn.style.display || '';
-      it.sourceBtn.style.display = 'none';
-      it.sourceBtn.dataset.hnxHidden = '1';
-    });
-
-    // 2. Inject ⋮ button next to Manager Summary (or fall back to topbar end)
-    const topbar = document.querySelector('.topbar, .hnx-tbar, header');
-    if (!topbar) return false;
-
-    if (!document.getElementById('hnxTbMore')) {
-      const moreBtn = document.createElement('button');
-      moreBtn.id = 'hnxTbMore';
-      moreBtn.className = 'hnx-tb-more';
-      moreBtn.innerHTML = '⋮';
-      moreBtn.title = 'More actions';
-      moreBtn.onclick = function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (menuEl) closeMenu();
-        else openMenu(moreBtn);
-      };
-
-      // Try to insert right after the Manager Summary button
-      const anchor = document.getElementById('btnMgrSummary') || document.getElementById('btnReport');
-      if (anchor && anchor.parentNode) {
-        // Insert AFTER all our hidden buttons (last hidden sibling), before user pill
-        const userPill = topbar.querySelector('.user-pill, #userPill');
-        if (userPill && userPill.parentNode === anchor.parentNode) {
-          userPill.parentNode.insertBefore(moreBtn, userPill);
-        } else {
-          anchor.parentNode.appendChild(moreBtn);
-        }
-      } else {
-        topbar.appendChild(moreBtn);
-      }
-    }
-
-    // 3. Replace the existing #hnx-cloud-badge with a tiny dot (if it exists)
-    //    The cloud-fix patch updates the badge; we just style it down.
-    const badge = document.getElementById('hnx-cloud-badge');
-    if (badge && !badge.dataset.hnxCompact) {
-      badge.dataset.hnxCompact = '1';
-      badge.style.padding = '4px 6px';
-      badge.style.gap = '0';
-      badge.style.minWidth = '0';
-      const lbl = badge.querySelector('.lbl');
-      if (lbl) lbl.style.display = 'none'; // hide text, keep dot
-      // Tooltip will still work via the cloud-fix patch
-    }
-
-    return true;
-  }
-
-  // ---------- Boot: try repeatedly until topbar exists ----------
-  injectStyles();
-  let tries = 0;
-  const timer = setInterval(function () {
-    tries++;
-    const ok = reorganize();
-    if (ok || tries > 60) {
-      clearInterval(timer);
-      if (ok) log('Topbar reorganized after', tries, 'tries.');
-      else log('Gave up after', tries, 'tries — topbar not found.');
-    }
-  }, 250);
-
-  // Also re-run if the topbar gets re-rendered (e.g. after login)
-  const reRun = function () { setTimeout(reorganize, 100); };
-  document.addEventListener('hnxTopbarUpdate', reRun);
-  window.addEventListener('hashchange', reRun);
-
-  // Expose for debugging / manual re-run
-  window.HNX_TopbarReorg = {
-    version: VERSION,
-    rerun:   reorganize,
-    openMenu: function () {
-      const b = document.getElementById('hnxTbMore');
-      if (b) openMenu(b);
-    },
-    closeMenu: closeMenu
-  };
-
-  log('Top bar reorg ' + VERSION + ' loaded.');
-})();
-</script>
-<!-- ===================== END HNX v2.85.8-topbar-reorg ===================== -->
-
 <!-- ===================== HNX v2.85.7e-cloudfix (INLINE) ===================== -->
 <!-- Cloud sync auto-fix patch · Eyal+Claude 2026-05-19 · INLINE VERSION -->
 <!-- Self-contained: no external file needed. Auto-runs cloud sync self-test. -->
@@ -130635,5 +130269,357 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.85.7e-cloudfix ===================== -->
+
+<!-- ===================== HNX v2.85.8-topbar (INLINE) ===================== -->
+<!-- Top Bar Reorganizer · 2026-05-19 -->
+<!-- Hides Export/Import/Auto-Save/Monitors + dynamically-injected -->
+<!-- Public URL, Notifications, Settings buttons, replaces with one ⋮ dropdown. -->
+<!-- Cloud badge shrunk to dot-only mode. -->
+<!-- Safe: doesn't remove the original buttons, just hides them via CSS. -->
+<!-- To disable: localStorage.setItem('hnx_topbar_v2_8_off','1') then reload. -->
+<style id="hnx-topbar-v2_8-css">
+  /* Hide original inline action buttons in the main topbar */
+  body:not(.hnx-topbar-classic) #btnExport,
+  body:not(.hnx-topbar-classic) #btnImport,
+  body:not(.hnx-topbar-classic) #autoSaveBtn,
+  body:not(.hnx-topbar-classic) .topbar > button[onclick*="openMultiMonitorLauncher"] {
+    display: none !important;
+  }
+  /* Hide the dynamically-injected Public URL button (line ~92095 in app) */
+  body:not(.hnx-topbar-classic) #hnxPublicUrlBtn,
+  body:not(.hnx-topbar-classic) button[title*="Public URL"],
+  body:not(.hnx-topbar-classic) button[onclick*="openPublicUrlModal"] {
+    display: none !important;
+  }
+  /* Hide the dynamically-injected Notifications + Settings buttons */
+  body:not(.hnx-topbar-classic) button[title="Notifications settings"],
+  body:not(.hnx-topbar-classic) #hnxSettingsBtn,
+  body:not(.hnx-topbar-classic) button[title*="Settings"]:not([onclick*="openMyProfile"]) {
+    display: none !important;
+  }
+
+  /* Shrink cloud badge to dot-only */
+  body:not(.hnx-topbar-classic) #hnx-cloud-badge {
+    padding: 5px 7px !important;
+    min-width: 0 !important;
+    border-radius: 50% !important;
+    width: 12px !important;
+    height: 12px !important;
+    overflow: hidden !important;
+  }
+  body:not(.hnx-topbar-classic) #hnx-cloud-badge .lbl {
+    display: none !important;
+  }
+  body:not(.hnx-topbar-classic) #hnx-cloud-badge .dot {
+    margin: 0 !important;
+  }
+
+  /* The new ⋮ trigger button */
+  .hnx-tb8-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: rgba(20, 32, 24, 0.6);
+    color: #a5d6a7;
+    border: 1px solid rgba(102, 187, 106, 0.3);
+    border-radius: 8px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+    margin-left: 4px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .hnx-tb8-trigger:hover {
+    border-color: rgba(102, 187, 106, 0.7);
+    background: rgba(20, 32, 24, 0.9);
+  }
+  .hnx-tb8-trigger.open {
+    background: rgba(102, 187, 106, 0.15);
+    border-color: rgba(102, 187, 106, 0.7);
+  }
+
+  /* The dropdown menu */
+  .hnx-tb8-menu {
+    position: fixed;
+    z-index: 99990;
+    min-width: 240px;
+    background: linear-gradient(180deg, rgba(15, 24, 18, 0.98), rgba(8, 14, 10, 0.98));
+    border: 1px solid rgba(102, 187, 106, 0.35);
+    border-radius: 10px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+    padding: 6px 0;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    color: #c8e6c9;
+    backdrop-filter: blur(6px);
+  }
+  .hnx-tb8-menu .group-label {
+    padding: 8px 14px 4px;
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    color: #66bb6a;
+    text-transform: uppercase;
+    font-weight: 700;
+    opacity: 0.7;
+  }
+  .hnx-tb8-menu .group-label:not(:first-child) {
+    border-top: 1px solid rgba(102, 187, 106, 0.12);
+    margin-top: 4px;
+    padding-top: 10px;
+  }
+  .hnx-tb8-menu .item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 14px;
+    cursor: pointer;
+    user-select: none;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    width: 100%;
+  }
+  .hnx-tb8-menu .item:hover {
+    background: rgba(102, 187, 106, 0.12);
+    color: #ffffff;
+  }
+  .hnx-tb8-menu .item .ico {
+    flex-shrink: 0;
+    width: 18px;
+    text-align: center;
+    font-size: 14px;
+  }
+  .hnx-tb8-menu .item .meta {
+    margin-left: auto;
+    font-size: 10px;
+    color: #80e885;
+    opacity: 0.7;
+  }
+</style>
+
+<script id="hnx-topbar-v2_8-js">
+(function () {
+  'use strict';
+
+  if (localStorage.getItem('hnx_topbar_v2_8_off') === '1') {
+    document.body && document.body.classList.add('hnx-topbar-classic');
+    console.log('[Topbar v2.8] disabled by user preference');
+    return;
+  }
+
+  const log = function () {
+    console.log.apply(console, ['[Topbar v2.8]'].concat([].slice.call(arguments)));
+  };
+
+  // Helper: trigger original action by clicking the original (now hidden) button
+  function clickHidden(selector) {
+    const btn = document.querySelector(selector);
+    if (btn) {
+      log('clicking', selector);
+      btn.click();
+      return true;
+    }
+    log('NOT FOUND:', selector);
+    return false;
+  }
+
+  // Try multiple selectors (some buttons are injected dynamically with varying ids)
+  function clickAny(selectors) {
+    for (let i = 0; i < selectors.length; i++) {
+      const btn = document.querySelector(selectors[i]);
+      if (btn) {
+        log('clicking', selectors[i]);
+        btn.click();
+        return true;
+      }
+    }
+    log('NONE FOUND:', selectors.join(', '));
+    return false;
+  }
+
+  // Build menu items
+  const MENU = [
+    { group: '📤 Data' },
+    { ico: '⬇',  label: 'Export',     action: function () { clickHidden('#btnExport'); } },
+    { ico: '⬆',  label: 'Import',     action: function () { clickHidden('#btnImport'); } },
+    { ico: '🔗', label: 'Auto-Save',  action: function () { clickHidden('#autoSaveBtn'); } },
+    { ico: '🌐', label: 'Public URL', action: function () {
+        clickAny([
+          'button[onclick*="openPublicUrlModal"]',
+          '#hnxPublicUrlBtn',
+          'button[title*="Public URL"]'
+        ]) || (typeof openPublicUrlModal === 'function' && openPublicUrlModal());
+    }},
+
+    { group: '🖥 View' },
+    { ico: '🖥', label: 'Monitors',   action: function () {
+        clickAny(['button[onclick*="openMultiMonitorLauncher"]'])
+          || (typeof openMultiMonitorLauncher === 'function' && openMultiMonitorLauncher());
+    }},
+
+    { group: '⚙️ System' },
+    { ico: '⚙️', label: 'Settings',   action: function () {
+        clickAny([
+          '#hnxSettingsBtn',
+          'button[title="Notifications settings"]',
+          'button[title*="Settings"]:not([onclick*="openMyProfile"])'
+        ]);
+    }},
+    { ico: '🔔', label: 'Notifications', action: function () {
+        clickAny([
+          'button[title="Notifications settings"]',
+          '#hnxNotifBtn',
+          'button[title*="Notif"]'
+        ]);
+    }},
+    { ico: '☁️', label: 'Cloud sync', meta: 'status →', action: function () {
+        const badge = document.getElementById('hnx-cloud-badge');
+        if (badge) badge.click();
+    }}
+  ];
+
+  function buildMenu() {
+    const menu = document.createElement('div');
+    menu.className = 'hnx-tb8-menu';
+    menu.id = 'hnx-tb8-menu';
+
+    MENU.forEach(function (m) {
+      if (m.group) {
+        const g = document.createElement('div');
+        g.className = 'group-label';
+        g.textContent = m.group;
+        menu.appendChild(g);
+      } else {
+        const b = document.createElement('button');
+        b.className = 'item';
+        b.innerHTML =
+          '<span class="ico">' + m.ico + '</span>' +
+          '<span class="lbl">' + m.label + '</span>' +
+          (m.meta ? '<span class="meta">' + m.meta + '</span>' : '');
+        b.onclick = function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          closeMenu();
+          try { m.action(); } catch (err) { console.error('[Topbar v2.8] action failed:', err); }
+        };
+        menu.appendChild(b);
+      }
+    });
+
+    return menu;
+  }
+
+  function positionMenu(trigger, menu) {
+    const r = trigger.getBoundingClientRect();
+    menu.style.top = (r.bottom + 6) + 'px';
+    // Align right edge of menu with right edge of trigger
+    const menuWidth = menu.offsetWidth || 240;
+    menu.style.left = Math.max(8, r.right - menuWidth) + 'px';
+  }
+
+  function closeMenu() {
+    const menu = document.getElementById('hnx-tb8-menu');
+    if (menu) menu.remove();
+    const trig = document.querySelector('.hnx-tb8-trigger');
+    if (trig) trig.classList.remove('open');
+    document.removeEventListener('click', outsideClick, true);
+    window.removeEventListener('resize', closeMenu);
+    window.removeEventListener('scroll', closeMenu, true);
+  }
+
+  function outsideClick(e) {
+    const menu = document.getElementById('hnx-tb8-menu');
+    if (!menu) return;
+    if (menu.contains(e.target)) return;
+    if (e.target.closest('.hnx-tb8-trigger')) return;
+    closeMenu();
+  }
+
+  function openMenu(trigger) {
+    closeMenu();
+    const menu = buildMenu();
+    document.body.appendChild(menu);
+    positionMenu(trigger, menu);
+    trigger.classList.add('open');
+    setTimeout(function () {
+      document.addEventListener('click', outsideClick, true);
+      window.addEventListener('resize', closeMenu);
+      window.addEventListener('scroll', closeMenu, true);
+    }, 10);
+  }
+
+  function injectTrigger() {
+    if (document.getElementById('hnx-tb8-trigger')) return true;
+
+    // Find the top bar — look for the Report button's parent
+    const reportBtn = document.getElementById('btnReport');
+    if (!reportBtn) return false;
+    const topbar = reportBtn.parentElement;
+    if (!topbar) return false;
+
+    const trig = document.createElement('button');
+    trig.id = 'hnx-tb8-trigger';
+    trig.className = 'hnx-tb8-trigger';
+    trig.innerHTML = '⋮';
+    trig.title = 'More actions (Data / View / System)';
+    trig.onclick = function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (document.getElementById('hnx-tb8-menu')) closeMenu();
+      else openMenu(trig);
+    };
+
+    // Insert RIGHT BEFORE the user pill (so it appears at the end of buttons)
+    const userPill = document.getElementById('userPill');
+    if (userPill && userPill.parentElement === topbar) {
+      topbar.insertBefore(trig, userPill);
+    } else {
+      topbar.appendChild(trig);
+    }
+
+    log('trigger injected');
+    return true;
+  }
+
+  // Try injection multiple times (other scripts may add buttons later)
+  let tries = 0;
+  const injectTimer = setInterval(function () {
+    tries++;
+    if (injectTrigger() || tries > 60) {
+      clearInterval(injectTimer);
+      if (tries > 60) log('gave up after 60 tries');
+    }
+  }, 250);
+
+  // Expose for debugging
+  window.HNX_Topbar = {
+    version: 'v2.85.8-topbar',
+    open: function () {
+      const trig = document.getElementById('hnx-tb8-trigger');
+      if (trig) openMenu(trig);
+    },
+    close: closeMenu,
+    disable: function () {
+      localStorage.setItem('hnx_topbar_v2_8_off', '1');
+      location.reload();
+    },
+    enable: function () {
+      localStorage.removeItem('hnx_topbar_v2_8_off');
+      location.reload();
+    }
+  };
+
+  log('Top Bar Reorganizer v2.85.8 ready');
+})();
+</script>
+<!-- ===================== END HNX v2.85.8-topbar ===================== -->
 </body>
 </html>
