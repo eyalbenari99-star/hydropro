@@ -100623,7 +100623,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p8';
+        vEl.textContent = orig + ' · HNX v2.86-p14';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -132808,761 +132808,899 @@ body.hnx-mobile-locked { overflow: hidden; }
 </script>
 <!-- ===================== END HNX v2.86-p7-it-task-board ===================== -->
 
-<!-- ===================== HNX v2.86-p8-it-recurring (INLINE) ===================== -->
+<!-- ===================== HNX v2.86-p11-it-recurring-minimal (INLINE) ===================== -->
 <script>
 /* ==============================================================================
-   HNX v2.86 P8 — IT Recurring Tasks (full custom build)
+   HNX v2.86 P11 — IT Recurring Tasks (MINIMUM SAFE patch)
    --------------------------------------------------------------------------
-   Replaces the placeholder from P6.
+   Lessons learned from P10:
+   - Do NOT wrap renderRecurringHub
+   - Do NOT wrap markRecurringDone
+   - Do NOT inject DOM chips
+   - Just push tasks + hook switchView. That's it.
 
-   Features:
-   - 22 default IT recurring tasks seeded on first run (idempotent)
-   - Every field editable: title, description, frequency, category,
-     photo-required, auto-raise-call-on-fail, enabled, due date
-   - Frequencies: daily / weekly / monthly / quarterly / semi-annual / annual / custom (N days)
-   - Status auto-computed: due / overdue / done-this-period
-   - Mark Done modal: status (OK/warning/fail) + count + notes + photo
-   - Fail + auto-call enabled → auto-creates IT call in hydroPro_issues_v2
-   - Group by: frequency / category / due status
-   - Filters: enabled-only, frequency, category
-   - History log per task
+   What this does:
+   1. Push 22 IT tasks to window.RECURRING_TASKS (idempotent)
+   2. Hook switchView so it_recurring → renderRecurringHub() runs with filter='it'
 
-   Storage:
-   - hydroPro_it_recurring_v1       (task defs, cloud-synced)
-   - hydroPro_it_recurring_log_v1   (execution log, cloud-synced)
-
-   Idempotent. Safe alongside P1-P7.
+   Risk: minimal. Tasks live alongside existing maintenance/irrigation/logistics tasks.
    ============================================================================== */
-(function HNX_v286_P8_Recurring() {
-  const VER = 'v2.86-p8-rec';
+(function HNX_v286_P11_ITRecurringMinimal() {
+  const VER = 'v2.86-p11-min';
   function log(...a){ console.log(`[${VER}]`, ...a); }
+  function warn(...a){ console.warn(`[${VER}]`, ...a); }
 
-  const TASKS_KEY   = 'hydroPro_it_recurring_v1';
-  const LOG_KEY     = 'hydroPro_it_recurring_log_v1';
-  const ISSUES_KEY  = 'hydroPro_issues_v2';
-  const SEEDED_FLAG = 'hnx_p8_recurring_seeded_v1';
-
-  // ── Default 22 IT recurring tasks (user-approved list) ──
-  const DEFAULT_TASKS = [
-    // WEEKLY (5)
-    { title:'📹 CCTV health sweep',         desc:'Verify all cameras streaming · count online',                         freq:'weekly',    category:'cctv',         photoReq:false, autoCall:true,  order:1 },
-    { title:'💾 Backup verification',       desc:'Test 1 random restore from this week',                                 freq:'weekly',    category:'servers',      photoReq:false, autoCall:true,  order:2 },
-    { title:'💿 Disk space audit',          desc:'DVRs / servers / NAS free space levels',                               freq:'weekly',    category:'servers',      photoReq:false, autoCall:true,  order:3 },
-    { title:'📊 Network uptime review',     desc:'Outages, slow spots, bandwidth usage',                                 freq:'weekly',    category:'network',      photoReq:false, autoCall:false, order:4 },
-    { title:'🔍 Critical alerts review',    desc:'Antivirus, firewall blocks, login failures',                           freq:'weekly',    category:'security',     photoReq:false, autoCall:false, order:5 },
-    // MONTHLY (7)
-    { title:'🔧 Server patches',            desc:'Windows updates + scheduled restart',                                  freq:'monthly',   category:'servers',      photoReq:false, autoCall:false, order:6 },
-    { title:'🔋 UPS battery load test',     desc:'Verify UPS holds load under cut',                                      freq:'monthly',   category:'security',     photoReq:true,  autoCall:true,  order:7 },
-    { title:'🧹 CCTV lens cleaning',        desc:'Especially outdoor cameras (tropical dust/dirt)',                       freq:'monthly',   category:'cctv',         photoReq:true,  autoCall:false, order:8 },
-    { title:'🌡 Server room HVAC check',    desc:'Dust, vent, HVAC, temperature, humidity',                              freq:'monthly',   category:'servers',      photoReq:true,  autoCall:true,  order:9 },
-    { title:'🛡 Antivirus DB check',        desc:'Definitions current on all endpoints',                                 freq:'monthly',   category:'security',     photoReq:false, autoCall:false, order:10 },
-    { title:'👤 User account audit',        desc:'Disable inactive, review permissions',                                 freq:'monthly',   category:'user_support', photoReq:false, autoCall:false, order:11 },
-    { title:'📡 Network firmware check',    desc:'Switches / APs / routers — updates available?',                        freq:'monthly',   category:'network',      photoReq:false, autoCall:false, order:12 },
-    // QUARTERLY (5)
-    { title:'🔥 Firewall rule audit',       desc:'Remove stale rules, verify access list',                               freq:'quarterly', category:'security',     photoReq:false, autoCall:false, order:13 },
-    { title:'🔄 Full backup restore drill', desc:'Pick 1 critical system, restore end-to-end',                           freq:'quarterly', category:'servers',      photoReq:true,  autoCall:true,  order:14 },
-    { title:'📹 CCTV coverage review',      desc:'Blind spots? New angles needed?',                                      freq:'quarterly', category:'cctv',         photoReq:true,  autoCall:false, order:15 },
-    { title:'🔌 Cable inspection in racks', desc:'Labeling, routing, strain relief',                                     freq:'quarterly', category:'network',      photoReq:true,  autoCall:false, order:16 },
-    { title:'💼 Hardware lifecycle inv.',   desc:'What is nearing end-of-life?',                                         freq:'quarterly', category:'computers',    photoReq:false, autoCall:false, order:17 },
-    // SEMI-ANNUAL (3)
-    { title:'⚡ Full DR test',              desc:'Failover + failback exercise',                                         freq:'semi',      category:'servers',      photoReq:true,  autoCall:true,  order:18 },
-    { title:'🔌 Generator / UPS ext. test', desc:'Full discharge & recharge cycle',                                      freq:'semi',      category:'security',     photoReq:true,  autoCall:true,  order:19 },
-    { title:'🔒 Physical security audit',   desc:'IT room access logs, badge review',                                    freq:'semi',      category:'security',     photoReq:false, autoCall:false, order:20 },
-    // ANNUAL (2)
-    { title:'💰 IT budget review & plan',   desc:'Next-year hardware refresh + licenses + vendors',                       freq:'annual',    category:'user_support', photoReq:false, autoCall:false, order:21 },
-    { title:'📚 Documentation refresh',     desc:'Network diagrams, IPs, password vault, runbooks',                       freq:'annual',    category:'user_support', photoReq:false, autoCall:false, order:22 }
+  const IT_TASKS = [
+    { id:'it_cctv_health',     name:'📹 CCTV health sweep — all cameras online',      freq:'once_per_week', owner:'IT', icon:'📹', cat:'IT-CCTV',     priority:'high',   schedule:{Mon:'site'}, module:'it' },
+    { id:'it_backup_verify',   name:'💾 Backup verification — test 1 restore',       freq:'once_per_week', owner:'IT', icon:'💾', cat:'IT-Servers',  priority:'high',   schedule:{Tue:'site'}, module:'it' },
+    { id:'it_disk_audit',      name:'💿 Disk space audit — DVRs/servers/NAS',        freq:'once_per_week', owner:'IT', icon:'💿', cat:'IT-Servers',  priority:'medium', schedule:{Wed:'site'}, module:'it' },
+    { id:'it_network_uptime',  name:'📊 Network uptime review',                       freq:'once_per_week', owner:'IT', icon:'📊', cat:'IT-Network',  priority:'medium', schedule:{Thu:'site'}, module:'it' },
+    { id:'it_critical_alerts', name:'🔍 Critical alerts review',                      freq:'once_per_week', owner:'IT', icon:'🔍', cat:'IT-Security', priority:'medium', schedule:{Fri:'site'}, module:'it' },
+    { id:'it_server_patches',  name:'🔧 Server patches — Windows updates + restart',  freq:'monthly',       owner:'IT', icon:'🔧', cat:'IT-Servers',  priority:'medium', schedule:{}, module:'it' },
+    { id:'it_ups_battery',     name:'🔋 UPS battery load test',                       freq:'monthly',       owner:'IT', icon:'🔋', cat:'IT-Security', priority:'high',   schedule:{}, module:'it' },
+    { id:'it_cctv_lens',       name:'🧹 CCTV lens cleaning (outdoor cams)',           freq:'monthly',       owner:'IT', icon:'🧹', cat:'IT-CCTV',     priority:'medium', schedule:{}, module:'it' },
+    { id:'it_server_room_hvac',name:'🌡 Server room HVAC + dust check',               freq:'monthly',       owner:'IT', icon:'🌡', cat:'IT-Servers',  priority:'high',   schedule:{}, module:'it' },
+    { id:'it_av_db',           name:'🛡 Antivirus DB check on endpoints',             freq:'monthly',       owner:'IT', icon:'🛡', cat:'IT-Security', priority:'medium', schedule:{}, module:'it' },
+    { id:'it_user_audit',      name:'👤 User account audit — disable inactive',       freq:'monthly',       owner:'IT', icon:'👤', cat:'IT-Users',    priority:'medium', schedule:{}, module:'it' },
+    { id:'it_net_firmware',    name:'📡 Network firmware check — switches/APs',        freq:'monthly',       owner:'IT', icon:'📡', cat:'IT-Network',  priority:'medium', schedule:{}, module:'it' },
+    { id:'it_firewall_audit',  name:'🔥 Firewall rule audit — remove stale rules',    freq:'quarterly',     owner:'IT', icon:'🔥', cat:'IT-Security', priority:'medium', schedule:{}, module:'it' },
+    { id:'it_restore_drill',   name:'🔄 Full backup restore drill',                   freq:'quarterly',     owner:'IT', icon:'🔄', cat:'IT-Servers',  priority:'high',   schedule:{}, module:'it' },
+    { id:'it_cctv_coverage',   name:'📹 CCTV coverage review — blind spots?',         freq:'quarterly',     owner:'IT', icon:'📹', cat:'IT-CCTV',     priority:'medium', schedule:{}, module:'it' },
+    { id:'it_cable_inspect',   name:'🔌 Cable inspection in racks',                   freq:'quarterly',     owner:'IT', icon:'🔌', cat:'IT-Network',  priority:'low',    schedule:{}, module:'it' },
+    { id:'it_lifecycle_inv',   name:'💼 Hardware lifecycle inventory',                freq:'quarterly',     owner:'IT', icon:'💼', cat:'IT-Devices',  priority:'low',    schedule:{}, module:'it' },
+    { id:'it_dr_test',         name:'⚡ Full DR test — failover + failback',          freq:'semi_annual',   owner:'IT', icon:'⚡', cat:'IT-Servers',  priority:'high',   schedule:{}, module:'it' },
+    { id:'it_gen_test',        name:'🔌 Generator / UPS extended test',               freq:'semi_annual',   owner:'IT', icon:'🔌', cat:'IT-Security', priority:'high',   schedule:{}, module:'it' },
+    { id:'it_phys_security',   name:'🔒 Physical security audit',                     freq:'semi_annual',   owner:'IT', icon:'🔒', cat:'IT-Security', priority:'medium', schedule:{}, module:'it' },
+    { id:'it_budget_plan',     name:'💰 IT budget review & next-year plan',           freq:'annual',        owner:'IT', icon:'💰', cat:'IT-Users',    priority:'low',    schedule:{}, module:'it' },
+    { id:'it_docs_refresh',    name:'📚 Documentation refresh',                       freq:'annual',        owner:'IT', icon:'📚', cat:'IT-Users',    priority:'low',    schedule:{}, module:'it' }
   ];
 
-  const FREQUENCIES = [
-    { id:'daily',     label:'📅 Daily',      days:1   },
-    { id:'weekly',    label:'📆 Weekly',     days:7   },
-    { id:'monthly',   label:'🗓 Monthly',    days:30  },
-    { id:'quarterly', label:'📊 Quarterly',  days:91  },
-    { id:'semi',      label:'⏳ Semi-Annual',days:182 },
-    { id:'annual',    label:'🎯 Annual',     days:365 },
-    { id:'custom',    label:'⚙ Custom (N days)', days:null }
-  ];
-
-  function freqDays(t) {
-    if (t.freq === 'custom') return Math.max(1, parseInt(t.customDays||30, 10));
-    const f = FREQUENCIES.find(f => f.id === t.freq);
-    return f ? f.days : 30;
-  }
-  function freqLabel(t) {
-    if (t.freq === 'custom') return `⚙ Every ${t.customDays||30}d`;
-    const f = FREQUENCIES.find(f => f.id === t.freq);
-    return f ? f.label : t.freq;
-  }
-
-  // ── Storage helpers ──
-  function loadTasks() {
-    try {
-      const raw = localStorage.getItem(TASKS_KEY);
-      if (raw) {
-        const arr = JSON.parse(raw);
-        if (Array.isArray(arr)) return arr;
-      }
-    } catch(e){}
-    return [];
-  }
-  function saveTasks(tasks) {
-    localStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
-  }
-  function loadLog() {
-    try {
-      const raw = localStorage.getItem(LOG_KEY);
-      if (raw) {
-        const arr = JSON.parse(raw);
-        if (Array.isArray(arr)) return arr;
-      }
-    } catch(e){}
-    return [];
-  }
-  function appendLog(entry) {
-    const log = loadLog();
-    log.push(entry);
-    localStorage.setItem(LOG_KEY, JSON.stringify(log));
-  }
-
-  function newId() {
-    const ts = Date.now().toString(36);
-    const rnd = Math.random().toString(36).slice(2,6);
-    return `RTK-${ts}-${rnd}`;
-  }
-
-  function currentUser() {
-    const u = (typeof getCurrentUser === 'function' ? getCurrentUser() : null);
-    return u ? (u.username || 'unknown') : 'unknown';
-  }
-  function currentUserName() {
-    const u = (typeof getCurrentUser === 'function' ? getCurrentUser() : null);
-    return u ? (u.name || u.username || 'unknown') : 'unknown';
-  }
-
-  // ── Seed defaults on first run ──
-  function seedDefaults() {
-    if (localStorage.getItem(SEEDED_FLAG)) return;
-    const existing = loadTasks();
-    if (existing.length > 0) {
-      // Already populated — just mark seeded
-      localStorage.setItem(SEEDED_FLAG, JSON.stringify({ done_at: Date.now(), reason: 'already_had_tasks' }));
-      return;
-    }
-    const seeded = DEFAULT_TASKS.map(t => ({
-      id: newId(),
-      title: t.title,
-      description: t.desc,
-      freq: t.freq,
-      customDays: t.freq === 'custom' ? 30 : null,
-      category: t.category,
-      photoReq: t.photoReq,
-      autoCall: t.autoCall,
-      enabled: true,
-      order: t.order,
-      defaultAssignee: null,
-      lastDone: null,
-      lastDoneBy: null,
-      lastDoneStatus: null,
-      nextDue: Date.now(), // due immediately on first run
-      createdAt: Date.now(),
-      createdBy: 'system'
-    }));
-    saveTasks(seeded);
-    localStorage.setItem(SEEDED_FLAG, JSON.stringify({
-      done_at: Date.now(),
-      seeded_count: seeded.length
-    }));
-    log(`Seeded ${seeded.length} default recurring tasks`);
-  }
-
-  // ── Cloud sync registration ──
-  function registerSync() {
-    if (!Array.isArray(window.HNX_SYNCED_KEYS)) return;
-    [TASKS_KEY, LOG_KEY].forEach(k => {
-      if (window.HNX_SYNCED_KEYS.indexOf(k) === -1) {
-        window.HNX_SYNCED_KEYS.push(k);
-        log(`+ ${k} added to cloud sync`);
+  function pushITTasks() {
+    if (!Array.isArray(window.RECURRING_TASKS)) return false;
+    let added = 0;
+    IT_TASKS.forEach(it => {
+      if (window.RECURRING_TASKS.findIndex(t => t.id === it.id) === -1) {
+        window.RECURRING_TASKS.push(it);
+        added++;
       }
     });
-  }
-
-  // ── Compute status of a task ──
-  function taskStatus(t) {
-    if (!t.enabled) return 'disabled';
-    const now = Date.now();
-    const days = freqDays(t);
-    const periodMs = days * 86400000;
-    if (!t.lastDone) return 'due'; // never done
-    const elapsed = now - t.lastDone;
-    if (elapsed >= periodMs * 1.25) return 'overdue';
-    if (elapsed >= periodMs) return 'due';
-    return 'done';
-  }
-
-  function statusLabel(s) {
-    return ({
-      due:      { label:'⏳ Due',      color:'#ff9c33' },
-      overdue:  { label:'🔴 Overdue',  color:'#ff5555' },
-      done:     { label:'✅ Done',     color:'#2eaa2e' },
-      disabled: { label:'⏸ Disabled', color:'#888'    }
-    }[s] || { label: s, color:'#aaa' });
-  }
-
-  function fmtRelativeDate(ts) {
-    if (!ts) return '—';
-    const diff = Date.now() - ts;
-    const d = Math.floor(Math.abs(diff)/86400000);
-    if (Math.abs(diff) < 3600000) return `${Math.floor(Math.abs(diff)/60000)}m ${diff<0?'from now':'ago'}`;
-    if (d === 0) return diff<0 ? 'later today' : 'today';
-    return diff < 0 ? `in ${d}d` : `${d}d ago`;
-  }
-
-  // ── IT categories (loaded from P7's settings) ──
-  function getCategories() {
-    try {
-      const s = JSON.parse(localStorage.getItem('hydroPro_it_settings_v1') || '{}');
-      if (Array.isArray(s.categories)) return s.categories;
-    } catch(e){}
-    return [];
-  }
-  function categoryById(id) {
-    return getCategories().find(c => c.id === id);
-  }
-
-  // ── State ──
-  const state = {
-    groupBy: 'frequency',   // 'frequency' | 'category' | 'status'
-    filterEnabled: 'all',   // 'all' | 'enabled' | 'disabled'
-    filterFreq: 'all',
-    filterCategory: 'all',
-    filterStatus: 'all',
-    showHistory: false
-  };
-
-  // ── Styles ──
-  function injectStyles() {
-    if (document.getElementById('hnx-p8-styles')) return;
-    const s = document.createElement('style');
-    s.id = 'hnx-p8-styles';
-    s.textContent = `
-      .ircr-wrap{padding:14px 18px 40px;font-family:JetBrains Mono,monospace;color:var(--text,#9fffaf);}
-      .ircr-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px;padding:12px 14px;background:var(--surface2,#0e2118);border:1.5px solid var(--border,#1a3a2a);border-radius:8px;}
-      .ircr-btn{background:transparent;border:1.5px solid var(--accent,#2eaa2e);color:var(--accent,#2eaa2e);padding:7px 12px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;transition:all .15s;white-space:nowrap;}
-      .ircr-btn:hover{background:rgba(46,170,46,.15);}
-      .ircr-btn.active{background:var(--accent,#2eaa2e);color:#000;}
-      .ircr-btn.primary{background:var(--accent,#2eaa2e);color:#000;border-color:var(--accent,#2eaa2e);}
-      .ircr-btn.primary:hover{filter:brightness(1.15);}
-      .ircr-btn.danger{border-color:#ff5555;color:#ff5555;}
-      .ircr-btn.danger:hover{background:rgba(255,85,85,.15);}
-      .ircr-sep{width:1px;height:24px;background:var(--border,#2a3a30);margin:0 4px;}
-      .ircr-select{background:#06120a;border:1.5px solid var(--border,#2eaa2e);color:#9fffaf;padding:6px 8px;border-radius:6px;font:inherit;font-size:12px;}
-      .ircr-stat{display:inline-flex;gap:6px;align-items:center;font-size:11px;color:#7aa9aa;padding:4px 8px;background:rgba(0,0,0,.25);border-radius:4px;text-transform:uppercase;letter-spacing:.5px;}
-      .ircr-stat b{color:#9fffaf;font-size:13px;}
-
-      .ircr-section{margin-bottom:18px;}
-      .ircr-section-head{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#9fffaf;padding:10px 14px;background:rgba(46,170,46,.08);border-left:3px solid #2eaa2e;border-radius:4px 4px 0 0;display:flex;justify-content:space-between;align-items:center;}
-      .ircr-section-body{background:var(--surface2,#0e2118);border:1.5px solid var(--border,#1a3a2a);border-top:none;border-radius:0 0 6px 6px;}
-
-      .ircr-task{padding:10px 14px;border-bottom:1px solid var(--border,#1a3a2a);display:grid;grid-template-columns:1fr auto auto auto;gap:12px;align-items:center;cursor:pointer;transition:background .15s;}
-      .ircr-task:last-child{border-bottom:none;}
-      .ircr-task:hover{background:rgba(46,170,46,.05);}
-      .ircr-task-info{min-width:0;}
-      .ircr-task-title{font-weight:700;color:#9fffaf;font-size:13px;margin-bottom:3px;}
-      .ircr-task-meta{font-size:11px;color:#7aa9aa;display:flex;gap:8px;flex-wrap:wrap;}
-      .ircr-task-cat{display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;}
-      .ircr-task-status{font-size:11px;font-weight:700;padding:3px 8px;border-radius:4px;white-space:nowrap;}
-      .ircr-task-action{background:#2eaa2e;color:#000;border:none;padding:6px 12px;border-radius:5px;font:inherit;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;}
-      .ircr-task-action:hover{filter:brightness(1.15);}
-      .ircr-task-action.secondary{background:transparent;color:#9fffaf;border:1.5px solid #2eaa2e;}
-      .ircr-task[data-status="overdue"]{border-left:3px solid #ff5555;padding-left:11px;}
-      .ircr-task[data-status="due"]{border-left:3px solid #ff9c33;padding-left:11px;}
-      .ircr-task[data-status="done"]{border-left:3px solid #2eaa2e;padding-left:11px;}
-      .ircr-task[data-status="disabled"]{opacity:.5;border-left:3px solid #888;padding-left:11px;}
-
-      /* Modal (shared with P7 if available) */
-      #ircrModal{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:100002;display:none;align-items:center;justify-content:center;padding:20px;}
-      #ircrModal.show{display:flex;}
-      .ircr-mcard{background:#0a1a14;border:2px solid #2eaa2e;border-radius:12px;padding:22px;max-width:640px;width:100%;max-height:90vh;overflow-y:auto;color:#9fffaf;font-family:JetBrains Mono,monospace;}
-      .ircr-mtitle{font-size:18px;font-weight:800;color:#fff;margin-bottom:6px;}
-      .ircr-mfield{margin-bottom:12px;}
-      .ircr-mfield label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#7aa9aa;margin-bottom:4px;font-weight:600;}
-      .ircr-input,.ircr-textarea{width:100%;background:#06120a;border:1.5px solid var(--border,#2eaa2e);color:#9fffaf;padding:8px 10px;border-radius:6px;font:inherit;font-size:13px;box-sizing:border-box;}
-      .ircr-textarea{min-height:70px;resize:vertical;}
-      .ircr-mactions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
-      .ircr-row{display:flex;gap:10px;flex-wrap:wrap;}
-      .ircr-row > .ircr-mfield{flex:1;min-width:140px;}
-      .ircr-check-row{display:flex;align-items:center;gap:10px;padding:8px;background:#06120a;border-radius:6px;margin-bottom:8px;cursor:pointer;}
-      .ircr-empty{padding:24px;text-align:center;color:#7aa9aa;font-style:italic;}
-      .ircr-status-pill{padding:6px 10px;border-radius:14px;font-size:11px;font-weight:700;cursor:pointer;border:1.5px solid;transition:all .15s;}
-      .ircr-status-pill.active{}
-      .ircr-status-pill.off{opacity:.4;}
-    `;
-    document.head.appendChild(s);
-    log('Styles injected');
-  }
-
-  // ── Render ──
-  function render() {
-    const body = document.getElementById('hnx-it_recurring-body');
-    if (!body) return;
-
-    const tasks = loadTasks();
-
-    // Stats
-    const enabled = tasks.filter(t => t.enabled);
-    const due = tasks.filter(t => taskStatus(t) === 'due').length;
-    const overdue = tasks.filter(t => taskStatus(t) === 'overdue').length;
-    const done = tasks.filter(t => taskStatus(t) === 'done').length;
-
-    // Filtered tasks
-    const filtered = tasks.filter(t => {
-      if (state.filterEnabled === 'enabled' && !t.enabled) return false;
-      if (state.filterEnabled === 'disabled' && t.enabled) return false;
-      if (state.filterFreq !== 'all' && t.freq !== state.filterFreq) return false;
-      if (state.filterCategory !== 'all' && t.category !== state.filterCategory) return false;
-      if (state.filterStatus !== 'all' && taskStatus(t) !== state.filterStatus) return false;
-      return true;
-    });
-
-    // Toolbar
-    const cats = getCategories();
-    const toolbar = `
-      <div class="ircr-toolbar">
-        <button class="ircr-btn primary" id="ircrAddBtn">+ New Recurring Task</button>
-        <div class="ircr-sep"></div>
-        <label style="color:#7aa9aa;font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Group by:</label>
-        <select class="ircr-select" id="ircrGroupBy">
-          <option value="frequency" ${state.groupBy==='frequency'?'selected':''}>Frequency</option>
-          <option value="category" ${state.groupBy==='category'?'selected':''}>Category</option>
-          <option value="status" ${state.groupBy==='status'?'selected':''}>Status</option>
-        </select>
-        <div class="ircr-sep"></div>
-        <select class="ircr-select" id="ircrFilterStatus">
-          <option value="all" ${state.filterStatus==='all'?'selected':''}>All statuses</option>
-          <option value="overdue" ${state.filterStatus==='overdue'?'selected':''}>🔴 Overdue</option>
-          <option value="due" ${state.filterStatus==='due'?'selected':''}>⏳ Due</option>
-          <option value="done" ${state.filterStatus==='done'?'selected':''}>✅ Done</option>
-        </select>
-        <select class="ircr-select" id="ircrFilterFreq">
-          <option value="all" ${state.filterFreq==='all'?'selected':''}>All frequencies</option>
-          ${FREQUENCIES.filter(f=>f.id!=='custom').map(f => `<option value="${f.id}" ${state.filterFreq===f.id?'selected':''}>${f.label}</option>`).join('')}
-        </select>
-        <select class="ircr-select" id="ircrFilterCat">
-          <option value="all">All categories</option>
-          ${cats.map(c => `<option value="${c.id}" ${state.filterCategory===c.id?'selected':''}>${c.label}</option>`).join('')}
-        </select>
-        <select class="ircr-select" id="ircrFilterEnabled">
-          <option value="all" ${state.filterEnabled==='all'?'selected':''}>All</option>
-          <option value="enabled" ${state.filterEnabled==='enabled'?'selected':''}>Enabled only</option>
-          <option value="disabled" ${state.filterEnabled==='disabled'?'selected':''}>Disabled only</option>
-        </select>
-        <div class="ircr-sep"></div>
-        <span class="ircr-stat"><b>${tasks.length}</b> total</span>
-        <span class="ircr-stat"><b>${enabled.length}</b> enabled</span>
-        <span class="ircr-stat" style="color:#ff5555;"><b style="color:#ff5555;">${overdue}</b> overdue</span>
-        <span class="ircr-stat" style="color:#ff9c33;"><b style="color:#ff9c33;">${due}</b> due</span>
-        <span class="ircr-stat" style="color:#2eaa2e;"><b style="color:#2eaa2e;">${done}</b> done</span>
-      </div>
-    `;
-
-    // Group tasks
-    const groups = groupTasks(filtered, state.groupBy);
-    const groupOrder = orderGroupKeys(state.groupBy, Object.keys(groups));
-
-    let sections = '';
-    groupOrder.forEach(key => {
-      const items = groups[key];
-      if (!items || items.length === 0) return;
-      const items_sorted = items.slice().sort((a,b) => (a.order||0) - (b.order||0));
-      const head = groupHeadLabel(state.groupBy, key);
-      sections += `
-        <div class="ircr-section">
-          <div class="ircr-section-head">
-            <span>${head}</span>
-            <span class="ircr-stat"><b>${items.length}</b> items</span>
-          </div>
-          <div class="ircr-section-body">
-            ${items_sorted.map(t => renderTaskRow(t)).join('')}
-          </div>
-        </div>
-      `;
-    });
-    if (!sections) sections = '<div class="ircr-empty">No tasks match current filters.</div>';
-
-    body.innerHTML = `
-      <div class="ircr-wrap">
-        <div style="font-size:14px;font-weight:800;color:#9fffaf;margin-bottom:14px;display:flex;align-items:center;gap:10px;">
-          🔥 IT Recurring Tasks
-          <span style="font-size:11px;color:#7aa9aa;font-weight:400;text-transform:none;">${tasks.length} tasks · all editable · fails auto-raise IT call</span>
-        </div>
-        ${toolbar}
-        ${sections}
-      </div>
-    `;
-
-    wireEvents();
-  }
-
-  function groupTasks(tasks, by) {
-    const groups = {};
-    tasks.forEach(t => {
-      let key;
-      if (by === 'frequency') key = t.freq;
-      else if (by === 'category') key = t.category || 'uncategorized';
-      else if (by === 'status') key = taskStatus(t);
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(t);
-    });
-    return groups;
-  }
-  function orderGroupKeys(by, keys) {
-    if (by === 'frequency') {
-      const order = ['daily','weekly','monthly','quarterly','semi','annual','custom'];
-      return order.filter(k => keys.includes(k)).concat(keys.filter(k => !order.includes(k)));
-    }
-    if (by === 'status') {
-      const order = ['overdue','due','done','disabled'];
-      return order.filter(k => keys.includes(k));
-    }
-    return keys.sort();
-  }
-  function groupHeadLabel(by, key) {
-    if (by === 'frequency') {
-      const f = FREQUENCIES.find(f => f.id === key);
-      return f ? f.label : key;
-    }
-    if (by === 'category') {
-      const c = categoryById(key);
-      return c ? c.label : (key === 'uncategorized' ? '— Uncategorized —' : key);
-    }
-    if (by === 'status') {
-      const s = statusLabel(key);
-      return `<span style="color:${s.color};">${s.label}</span>`;
-    }
-    return key;
-  }
-
-  function renderTaskRow(t) {
-    const cat = categoryById(t.category);
-    const st = taskStatus(t);
-    const sl = statusLabel(st);
-    const safeTitle = (t.title || '(no title)').replace(/[<>]/g,'');
-
-    return `
-      <div class="ircr-task" data-id="${t.id}" data-status="${st}">
-        <div class="ircr-task-info">
-          <div class="ircr-task-title">${safeTitle}</div>
-          <div class="ircr-task-meta">
-            ${cat ? `<span class="ircr-task-cat" style="background:${cat.color}22;color:${cat.color};">${cat.label}</span>` : ''}
-            <span>${freqLabel(t)}</span>
-            ${t.photoReq ? '<span>📷 photo</span>' : ''}
-            ${t.autoCall ? '<span style="color:#ff9c33;">🔗 auto-call on fail</span>' : ''}
-            ${!t.enabled ? '<span style="color:#888;">⏸ disabled</span>' : ''}
-          </div>
-          <div class="ircr-task-meta" style="margin-top:3px;">
-            Last done: ${t.lastDone ? fmtRelativeDate(t.lastDone) : '— never —'}
-            ${t.lastDoneBy ? ` by ${t.lastDoneBy}` : ''}
-            ${t.lastDoneStatus ? ` · was: ${t.lastDoneStatus}` : ''}
-          </div>
-        </div>
-        <span class="ircr-task-status" style="background:${sl.color}22;color:${sl.color};">${sl.label}</span>
-        <button class="ircr-task-action" data-action="markdone" data-id="${t.id}">✓ Mark Done</button>
-        <button class="ircr-task-action secondary" data-action="edit" data-id="${t.id}">⚙ Edit</button>
-      </div>
-    `;
-  }
-
-  // ── Modal helpers ──
-  function ensureModal() {
-    if (document.getElementById('ircrModal')) return;
-    const m = document.createElement('div');
-    m.id = 'ircrModal';
-    m.innerHTML = `<div class="ircr-mcard" id="ircrMCard"></div>`;
-    m.addEventListener('click', (e) => { if (e.target === m) closeModal(); });
-    document.body.appendChild(m);
-  }
-  function closeModal() {
-    document.getElementById('ircrModal')?.classList.remove('show');
-  }
-
-  function openEditModal(taskId) {
-    ensureModal();
-    const tasks = loadTasks();
-    let t = tasks.find(x => x.id === taskId);
-    const isNew = !t;
-    if (isNew) {
-      t = { id: newId(), title:'', description:'', freq:'monthly', customDays:30, category:'', photoReq:false, autoCall:false, enabled:true, order: (tasks.length+1)*10, lastDone:null, lastDoneBy:null, lastDoneStatus:null, nextDue:Date.now(), createdAt:Date.now(), createdBy: currentUser() };
-    }
-    const cats = getCategories();
-
-    document.getElementById('ircrMCard').innerHTML = `
-      <div class="ircr-mtitle">${isNew?'+ New':'⚙ Edit'} Recurring Task</div>
-
-      <div class="ircr-mfield"><label>Title *</label>
-        <input type="text" id="ircrF_title" class="ircr-input" value="${(t.title||'').replace(/"/g,'&quot;')}" placeholder="e.g. Weekly CCTV health sweep">
-      </div>
-      <div class="ircr-mfield"><label>Description</label>
-        <textarea id="ircrF_desc" class="ircr-textarea" placeholder="Details, scope, what 'done' means">${(t.description||'').replace(/</g,'&lt;')}</textarea>
-      </div>
-      <div class="ircr-row">
-        <div class="ircr-mfield"><label>Frequency</label>
-          <select id="ircrF_freq" class="ircr-input">
-            ${FREQUENCIES.map(f => `<option value="${f.id}" ${t.freq===f.id?'selected':''}>${f.label}</option>`).join('')}
-          </select>
-        </div>
-        <div class="ircr-mfield" id="ircrF_customWrap" style="${t.freq==='custom'?'':'display:none;'}">
-          <label>Custom days</label>
-          <input type="number" id="ircrF_custom" class="ircr-input" min="1" value="${t.customDays||30}">
-        </div>
-        <div class="ircr-mfield"><label>Category</label>
-          <select id="ircrF_cat" class="ircr-input">
-            <option value="">— None —</option>
-            ${cats.map(c => `<option value="${c.id}" ${t.category===c.id?'selected':''}>${c.label}</option>`).join('')}
-          </select>
-        </div>
-      </div>
-      <div class="ircr-check-row" onclick="document.getElementById('ircrF_photo').click()">
-        <input type="checkbox" id="ircrF_photo" ${t.photoReq?'checked':''} style="cursor:pointer;">
-        <label for="ircrF_photo" style="cursor:pointer;margin:0;text-transform:none;letter-spacing:0;color:#9fffaf;font-size:13px;">📷 Require photo when marking done</label>
-      </div>
-      <div class="ircr-check-row" onclick="document.getElementById('ircrF_autocall').click()">
-        <input type="checkbox" id="ircrF_autocall" ${t.autoCall?'checked':''} style="cursor:pointer;">
-        <label for="ircrF_autocall" style="cursor:pointer;margin:0;text-transform:none;letter-spacing:0;color:#9fffaf;font-size:13px;">🔗 Auto-raise IT call if marked Fail</label>
-      </div>
-      <div class="ircr-check-row" onclick="document.getElementById('ircrF_enabled').click()">
-        <input type="checkbox" id="ircrF_enabled" ${t.enabled?'checked':''} style="cursor:pointer;">
-        <label for="ircrF_enabled" style="cursor:pointer;margin:0;text-transform:none;letter-spacing:0;color:#9fffaf;font-size:13px;">✅ Enabled (uncheck to pause)</label>
-      </div>
-
-      <div class="ircr-mactions">
-        <button class="ircr-btn primary" id="ircrF_save">${isNew?'+ Create':'💾 Save'}</button>
-        ${!isNew ? `<button class="ircr-btn danger" id="ircrF_delete">🗑 Delete</button>` : ''}
-        <button class="ircr-btn" id="ircrF_cancel">Cancel</button>
-      </div>
-    `;
-    document.getElementById('ircrModal').classList.add('show');
-    setTimeout(() => document.getElementById('ircrF_title')?.focus(), 50);
-
-    document.getElementById('ircrF_freq').addEventListener('change', e => {
-      document.getElementById('ircrF_customWrap').style.display = (e.target.value === 'custom') ? '' : 'none';
-    });
-    document.getElementById('ircrF_cancel').onclick = closeModal;
-    document.getElementById('ircrF_save').onclick = () => {
-      const title = document.getElementById('ircrF_title').value.trim();
-      if (!title) { alert('Title required'); return; }
-      t.title = title;
-      t.description = document.getElementById('ircrF_desc').value.trim();
-      t.freq = document.getElementById('ircrF_freq').value;
-      t.customDays = parseInt(document.getElementById('ircrF_custom').value, 10) || 30;
-      t.category = document.getElementById('ircrF_cat').value || null;
-      t.photoReq = document.getElementById('ircrF_photo').checked;
-      t.autoCall = document.getElementById('ircrF_autocall').checked;
-      t.enabled = document.getElementById('ircrF_enabled').checked;
-      const all = loadTasks();
-      const idx = all.findIndex(x => x.id === t.id);
-      if (idx >= 0) all[idx] = t; else all.push(t);
-      saveTasks(all);
-      closeModal();
-      render();
-    };
-    if (!isNew) {
-      document.getElementById('ircrF_delete').onclick = () => {
-        if (!confirm(`Delete "${t.title}"? This cannot be undone.`)) return;
-        const all = loadTasks().filter(x => x.id !== t.id);
-        saveTasks(all);
-        closeModal();
-        render();
-      };
-    }
-  }
-
-  function openMarkDoneModal(taskId) {
-    ensureModal();
-    const tasks = loadTasks();
-    const t = tasks.find(x => x.id === taskId);
-    if (!t) return;
-
-    document.getElementById('ircrMCard').innerHTML = `
-      <div class="ircr-mtitle">✓ Mark Done: ${(t.title||'').replace(/[<>]/g,'')}</div>
-      <div style="font-size:12px;color:#7aa9aa;margin-bottom:14px;">${(t.description||'').replace(/[<>]/g,'')}</div>
-
-      <div class="ircr-mfield"><label>Status *</label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <span class="ircr-status-pill" data-status="ok"      style="border-color:#2eaa2e;color:#2eaa2e;background:rgba(46,170,46,.15);">✅ OK</span>
-          <span class="ircr-status-pill" data-status="warning" style="border-color:#ff9c33;color:#ff9c33;background:rgba(255,156,51,.15);">⚠️ Warning</span>
-          <span class="ircr-status-pill" data-status="fail"    style="border-color:#ff5555;color:#ff5555;background:rgba(255,85,85,.15);">🔴 Fail</span>
-        </div>
-        <input type="hidden" id="ircrD_status" value="ok">
-      </div>
-
-      <div class="ircr-mfield"><label>Count / measurement (optional)</label>
-        <input type="text" id="ircrD_count" class="ircr-input" placeholder="e.g. 18/20 cameras online, 92% disk free">
-      </div>
-
-      <div class="ircr-mfield"><label>Notes (optional)</label>
-        <textarea id="ircrD_notes" class="ircr-textarea" placeholder="What you observed, any issues, next steps"></textarea>
-      </div>
-
-      <div class="ircr-mfield"><label>📷 Photo${t.photoReq?' *':''} (URL or data: URI)</label>
-        <input type="text" id="ircrD_photo" class="ircr-input" placeholder="${t.photoReq?'Required':'Optional'} — paste URL or skip">
-      </div>
-
-      ${t.autoCall ? '<div style="background:rgba(255,156,51,.1);border:1.5px solid #ff9c33;color:#ffb84d;padding:10px;border-radius:6px;font-size:12px;margin-bottom:10px;">🔗 If marked <strong>Fail</strong>, an IT call will be auto-created in the Task Board.</div>' : ''}
-
-      <div class="ircr-mactions">
-        <button class="ircr-btn primary" id="ircrD_save">✓ Submit</button>
-        <button class="ircr-btn" id="ircrD_cancel">Cancel</button>
-      </div>
-    `;
-    document.getElementById('ircrModal').classList.add('show');
-
-    let chosen = 'ok';
-    function paintPills() {
-      document.querySelectorAll('.ircr-status-pill').forEach(p => p.classList.toggle('off', p.dataset.status !== chosen));
-      document.getElementById('ircrD_status').value = chosen;
-    }
-    paintPills();
-    document.querySelectorAll('.ircr-status-pill').forEach(p => {
-      p.onclick = () => { chosen = p.dataset.status; paintPills(); };
-    });
-
-    document.getElementById('ircrD_cancel').onclick = closeModal;
-    document.getElementById('ircrD_save').onclick = () => {
-      const status = document.getElementById('ircrD_status').value;
-      const count = document.getElementById('ircrD_count').value.trim();
-      const notes = document.getElementById('ircrD_notes').value.trim();
-      const photo = document.getElementById('ircrD_photo').value.trim();
-      if (t.photoReq && !photo) { alert('Photo required for this task.'); return; }
-
-      const now = Date.now();
-      // Update task
-      const tasks2 = loadTasks();
-      const t2 = tasks2.find(x => x.id === t.id);
-      t2.lastDone = now;
-      t2.lastDoneBy = currentUser();
-      t2.lastDoneStatus = status;
-      // Compute next due
-      t2.nextDue = now + freqDays(t2) * 86400000;
-      saveTasks(tasks2);
-
-      // Append log entry
-      const logEntry = {
-        id: newId(),
-        taskId: t.id,
-        taskTitle: t.title,
-        doneAt: now,
-        doneBy: currentUser(),
-        doneByName: currentUserName(),
-        status, count, notes, photo
-      };
-
-      // Auto-raise IT call if fail + autoCall enabled
-      if (status === 'fail' && t.autoCall) {
-        try {
-          const allIssues = JSON.parse(localStorage.getItem(ISSUES_KEY) || '[]');
-          const newCall = {
-            id: 'IT-' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '-' + Math.floor(Math.random()*900+100),
-            module: 'it',
-            type: 'call',
-            it_category: t.category || null,
-            title: `🔴 Recurring task FAIL: ${t.title}`,
-            description: `Auto-raised from IT Recurring Tasks.\n\nTask: ${t.title}\n${t.description||''}\n\nStatus: FAIL\nCount/measurement: ${count||'—'}\nNotes: ${notes||'(none)'}\nPhoto: ${photo||'(none)'}\n\nReported by: ${currentUserName()}`,
-            priority: 'urgent',
-            status: 'open',
-            createdBy: currentUser(),
-            createdByName: currentUserName(),
-            created_at: now,
-            assignedTo: null, assignedToName: null,
-            filed_for: null,
-            awaiting_approval_since: null,
-            rejection_count: 0,
-            manager_escalated: false,
-            approval_history: [],
-            attachments: photo ? [photo] : [],
-            history: [{ action:'created', by: currentUser(), at: now, source:'recurring_task_fail', sourceTaskId: t.id }]
-          };
-          allIssues.push(newCall);
-          localStorage.setItem(ISSUES_KEY, JSON.stringify(allIssues));
-          logEntry.raisedCallId = newCall.id;
-          try { if (typeof toast === 'function') toast(`🔴 IT call auto-raised: ${newCall.id}`); } catch(e){}
-        } catch(e) { console.error('[p8] auto-call failed:', e); }
-      }
-
-      appendLog(logEntry);
-      try { if (typeof audit === 'function') audit('recurring_task_done', `${t.title} marked ${status} by ${currentUser()}`); } catch(e){}
-      closeModal();
-      render();
-    };
-  }
-
-  // ── Wire events ──
-  function wireEvents() {
-    const body = document.getElementById('hnx-it_recurring-body');
-    if (!body) return;
-
-    document.getElementById('ircrAddBtn')?.addEventListener('click', () => openEditModal(null));
-    document.getElementById('ircrGroupBy')?.addEventListener('change', e => { state.groupBy = e.target.value; render(); });
-    document.getElementById('ircrFilterStatus')?.addEventListener('change', e => { state.filterStatus = e.target.value; render(); });
-    document.getElementById('ircrFilterFreq')?.addEventListener('change', e => { state.filterFreq = e.target.value; render(); });
-    document.getElementById('ircrFilterCat')?.addEventListener('change', e => { state.filterCategory = e.target.value; render(); });
-    document.getElementById('ircrFilterEnabled')?.addEventListener('change', e => { state.filterEnabled = e.target.value; render(); });
-
-    body.querySelectorAll('.ircr-task').forEach(row => {
-      row.onclick = (e) => {
-        // Don't open edit if clicked on a button
-        if (e.target.closest('button')) return;
-        openEditModal(row.dataset.id);
-      };
-    });
-
-    body.querySelectorAll('[data-action="markdone"]').forEach(btn => {
-      btn.onclick = (e) => { e.stopPropagation(); openMarkDoneModal(btn.dataset.id); };
-    });
-    body.querySelectorAll('[data-action="edit"]').forEach(btn => {
-      btn.onclick = (e) => { e.stopPropagation(); openEditModal(btn.dataset.id); };
-    });
-  }
-
-  // ── Hook switchView ──
-  function hookSwitchView() {
-    if (typeof window.switchView !== 'function') return false;
-    if (window.switchView._hnxP8Wrapped) return true;
-    const orig = window.switchView;
-    window.switchView = function(viewId, ...rest) {
-      const result = orig.apply(this, [viewId, ...rest]);
-      try { if (viewId === 'it_recurring') setTimeout(render, 100); } catch(e){}
-      return result;
-    };
-    window.switchView._hnxP8Wrapped = true;
-    log('switchView hooked');
+    if (added) log(`Added ${added} IT tasks to RECURRING_TASKS (total: ${window.RECURRING_TASKS.length})`);
     return true;
   }
 
-  // ── Main ──
+  function hookSwitchView() {
+    if (typeof window.switchView !== 'function') return false;
+    if (window.switchView._hnxP11Wrapped) return true;
+    const orig = window.switchView;
+    window.switchView = function(viewId) {
+      if (viewId === 'it_recurring') {
+        window._recurringModuleFilter = 'it';
+      }
+      const result = orig.apply(this, arguments);
+      if (viewId === 'it_recurring') {
+        setTimeout(() => {
+          if (typeof window.renderRecurringHub === 'function') {
+            try { window.renderRecurringHub(); } catch(e) { warn('renderRecurringHub failed:', e); }
+          }
+        }, 100);
+      }
+      return result;
+    };
+    window.switchView._hnxP11Wrapped = true;
+    log('switchView hooked for it_recurring');
+    return true;
+  }
+
   function run() {
-    injectStyles();
-    registerSync();
-    seedDefaults();
-    ensureModal();
-    if (!hookSwitchView()) {
-      let tries = 0;
-      const iv = setInterval(() => { tries++; if (hookSwitchView() || tries > 20) clearInterval(iv); }, 250);
-    }
-    setTimeout(() => {
-      const active = document.querySelector('.view.active');
-      if (active && active.id === 'view-it_recurring') render();
-    }, 600);
-    log('✅ P8 IT Recurring Tasks ready · 22 defaults seeded · all editable');
+    let tries = 0;
+    const iv = setInterval(() => {
+      tries++;
+      const ok1 = pushITTasks();
+      const ok2 = hookSwitchView();
+      if ((ok1 && ok2) || tries > 30) {
+        clearInterval(iv);
+        if (ok1 && ok2) {
+          log('✅ P11 ready — IT tasks live in existing recurring hub');
+        }
+      }
+    }, 300);
   }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', run);
   } else {
-    setTimeout(run, 500);
+    setTimeout(run, 800);
   }
 })();
 </script>
-<!-- ===================== END HNX v2.86-p8-it-recurring ===================== -->
+<!-- ===================== END HNX v2.86-p11-it-recurring-minimal ===================== -->
+
+<!-- ===================== HNX v2.86-p12-module-meta-fix (INLINE) ===================== -->
+<script>
+/* HNX v2.86 P12 — adds 'it' entry to MODULE_META so renderRecurringHub
+   doesn't crash with TypeError when filter='it'. Tiny fix. */
+(function HNX_v286_P12_ModuleMetaFix() {
+  const VER = 'v2.86-p12-meta';
+  function tryFix() {
+    if (window.MODULE_META && typeof window.MODULE_META === 'object') {
+      if (!window.MODULE_META.it) {
+        window.MODULE_META.it = { label:'IT', icon:'🖥', color:'#67c5ff' };
+        console.log(`[${VER}] Added 'it' to MODULE_META`);
+      }
+      return true;
+    }
+    return false;
+  }
+  function run() {
+    let tries = 0;
+    const iv = setInterval(() => {
+      tries++;
+      if (tryFix() || tries > 30) {
+        clearInterval(iv);
+        // If currently on it_recurring, re-render now that MODULE_META has 'it'
+        const active = document.querySelector('.view.active');
+        if (active && active.id === 'view-it_recurring' && typeof window.renderRecurringHub === 'function') {
+          window._recurringModuleFilter = 'it';
+          setTimeout(() => window.renderRecurringHub(), 100);
+        }
+      }
+    }, 300);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run);
+  } else {
+    setTimeout(run, 900);
+  }
+})();
+</script>
+<!-- ===================== END HNX v2.86-p12-module-meta-fix ===================== -->
+
+<!-- ===================== HNX v2.86-p13-it-suite (INLINE) ===================== -->
+<script>
+/* ==============================================================================
+   HNX v2.86 P13 — IT Suite: 5 remaining IT modules in one patch
+   Modules: Calendar · Item Request · Spare Parts · GH&Fer Matrix · RFID Setup
+   Strategy: single switchView wrapper + 5 renderer functions, each with CRUD UI.
+   All data cloud-synced via HNX_SYNCED_KEYS registration.
+   ============================================================================== */
+(function HNX_v286_P13_ITSuite() {
+  const VER = 'v2.86-p13-it';
+  const COLOR_IT = '#67c5ff';
+  function log(...a){ console.log(`[${VER}]`, ...a); }
+  function warn(...a){ console.warn(`[${VER}]`, ...a); }
+
+  // ── shared utils ──
+  function uid(p){return p+'-'+Date.now()+'-'+Math.floor(Math.random()*899+100);}
+  function esc(s){return String(s==null?'':s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'})[c]);}
+  function fmtDate(ts){if(!ts)return'—';const d=new Date(ts);if(isNaN(d))return String(ts);return d.toLocaleDateString();}
+  function fmtDateTime(ts){if(!ts)return'—';const d=new Date(ts);if(isNaN(d))return String(ts);return d.toLocaleString();}
+  function curUser(){try{const u=(typeof getCurrentUser==='function'?getCurrentUser():null);return u?{username:u.username||'unknown',name:u.name||u.username||'unknown',level:u.level||1}:{username:'unknown',name:'unknown',level:1};}catch(e){return{username:'unknown',name:'unknown',level:1};}}
+  function isManager(){return curUser().level>=3;}
+  function load(k,f){try{const v=JSON.parse(localStorage.getItem(k)||'null');return v===null?f:v;}catch(e){return f;}}
+  function save(k,v){try{localStorage.setItem(k,JSON.stringify(v));try{if(typeof window.hnxScheduleSync==='function')window.hnxScheduleSync(k);}catch(e){}return true;}catch(e){warn('save fail',k,e);return false;}}
+  function regKey(k){try{if(Array.isArray(window.HNX_SYNCED_KEYS)&&window.HNX_SYNCED_KEYS.indexOf(k)===-1){window.HNX_SYNCED_KEYS.push(k);log('cloud-key:',k);}}catch(e){}}
+  function notify(m){try{if(typeof toast==='function')toast(m);else log(m);}catch(e){log(m);}}
+
+  // ── shared CSS for IT-suite cards & modal ──
+  function injectStyles(){
+    if(document.getElementById('hnxP13Styles'))return;
+    const s=document.createElement('style');s.id='hnxP13Styles';
+    s.textContent=`
+      .p13-wrap{padding:14px;font-family:var(--mono);color:var(--text);max-width:100%;}
+      .p13-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);}
+      .p13-title{font-size:18px;font-weight:800;color:${COLOR_IT};display:flex;align-items:center;gap:8px;}
+      .p13-sub{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-weight:600;}
+      .p13-btn{padding:8px 14px;border-radius:6px;border:1.5px solid ${COLOR_IT};background:transparent;color:${COLOR_IT};font-family:var(--mono);font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.3px;transition:all .15s;}
+      .p13-btn:hover{background:${COLOR_IT}22;}
+      .p13-btn.primary{background:${COLOR_IT};color:#000;}
+      .p13-btn.primary:hover{filter:brightness(1.15);}
+      .p13-btn.danger{border-color:#ff5555;color:#ff5555;}
+      .p13-btn.danger:hover{background:#ff555522;}
+      .p13-btn.warn{border-color:#ff9c33;color:#ff9c33;}
+      .p13-btn.warn:hover{background:#ff9c3322;}
+      .p13-btn.ok{border-color:#2eaa2e;color:#2eaa2e;}
+      .p13-btn.ok:hover{background:#2eaa2e22;}
+      .p13-btn.sm{padding:5px 9px;font-size:11px;}
+      .p13-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center;}
+      .p13-pill{padding:5px 11px;border-radius:14px;font-size:11px;font-weight:700;display:inline-block;}
+      .p13-grid{display:grid;gap:10px;}
+      .p13-card{padding:13px;background:var(--surface);border:1px solid var(--border);border-radius:9px;border-left:3px solid ${COLOR_IT};}
+      .p13-card.urgent{border-left-color:#ff5555;}
+      .p13-card.warn{border-left-color:#ff9c33;}
+      .p13-card.ok{border-left-color:#2eaa2e;}
+      .p13-row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+      .p13-row-title{font-weight:800;font-size:14px;color:var(--text);}
+      .p13-row-meta{font-size:11px;color:var(--text3);}
+      .p13-empty{padding:32px;text-align:center;color:var(--text3);font-size:13px;border:2px dashed var(--border);border-radius:10px;}
+      .p13-input,.p13-textarea,.p13-select{width:100%;background:#06120a;border:1.5px solid ${COLOR_IT};color:#cfe8ff;padding:7px 9px;border-radius:5px;font-family:var(--mono);font-size:12px;box-sizing:border-box;}
+      .p13-textarea{min-height:60px;resize:vertical;}
+      .p13-field{margin-bottom:10px;}
+      .p13-field label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:3px;font-weight:600;}
+      .p13-actions{display:flex;gap:6px;flex-wrap:wrap;}
+      #hnxP13Modal{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:100004;display:none;align-items:center;justify-content:center;padding:18px;}
+      #hnxP13Modal.show{display:flex;}
+      .p13m-card{background:#0a1a23;border:2px solid ${COLOR_IT};border-radius:12px;padding:20px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;color:#cfe8ff;font-family:var(--mono);}
+      .p13m-title{font-size:16px;font-weight:800;color:${COLOR_IT};margin-bottom:14px;}
+      .p13-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px;}
+      .p13-kpi-card{padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;text-align:center;}
+      .p13-kpi-num{font-size:22px;font-weight:800;color:${COLOR_IT};font-family:var(--mono);}
+      .p13-kpi-lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-top:2px;}
+      .p13-matrix{border-collapse:collapse;width:100%;font-size:12px;}
+      .p13-matrix th,.p13-matrix td{border:1px solid var(--border);padding:8px;text-align:center;}
+      .p13-matrix th{background:var(--surface);color:var(--text2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;}
+      .p13-matrix td.loc{text-align:left;font-weight:700;background:var(--surface);color:${COLOR_IT};font-size:11px;}
+      .p13-matrix td.cell{cursor:pointer;font-weight:700;}
+      .p13-matrix td.cell:hover{background:${COLOR_IT}22;}
+      .p13-matrix td.cell.zero{color:var(--text3);font-weight:400;}
+    `;
+    document.head.appendChild(s);
+  }
+
+  // ── shared modal ──
+  function ensureModal(){
+    if(document.getElementById('hnxP13Modal'))return;
+    injectStyles();
+    const m=document.createElement('div');m.id='hnxP13Modal';
+    m.innerHTML='<div class="p13m-card" id="hnxP13Card"></div>';
+    m.addEventListener('click',e=>{if(e.target===m)closeModal();});
+    document.body.appendChild(m);
+  }
+  function openModal(html){
+    ensureModal();
+    document.getElementById('hnxP13Card').innerHTML=html;
+    document.getElementById('hnxP13Modal').classList.add('show');
+  }
+  function closeModal(){const m=document.getElementById('hnxP13Modal');if(m)m.classList.remove('show');}
+  window.hnxP13CloseModal=closeModal;
+
+  // ============================================================
+  // MODULE 1: IT CALENDAR
+  // ============================================================
+  const CAL_KEY='hydroPro_it_calendar_v1';
+  regKey(CAL_KEY);
+  const CAL_TYPES=[
+    {id:'visit',label:'Site Visit',color:'#67c5ff'},
+    {id:'maint',label:'Maintenance Window',color:'#ff9c33'},
+    {id:'deploy',label:'Deployment',color:'#2eaa2e'},
+    {id:'training',label:'Training',color:'#ab47bc'},
+    {id:'vendor',label:'Vendor',color:'#ec407a'},
+    {id:'other',label:'Other',color:'#cfd8dc'}
+  ];
+  function typeMeta(id){return CAL_TYPES.find(t=>t.id===id)||CAL_TYPES[CAL_TYPES.length-1];}
+  function renderCalendar(){
+    const body=document.getElementById('hnx-it_calendar-body');
+    if(!body){warn('hnx-it_calendar-body not found');return;}
+    injectStyles();
+    const events=load(CAL_KEY,[]);
+    const now=new Date();now.setHours(0,0,0,0);
+    const future=events.filter(e=>{try{return new Date(e.date+'T'+(e.time||'00:00'))>=now;}catch(_){return false;}}).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+    const past=events.filter(e=>{try{return new Date(e.date+'T'+(e.time||'00:00'))<now;}catch(_){return false;}}).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+    const weekCutoff=new Date();weekCutoff.setDate(weekCutoff.getDate()+7);
+    const monthCutoff=new Date();monthCutoff.setDate(monthCutoff.getDate()+30);
+    const thisWeek=future.filter(e=>new Date(e.date)<=weekCutoff);
+    const thisMonth=future.filter(e=>{const d=new Date(e.date);return d>weekCutoff&&d<=monthCutoff;});
+    const later=future.filter(e=>new Date(e.date)>monthCutoff);
+    function evCard(e){
+      const tm=typeMeta(e.type);
+      const dt=new Date(e.date+'T'+(e.time||'00:00'));
+      const statusClr=e.status==='done'?'#2eaa2e':e.status==='cancelled'?'#ff5555':e.status==='in_progress'?'#ff9c33':COLOR_IT;
+      return `<div class="p13-card" style="border-left-color:${tm.color};">
+        <div class="p13-row">
+          <div style="flex:1;min-width:220px;">
+            <div class="p13-row-title">${esc(e.title)}</div>
+            <div class="p13-row-meta" style="margin-top:3px;">📅 ${fmtDate(dt)} ${e.time?'· ⏰ '+esc(e.time):''}${e.endTime?' – '+esc(e.endTime):''}${e.location?' · 📍 '+esc(e.location):''}${e.assignedTo?' · 👤 '+esc(e.assignedTo):''}</div>
+            ${e.notes?`<div class="p13-row-meta" style="margin-top:6px;color:var(--text2);">${esc(e.notes)}</div>`:''}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;">
+            <span class="p13-pill" style="background:${tm.color}22;color:${tm.color};">${tm.label}</span>
+            <span class="p13-pill" style="background:${statusClr}22;color:${statusClr};">${(e.status||'scheduled').replace('_',' ').toUpperCase()}</span>
+          </div>
+        </div>
+        <div class="p13-actions" style="margin-top:10px;">
+          <button class="p13-btn sm" onclick="hnxCalEdit('${esc(e.id)}')">✏ Edit</button>
+          ${e.status!=='done'?`<button class="p13-btn sm ok" onclick="hnxCalSetStatus('${esc(e.id)}','done')">✓ Done</button>`:''}
+          ${e.status!=='in_progress'&&e.status!=='done'?`<button class="p13-btn sm warn" onclick="hnxCalSetStatus('${esc(e.id)}','in_progress')">▶ Start</button>`:''}
+          ${e.status!=='cancelled'?`<button class="p13-btn sm" onclick="hnxCalSetStatus('${esc(e.id)}','cancelled')">✕ Cancel</button>`:''}
+          <button class="p13-btn sm danger" onclick="hnxCalDel('${esc(e.id)}')">🗑 Delete</button>
+        </div>
+      </div>`;
+    }
+    function group(title,arr){if(!arr.length)return'';return`<div style="margin-top:14px;"><div class="p13-sub" style="margin-bottom:6px;">${title} (${arr.length})</div><div class="p13-grid">${arr.map(evCard).join('')}</div></div>`;}
+    body.innerHTML=`<div class="p13-wrap">
+      <div class="p13-head">
+        <div>
+          <div class="p13-title">📅 IT Calendar</div>
+          <div class="p13-sub">${events.length} events · ${future.length} upcoming · ${thisWeek.length} this week</div>
+        </div>
+        <div class="p13-actions">
+          <button class="p13-btn primary" onclick="hnxCalAdd()">➕ New Event</button>
+        </div>
+      </div>
+      ${future.length===0&&past.length===0?'<div class="p13-empty">No IT events yet. Click ➕ New Event to schedule one.</div>':''}
+      ${group('🔥 THIS WEEK',thisWeek)}
+      ${group('📅 NEXT 30 DAYS',thisMonth)}
+      ${group('⏳ LATER',later)}
+      ${past.length?group('📋 PAST '+(past.length>20?'(showing 20)':''),past.slice(0,20)):''}
+    </div>`;
+  }
+  function calForm(ev){
+    ev=ev||{title:'',type:'visit',date:new Date().toISOString().slice(0,10),time:'09:00',endTime:'',location:'',assignedTo:'',notes:'',status:'scheduled'};
+    return `<div class="p13m-title">${ev.id?'✏ Edit':'➕ New'} IT Event</div>
+      <div class="p13-field"><label>Title *</label><input id="cal_title" class="p13-input" value="${esc(ev.title)}" placeholder="e.g. Server rack maintenance"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Type</label><select id="cal_type" class="p13-select">${CAL_TYPES.map(t=>`<option value="${t.id}" ${ev.type===t.id?'selected':''}>${t.label}</option>`).join('')}</select></div>
+        <div class="p13-field"><label>Status</label><select id="cal_status" class="p13-select">${['scheduled','in_progress','done','cancelled'].map(s=>`<option value="${s}" ${ev.status===s?'selected':''}>${s.replace('_',' ').toUpperCase()}</option>`).join('')}</select></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Date *</label><input type="date" id="cal_date" class="p13-input" value="${esc(ev.date)}"></div>
+        <div class="p13-field"><label>Start Time</label><input type="time" id="cal_time" class="p13-input" value="${esc(ev.time)}"></div>
+        <div class="p13-field"><label>End Time</label><input type="time" id="cal_endTime" class="p13-input" value="${esc(ev.endTime||'')}"></div>
+      </div>
+      <div class="p13-field"><label>Location</label><input id="cal_location" class="p13-input" value="${esc(ev.location)}" placeholder="e.g. Server Room, GH3, Office"></div>
+      <div class="p13-field"><label>Assigned To</label><input id="cal_assignedTo" class="p13-input" value="${esc(ev.assignedTo)}" placeholder="Name of IT staff or vendor"></div>
+      <div class="p13-field"><label>Notes</label><textarea id="cal_notes" class="p13-textarea" placeholder="Optional details">${esc(ev.notes)}</textarea></div>
+      <div class="p13-actions" style="margin-top:8px;"><button class="p13-btn primary" onclick="hnxCalSave('${esc(ev.id||'')}')">${ev.id?'✓ Update':'✓ Create'}</button><button class="p13-btn" onclick="hnxP13CloseModal()">Cancel</button></div>`;
+  }
+  window.hnxCalAdd=function(){openModal(calForm());};
+  window.hnxCalEdit=function(id){const e=load(CAL_KEY,[]).find(x=>x.id===id);if(e)openModal(calForm(e));};
+  window.hnxCalSave=function(id){
+    const t=document.getElementById('cal_title').value.trim();
+    if(!t){alert('Title is required.');return;}
+    const date=document.getElementById('cal_date').value;
+    if(!date){alert('Date is required.');return;}
+    const all=load(CAL_KEY,[]);
+    const u=curUser();const now=Date.now();
+    const data={
+      title:t,type:document.getElementById('cal_type').value,status:document.getElementById('cal_status').value,
+      date,time:document.getElementById('cal_time').value,endTime:document.getElementById('cal_endTime').value,
+      location:document.getElementById('cal_location').value.trim(),assignedTo:document.getElementById('cal_assignedTo').value.trim(),
+      notes:document.getElementById('cal_notes').value.trim()
+    };
+    if(id){const i=all.findIndex(x=>x.id===id);if(i>=0){all[i]=Object.assign(all[i],data,{updatedAt:now,updatedBy:u.username});}}
+    else{all.push(Object.assign(data,{id:uid('cal'),createdAt:now,createdBy:u.username,createdByName:u.name}));}
+    save(CAL_KEY,all);closeModal();renderCalendar();notify('📅 Event '+(id?'updated':'created'));
+  };
+  window.hnxCalSetStatus=function(id,s){const all=load(CAL_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;all[i].status=s;all[i].updatedAt=Date.now();save(CAL_KEY,all);renderCalendar();notify('Status → '+s);};
+  window.hnxCalDel=function(id){if(!confirm('Delete this event?'))return;const all=load(CAL_KEY,[]).filter(x=>x.id!==id);save(CAL_KEY,all);renderCalendar();notify('📅 Event deleted');};
+
+  // ============================================================
+  // MODULE 2: IT ITEM REQUEST
+  // ============================================================
+  const REQ_KEY='hydroPro_it_requests_v1';
+  regKey(REQ_KEY);
+  const REQ_CATS=['Laptop','Monitor','Cable','Peripheral','Software','Phone','Accessory','Network Equipment','Other'];
+  const REQ_URG=[{id:'low',label:'Low',clr:'#cfd8dc'},{id:'medium',label:'Medium',clr:'#ff9c33'},{id:'high',label:'High',clr:'#ff5555'},{id:'urgent',label:'URGENT',clr:'#ff0044'}];
+  const REQ_STATUS=[{id:'pending',label:'Pending Approval',clr:'#ff9c33'},{id:'approved',label:'Approved',clr:'#2eaa2e'},{id:'rejected',label:'Rejected',clr:'#ff5555'},{id:'ordered',label:'Ordered',clr:'#67c5ff'},{id:'fulfilled',label:'Fulfilled',clr:'#9ccc65'},{id:'cancelled',label:'Cancelled',clr:'#cfd8dc'}];
+  function reqStatusMeta(id){return REQ_STATUS.find(x=>x.id===id)||REQ_STATUS[0];}
+  function reqUrgMeta(id){return REQ_URG.find(x=>x.id===id)||REQ_URG[1];}
+  function renderRequests(){
+    const body=document.getElementById('hnx-it_materials-body');
+    if(!body){warn('hnx-it_materials-body not found');return;}
+    injectStyles();
+    const all=load(REQ_KEY,[]);
+    const pending=all.filter(r=>r.status==='pending');
+    const active=all.filter(r=>['approved','ordered'].includes(r.status));
+    const done=all.filter(r=>['fulfilled','rejected','cancelled'].includes(r.status));
+    function rCard(r){
+      const sm=reqStatusMeta(r.status);const um=reqUrgMeta(r.urgency);
+      const canApprove=isManager()&&r.status==='pending';
+      return `<div class="p13-card${r.urgency==='urgent'?' urgent':r.urgency==='high'?' warn':''}">
+        <div class="p13-row">
+          <div style="flex:1;min-width:220px;">
+            <div class="p13-row-title">${esc(r.item)} <span style="font-weight:400;color:var(--text3);">× ${r.qty||1}</span></div>
+            <div class="p13-row-meta" style="margin-top:3px;">📦 ${esc(r.category||'—')} · 👤 ${esc(r.requesterName||r.requester||'—')} · ${fmtDate(r.createdAt)}${r.estimatedCost?' · 💰 '+esc(r.estimatedCost):''}</div>
+            ${r.justification?`<div class="p13-row-meta" style="margin-top:6px;color:var(--text2);"><strong>Why:</strong> ${esc(r.justification)}</div>`:''}
+            ${r.vendor?`<div class="p13-row-meta" style="margin-top:3px;">🏪 ${esc(r.vendor)}</div>`:''}
+            ${r.rejectedReason?`<div class="p13-row-meta" style="margin-top:3px;color:#ff5555;"><strong>Rejected:</strong> ${esc(r.rejectedReason)}</div>`:''}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;">
+            <span class="p13-pill" style="background:${um.clr}22;color:${um.clr};">${um.label}</span>
+            <span class="p13-pill" style="background:${sm.clr}22;color:${sm.clr};">${sm.label.toUpperCase()}</span>
+          </div>
+        </div>
+        <div class="p13-actions" style="margin-top:10px;">
+          ${canApprove?`<button class="p13-btn sm ok" onclick="hnxReqApprove('${esc(r.id)}')">✓ Approve</button>`:''}
+          ${canApprove?`<button class="p13-btn sm danger" onclick="hnxReqReject('${esc(r.id)}')">✕ Reject</button>`:''}
+          ${r.status==='approved'?`<button class="p13-btn sm warn" onclick="hnxReqSetStatus('${esc(r.id)}','ordered')">📦 Mark Ordered</button>`:''}
+          ${r.status==='ordered'?`<button class="p13-btn sm ok" onclick="hnxReqSetStatus('${esc(r.id)}','fulfilled')">📬 Mark Fulfilled</button>`:''}
+          <button class="p13-btn sm" onclick="hnxReqEdit('${esc(r.id)}')">✏ Edit</button>
+          ${r.status!=='cancelled'&&r.status!=='fulfilled'?`<button class="p13-btn sm" onclick="hnxReqSetStatus('${esc(r.id)}','cancelled')">✕ Cancel</button>`:''}
+          ${isManager()?`<button class="p13-btn sm danger" onclick="hnxReqDel('${esc(r.id)}')">🗑 Delete</button>`:''}
+        </div>
+      </div>`;
+    }
+    function group(title,arr){if(!arr.length)return'';return`<div style="margin-top:14px;"><div class="p13-sub" style="margin-bottom:6px;">${title} (${arr.length})</div><div class="p13-grid">${arr.map(rCard).join('')}</div></div>`;}
+    body.innerHTML=`<div class="p13-wrap">
+      <div class="p13-head">
+        <div>
+          <div class="p13-title">📦 IT Item Requests</div>
+          <div class="p13-sub">${all.length} total · ${pending.length} awaiting approval · ${active.length} active</div>
+        </div>
+        <div class="p13-actions"><button class="p13-btn primary" onclick="hnxReqAdd()">➕ New Request</button></div>
+      </div>
+      <div class="p13-kpi">
+        <div class="p13-kpi-card"><div class="p13-kpi-num">${pending.length}</div><div class="p13-kpi-lbl">Pending</div></div>
+        <div class="p13-kpi-card"><div class="p13-kpi-num" style="color:#2eaa2e;">${all.filter(r=>r.status==='approved').length}</div><div class="p13-kpi-lbl">Approved</div></div>
+        <div class="p13-kpi-card"><div class="p13-kpi-num" style="color:#67c5ff;">${all.filter(r=>r.status==='ordered').length}</div><div class="p13-kpi-lbl">Ordered</div></div>
+        <div class="p13-kpi-card"><div class="p13-kpi-num" style="color:#9ccc65;">${all.filter(r=>r.status==='fulfilled').length}</div><div class="p13-kpi-lbl">Fulfilled</div></div>
+        <div class="p13-kpi-card"><div class="p13-kpi-num" style="color:#ff5555;">${all.filter(r=>r.status==='rejected').length}</div><div class="p13-kpi-lbl">Rejected</div></div>
+      </div>
+      ${all.length===0?'<div class="p13-empty">No item requests yet. Click ➕ New Request to file one.</div>':''}
+      ${group('⏳ PENDING APPROVAL',pending)}
+      ${group('🚀 ACTIVE',active)}
+      ${group('📋 COMPLETED / ARCHIVED',done.slice(0,30))}
+    </div>`;
+  }
+  function reqForm(r){
+    r=r||{item:'',qty:1,category:'Cable',justification:'',urgency:'medium',status:'pending',vendor:'',estimatedCost:'',notes:''};
+    return `<div class="p13m-title">${r.id?'✏ Edit':'➕ New'} IT Item Request</div>
+      <div class="p13-field"><label>Item *</label><input id="req_item" class="p13-input" value="${esc(r.item)}" placeholder="e.g. Dell 24-inch monitor"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Quantity</label><input type="number" id="req_qty" class="p13-input" value="${esc(r.qty)}" min="1"></div>
+        <div class="p13-field"><label>Category</label><select id="req_category" class="p13-select">${REQ_CATS.map(c=>`<option value="${c}" ${r.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Urgency</label><select id="req_urgency" class="p13-select">${REQ_URG.map(u=>`<option value="${u.id}" ${r.urgency===u.id?'selected':''}>${u.label}</option>`).join('')}</select></div>
+        <div class="p13-field"><label>Estimated Cost (₱)</label><input id="req_estimatedCost" class="p13-input" value="${esc(r.estimatedCost)}" placeholder="optional"></div>
+      </div>
+      <div class="p13-field"><label>Justification *</label><textarea id="req_justification" class="p13-textarea" placeholder="Why is this needed?">${esc(r.justification)}</textarea></div>
+      <div class="p13-field"><label>Vendor (optional)</label><input id="req_vendor" class="p13-input" value="${esc(r.vendor||'')}" placeholder="Preferred supplier"></div>
+      ${isManager()?`<div class="p13-field"><label>Status</label><select id="req_status" class="p13-select">${REQ_STATUS.map(s=>`<option value="${s.id}" ${r.status===s.id?'selected':''}>${s.label}</option>`).join('')}</select></div>`:''}
+      <div class="p13-actions"><button class="p13-btn primary" onclick="hnxReqSave('${esc(r.id||'')}')">${r.id?'✓ Update':'✓ Submit'}</button><button class="p13-btn" onclick="hnxP13CloseModal()">Cancel</button></div>`;
+  }
+  window.hnxReqAdd=function(){openModal(reqForm());};
+  window.hnxReqEdit=function(id){const r=load(REQ_KEY,[]).find(x=>x.id===id);if(r)openModal(reqForm(r));};
+  window.hnxReqSave=function(id){
+    const item=document.getElementById('req_item').value.trim();if(!item){alert('Item required');return;}
+    const just=document.getElementById('req_justification').value.trim();if(!just){alert('Justification required');return;}
+    const u=curUser();const all=load(REQ_KEY,[]);const now=Date.now();
+    const data={item,qty:Number(document.getElementById('req_qty').value)||1,category:document.getElementById('req_category').value,
+      urgency:document.getElementById('req_urgency').value,justification:just,
+      vendor:document.getElementById('req_vendor').value.trim(),estimatedCost:document.getElementById('req_estimatedCost').value.trim()};
+    if(document.getElementById('req_status'))data.status=document.getElementById('req_status').value;
+    if(id){const i=all.findIndex(x=>x.id===id);if(i>=0){all[i]=Object.assign(all[i],data,{updatedAt:now});}}
+    else{all.push(Object.assign({id:uid('req'),requester:u.username,requesterName:u.name,createdAt:now,status:'pending'},data));}
+    save(REQ_KEY,all);closeModal();renderRequests();notify('📦 Request '+(id?'updated':'submitted'));
+  };
+  window.hnxReqApprove=function(id){const all=load(REQ_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;const u=curUser();all[i].status='approved';all[i].approvedBy=u.username;all[i].approvedByName=u.name;all[i].approvedAt=Date.now();save(REQ_KEY,all);renderRequests();notify('✓ Request approved');};
+  window.hnxReqReject=function(id){const reason=prompt('Rejection reason:');if(!reason)return;const all=load(REQ_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;const u=curUser();all[i].status='rejected';all[i].rejectedReason=reason;all[i].rejectedBy=u.username;all[i].rejectedAt=Date.now();save(REQ_KEY,all);renderRequests();notify('✕ Request rejected');};
+  window.hnxReqSetStatus=function(id,s){const all=load(REQ_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;all[i].status=s;if(s==='fulfilled')all[i].fulfilledAt=Date.now();all[i].updatedAt=Date.now();save(REQ_KEY,all);renderRequests();notify('Status → '+s);};
+  window.hnxReqDel=function(id){if(!confirm('Delete this request?'))return;save(REQ_KEY,load(REQ_KEY,[]).filter(x=>x.id!==id));renderRequests();notify('📦 Request deleted');};
+
+  // ============================================================
+  // MODULE 3: IT SPARE PARTS
+  // ============================================================
+  const PARTS_KEY='hydroPro_it_spares_v1';
+  regKey(PARTS_KEY);
+  const PARTS_CATS=['Cables','HDD/SSD','Batteries','RAM','Power Supply','Network','Camera','Mouse/Keyboard','Monitor Parts','Adapters','Other'];
+  function renderParts(){
+    const body=document.getElementById('hnx-it_parts-body');
+    if(!body){warn('hnx-it_parts-body not found');return;}
+    injectStyles();
+    const all=load(PARTS_KEY,[]);
+    const low=all.filter(p=>p.minQty>0&&p.qty<p.minQty);
+    const out=all.filter(p=>p.qty===0);
+    function pCard(p){
+      const isLow=p.minQty>0&&p.qty<p.minQty;const isOut=p.qty===0;
+      const cls=isOut?'urgent':isLow?'warn':'';
+      return `<div class="p13-card ${cls}">
+        <div class="p13-row">
+          <div style="flex:1;min-width:200px;">
+            <div class="p13-row-title">${esc(p.name)}</div>
+            <div class="p13-row-meta" style="margin-top:3px;">🏷 ${esc(p.category||'—')}${p.partNumber?' · P/N: '+esc(p.partNumber):''}${p.location?' · 📍 '+esc(p.location):''}${p.vendor?' · 🏪 '+esc(p.vendor):''}</div>
+            ${p.notes?`<div class="p13-row-meta" style="margin-top:5px;color:var(--text2);">${esc(p.notes)}</div>`:''}
+            ${p.lastRestockedAt?`<div class="p13-row-meta" style="margin-top:3px;">📦 Last restocked: ${fmtDate(p.lastRestockedAt)}${p.lastRestockedBy?' by '+esc(p.lastRestockedBy):''}</div>`:''}
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:5px;min-width:120px;">
+            <div style="font-size:28px;font-weight:800;color:${isOut?'#ff5555':isLow?'#ff9c33':'#2eaa2e'};font-family:var(--mono);">${p.qty}</div>
+            <div class="p13-sub">${p.minQty>0?'min: '+p.minQty:'no min'}</div>
+            <div style="display:flex;gap:3px;">
+              <button class="p13-btn sm" onclick="hnxPartAdjust('${esc(p.id)}',-1)">−</button>
+              <button class="p13-btn sm" onclick="hnxPartAdjust('${esc(p.id)}',1)">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="p13-actions" style="margin-top:10px;">
+          <button class="p13-btn sm" onclick="hnxPartRestock('${esc(p.id)}')">📦 Restock</button>
+          <button class="p13-btn sm" onclick="hnxPartEdit('${esc(p.id)}')">✏ Edit</button>
+          <button class="p13-btn sm danger" onclick="hnxPartDel('${esc(p.id)}')">🗑 Delete</button>
+        </div>
+      </div>`;
+    }
+    body.innerHTML=`<div class="p13-wrap">
+      <div class="p13-head">
+        <div>
+          <div class="p13-title">🔩 IT Spare Parts</div>
+          <div class="p13-sub">${all.length} items · ${low.length} low stock · ${out.length} out of stock</div>
+        </div>
+        <div class="p13-actions"><button class="p13-btn primary" onclick="hnxPartAdd()">➕ Add Item</button></div>
+      </div>
+      <div class="p13-kpi">
+        <div class="p13-kpi-card"><div class="p13-kpi-num">${all.length}</div><div class="p13-kpi-lbl">Total Items</div></div>
+        <div class="p13-kpi-card"><div class="p13-kpi-num" style="color:#ff9c33;">${low.length}</div><div class="p13-kpi-lbl">Low Stock</div></div>
+        <div class="p13-kpi-card"><div class="p13-kpi-num" style="color:#ff5555;">${out.length}</div><div class="p13-kpi-lbl">Out of Stock</div></div>
+        <div class="p13-kpi-card"><div class="p13-kpi-num" style="color:#2eaa2e;">${all.length-low.length-out.length}</div><div class="p13-kpi-lbl">In Stock</div></div>
+      </div>
+      ${all.length===0?'<div class="p13-empty">No spare parts tracked yet. Click ➕ Add Item to get started.</div>':''}
+      ${low.length?`<div style="margin-top:14px;"><div class="p13-sub" style="margin-bottom:6px;color:#ff9c33;">⚠ LOW / OUT OF STOCK (${low.length})</div><div class="p13-grid">${low.map(pCard).join('')}</div></div>`:''}
+      ${all.length?`<div style="margin-top:14px;"><div class="p13-sub" style="margin-bottom:6px;">📦 ALL ITEMS (${all.length})</div><div class="p13-grid">${all.filter(p=>!low.includes(p)).map(pCard).join('')}</div></div>`:''}
+    </div>`;
+  }
+  function partForm(p){
+    p=p||{name:'',category:'Cables',qty:0,minQty:0,location:'',notes:'',partNumber:'',vendor:'',costPer:''};
+    return `<div class="p13m-title">${p.id?'✏ Edit':'➕ Add'} Spare Part</div>
+      <div class="p13-field"><label>Name *</label><input id="part_name" class="p13-input" value="${esc(p.name)}" placeholder="e.g. CAT6 RJ45 cable 3m"></div>
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Category</label><select id="part_category" class="p13-select">${PARTS_CATS.map(c=>`<option value="${c}" ${p.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
+        <div class="p13-field"><label>Part Number</label><input id="part_partNumber" class="p13-input" value="${esc(p.partNumber||'')}"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Quantity</label><input type="number" id="part_qty" class="p13-input" value="${esc(p.qty)}" min="0"></div>
+        <div class="p13-field"><label>Min Qty</label><input type="number" id="part_minQty" class="p13-input" value="${esc(p.minQty)}" min="0"></div>
+        <div class="p13-field"><label>Cost / unit</label><input id="part_costPer" class="p13-input" value="${esc(p.costPer||'')}" placeholder="₱"></div>
+      </div>
+      <div class="p13-field"><label>Location</label><input id="part_location" class="p13-input" value="${esc(p.location)}" placeholder="e.g. IT Room Shelf B"></div>
+      <div class="p13-field"><label>Vendor</label><input id="part_vendor" class="p13-input" value="${esc(p.vendor||'')}"></div>
+      <div class="p13-field"><label>Notes</label><textarea id="part_notes" class="p13-textarea">${esc(p.notes||'')}</textarea></div>
+      <div class="p13-actions"><button class="p13-btn primary" onclick="hnxPartSave('${esc(p.id||'')}')">${p.id?'✓ Update':'✓ Add'}</button><button class="p13-btn" onclick="hnxP13CloseModal()">Cancel</button></div>`;
+  }
+  window.hnxPartAdd=function(){openModal(partForm());};
+  window.hnxPartEdit=function(id){const p=load(PARTS_KEY,[]).find(x=>x.id===id);if(p)openModal(partForm(p));};
+  window.hnxPartSave=function(id){
+    const n=document.getElementById('part_name').value.trim();if(!n){alert('Name required');return;}
+    const all=load(PARTS_KEY,[]);const u=curUser();
+    const data={name:n,category:document.getElementById('part_category').value,partNumber:document.getElementById('part_partNumber').value.trim(),
+      qty:Math.max(0,Number(document.getElementById('part_qty').value)||0),minQty:Math.max(0,Number(document.getElementById('part_minQty').value)||0),
+      costPer:document.getElementById('part_costPer').value.trim(),location:document.getElementById('part_location').value.trim(),
+      vendor:document.getElementById('part_vendor').value.trim(),notes:document.getElementById('part_notes').value.trim()};
+    if(id){const i=all.findIndex(x=>x.id===id);if(i>=0)all[i]=Object.assign(all[i],data,{updatedAt:Date.now()});}
+    else all.push(Object.assign({id:uid('part'),createdAt:Date.now(),createdBy:u.username},data));
+    save(PARTS_KEY,all);closeModal();renderParts();notify('🔩 Part '+(id?'updated':'added'));
+  };
+  window.hnxPartAdjust=function(id,delta){const all=load(PARTS_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;all[i].qty=Math.max(0,(all[i].qty||0)+delta);all[i].updatedAt=Date.now();save(PARTS_KEY,all);renderParts();};
+  window.hnxPartRestock=function(id){const qty=prompt('How many units restocked?');if(!qty)return;const n=Number(qty);if(isNaN(n)||n<=0){alert('Invalid qty');return;}const all=load(PARTS_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;const u=curUser();all[i].qty=(all[i].qty||0)+n;all[i].lastRestockedAt=Date.now();all[i].lastRestockedBy=u.name;save(PARTS_KEY,all);renderParts();notify('📦 Restocked +'+n);};
+  window.hnxPartDel=function(id){if(!confirm('Delete this item?'))return;save(PARTS_KEY,load(PARTS_KEY,[]).filter(x=>x.id!==id));renderParts();notify('🔩 Item deleted');};
+
+  // ============================================================
+  // MODULE 4: GH & FERTIGATION MATRIX
+  // ============================================================
+  const MATRIX_KEY='hydroPro_it_matrix_v1';
+  regKey(MATRIX_KEY);
+  const MATRIX_LOCS=['GH1','GH2','GH3','GH4','GH5','GH6','GH7','GH8','GH9','GH10','Fer Room 1','Fer Room 2','Fer Room 3','Server Room','Office','IT Room'];
+  const MATRIX_TYPES=[{id:'cctv',label:'CCTV',icon:'📹'},{id:'network',label:'Network',icon:'📡'},{id:'sensors',label:'Sensors',icon:'🌡'},{id:'phones',label:'Phones',icon:'📞'},{id:'computers',label:'PCs',icon:'💻'},{id:'other',label:'Other',icon:'⚙'}];
+  function renderGhFerMatrix(){
+    const body=document.getElementById('hnx-it_gh_fer_matrix-body');
+    if(!body){warn('hnx-it_gh_fer_matrix-body not found');return;}
+    injectStyles();
+    const data=load(MATRIX_KEY,{});
+    let total=0;
+    MATRIX_LOCS.forEach(l=>{MATRIX_TYPES.forEach(t=>{total+=(data[l]&&data[l][t.id])||0;});});
+    body.innerHTML=`<div class="p13-wrap">
+      <div class="p13-head">
+        <div>
+          <div class="p13-title">💧 GH & Fertigation IT Matrix</div>
+          <div class="p13-sub">${total} IT devices across ${MATRIX_LOCS.length} locations · click any cell to edit</div>
+        </div>
+        <div class="p13-actions"><button class="p13-btn" onclick="hnxMatrixReset()">↻ Reset</button></div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="p13-matrix">
+          <thead><tr><th style="text-align:left;">Location</th>${MATRIX_TYPES.map(t=>`<th>${t.icon}<br>${t.label}</th>`).join('')}<th>Total</th></tr></thead>
+          <tbody>
+            ${MATRIX_LOCS.map(loc=>{
+              const row=data[loc]||{};let rt=0;
+              return `<tr>
+                <td class="loc">${esc(loc)}</td>
+                ${MATRIX_TYPES.map(t=>{const v=row[t.id]||0;rt+=v;return `<td class="cell ${v===0?'zero':''}" onclick="hnxMatrixSet('${esc(loc)}','${t.id}')">${v}</td>`;}).join('')}
+                <td style="font-weight:800;color:${COLOR_IT};">${rt}</td>
+              </tr>`;
+            }).join('')}
+            <tr style="background:var(--surface);font-weight:800;">
+              <td class="loc">TOTAL</td>
+              ${MATRIX_TYPES.map(t=>{let s=0;MATRIX_LOCS.forEach(l=>{s+=(data[l]&&data[l][t.id])||0;});return `<td style="color:${COLOR_IT};">${s}</td>`;}).join('')}
+              <td style="color:${COLOR_IT};font-size:14px;">${total}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+  window.hnxMatrixSet=function(loc,type){
+    const data=load(MATRIX_KEY,{});const cur=(data[loc]&&data[loc][type])||0;
+    const newVal=prompt(`${loc} · ${MATRIX_TYPES.find(t=>t.id===type).label}\n\nCurrent: ${cur}\nEnter new count:`,String(cur));
+    if(newVal===null)return;const n=Math.max(0,Number(newVal)||0);
+    if(!data[loc])data[loc]={};data[loc][type]=n;data[loc]._updatedAt=Date.now();save(MATRIX_KEY,data);renderGhFerMatrix();
+  };
+  window.hnxMatrixReset=function(){if(!confirm('Reset entire matrix to zero?'))return;save(MATRIX_KEY,{});renderGhFerMatrix();notify('💧 Matrix reset');};
+
+  // ============================================================
+  // MODULE 5: RFID SETUP
+  // ============================================================
+  const RFID_KEY='hydroPro_it_rfid_v1';
+  regKey(RFID_KEY);
+  const RFID_TYPES=['Employee','Equipment','Vehicle','Inventory','Asset','Visitor','Other'];
+  const RFID_STATUS=[{id:'active',label:'Active',clr:'#2eaa2e'},{id:'inactive',label:'Inactive',clr:'#cfd8dc'},{id:'lost',label:'Lost',clr:'#ff5555'},{id:'replaced',label:'Replaced',clr:'#ff9c33'}];
+  function rfidStatusMeta(id){return RFID_STATUS.find(x=>x.id===id)||RFID_STATUS[0];}
+  function renderRfid(){
+    const body=document.getElementById('hnx-it_rfid-body');
+    if(!body){warn('hnx-it_rfid-body not found');return;}
+    injectStyles();
+    const all=load(RFID_KEY,[]);
+    const filter=window._hnxRfidFilter||'';
+    const filtered=filter?all.filter(t=>(t.tag_id||'').toLowerCase().includes(filter.toLowerCase())||(t.asset_name||'').toLowerCase().includes(filter.toLowerCase())):all;
+    function tCard(t){
+      const sm=rfidStatusMeta(t.status);
+      return `<div class="p13-card">
+        <div class="p13-row">
+          <div style="flex:1;min-width:220px;">
+            <div class="p13-row-title">🆔 ${esc(t.tag_id)} <span style="font-weight:400;color:var(--text3);">→ ${esc(t.asset_name||'(unassigned)')}</span></div>
+            <div class="p13-row-meta" style="margin-top:3px;">${esc(t.asset_type||'—')}${t.asset_id?' · ID: '+esc(t.asset_id):''}${t.location?' · 📍 '+esc(t.location):''}${t.assignedTo?' · 👤 '+esc(t.assignedTo):''}</div>
+            ${t.lastSeen?`<div class="p13-row-meta" style="margin-top:3px;">👁 Last seen: ${fmtDateTime(t.lastSeen)}${t.lastSeenBy?' at '+esc(t.lastSeenBy):''}</div>`:''}
+            ${t.notes?`<div class="p13-row-meta" style="margin-top:6px;color:var(--text2);">${esc(t.notes)}</div>`:''}
+          </div>
+          <span class="p13-pill" style="background:${sm.clr}22;color:${sm.clr};align-self:flex-start;">${sm.label.toUpperCase()}</span>
+        </div>
+        <div class="p13-actions" style="margin-top:10px;">
+          <button class="p13-btn sm" onclick="hnxRfidSeen('${esc(t.id)}')">👁 Log Seen</button>
+          <button class="p13-btn sm" onclick="hnxRfidEdit('${esc(t.id)}')">✏ Edit</button>
+          ${t.status==='active'?`<button class="p13-btn sm danger" onclick="hnxRfidSetStatus('${esc(t.id)}','lost')">⚠ Mark Lost</button>`:''}
+          <button class="p13-btn sm danger" onclick="hnxRfidDel('${esc(t.id)}')">🗑 Delete</button>
+        </div>
+      </div>`;
+    }
+    body.innerHTML=`<div class="p13-wrap">
+      <div class="p13-head">
+        <div>
+          <div class="p13-title">🆔 RFID Setup</div>
+          <div class="p13-sub">${all.length} tags · ${all.filter(t=>t.status==='active').length} active · ${all.filter(t=>t.status==='lost').length} lost</div>
+        </div>
+        <div class="p13-actions"><button class="p13-btn primary" onclick="hnxRfidAdd()">➕ Register Tag</button></div>
+      </div>
+      <div class="p13-toolbar">
+        <input class="p13-input" style="max-width:300px;" placeholder="🔍 Search by tag ID or asset name..." value="${esc(filter)}" oninput="window._hnxRfidFilter=this.value;hnxRfidRender();">
+        ${filter?`<button class="p13-btn sm" onclick="window._hnxRfidFilter='';hnxRfidRender();">✕ Clear</button>`:''}
+      </div>
+      ${all.length===0?'<div class="p13-empty">No RFID tags registered yet. Click ➕ Register Tag to add one.</div>':filtered.length===0?'<div class="p13-empty">No tags match the filter.</div>':`<div class="p13-grid">${filtered.map(tCard).join('')}</div>`}
+    </div>`;
+  }
+  function rfidForm(t){
+    t=t||{tag_id:'',asset_type:'Equipment',asset_name:'',asset_id:'',location:'',status:'active',assignedTo:'',notes:''};
+    return `<div class="p13m-title">${t.id?'✏ Edit':'➕ Register'} RFID Tag</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Tag ID *</label><input id="rfid_tag_id" class="p13-input" value="${esc(t.tag_id)}" placeholder="e.g. RFID-001"></div>
+        <div class="p13-field"><label>Status</label><select id="rfid_status" class="p13-select">${RFID_STATUS.map(s=>`<option value="${s.id}" ${t.status===s.id?'selected':''}>${s.label}</option>`).join('')}</select></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;">
+        <div class="p13-field"><label>Asset Type</label><select id="rfid_asset_type" class="p13-select">${RFID_TYPES.map(c=>`<option value="${c}" ${t.asset_type===c?'selected':''}>${c}</option>`).join('')}</select></div>
+        <div class="p13-field"><label>Asset Name</label><input id="rfid_asset_name" class="p13-input" value="${esc(t.asset_name)}" placeholder="e.g. Forklift #2, John Doe, GH3 sensor box"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Asset ID</label><input id="rfid_asset_id" class="p13-input" value="${esc(t.asset_id||'')}" placeholder="optional"></div>
+        <div class="p13-field"><label>Location</label><input id="rfid_location" class="p13-input" value="${esc(t.location||'')}"></div>
+      </div>
+      <div class="p13-field"><label>Assigned To</label><input id="rfid_assignedTo" class="p13-input" value="${esc(t.assignedTo||'')}" placeholder="Person responsible"></div>
+      <div class="p13-field"><label>Notes</label><textarea id="rfid_notes" class="p13-textarea">${esc(t.notes||'')}</textarea></div>
+      <div class="p13-actions"><button class="p13-btn primary" onclick="hnxRfidSave('${esc(t.id||'')}')">${t.id?'✓ Update':'✓ Register'}</button><button class="p13-btn" onclick="hnxP13CloseModal()">Cancel</button></div>`;
+  }
+  window.hnxRfidAdd=function(){openModal(rfidForm());};
+  window.hnxRfidEdit=function(id){const t=load(RFID_KEY,[]).find(x=>x.id===id);if(t)openModal(rfidForm(t));};
+  window.hnxRfidSave=function(id){
+    const tagId=document.getElementById('rfid_tag_id').value.trim();if(!tagId){alert('Tag ID required');return;}
+    const all=load(RFID_KEY,[]);
+    if(!id&&all.some(x=>x.tag_id===tagId)){alert('A tag with this ID already exists.');return;}
+    const u=curUser();
+    const data={tag_id:tagId,asset_type:document.getElementById('rfid_asset_type').value,asset_name:document.getElementById('rfid_asset_name').value.trim(),
+      asset_id:document.getElementById('rfid_asset_id').value.trim(),location:document.getElementById('rfid_location').value.trim(),
+      status:document.getElementById('rfid_status').value,assignedTo:document.getElementById('rfid_assignedTo').value.trim(),
+      notes:document.getElementById('rfid_notes').value.trim()};
+    if(id){const i=all.findIndex(x=>x.id===id);if(i>=0)all[i]=Object.assign(all[i],data,{updatedAt:Date.now()});}
+    else all.push(Object.assign({id:uid('rfid'),createdAt:Date.now(),createdBy:u.username},data));
+    save(RFID_KEY,all);closeModal();renderRfid();notify('🆔 Tag '+(id?'updated':'registered'));
+  };
+  window.hnxRfidSeen=function(id){const all=load(RFID_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;const u=curUser();all[i].lastSeen=Date.now();all[i].lastSeenBy=u.name;save(RFID_KEY,all);renderRfid();notify('👁 Seen logged');};
+  window.hnxRfidSetStatus=function(id,s){const all=load(RFID_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;all[i].status=s;all[i].updatedAt=Date.now();save(RFID_KEY,all);renderRfid();notify('Status → '+s);};
+  window.hnxRfidDel=function(id){if(!confirm('Delete this tag?'))return;save(RFID_KEY,load(RFID_KEY,[]).filter(x=>x.id!==id));renderRfid();notify('🆔 Tag deleted');};
+  window.hnxRfidRender=renderRfid;
+
+  // ============================================================
+  // SWITCHVIEW HOOK — one wrapper for all 5 modules
+  // ============================================================
+  const RENDERERS={
+    'it_calendar':renderCalendar,
+    'it_materials':renderRequests,
+    'it_parts':renderParts,
+    'it_gh_fer_matrix':renderGhFerMatrix,
+    'it_rfid':renderRfid
+  };
+  function hookSwitchView(){
+    if(typeof window.switchView!=='function')return false;
+    if(window.switchView._hnxP13Wrapped)return true;
+    const orig=window.switchView;
+    window.switchView=function(viewId){
+      const result=orig.apply(this,arguments);
+      if(RENDERERS[viewId]){
+        setTimeout(()=>{try{RENDERERS[viewId]();}catch(e){warn('render '+viewId+' fail:',e);}},120);
+      }
+      return result;
+    };
+    window.switchView._hnxP13Wrapped=true;
+    log('switchView hooked for 5 IT views');
+    return true;
+  }
+
+  function run(){
+    let tries=0;
+    const iv=setInterval(()=>{
+      tries++;
+      const ok=hookSwitchView();
+      if(ok||tries>30){
+        clearInterval(iv);
+        if(ok){
+          log('✅ P13 ready — 5 IT modules: Calendar, Requests, Parts, Matrix, RFID');
+          // Re-render currently-active view if it's one of ours
+          const active=document.querySelector('.view.active');
+          if(active){
+            const vid=active.id.replace('view-','');
+            if(RENDERERS[vid])setTimeout(()=>{try{RENDERERS[vid]();}catch(e){warn('re-render fail:',e);}},200);
+          }
+        } else warn('P13 init incomplete after 30 retries');
+      }
+    },300);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);
+  else setTimeout(run,1000);
+})();
+</script>
+<!-- ===================== END HNX v2.86-p13-it-suite ===================== -->
+
+<!-- ===================== HNX v2.86-p14-raise-call-module-picker (INLINE) ===================== -->
+<script>
+/* ==============================================================================
+   HNX v2.86 P14 — Raise Call universal module picker
+   ----
+   Adds a "📍 Which module is this for?" dropdown at the top of the Raise Call
+   modal so users can pick IT / Maintenance / Irrigation / Logistics / Production /
+   Office (HR/Payroll) regardless of where they click Raise Call from.
+
+   Pre-selects to the source module when the modal opens. Switching the dropdown
+   updates the routing (group/dept/area) WITHOUT clearing user-typed fields.
+   ============================================================================== */
+(function HNX_v286_P14_RaiseCallModulePicker() {
+  const VER = 'v2.86-p14-rcm';
+  function log(...a){ console.log('['+VER+']',...a); }
+  function warn(...a){ console.warn('['+VER+']',...a); }
+
+  const MODULES = [
+    { id: 'production',  label: 'Production',          icon: '🌱', group:'operations', dept:'production',     area:'' },
+    { id: 'maintenance', label: 'Maintenance',         icon: '🔧', group:'operations', dept:'maintenance',    area:'' },
+    { id: 'irrigation',  label: 'Irrigation',          icon: '💧', group:'operations', dept:'maintenance',    area:'', subsystem:'Irrigation' },
+    { id: 'logistics',   label: 'Logistics / Fleet',   icon: '🚚', group:'operations', dept:'drivers_helpers',area:'' },
+    { id: 'it',          label: 'IT',                  icon: '🖥', group:'office',     dept:'admin',          area:'' },
+    { id: 'office',      label: 'Office (HR/Payroll)', icon: '🏢', group:'office',     dept:'hr',             area:'' },
+    { id: 'security',    label: 'Security',            icon: '🛡', group:'operations', dept:'security_guards',area:'' },
+    { id: 'packaging',   label: 'Packaging',           icon: '📦', group:'operations', dept:'packaging',      area:'' }
+  ];
+
+  function mod(id){ return MODULES.find(m=>m.id===id); }
+
+  // Try to infer the module from a sub-view ID (e.g. 'it_task_board' → 'it')
+  function inferModule(sourceId){
+    if(!sourceId) return null;
+    const s = String(sourceId);
+    if(s==='it' || s.indexOf('it_')===0) return 'it';
+    if(s.indexOf('irr_')===0 || s.indexOf('irrigation')>=0) return 'irrigation';
+    if(s.indexOf('maint')===0 || s.indexOf('maintenance')>=0) return 'maintenance';
+    if(s.indexOf('prod')===0 || s.indexOf('production')>=0) return 'production';
+    if(s.indexOf('fleet')>=0 || s==='logistics') return 'logistics';
+    if(s==='hr' || s.indexOf('hr_')===0 || s==='payroll' || s==='attendance' || s==='reconcile') return 'office';
+    if(s==='security') return 'security';
+    if(s==='packaging') return 'packaging';
+    return null;
+  }
+
+  function injectModuleDropdown(){
+    if(document.getElementById('callP14ModulePicker')) return true;
+    const sourceLine = document.getElementById('callSourceLine');
+    if(!sourceLine || !sourceLine.parentNode) return false;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'call-field-row';
+    wrap.id = 'callP14ModuleWrap';
+    wrap.style.cssText = 'background:rgba(103,197,255,0.06);border:1.5px solid #67c5ff;border-radius:7px;padding:9px 11px;margin:6px 0 4px 0;';
+    wrap.innerHTML =
+      '<div class="call-field-label" style="font-weight:700;color:#67c5ff;margin-bottom:5px;">📍 Which module is this call for?</div>'
+      + '<select id="callP14ModulePicker" class="call-select" onchange="hnxP14SwitchModule(this.value)">'
+      +   MODULES.map(m=>'<option value="'+m.id+'">'+m.icon+' '+m.label+'</option>').join('')
+      + '</select>'
+      + '<div style="font-size:10px;color:var(--text3);margin-top:5px;">Routing automatically updates Group / Department below.</div>';
+
+    sourceLine.parentNode.insertBefore(wrap, sourceLine.nextSibling);
+    log('Module picker injected');
+    return true;
+  }
+
+  window.hnxP14SwitchModule = function(modId){
+    const m = mod(modId);
+    if(!m) return;
+    if(!window._callDraft){ warn('no _callDraft'); return; }
+
+    // Update draft (preserve user-typed fields: subject/desc/equipment/etc.)
+    window._callDraft.sourceModule = modId;
+    window._callDraft.sourceLabel  = m.label;
+    window._callDraft.group        = m.group;
+    window._callDraft.department   = m.dept;
+    window._callDraft.area         = m.area || '';
+    if(m.subsystem) window._callDraft.subsystem = m.subsystem;
+
+    // Update source pill display
+    const sp = document.getElementById('callSourceLine');
+    if(sp) sp.textContent = 'Routing: ' + m.icon + ' ' + m.label;
+
+    // Toggle group buttons
+    document.querySelectorAll('.call-group-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.g === m.group);
+    });
+
+    // Re-render dept + area
+    try { if(typeof window._renderDeptOptions === 'function') window._renderDeptOptions(); } catch(e){ warn('_renderDeptOptions fail:',e); }
+    try { if(typeof window._renderAreaPicker  === 'function') window._renderAreaPicker();  } catch(e){ warn('_renderAreaPicker fail:',e); }
+
+    // Force dept dropdown to match
+    setTimeout(() => {
+      const deptSel = document.getElementById('callDept');
+      if(deptSel && deptSel.value !== m.dept) {
+        deptSel.value = m.dept;
+        try { if(typeof window.onCallDeptChange === 'function') window.onCallDeptChange(m.dept); } catch(e){}
+      }
+    }, 60);
+  };
+
+  function hookOpenCallModal(){
+    if(typeof window.openCallModal !== 'function') return false;
+    if(window.openCallModal._hnxP14Wrapped) return true;
+    const orig = window.openCallModal;
+    window.openCallModal = function(sourceModuleId, sourceLabel){
+      // Ensure dropdown exists (modal is created by injectModalsAndButtons; it may not yet exist on first call)
+      setTimeout(injectModuleDropdown, 30);
+
+      // Call original
+      const result = orig.apply(this, arguments);
+
+      // Pre-select dropdown to current source
+      setTimeout(() => {
+        const picker = document.getElementById('callP14ModulePicker');
+        if(!picker) return;
+        const inferred = inferModule(sourceModuleId) || 'production';
+        picker.value = inferred;
+        // Also re-run the switch logic to make the source line pretty
+        try { hnxP14SwitchModule(inferred); } catch(e){ warn('initial switch fail:',e); }
+      }, 80);
+
+      return result;
+    };
+    window.openCallModal._hnxP14Wrapped = true;
+    log('openCallModal wrapped');
+    return true;
+  }
+
+  function run(){
+    let tries = 0;
+    const iv = setInterval(() => {
+      tries++;
+      const ok = hookOpenCallModal();
+      // Also try to inject the dropdown now in case modal already exists
+      if(document.getElementById('callModal')) injectModuleDropdown();
+      if(ok || tries > 30){
+        clearInterval(iv);
+        if(ok) log('✅ P14 ready');
+      }
+    }, 300);
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+  else setTimeout(run, 1100);
+})();
+</script>
+<!-- ===================== END HNX v2.86-p14-raise-call-module-picker ===================== -->
 
 </body>
 </html>
