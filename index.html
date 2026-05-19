@@ -100623,7 +100623,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p15';
+        vEl.textContent = orig + ' · HNX v2.86-p16';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -133941,6 +133941,403 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.86-p15-dept-issue-categories ===================== -->
+
+<!-- ===================== HNX v2.86-p16-it-pulse-tiles (INLINE) ===================== -->
+<script>
+/* ==============================================================================
+   HNX v2.86 P16 — IT Command Center "Pulse Tiles"
+   ----
+   Replaces the dashboard with a 3×3 grid of executive-cockpit tiles.
+   Each tile = the essence of one IT sub-view in a single glance.
+   - Live metric counts from existing localStorage data
+   - Animated sparklines, pulse rings on urgent
+   - Click any tile → drills into that sub-view
+   ============================================================================== */
+(function HNX_v286_P16_ITPulseTiles() {
+  const VER = 'v2.86-p16-pulse';
+  const ITCLR = '#67c5ff';
+  function log(...a){ console.log('['+VER+']',...a); }
+  function warn(...a){ console.warn('['+VER+']',...a); }
+
+  function load(k,f){ try{const v=JSON.parse(localStorage.getItem(k)||'null');return v===null?f:v;}catch(e){return f;} }
+
+  // Build a synthetic sparkline (7 unicode blocks) from a deterministic seed
+  function spark(seed, peak){
+    const chars = ['▁','▂','▃','▄','▅','▆','▇','█'];
+    const out = [];
+    let s = (seed * 9301 + 49297) % 233280;
+    for(let i=0;i<7;i++){
+      s = (s * 9301 + 49297) % 233280;
+      const r = Math.floor((s/233280) * (peak||7));
+      out.push(chars[Math.max(0, Math.min(7, r))]);
+    }
+    return out.join('');
+  }
+
+  // Data computation per tile (all from existing data sources)
+  function computeMetrics(){
+    const issues = load('hydroPro_issues_v2', []);
+    const itIssues = issues.filter(i => i.module === 'it');
+    const calls = itIssues.filter(i => i.type === 'call' || !i.type);
+    const tasks = itIssues.filter(i => i.type === 'task');
+    const openCalls = calls.filter(i => i.status === 'open' || i.status === 'assigned' || i.status === 'in_progress');
+    const urgentCalls = openCalls.filter(i => i.priority === 'urgent' || i.priority === 'critical');
+    const activeTasks = tasks.filter(i => i.status !== 'approved' && i.status !== 'cancelled' && i.status !== 'resolved');
+    const doneToday = itIssues.filter(i => {
+      if(!i.closed_at && i.status !== 'resolved' && i.status !== 'approved') return false;
+      const d = new Date(i.closed_at || i.updatedAt || i.created_at);
+      const today = new Date(); today.setHours(0,0,0,0);
+      return d >= today;
+    }).length;
+
+    // Recurring (P11+P12)
+    const recTasks = (window.RECURRING_TASKS || []).filter(t => {
+      try { return window.getTaskModule && window.getTaskModule(t) === 'it'; } catch(e){ return t.module === 'it'; }
+    });
+    const recCompletions = load('hydroPro_recurring_completions_v1', {});
+    const todayStr = new Date().toISOString().slice(0,10);
+    let recDoneToday = 0, recDueToday = 0;
+    recTasks.forEach(t => {
+      const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
+      if(t.schedule && t.schedule[dow]){
+        recDueToday++;
+        const k = todayStr + '__' + t.id + '__site';
+        if(recCompletions[k]) recDoneToday++;
+      }
+    });
+    const recCompliance = recDueToday > 0 ? Math.round((recDoneToday/recDueToday)*100) : 100;
+
+    // Calendar (P13)
+    const calEvents = load('hydroPro_it_calendar_v1', []);
+    const now = new Date();
+    const weekAhead = new Date(); weekAhead.setDate(weekAhead.getDate()+7);
+    const upcomingThisWeek = calEvents.filter(e => {
+      try { const d = new Date(e.date+'T'+(e.time||'00:00')); return d >= now && d <= weekAhead; }
+      catch(_){ return false; }
+    }).length;
+    const todayEvents = calEvents.filter(e => e.date === todayStr).length;
+
+    // Item Requests (P13)
+    const requests = load('hydroPro_it_requests_v1', []);
+    const pendingReq = requests.filter(r => r.status === 'pending').length;
+    const approvedReq = requests.filter(r => r.status === 'approved' || r.status === 'ordered').length;
+
+    // Spare Parts (P13)
+    const parts = load('hydroPro_it_spares_v1', []);
+    const lowParts = parts.filter(p => p.minQty > 0 && p.qty < p.minQty).length;
+    const outParts = parts.filter(p => p.qty === 0).length;
+    const bufferPct = parts.length ? Math.round(((parts.length - lowParts - outParts)/parts.length)*100) : 100;
+
+    // RFID (P13)
+    const rfid = load('hydroPro_it_rfid_v1', []);
+    const activeRfid = rfid.filter(t => t.status === 'active').length;
+    const lostRfid = rfid.filter(t => t.status === 'lost').length;
+
+    // GH/Fer matrix (P13) — total IT devices tracked
+    const matrix = load('hydroPro_it_matrix_v1', {});
+    let totalDevices = 0;
+    Object.keys(matrix).forEach(loc => {
+      Object.keys(matrix[loc]||{}).forEach(t => {
+        if(t.indexOf('_')!==0) totalDevices += matrix[loc][t]||0;
+      });
+    });
+
+    // Matrix hotspot (open IT issues per equipment_category)
+    const catCounts = {};
+    openCalls.forEach(c => {
+      const cat = c.it_category || 'Other';
+      catCounts[cat] = (catCounts[cat]||0) + 1;
+    });
+    let hotspotCat = '—', hotspotCount = 0;
+    Object.keys(catCounts).forEach(c => {
+      if(catCounts[c] > hotspotCount){ hotspotCat = c; hotspotCount = catCounts[c]; }
+    });
+
+    return {
+      openCalls: openCalls.length,
+      urgentCalls: urgentCalls.length,
+      activeTasks: activeTasks.length,
+      doneToday,
+      recDueToday, recDoneToday, recCompliance,
+      upcomingThisWeek, todayEvents,
+      pendingReq, approvedReq,
+      lowParts, outParts, bufferPct, totalParts: parts.length,
+      activeRfid, lostRfid, totalRfid: rfid.length,
+      totalDevices,
+      hotspotCat, hotspotCount,
+      totalIssues: itIssues.length
+    };
+  }
+
+  function statusOf(metric, urgent, warn){
+    if(urgent) return 'urgent';
+    if(warn) return 'warn';
+    return 'ok';
+  }
+
+  function tile(opts){
+    const { icon, name, view, metric, sub, spark: sparkStr, status, accent } = opts;
+    const clr = status==='urgent' ? '#ff5555' : status==='warn' ? '#ff9c33' : status==='info' ? '#67c5ff' : '#2eaa2e';
+    return `<div class="hnx-pulse-tile" onclick="(typeof switchView==='function')&&switchView('${view}')" data-status="${status}">
+      <div class="pulse-head">
+        <span class="pulse-icon">${icon}</span>
+        <span class="pulse-name">${name}</span>
+        <span class="pulse-dot" style="background:${clr};box-shadow:0 0 0 0 ${clr};"></span>
+      </div>
+      <div class="pulse-metric" style="color:${accent||ITCLR};">${metric}</div>
+      <div class="pulse-spark" style="color:${clr};">${sparkStr||''}</div>
+      <div class="pulse-sub">${sub}</div>
+    </div>`;
+  }
+
+  function buildTilesHTML(){
+    const m = computeMetrics();
+    const tiles = [];
+
+    // 1. Open Calls
+    tiles.push(tile({
+      icon:'📞', name:'OPEN CALLS', view:'it_calls',
+      metric: m.openCalls,
+      sub: m.urgentCalls ? `🔴 ${m.urgentCalls} urgent` : 'no urgent items',
+      spark: spark(m.openCalls+1, m.openCalls),
+      status: m.urgentCalls>0?'urgent':m.openCalls>5?'warn':'ok'
+    }));
+
+    // 2. Task Board
+    tiles.push(tile({
+      icon:'📋', name:'TASK BOARD', view:'it_tasks',
+      metric: m.activeTasks,
+      sub: m.doneToday ? `✓ ${m.doneToday} done today` : 'active tasks',
+      spark: spark(m.activeTasks+5, 6),
+      status: m.activeTasks>10?'warn':'ok'
+    }));
+
+    // 3. Matrix (hotspot)
+    tiles.push(tile({
+      icon:'📊', name:'CALL MATRIX', view:'it_matrix',
+      metric: m.openCalls,
+      sub: m.hotspotCount ? `🔥 ${m.hotspotCat}: ${m.hotspotCount}` : 'no hotspots',
+      spark: spark(m.openCalls*2+3, 7),
+      status: m.hotspotCount>=3?'urgent':m.hotspotCount>0?'warn':'ok'
+    }));
+
+    // 4. Recurring Tasks
+    tiles.push(tile({
+      icon:'🔁', name:'RECURRING', view:'it_recurring',
+      metric: m.recCompliance + '%',
+      sub: `${m.recDoneToday}/${m.recDueToday} today`,
+      spark: spark(m.recCompliance, 7),
+      status: m.recCompliance<60?'urgent':m.recCompliance<85?'warn':'ok'
+    }));
+
+    // 5. Calendar
+    tiles.push(tile({
+      icon:'📅', name:'IT CALENDAR', view:'it_calendar',
+      metric: m.upcomingThisWeek,
+      sub: m.todayEvents ? `📌 ${m.todayEvents} today` : 'this week',
+      spark: spark(m.upcomingThisWeek+2, 5),
+      status: 'info'
+    }));
+
+    // 6. Item Requests
+    tiles.push(tile({
+      icon:'📦', name:'ITEM REQUESTS', view:'it_materials',
+      metric: m.pendingReq,
+      sub: m.approvedReq ? `${m.approvedReq} active` : 'pending approval',
+      spark: spark(m.pendingReq+m.approvedReq+1, 5),
+      status: m.pendingReq>=5?'warn':'ok'
+    }));
+
+    // 7. Spare Parts
+    tiles.push(tile({
+      icon:'🔩', name:'SPARE PARTS', view:'it_parts',
+      metric: m.totalParts ? m.bufferPct+'%' : '—',
+      sub: m.outParts ? `🔴 ${m.outParts} out · ${m.lowParts} low` : (m.lowParts?`⚠ ${m.lowParts} low`:'all stocked'),
+      spark: spark(m.bufferPct, 7),
+      status: m.outParts?'urgent':m.lowParts?'warn':'ok'
+    }));
+
+    // 8. RFID
+    tiles.push(tile({
+      icon:'🆔', name:'RFID TAGS', view:'it_rfid',
+      metric: m.activeRfid,
+      sub: m.lostRfid ? `⚠ ${m.lostRfid} lost` : `of ${m.totalRfid} total`,
+      spark: spark(m.activeRfid+3, 6),
+      status: m.lostRfid>0?'warn':'ok'
+    }));
+
+    // 9. GH/Fer IT Matrix
+    tiles.push(tile({
+      icon:'💧', name:'GH & FER MATRIX', view:'it_gh_fer_matrix',
+      metric: m.totalDevices,
+      sub: 'IT devices mapped',
+      spark: spark(m.totalDevices+1, 6),
+      status: 'info'
+    }));
+
+    return tiles.join('');
+  }
+
+  function injectStyles(){
+    if(document.getElementById('hnxP16Styles')) return;
+    const s = document.createElement('style');
+    s.id = 'hnxP16Styles';
+    s.textContent = `
+      .hnx-pulse-grid{
+        display:grid;
+        grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+        gap:12px;
+        margin:14px 0;
+      }
+      .hnx-pulse-tile{
+        position:relative;
+        background:linear-gradient(135deg, rgba(103,197,255,0.05), rgba(0,0,0,0.3));
+        border:1px solid var(--border);
+        border-radius:12px;
+        padding:14px 16px;
+        cursor:pointer;
+        transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+        overflow:hidden;
+        font-family:var(--mono);
+      }
+      .hnx-pulse-tile::before{
+        content:'';position:absolute;inset:0;
+        background:linear-gradient(90deg, transparent, rgba(103,197,255,0.06), transparent);
+        transform:translateX(-100%);
+        transition:transform 1.4s ease;
+        pointer-events:none;
+      }
+      .hnx-pulse-tile:hover{
+        transform:translateY(-3px);
+        box-shadow:0 8px 22px rgba(103,197,255,0.18);
+        border-color:${ITCLR};
+      }
+      .hnx-pulse-tile:hover::before{transform:translateX(100%);}
+      .hnx-pulse-tile[data-status="urgent"]{border-color:#ff5555;background:linear-gradient(135deg,rgba(255,85,85,0.07),rgba(0,0,0,0.3));}
+      .hnx-pulse-tile[data-status="warn"]{border-color:#ff9c33;background:linear-gradient(135deg,rgba(255,156,51,0.06),rgba(0,0,0,0.3));}
+      .hnx-pulse-tile[data-status="urgent"] .pulse-dot{animation:hnxPulseDot 1.8s infinite;}
+      .pulse-head{
+        display:flex;align-items:center;gap:8px;margin-bottom:8px;
+      }
+      .pulse-icon{font-size:18px;}
+      .pulse-name{
+        flex:1;font-size:10px;text-transform:uppercase;letter-spacing:.8px;
+        color:var(--text2);font-weight:700;
+      }
+      .pulse-dot{
+        width:9px;height:9px;border-radius:50%;
+      }
+      .pulse-metric{
+        font-size:32px;font-weight:800;line-height:1.05;
+        font-family:var(--mono);letter-spacing:-0.5px;
+        margin:4px 0 6px 0;
+      }
+      .pulse-spark{
+        font-family:var(--mono);font-size:14px;letter-spacing:2px;
+        line-height:1;margin-bottom:8px;animation:hnxSparkIn .8s ease-out;
+      }
+      .pulse-sub{
+        font-size:11px;color:var(--text3);font-weight:500;
+      }
+      @keyframes hnxPulseDot{
+        0%,100%{box-shadow:0 0 0 0 rgba(255,85,85,0.6);}
+        50%{box-shadow:0 0 0 8px rgba(255,85,85,0);}
+      }
+      @keyframes hnxSparkIn{
+        0%{opacity:0;letter-spacing:0;}
+        100%{opacity:1;letter-spacing:2px;}
+      }
+      .hnx-pulse-header{
+        display:flex;justify-content:space-between;align-items:center;
+        margin:10px 0 4px 0;padding:0 4px;
+      }
+      .hnx-pulse-title{
+        font-family:var(--mono);font-size:13px;font-weight:800;color:${ITCLR};
+        text-transform:uppercase;letter-spacing:.8px;
+      }
+      .hnx-pulse-meta{font-size:10px;color:var(--text3);}
+      .hnx-pulse-refresh{
+        background:transparent;border:1px solid ${ITCLR};color:${ITCLR};
+        padding:4px 10px;border-radius:6px;cursor:pointer;font-family:var(--mono);
+        font-size:10px;font-weight:700;letter-spacing:.5px;
+      }
+      .hnx-pulse-refresh:hover{background:${ITCLR}22;}
+    `;
+    document.head.appendChild(s);
+  }
+
+  function renderTiles(){
+    const view = document.getElementById('view-it_dash');
+    if(!view) return false;
+    injectStyles();
+
+    // Find or create container at the top of the dashboard
+    let host = document.getElementById('hnxP16TilesHost');
+    if(!host){
+      host = document.createElement('div');
+      host.id = 'hnxP16TilesHost';
+      host.style.cssText = 'padding:0 14px;';
+      // Insert at the very top of view-it_dash
+      view.insertBefore(host, view.firstChild);
+    }
+
+    const lastUpd = new Date().toLocaleTimeString();
+    host.innerHTML = `
+      <div class="hnx-pulse-header">
+        <div class="hnx-pulse-title">🎯 IT Command Pulse</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="hnx-pulse-meta">last refresh ${lastUpd}</span>
+          <button class="hnx-pulse-refresh" onclick="window.hnxP16Refresh()">↻ refresh</button>
+        </div>
+      </div>
+      <div class="hnx-pulse-grid">${buildTilesHTML()}</div>
+    `;
+    return true;
+  }
+
+  window.hnxP16Refresh = function(){
+    try { renderTiles(); } catch(e){ warn('refresh fail:',e); }
+  };
+
+  // Hook switchView to render tiles when navigating to IT dashboard
+  function hookSwitchView(){
+    if(typeof window.switchView !== 'function') return false;
+    if(window.switchView._hnxP16Wrapped) return true;
+    const orig = window.switchView;
+    window.switchView = function(viewId){
+      const result = orig.apply(this, arguments);
+      if(viewId === 'it_dash' || viewId === 'it'){
+        setTimeout(() => { try { renderTiles(); } catch(e){ warn('render fail:',e); } }, 150);
+      }
+      return result;
+    };
+    window.switchView._hnxP16Wrapped = true;
+    return true;
+  }
+
+  function run(){
+    let tries = 0;
+    const iv = setInterval(() => {
+      tries++;
+      const ok = hookSwitchView();
+      if(ok || tries > 30){
+        clearInterval(iv);
+        if(ok){
+          log('✅ P16 ready');
+          // Render now if user is already on the dashboard
+          const active = document.querySelector('.view.active');
+          if(active && (active.id === 'view-it_dash')){
+            setTimeout(renderTiles, 200);
+          }
+        }
+      }
+    }, 300);
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+  else setTimeout(run, 1500);
+})();
+</script>
+<!-- ===================== END HNX v2.86-p16-it-pulse-tiles ===================== -->
 
 </body>
 </html>
