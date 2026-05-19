@@ -100623,7 +100623,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p13';
+        vEl.textContent = orig + ' · HNX v2.86-p14';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -133552,6 +133552,155 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.86-p13-it-suite ===================== -->
+
+<!-- ===================== HNX v2.86-p14-raise-call-module-picker (INLINE) ===================== -->
+<script>
+/* ==============================================================================
+   HNX v2.86 P14 — Raise Call universal module picker
+   ----
+   Adds a "📍 Which module is this for?" dropdown at the top of the Raise Call
+   modal so users can pick IT / Maintenance / Irrigation / Logistics / Production /
+   Office (HR/Payroll) regardless of where they click Raise Call from.
+
+   Pre-selects to the source module when the modal opens. Switching the dropdown
+   updates the routing (group/dept/area) WITHOUT clearing user-typed fields.
+   ============================================================================== */
+(function HNX_v286_P14_RaiseCallModulePicker() {
+  const VER = 'v2.86-p14-rcm';
+  function log(...a){ console.log('['+VER+']',...a); }
+  function warn(...a){ console.warn('['+VER+']',...a); }
+
+  const MODULES = [
+    { id: 'production',  label: 'Production',          icon: '🌱', group:'operations', dept:'production',     area:'' },
+    { id: 'maintenance', label: 'Maintenance',         icon: '🔧', group:'operations', dept:'maintenance',    area:'' },
+    { id: 'irrigation',  label: 'Irrigation',          icon: '💧', group:'operations', dept:'maintenance',    area:'', subsystem:'Irrigation' },
+    { id: 'logistics',   label: 'Logistics / Fleet',   icon: '🚚', group:'operations', dept:'drivers_helpers',area:'' },
+    { id: 'it',          label: 'IT',                  icon: '🖥', group:'office',     dept:'admin',          area:'' },
+    { id: 'office',      label: 'Office (HR/Payroll)', icon: '🏢', group:'office',     dept:'hr',             area:'' },
+    { id: 'security',    label: 'Security',            icon: '🛡', group:'operations', dept:'security_guards',area:'' },
+    { id: 'packaging',   label: 'Packaging',           icon: '📦', group:'operations', dept:'packaging',      area:'' }
+  ];
+
+  function mod(id){ return MODULES.find(m=>m.id===id); }
+
+  // Try to infer the module from a sub-view ID (e.g. 'it_task_board' → 'it')
+  function inferModule(sourceId){
+    if(!sourceId) return null;
+    const s = String(sourceId);
+    if(s==='it' || s.indexOf('it_')===0) return 'it';
+    if(s.indexOf('irr_')===0 || s.indexOf('irrigation')>=0) return 'irrigation';
+    if(s.indexOf('maint')===0 || s.indexOf('maintenance')>=0) return 'maintenance';
+    if(s.indexOf('prod')===0 || s.indexOf('production')>=0) return 'production';
+    if(s.indexOf('fleet')>=0 || s==='logistics') return 'logistics';
+    if(s==='hr' || s.indexOf('hr_')===0 || s==='payroll' || s==='attendance' || s==='reconcile') return 'office';
+    if(s==='security') return 'security';
+    if(s==='packaging') return 'packaging';
+    return null;
+  }
+
+  function injectModuleDropdown(){
+    if(document.getElementById('callP14ModulePicker')) return true;
+    const sourceLine = document.getElementById('callSourceLine');
+    if(!sourceLine || !sourceLine.parentNode) return false;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'call-field-row';
+    wrap.id = 'callP14ModuleWrap';
+    wrap.style.cssText = 'background:rgba(103,197,255,0.06);border:1.5px solid #67c5ff;border-radius:7px;padding:9px 11px;margin:6px 0 4px 0;';
+    wrap.innerHTML =
+      '<div class="call-field-label" style="font-weight:700;color:#67c5ff;margin-bottom:5px;">📍 Which module is this call for?</div>'
+      + '<select id="callP14ModulePicker" class="call-select" onchange="hnxP14SwitchModule(this.value)">'
+      +   MODULES.map(m=>'<option value="'+m.id+'">'+m.icon+' '+m.label+'</option>').join('')
+      + '</select>'
+      + '<div style="font-size:10px;color:var(--text3);margin-top:5px;">Routing automatically updates Group / Department below.</div>';
+
+    sourceLine.parentNode.insertBefore(wrap, sourceLine.nextSibling);
+    log('Module picker injected');
+    return true;
+  }
+
+  window.hnxP14SwitchModule = function(modId){
+    const m = mod(modId);
+    if(!m) return;
+    if(!window._callDraft){ warn('no _callDraft'); return; }
+
+    // Update draft (preserve user-typed fields: subject/desc/equipment/etc.)
+    window._callDraft.sourceModule = modId;
+    window._callDraft.sourceLabel  = m.label;
+    window._callDraft.group        = m.group;
+    window._callDraft.department   = m.dept;
+    window._callDraft.area         = m.area || '';
+    if(m.subsystem) window._callDraft.subsystem = m.subsystem;
+
+    // Update source pill display
+    const sp = document.getElementById('callSourceLine');
+    if(sp) sp.textContent = 'Routing: ' + m.icon + ' ' + m.label;
+
+    // Toggle group buttons
+    document.querySelectorAll('.call-group-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.g === m.group);
+    });
+
+    // Re-render dept + area
+    try { if(typeof window._renderDeptOptions === 'function') window._renderDeptOptions(); } catch(e){ warn('_renderDeptOptions fail:',e); }
+    try { if(typeof window._renderAreaPicker  === 'function') window._renderAreaPicker();  } catch(e){ warn('_renderAreaPicker fail:',e); }
+
+    // Force dept dropdown to match
+    setTimeout(() => {
+      const deptSel = document.getElementById('callDept');
+      if(deptSel && deptSel.value !== m.dept) {
+        deptSel.value = m.dept;
+        try { if(typeof window.onCallDeptChange === 'function') window.onCallDeptChange(m.dept); } catch(e){}
+      }
+    }, 60);
+  };
+
+  function hookOpenCallModal(){
+    if(typeof window.openCallModal !== 'function') return false;
+    if(window.openCallModal._hnxP14Wrapped) return true;
+    const orig = window.openCallModal;
+    window.openCallModal = function(sourceModuleId, sourceLabel){
+      // Ensure dropdown exists (modal is created by injectModalsAndButtons; it may not yet exist on first call)
+      setTimeout(injectModuleDropdown, 30);
+
+      // Call original
+      const result = orig.apply(this, arguments);
+
+      // Pre-select dropdown to current source
+      setTimeout(() => {
+        const picker = document.getElementById('callP14ModulePicker');
+        if(!picker) return;
+        const inferred = inferModule(sourceModuleId) || 'production';
+        picker.value = inferred;
+        // Also re-run the switch logic to make the source line pretty
+        try { hnxP14SwitchModule(inferred); } catch(e){ warn('initial switch fail:',e); }
+      }, 80);
+
+      return result;
+    };
+    window.openCallModal._hnxP14Wrapped = true;
+    log('openCallModal wrapped');
+    return true;
+  }
+
+  function run(){
+    let tries = 0;
+    const iv = setInterval(() => {
+      tries++;
+      const ok = hookOpenCallModal();
+      // Also try to inject the dropdown now in case modal already exists
+      if(document.getElementById('callModal')) injectModuleDropdown();
+      if(ok || tries > 30){
+        clearInterval(iv);
+        if(ok) log('✅ P14 ready');
+      }
+    }, 300);
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+  else setTimeout(run, 1100);
+})();
+</script>
+<!-- ===================== END HNX v2.86-p14-raise-call-module-picker ===================== -->
 
 </body>
 </html>
