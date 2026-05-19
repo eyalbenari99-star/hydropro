@@ -19824,8 +19824,8 @@ const MODULES={
   // =========== OPERATIONS (Core Daily) ===========
   maintenance:{
     icon:'🔧',
-    name:'MAIN & IT',
-    description:'Maintenance + IT unified: tasks, PM schedules, equipment & machines hub (radios/ozone/RO/tools/CCTV/IT-devices/cold/pumps/etc.), spare parts, calls matrix',
+    name:'MAINTENANCE',
+    description:'Maintenance: tasks, PM schedules, equipment & machines hub (radios/ozone/RO/tools/cold/pumps/etc.), spare parts, calls matrix. IT is now a separate module (split v2.86-p2).',
     views:[
       {id:'maint_cmd',label:'🎯 Command Center',perm:'viewMaintenance',title:'Maintenance Command Center · cameras + KPIs + AI Brain · cockpit view'},
       {id:'maint_dash',label:'Dashboard',perm:'viewMaintenance'},
@@ -19845,23 +19845,24 @@ const MODULES={
       {id:'maint_ro',label:'💧 RO',perm:'viewMaintenance',hidden:true},
       {id:'maint_radio',label:'📻 Radio',perm:'viewMaintenance',hidden:true},
       {id:'maint_tools',label:'🔧 Tools',perm:'viewMaintenance',hidden:true},
-      {id:'maint_nft',label:'📏 NFT Pipes',perm:'viewMaintenance',hidden:true},
-      // IT views — merged into Maintenance & IT, kept hidden so the top tab bar stays clean.
-      // Reachable from the Equipment hub dropdown's "Dedicated Modules" section.
-      {id:'it_cctv',label:'📹 CCTV',perm:'viewMaintenance',hidden:true},
-      {id:'it_radios',label:'📻 Radios (IT)',perm:'viewMaintenance',hidden:true},
-      {id:'it_devices',label:'🖥️ IT Devices',perm:'viewMaintenance',hidden:true},
-      {id:'it_prj11',label:'🏭 PRJ11 Devices',perm:'viewMaintenance',hidden:true}
+      {id:'maint_nft',label:'📏 NFT Pipes',perm:'viewMaintenance',hidden:true}
+      // IT views moved to dedicated IT module in v2.86-p2 split
     ]
   },
-  // Old standalone IT module — DISABLED after merge into Maintenance & IT (v2.46.24).
-  // Kept here as a stub with disabled:true so any legacy reference doesn't crash.
+  // IT module — re-enabled as standalone in v2.86-p2 (split from Maintenance & IT)
+  // Caller-approval workflow added via v2.86-p1 helpers (hnxApproveIssue / hnxRejectIssue / etc.)
   it:{
-    icon:'💻',
-    name:'IT (merged → Maintenance & IT)',
-    description:'Merged into Maintenance & IT. Access via Equipment & Machines hub.',
-    disabled:true,
-    views:[]
+    icon:'🖥',
+    name:'IT',
+    description:'IT: CCTV, radios, IT devices, computers/printers/TVs, PRJ11 devices, network. Tickets follow caller-approval flow (tech marks Ready → caller confirms → close).',
+    views:[
+      {id:'it_dash',label:'🎯 Dashboard',perm:'viewMaintenance',title:'IT module overview · open tickets · pending approvals · KPIs'},
+      {id:'it_cctv',label:'📹 CCTV',perm:'viewMaintenance',title:'CCTV cameras, DVR/NVR, viewing'},
+      {id:'it_radios',label:'📻 Radios',perm:'viewMaintenance',title:'Radios and communication devices'},
+      {id:'it_devices',label:'🖥️ IT Devices',perm:'viewMaintenance',title:'Computers, printers, TVs, monitors, network equipment'},
+      {id:'it_prj11',label:'🏭 PRJ11 Devices',perm:'viewMaintenance',title:'PRJ11-specific IT devices'},
+      {id:'it_calls',label:'📞 IT Calls',perm:'viewMaintenance',title:'IT-module open calls · Pending Approvals · Approve/Reject'}
+    ]
   },
   irrigation:{
     icon:'💧',
@@ -130936,6 +130937,441 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.86-p1-itmaint ===================== -->
+
+<!-- ===================== HNX v2.86-p2-itmaint-ui (INLINE) ===================== -->
+<script>
+/* ==============================================================================
+   HNX v2.86 P2 — IT + Maintenance Split: UI Layer
+   --------------------------------------------------------------------------
+   - Module definitions already edited above:
+       maintenance:'MAINTENANCE' (was 'MAIN & IT')
+       it:'IT' standalone (was disabled stub)
+   - This patch handles RUNTIME UI: creates the new IT view containers
+     (it_dash, it_calls) and injects approval-workflow UI components.
+   - Updates "Back to Equipment Hub" links in IT views to stay inside IT module.
+   - Adds "Pending Approvals" badge to topbar for caller users.
+   Idempotent. Safe alongside cloudfix + topbar + P1.
+   ============================================================================== */
+(function HNX_v286_P2_UI() {
+  const VER = 'v2.86-p2-itmaint-ui';
+  function log(...a){ console.log(`[${VER}]`, ...a); }
+  function warn(...a){ console.warn(`[${VER}]`, ...a); }
+
+  // ── Styles for new components ──
+  function injectStyles() {
+    if (document.getElementById('hnx-v286-p2-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'hnx-v286-p2-styles';
+    s.textContent = `
+      /* IT Dashboard styles */
+      .it-dash-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;padding:20px;}
+      .it-dash-card{background:var(--surface,#0a1a14);border:1.5px solid var(--border,#1a3a2a);border-radius:12px;padding:18px;position:relative;overflow:hidden;}
+      .it-dash-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#4a90e2 0%,#67c5ff 100%);}
+      .it-dash-card-title{font-size:11px;font-weight:700;color:var(--text3,#7aa9aa);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;}
+      .it-dash-card-value{font-size:32px;font-weight:800;color:var(--text,#9fffaf);margin-bottom:4px;}
+      .it-dash-card-sub{font-size:11px;color:var(--text2,#a8c8b8);}
+      .it-dash-actions{display:flex;flex-wrap:wrap;gap:10px;padding:0 20px 20px;}
+      .it-dash-btn{background:var(--surface2,#0e2118);border:1.5px solid var(--accent,#2eaa2e);color:var(--accent,#2eaa2e);padding:10px 18px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;transition:all .15s;}
+      .it-dash-btn:hover{background:var(--accent,#2eaa2e);color:#000;}
+      .it-section-title{padding:18px 20px 8px;font-size:13px;font-weight:700;color:var(--text2,#a8c8b8);text-transform:uppercase;letter-spacing:.7px;}
+
+      /* Pending approval badge in topbar */
+      #hnx-pending-approval-badge{position:relative;display:none;align-items:center;gap:6px;background:#3a1f00;color:#ffb84d;border:1.5px solid #ff9c33;padding:6px 12px;border-radius:6px;font-family:monospace;font-size:11px;font-weight:700;cursor:pointer;margin-left:8px;animation:hnxPendingPulse 2s infinite;}
+      #hnx-pending-approval-badge.show{display:inline-flex;}
+      @keyframes hnxPendingPulse{0%,100%{box-shadow:0 0 0 0 rgba(255,156,51,.4);}50%{box-shadow:0 0 0 6px rgba(255,156,51,0);}}
+
+      /* Approval modal */
+      #hnx-approval-modal{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:100000;display:none;align-items:center;justify-content:center;padding:20px;}
+      #hnx-approval-modal.show{display:flex;}
+      .hnx-am-card{background:#0a1a14;border:2px solid #2eaa2e;border-radius:12px;padding:24px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;font-family:monospace;color:#9fffaf;}
+      .hnx-am-title{font-size:18px;font-weight:800;margin-bottom:6px;color:#fff;}
+      .hnx-am-meta{font-size:11px;color:#7aa9aa;margin-bottom:14px;text-transform:uppercase;letter-spacing:.5px;}
+      .hnx-am-desc{background:#06120a;padding:12px;border-radius:6px;font-size:13px;margin-bottom:16px;line-height:1.5;white-space:pre-wrap;border-left:3px solid #2eaa2e;}
+      .hnx-am-actions{display:flex;gap:10px;flex-wrap:wrap;}
+      .hnx-am-btn{padding:11px 18px;border-radius:8px;border:1.5px solid;background:transparent;color:inherit;font:inherit;cursor:pointer;font-weight:700;}
+      .hnx-am-btn.approve{border-color:#2eaa2e;color:#2eaa2e;}
+      .hnx-am-btn.approve:hover{background:#2eaa2e;color:#000;}
+      .hnx-am-btn.reject{border-color:#ff5555;color:#ff5555;}
+      .hnx-am-btn.reject:hover{background:#ff5555;color:#000;}
+      .hnx-am-btn.close{border-color:#666;color:#aaa;}
+      .hnx-am-btn.close:hover{background:#333;}
+      .hnx-am-reason-box{width:100%;background:#06120a;border:1.5px solid #2eaa2e;color:#9fffaf;padding:10px;border-radius:6px;font:inherit;font-size:13px;margin:10px 0;resize:vertical;min-height:80px;}
+
+      /* Pending approvals list (in IT Calls view) */
+      .hnx-pending-list{padding:12px 20px;}
+      .hnx-pending-item{background:var(--surface2,#0e2118);border:1.5px solid var(--border,#1a3a2a);border-left:3px solid #ff9c33;border-radius:6px;padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:12px;cursor:pointer;transition:all .15s;}
+      .hnx-pending-item:hover{border-color:#ff9c33;background:rgba(255,156,51,.05);}
+      .hnx-pi-info{flex:1;min-width:0;}
+      .hnx-pi-title{font-weight:700;color:var(--text,#9fffaf);font-size:13px;margin-bottom:3px;}
+      .hnx-pi-meta{font-size:11px;color:var(--text3,#7aa9aa);}
+      .hnx-pi-action{background:#2eaa2e;color:#000;border:none;padding:7px 14px;border-radius:5px;font:inherit;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;}
+      .hnx-empty{padding:24px;text-align:center;color:var(--text3,#7aa9aa);font-style:italic;}
+    `;
+    document.head.appendChild(s);
+    log('Styles injected');
+  }
+
+  // ── Create missing IT view containers (it_dash, it_calls) ──
+  function ensureITViewContainers() {
+    const lastITView = document.getElementById('view-it_prj11');
+    if (!lastITView) {
+      warn('view-it_prj11 not found, cannot anchor new IT views');
+      return;
+    }
+
+    // it_dash container
+    if (!document.getElementById('view-it_dash')) {
+      const dash = document.createElement('div');
+      dash.className = 'view';
+      dash.id = 'view-it_dash';
+      dash.innerHTML = `<div id="hnxItDashBody"><div class="hnx-empty">Loading IT dashboard…</div></div>`;
+      lastITView.parentNode.insertBefore(dash, lastITView);
+      log('Created view-it_dash');
+    }
+    // it_calls container
+    if (!document.getElementById('view-it_calls')) {
+      const calls = document.createElement('div');
+      calls.className = 'view';
+      calls.id = 'view-it_calls';
+      calls.innerHTML = `<div id="hnxItCallsBody"><div class="hnx-empty">Loading IT calls…</div></div>`;
+      lastITView.parentNode.insertBefore(calls, lastITView.nextSibling);
+      log('Created view-it_calls');
+    }
+  }
+
+  // ── Render IT Dashboard ──
+  function renderITDashboard() {
+    const host = document.getElementById('hnxItDashBody');
+    if (!host) return;
+
+    const issues = JSON.parse(localStorage.getItem('hydroPro_issues_v2') || '[]');
+    const itIssues = issues.filter(i => i.module === 'it');
+    const open = itIssues.filter(i => ['open','assigned','in_progress'].includes(i.status));
+    const pending = itIssues.filter(i => i.status === 'resolved');
+    const closed = itIssues.filter(i => ['approved','cancelled'].includes(i.status));
+
+    host.innerHTML = `
+      <div class="it-section-title">🖥 IT Module · Overview</div>
+      <div class="it-dash-grid">
+        <div class="it-dash-card">
+          <div class="it-dash-card-title">Open Tickets</div>
+          <div class="it-dash-card-value">${open.length}</div>
+          <div class="it-dash-card-sub">Active IT calls in queue</div>
+        </div>
+        <div class="it-dash-card" style="border-left:3px solid #ff9c33;">
+          <div class="it-dash-card-title">⏳ Pending Approval</div>
+          <div class="it-dash-card-value" style="color:#ff9c33;">${pending.length}</div>
+          <div class="it-dash-card-sub">Resolved · waiting for caller</div>
+        </div>
+        <div class="it-dash-card">
+          <div class="it-dash-card-title">Closed</div>
+          <div class="it-dash-card-value">${closed.length}</div>
+          <div class="it-dash-card-sub">Approved & complete</div>
+        </div>
+        <div class="it-dash-card">
+          <div class="it-dash-card-title">Total IT Tickets</div>
+          <div class="it-dash-card-value">${itIssues.length}</div>
+          <div class="it-dash-card-sub">All time</div>
+        </div>
+      </div>
+      <div class="it-section-title">Quick Access</div>
+      <div class="it-dash-actions">
+        <button class="it-dash-btn" onclick="switchView('it_calls')">📞 View IT Calls</button>
+        <button class="it-dash-btn" onclick="switchView('it_cctv')">📹 CCTV</button>
+        <button class="it-dash-btn" onclick="switchView('it_devices')">🖥️ IT Devices</button>
+        <button class="it-dash-btn" onclick="switchView('it_radios')">📻 Radios</button>
+        <button class="it-dash-btn" onclick="switchView('it_prj11')">🏭 PRJ11</button>
+      </div>
+    `;
+  }
+
+  // ── Render IT Calls view (open + pending approvals) ──
+  function renderITCalls() {
+    const host = document.getElementById('hnxItCallsBody');
+    if (!host) return;
+
+    const u = (typeof getCurrentUser === 'function' ? getCurrentUser() : null);
+    const username = (u && u.username) || 'unknown';
+
+    const issues = JSON.parse(localStorage.getItem('hydroPro_issues_v2') || '[]');
+    const itIssues = issues.filter(i => i.module === 'it');
+    const myPending = itIssues.filter(i => i.status === 'resolved' && i.createdBy === username);
+    const allPending = itIssues.filter(i => i.status === 'resolved');
+    const open = itIssues.filter(i => ['open','assigned','in_progress'].includes(i.status));
+
+    const fmtTime = (ts) => {
+      if (!ts) return '—';
+      const diff = Date.now() - ts;
+      const h = Math.floor(diff/3600000);
+      const d = Math.floor(h/24);
+      if (d > 0) return `${d}d ago`;
+      if (h > 0) return `${h}h ago`;
+      return `${Math.floor(diff/60000)}m ago`;
+    };
+
+    const renderItem = (i, showApprove) => `
+      <div class="hnx-pending-item" onclick="window._hnxOpenApprovalModal && window._hnxOpenApprovalModal('${i.id}')">
+        <div class="hnx-pi-info">
+          <div class="hnx-pi-title">${(i.title || '(no title)').replace(/[<>]/g,'')}</div>
+          <div class="hnx-pi-meta">
+            ${i.priority ? `<span style="color:#ff9c33;">[${i.priority.toUpperCase()}]</span> · ` : ''}
+            ${i.id} · Filed by ${i.createdByName || i.createdBy || 'unknown'}${i.filed_for ? ` for ${i.filed_for}` : ''}
+            · ${i.awaiting_approval_since ? `Pending ${fmtTime(i.awaiting_approval_since)}` : `Status: ${i.status}`}
+          </div>
+        </div>
+        ${showApprove ? `<button class="hnx-pi-action" onclick="event.stopPropagation();window._hnxOpenApprovalModal('${i.id}')">Review</button>` : ''}
+      </div>
+    `;
+
+    host.innerHTML = `
+      <div class="it-section-title">⏳ My Pending Approvals (${myPending.length})</div>
+      <div class="hnx-pending-list">
+        ${myPending.length ? myPending.map(i => renderItem(i, true)).join('') : '<div class="hnx-empty">No tickets waiting for your approval.</div>'}
+      </div>
+      <div class="it-section-title">📋 All Pending Approvals — Manager View (${allPending.length})</div>
+      <div class="hnx-pending-list">
+        ${allPending.length ? allPending.map(i => renderItem(i, false)).join('') : '<div class="hnx-empty">No pending approvals across the team.</div>'}
+      </div>
+      <div class="it-section-title">🔧 Open IT Tickets (${open.length})</div>
+      <div class="hnx-pending-list">
+        ${open.length ? open.map(i => renderItem(i, false)).join('') : '<div class="hnx-empty">No open IT tickets.</div>'}
+      </div>
+    `;
+  }
+
+  // ── Approval modal ──
+  function ensureApprovalModal() {
+    if (document.getElementById('hnx-approval-modal')) return;
+    const m = document.createElement('div');
+    m.id = 'hnx-approval-modal';
+    m.innerHTML = `<div class="hnx-am-card" id="hnxAmCard"></div>`;
+    m.addEventListener('click', (e) => { if (e.target === m) closeApprovalModal(); });
+    document.body.appendChild(m);
+  }
+
+  function openApprovalModal(issueId) {
+    ensureApprovalModal();
+    const issues = JSON.parse(localStorage.getItem('hydroPro_issues_v2') || '[]');
+    const iss = issues.find(i => i.id === issueId);
+    if (!iss) return;
+    const u = (typeof getCurrentUser === 'function' ? getCurrentUser() : null);
+    const username = (u && u.username) || 'unknown';
+    const canApprove = (iss.status === 'resolved') && (iss.createdBy === username || (u && u.role === 'admin'));
+    const isManager = (u && (u.role === 'admin' || u.role === 'manager'));
+
+    const card = document.getElementById('hnxAmCard');
+    card.innerHTML = `
+      <div class="hnx-am-title">${(iss.title || '(no title)').replace(/[<>]/g,'')}</div>
+      <div class="hnx-am-meta">${iss.id} · ${iss.module?.toUpperCase()} · ${iss.priority?.toUpperCase()} · Status: ${iss.status}</div>
+      <div style="font-size:12px;color:#a8c8b8;margin-bottom:10px;">
+        Filed by <strong>${iss.createdByName || iss.createdBy}</strong>${iss.filed_for ? ` for <strong>${iss.filed_for}</strong>` : ''}<br>
+        ${iss.assigned_to ? `Assigned to <strong>${iss.assignedToName || iss.assigned_to}</strong><br>` : ''}
+        ${iss.awaiting_approval_since ? `Resolved · awaiting your confirmation<br>` : ''}
+        Rejections so far: <strong>${iss.rejection_count || 0}</strong>
+      </div>
+      <div class="hnx-am-desc">${(iss.description || '(no description)').replace(/[<>]/g,'')}</div>
+      <div id="hnxAmRejectBox" style="display:none;">
+        <div style="font-size:12px;color:#ff8888;margin-bottom:4px;">Why is this not done? (required)</div>
+        <textarea id="hnxAmReason" class="hnx-am-reason-box" placeholder="Tell the tech what's still missing or wrong..."></textarea>
+      </div>
+      <div class="hnx-am-actions">
+        ${canApprove ? `
+          <button class="hnx-am-btn approve" id="hnxAmApprove">✓ Approve & Close</button>
+          <button class="hnx-am-btn reject" id="hnxAmRejectShow">✗ Reject</button>
+        ` : ''}
+        ${(!canApprove && iss.status === 'resolved' && isManager) ? `
+          <button class="hnx-am-btn reject" id="hnxAmManagerClose">⚙ Manager: Force Close (caller unresponsive)</button>
+        ` : ''}
+        <button class="hnx-am-btn close" id="hnxAmCancel">Close</button>
+      </div>
+      <div id="hnxAmRejectConfirm" style="display:none;margin-top:10px;">
+        <button class="hnx-am-btn reject" id="hnxAmDoReject">Confirm Rejection</button>
+      </div>
+    `;
+    document.getElementById('hnx-approval-modal').classList.add('show');
+
+    // Wire buttons
+    const approveBtn = document.getElementById('hnxAmApprove');
+    if (approveBtn) approveBtn.onclick = () => {
+      const r = window.hnxApproveIssue(iss.id, username);
+      if (r.ok) {
+        if (typeof toast === 'function') toast('✓ Approved & closed: ' + iss.id);
+        closeApprovalModal();
+        refreshAllViews();
+      } else {
+        alert('Could not approve: ' + (r.reason || 'unknown'));
+      }
+    };
+
+    const rejectShowBtn = document.getElementById('hnxAmRejectShow');
+    if (rejectShowBtn) rejectShowBtn.onclick = () => {
+      document.getElementById('hnxAmRejectBox').style.display = 'block';
+      document.getElementById('hnxAmRejectConfirm').style.display = 'block';
+      rejectShowBtn.style.display = 'none';
+    };
+
+    const doRejectBtn = document.getElementById('hnxAmDoReject');
+    if (doRejectBtn) doRejectBtn.onclick = () => {
+      const reason = (document.getElementById('hnxAmReason').value || '').trim();
+      if (!reason) { alert('Please type a reason — required.'); return; }
+      const r = window.hnxRejectIssue(iss.id, reason, username);
+      if (r.ok) {
+        if (typeof toast === 'function') toast('✗ Rejected: ' + iss.id);
+        closeApprovalModal();
+        refreshAllViews();
+      } else {
+        alert('Could not reject: ' + (r.reason || 'unknown'));
+      }
+    };
+
+    const managerCloseBtn = document.getElementById('hnxAmManagerClose');
+    if (managerCloseBtn) managerCloseBtn.onclick = () => {
+      const note = prompt('Reason for force-closing (caller unresponsive):', 'Caller did not respond after reminders');
+      if (note === null) return;
+      const r = window.hnxManagerForceClose(iss.id, username, note);
+      if (r.ok) {
+        if (typeof toast === 'function') toast('⚙ Manager force-closed: ' + iss.id);
+        closeApprovalModal();
+        refreshAllViews();
+      } else {
+        alert('Could not close: ' + (r.reason || 'unknown'));
+      }
+    };
+
+    const cancelBtn = document.getElementById('hnxAmCancel');
+    if (cancelBtn) cancelBtn.onclick = closeApprovalModal;
+  }
+
+  function closeApprovalModal() {
+    const m = document.getElementById('hnx-approval-modal');
+    if (m) m.classList.remove('show');
+  }
+
+  window._hnxOpenApprovalModal = openApprovalModal;
+  window._hnxCloseApprovalModal = closeApprovalModal;
+
+  // ── Topbar pending-approvals badge ──
+  function ensurePendingBadge() {
+    if (document.getElementById('hnx-pending-approval-badge')) return;
+    // Find topbar — try common selectors used in HydroNexis-AI
+    const candidates = ['#topbarRight', '.topbar-right', '#topbar', '.topbar', 'header', '#appHeader'];
+    let host = null;
+    for (const sel of candidates) {
+      host = document.querySelector(sel);
+      if (host) break;
+    }
+    if (!host) {
+      // Fallback: position fixed
+      const badge = document.createElement('div');
+      badge.id = 'hnx-pending-approval-badge';
+      badge.style.position = 'fixed';
+      badge.style.top = '14px';
+      badge.style.right = '420px';
+      badge.style.zIndex = '99998';
+      badge.onclick = () => { if (typeof switchView === 'function') switchView('it_calls'); };
+      document.body.appendChild(badge);
+    } else {
+      const badge = document.createElement('div');
+      badge.id = 'hnx-pending-approval-badge';
+      badge.onclick = () => { if (typeof switchView === 'function') switchView('it_calls'); };
+      host.appendChild(badge);
+    }
+  }
+
+  function updatePendingBadge() {
+    const badge = document.getElementById('hnx-pending-approval-badge');
+    if (!badge) return;
+    const u = (typeof getCurrentUser === 'function' ? getCurrentUser() : null);
+    const username = (u && u.username) || null;
+    if (!username) { badge.classList.remove('show'); return; }
+
+    const issues = JSON.parse(localStorage.getItem('hydroPro_issues_v2') || '[]');
+    const myPending = issues.filter(i => i.status === 'resolved' && i.createdBy === username);
+
+    if (myPending.length > 0) {
+      badge.innerHTML = `🎫 ${myPending.length} awaiting your approval`;
+      badge.classList.add('show');
+      badge.title = `Click to review ${myPending.length} ticket(s)`;
+    } else {
+      badge.classList.remove('show');
+    }
+  }
+
+  // ── Fix "Back to Equipment Hub" links in IT views to stay in IT module ──
+  function fixITBackLinks() {
+    ['it_cctv','it_radios','it_devices','it_prj11'].forEach(viewId => {
+      const view = document.getElementById('view-' + viewId);
+      if (!view) return;
+      const backLink = view.querySelector('a[onclick*="maint_equipment"]');
+      if (backLink) {
+        backLink.setAttribute('onclick', "switchView('it_dash');return false;");
+        backLink.textContent = '← Back to IT Dashboard';
+      }
+    });
+  }
+
+  // ── Refresh dashboards/calls if currently visible ──
+  function refreshAllViews() {
+    if (document.getElementById('view-it_dash')?.classList.contains('active')) renderITDashboard();
+    if (document.getElementById('view-it_calls')?.classList.contains('active')) renderITCalls();
+    updatePendingBadge();
+  }
+
+  // ── Hook switchView so we re-render when entering IT views ──
+  function hookSwitchView() {
+    if (typeof window.switchView !== 'function') {
+      warn('switchView not available yet, will retry');
+      return false;
+    }
+    if (window.switchView._hnxP2Wrapped) return true;
+    const orig = window.switchView;
+    window.switchView = function(viewId, ...rest) {
+      const result = orig.apply(this, [viewId, ...rest]);
+      try {
+        if (viewId === 'it_dash') renderITDashboard();
+        if (viewId === 'it_calls') renderITCalls();
+        updatePendingBadge();
+      } catch(e) { warn('post-switch render failed:', e); }
+      return result;
+    };
+    window.switchView._hnxP2Wrapped = true;
+    log('switchView hooked');
+    return true;
+  }
+
+  // ── Main run ──
+  function run() {
+    injectStyles();
+    ensureITViewContainers();
+    ensureApprovalModal();
+    ensurePendingBadge();
+    fixITBackLinks();
+    
+    // Hook switchView (retry if not ready)
+    if (!hookSwitchView()) {
+      let tries = 0;
+      const iv = setInterval(() => {
+        tries++;
+        if (hookSwitchView() || tries > 20) clearInterval(iv);
+      }, 250);
+    }
+
+    // Initial badge update
+    setTimeout(updatePendingBadge, 500);
+    // Refresh badge every 30s
+    setInterval(updatePendingBadge, 30000);
+
+    log('✅ P2 UI ready — IT module standalone, approval workflow live');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run);
+  } else {
+    setTimeout(run, 200); // small delay for module system to init
+  }
+})();
+</script>
+<!-- ===================== END HNX v2.86-p2-itmaint-ui ===================== -->
 
 </body>
 </html>
