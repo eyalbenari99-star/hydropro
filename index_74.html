@@ -100599,7 +100599,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.85.7d-cloudfix';
+        vEl.textContent = orig + ' · HNX v2.85.7e-cloudfix';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -129798,7 +129798,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 </script>
 <!-- ===================== END HNX v2.85.2 ===================== -->
 
-<!-- ===================== HNX v2.85.7d-cloudfix (INLINE) ===================== -->
+<!-- ===================== HNX v2.85.7e-cloudfix (INLINE) ===================== -->
 <!-- Cloud sync auto-fix patch · Eyal+Claude 2026-05-19 · INLINE VERSION -->
 <!-- Self-contained: no external file needed. Auto-runs cloud sync self-test. -->
 <!-- Shows top banner (green=OK, yellow=needs login, red=fail). -->
@@ -129806,7 +129806,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 (function () {
   'use strict';
 
-  const PATCH_VERSION = 'v2.85.7d-cloudfix';
+  const PATCH_VERSION = 'v2.85.7e-cloudfix';
   const WORKER_URL    = 'https://hnx-sync.eyalbenari99.workers.dev';
   const CLOUD_USER    = 'eyal';
   const TOK_KEY       = 'hnx_cloud_token';
@@ -130129,19 +130129,18 @@ body.hnx-mobile-locked { overflow: hidden; }
   }
 
   // ---------- Cosmetic: fix the "Cloud OFF" top-bar indicator ----------
-  // The app has an old indicator (#hnxSyncIndicator) tied to an unused
-  // Firebase system. We re-render it to show our REAL cloud status.
+  // Targets TWO separate indicators that exist in the app:
+  //   1) #hnxSyncIndicator (old Firebase-style; appears in topbar)
+  //   2) #hnx-cloud-badge  (newer pill in top-right; tied to hnx-cloud-js)
+  // Both read different states; we override BOTH with our real cloud status.
   function refreshIndicator() {
     try {
-      const el = document.getElementById('hnxSyncIndicator');
-      if (!el) return false;
-
       const token   = localStorage.getItem(TOK_KEY);
       const lastIso = localStorage.getItem(LAST_KEY);
       const online  = navigator.onLine !== false;
 
+      // ---- Compute friendly status text ----
       let icon, text, color, title;
-
       if (!online) {
         icon = '⚠'; text = 'Offline'; color = '#ffca52';
         title = 'Cloud sync · offline (no network)';
@@ -130166,31 +130165,49 @@ body.hnx-mobile-locked { overflow: hidden; }
         } else {
           const h = Math.floor(ageMin / 60);
           icon = '◌'; text = 'Synced ' + h + 'h'; color = '#ffca52';
-          title = 'Cloud sync · last sync ' + h + ' hours ago · refresh recommended';
+          title = 'Cloud sync · last sync ' + h + ' hours ago';
         }
       }
 
-      el.innerHTML =
-        '<span style="color:' + color + '">' + icon + '</span> ' +
-        '<span style="color:' + color + ';font-weight:700">' + text + '</span>';
-      el.title = title;
+      let updatedAny = false;
 
-      // Make it clickable: re-run cloud test
-      if (!el.__hnxFixWired) {
-        const orig = el.onclick;
-        el.onclick = function (e) {
-          if (e) { e.preventDefault(); e.stopPropagation(); }
-          log('Indicator clicked → re-running cloud sync test');
-          if (window.HNX_CloudFix && window.HNX_CloudFix.rerun) {
-            window.HNX_CloudFix.rerun();
-          } else if (typeof orig === 'function') {
-            orig.call(el, e);
-          }
-        };
-        el.__hnxFixWired = true;
+      // ---- Target 1: #hnxSyncIndicator (old topbar element) ----
+      const el1 = document.getElementById('hnxSyncIndicator');
+      if (el1) {
+        el1.innerHTML =
+          '<span style="color:' + color + '">' + icon + '</span> ' +
+          '<span style="color:' + color + ';font-weight:700">' + text + '</span>';
+        el1.title = title;
+        if (!el1.__hnxFixWired) {
+          el1.onclick = function (e) {
+            if (e) { e.preventDefault(); e.stopPropagation(); }
+            log('Indicator-1 clicked → re-running cloud sync test');
+            if (window.HNX_CloudFix && window.HNX_CloudFix.rerun) {
+              window.HNX_CloudFix.rerun();
+            }
+          };
+          el1.__hnxFixWired = true;
+        }
+        updatedAny = true;
       }
 
-      return true;
+      // ---- Target 2: #hnx-cloud-badge (top-right pill, the visible one) ----
+      const el2 = document.getElementById('hnx-cloud-badge');
+      if (el2) {
+        const dot = el2.querySelector('.dot');
+        const lbl = el2.querySelector('.lbl');
+        if (lbl) lbl.textContent = text;
+        if (dot) {
+          dot.className = 'dot';
+          if (!online) dot.classList.add('off');
+          else if (!token) dot.classList.add('off');
+          // synced → no extra class, dot stays default green
+        }
+        el2.title = title;
+        updatedAny = true;
+      }
+
+      return updatedAny;
     } catch (e) {
       err('refreshIndicator failed:', e);
       return false;
@@ -130235,6 +130252,6 @@ body.hnx-mobile-locked { overflow: hidden; }
   };
 })();
 </script>
-<!-- ===================== END HNX v2.85.7d-cloudfix ===================== -->
+<!-- ===================== END HNX v2.85.7e-cloudfix ===================== -->
 </body>
 </html>
