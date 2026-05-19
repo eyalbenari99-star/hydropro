@@ -100623,7 +100623,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p6';
+        vEl.textContent = orig + ' · HNX v2.86-p7';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -132074,6 +132074,739 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.86-p6 ===================== -->
+
+<!-- ===================== HNX v2.86-p7-it-task-board (INLINE) ===================== -->
+<script>
+/* ==============================================================================
+   HNX v2.86 P7 — IT Task Board (full custom build)
+   --------------------------------------------------------------------------
+   Replaces the build-queue placeholder from P6.
+
+   Storage: hydroPro_issues_v2 filtered by module='it' (tasks + calls unified)
+   Categories: CCTV · Network · Computers · Printers · Radios · Servers ·
+               Software · User Support · Phones · Security · PRJ11 + custom
+   Display: Kanban (drag) + List (sortable), toggle button
+   Workflow: Open → Assigned → In Progress → Resolved → Approved
+   Uses P1 helpers: hnxMarkReadyToClose / hnxApproveIssue / hnxRejectIssue
+   Photos: optional, before/after, stored in attachments[]
+   Filters: tech assignee · category chips · priority · type
+   Idempotent.
+   ============================================================================== */
+(function HNX_v286_P7_TaskBoard() {
+  const VER = 'v2.86-p7-tb';
+  function log(...a){ console.log(`[${VER}]`, ...a); }
+
+  const ISSUES_KEY  = 'hydroPro_issues_v2';
+  const SETTINGS_KEY = 'hydroPro_it_settings_v1';
+
+  // ── Default IT categories with colors ──
+  const DEFAULT_CATEGORIES = [
+    { id: 'cctv',         label: 'CCTV',         color: '#67c5ff' },
+    { id: 'network',      label: 'Network',      color: '#4a90e2' },
+    { id: 'computers',    label: 'Computers',    color: '#9fffaf' },
+    { id: 'printers',     label: 'Printers',     color: '#c0a0ff' },
+    { id: 'radios',       label: 'Radios',       color: '#ffb84d' },
+    { id: 'servers',      label: 'Servers',      color: '#ff8c66' },
+    { id: 'software',     label: 'Software',     color: '#67e0c5' },
+    { id: 'user_support', label: 'User Support', color: '#ffa3d3' },
+    { id: 'phones',       label: 'Phones',       color: '#80d8ff' },
+    { id: 'security',     label: 'Security',     color: '#ff5566' },
+    { id: 'prj11',        label: 'PRJ11',        color: '#d4af37' }
+  ];
+
+  // ── Settings load/save ──
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (!Array.isArray(s.categories) || s.categories.length === 0) s.categories = DEFAULT_CATEGORIES;
+        return s;
+      }
+    } catch(e){}
+    return { categories: DEFAULT_CATEGORIES, view: 'kanban' };
+  }
+  function saveSettings(s) {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  }
+
+  // Register SETTINGS_KEY for cloud sync
+  function registerSettingsForSync() {
+    if (Array.isArray(window.HNX_SYNCED_KEYS) && window.HNX_SYNCED_KEYS.indexOf(SETTINGS_KEY) === -1) {
+      window.HNX_SYNCED_KEYS.push(SETTINGS_KEY);
+      log('Registered IT settings for cloud sync');
+    }
+  }
+
+  // ── Data helpers ──
+  function getITItems() {
+    try {
+      const all = JSON.parse(localStorage.getItem(ISSUES_KEY) || '[]');
+      return all.filter(i => i.module === 'it');
+    } catch(e) { return []; }
+  }
+
+  function saveITItem(updated) {
+    try {
+      const all = JSON.parse(localStorage.getItem(ISSUES_KEY) || '[]');
+      const idx = all.findIndex(i => i.id === updated.id);
+      if (idx >= 0) all[idx] = updated;
+      else all.push(updated);
+      localStorage.setItem(ISSUES_KEY, JSON.stringify(all));
+      return true;
+    } catch(e) { return false; }
+  }
+
+  function newId() {
+    const ts = new Date().toISOString().slice(0,10).replace(/-/g,'');
+    const rnd = Math.floor(Math.random()*900 + 100);
+    return `IT-${ts}-${rnd}`;
+  }
+
+  function currentUser() {
+    const u = (typeof getCurrentUser === 'function' ? getCurrentUser() : null);
+    return u ? (u.username || 'unknown') : 'unknown';
+  }
+  function currentUserName() {
+    const u = (typeof getCurrentUser === 'function' ? getCurrentUser() : null);
+    return u ? (u.name || u.username || 'unknown') : 'unknown';
+  }
+
+  // ── State (per session) ──
+  const state = {
+    view: 'kanban',           // 'kanban' | 'list'
+    filterCategories: null,   // null = all, or Set of IDs
+    filterType: 'all',        // 'all' | 'task' | 'call'
+    filterAssignee: 'all',    // 'all' | username | 'unassigned' | 'me'
+    filterPriority: 'all',    // 'all' | 'critical' | 'urgent' | 'warning' | 'info'
+    listSortBy: 'created_at',
+    listSortDir: 'desc'
+  };
+
+  // ── Styles ──
+  function injectStyles() {
+    if (document.getElementById('hnx-p7-tb-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'hnx-p7-tb-styles';
+    s.textContent = `
+      .itb-wrap{padding:14px 18px 40px;font-family:JetBrains Mono,monospace;color:var(--text,#9fffaf);}
+      .itb-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px;padding:12px 14px;background:var(--surface2,#0e2118);border:1.5px solid var(--border,#1a3a2a);border-radius:8px;}
+      .itb-btn{background:transparent;border:1.5px solid var(--border,#2eaa2e);color:var(--accent,#2eaa2e);padding:7px 12px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;transition:all .15s;white-space:nowrap;}
+      .itb-btn:hover{background:rgba(46,170,46,.15);}
+      .itb-btn.active{background:var(--accent,#2eaa2e);color:#000;}
+      .itb-btn.primary{background:var(--accent,#2eaa2e);color:#000;border-color:var(--accent,#2eaa2e);}
+      .itb-btn.primary:hover{filter:brightness(1.15);}
+      .itb-sep{width:1px;height:24px;background:var(--border,#2a3a30);margin:0 4px;}
+      .itb-select{background:#06120a;border:1.5px solid var(--border,#2eaa2e);color:#9fffaf;padding:6px 8px;border-radius:6px;font:inherit;font-size:12px;}
+      .itb-stat{display:inline-flex;gap:6px;align-items:center;font-size:11px;color:#7aa9aa;padding:4px 8px;background:rgba(0,0,0,.25);border-radius:4px;text-transform:uppercase;letter-spacing:.5px;}
+      .itb-stat b{color:#9fffaf;font-size:13px;}
+
+      .itb-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;background:var(--surface2,#0e2118);border:1.5px solid var(--border,#1a3a2a);border-radius:8px;}
+      .itb-chip{padding:5px 10px;border-radius:14px;border:1.5px solid;cursor:pointer;font-size:11px;font-weight:700;transition:all .15s;user-select:none;}
+      .itb-chip.off{opacity:.35;}
+      .itb-chip:hover{transform:translateY(-1px);}
+      .itb-chip-add{background:#06120a;border-color:#666;color:#aaa;border-style:dashed;}
+
+      /* Kanban */
+      .itb-kanban{display:flex;gap:12px;overflow-x:auto;padding-bottom:14px;}
+      .itb-col{flex:0 0 280px;background:var(--surface2,#0e2118);border:1.5px solid var(--border,#1a3a2a);border-radius:8px;display:flex;flex-direction:column;max-height:75vh;}
+      .itb-col-head{padding:10px 14px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#9fffaf;border-bottom:1.5px solid var(--border,#1a3a2a);display:flex;justify-content:space-between;align-items:center;background:rgba(46,170,46,.05);border-radius:7px 7px 0 0;}
+      .itb-col-count{background:rgba(46,170,46,.15);color:#9fffaf;padding:2px 8px;border-radius:10px;font-size:11px;}
+      .itb-col-body{padding:8px;overflow-y:auto;flex:1;min-height:200px;}
+      .itb-col-body.drop-target{background:rgba(46,170,46,.08);}
+      .itb-card{background:#06120a;border:1.5px solid var(--border,#1a3a2a);border-left:3px solid #2eaa2e;border-radius:6px;padding:10px 12px;margin-bottom:8px;cursor:grab;transition:all .15s;font-size:12px;}
+      .itb-card:hover{border-color:#2eaa2e;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.3);}
+      .itb-card:active{cursor:grabbing;}
+      .itb-card.dragging{opacity:.4;}
+      .itb-card-title{font-weight:700;color:#9fffaf;margin-bottom:5px;line-height:1.3;}
+      .itb-card-meta{font-size:10px;color:#7aa9aa;display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px;}
+      .itb-card-cat{display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;}
+      .itb-card-type-task{background:rgba(103,197,255,.18);color:#67c5ff;padding:1px 5px;border-radius:3px;font-size:10px;}
+      .itb-card-type-call{background:rgba(255,156,51,.18);color:#ff9c33;padding:1px 5px;border-radius:3px;font-size:10px;}
+      .itb-card-pri{font-weight:700;}
+      .itb-card-pri.critical,.itb-card-pri.urgent{color:#ff5555;}
+      .itb-card-pri.warning{color:#ff9c33;}
+      .itb-card-pri.info{color:#67c5ff;}
+
+      /* List */
+      .itb-list{width:100%;border-collapse:collapse;font-size:12px;background:var(--surface2,#0e2118);border-radius:8px;overflow:hidden;border:1.5px solid var(--border,#1a3a2a);}
+      .itb-list th{padding:10px 12px;text-align:left;color:#9fffaf;text-transform:uppercase;letter-spacing:.5px;font-size:11px;border-bottom:1.5px solid var(--border,#2a3a30);background:rgba(46,170,46,.07);cursor:pointer;user-select:none;}
+      .itb-list th:hover{background:rgba(46,170,46,.15);}
+      .itb-list td{padding:10px 12px;border-bottom:1px solid var(--border,#1a3a2a);color:#a8c8b8;}
+      .itb-list tbody tr{cursor:pointer;transition:background .15s;}
+      .itb-list tbody tr:hover{background:rgba(46,170,46,.05);}
+
+      /* Modal */
+      #itbModal{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:100001;display:none;align-items:center;justify-content:center;padding:20px;}
+      #itbModal.show{display:flex;}
+      .itb-mcard{background:#0a1a14;border:2px solid #2eaa2e;border-radius:12px;padding:22px;max-width:640px;width:100%;max-height:90vh;overflow-y:auto;color:#9fffaf;font-family:JetBrains Mono,monospace;}
+      .itb-mtitle{font-size:18px;font-weight:800;color:#fff;margin-bottom:6px;}
+      .itb-mfield{margin-bottom:12px;}
+      .itb-mfield label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#7aa9aa;margin-bottom:4px;font-weight:600;}
+      .itb-input,.itb-textarea{width:100%;background:#06120a;border:1.5px solid var(--border,#2eaa2e);color:#9fffaf;padding:8px 10px;border-radius:6px;font:inherit;font-size:13px;box-sizing:border-box;}
+      .itb-textarea{min-height:80px;resize:vertical;}
+      .itb-mactions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
+      .itb-empty{padding:30px;text-align:center;color:#7aa9aa;font-style:italic;}
+      .itb-photos{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;}
+      .itb-photo{width:80px;height:80px;background:#06120a;border:1.5px solid var(--border,#2eaa2e);border-radius:6px;background-size:cover;background-position:center;position:relative;display:inline-block;}
+      .itb-photo-del{position:absolute;top:-6px;right:-6px;background:#ff5555;color:#000;border:none;border-radius:50%;width:18px;height:18px;cursor:pointer;font-size:11px;font-weight:900;line-height:18px;text-align:center;padding:0;}
+    `;
+    document.head.appendChild(s);
+    log('Styles injected');
+  }
+
+  // ── Status map ──
+  const STATUSES = [
+    { id:'open',         label:'📥 Open',         color:'#7aa9aa' },
+    { id:'assigned',     label:'👤 Assigned',     color:'#67c5ff' },
+    { id:'in_progress',  label:'🔄 In Progress',  color:'#ff9c33' },
+    { id:'resolved',     label:'⏳ Resolved (awaiting approval)', color:'#ffb84d' },
+    { id:'approved',     label:'✅ Approved & Closed', color:'#2eaa2e' }
+  ];
+
+  const PRIORITIES = ['critical','urgent','warning','info'];
+
+  // ── Category lookup ──
+  function getCategories() {
+    return loadSettings().categories || DEFAULT_CATEGORIES;
+  }
+  function categoryById(id) {
+    return getCategories().find(c => c.id === id);
+  }
+
+  // ── Filter logic ──
+  function applyFilters(items) {
+    return items.filter(it => {
+      // Don't show cancelled by default
+      if (it.status === 'cancelled') return false;
+      // Type filter
+      if (state.filterType === 'task' && it.type !== 'task') return false;
+      if (state.filterType === 'call' && it.type === 'task') return false;
+      // Category filter (set)
+      if (state.filterCategories instanceof Set) {
+        const cat = it.it_category || 'uncategorized';
+        if (!state.filterCategories.has(cat)) return false;
+      }
+      // Priority filter
+      if (state.filterPriority !== 'all' && it.priority !== state.filterPriority) return false;
+      // Assignee filter
+      if (state.filterAssignee === 'me') {
+        if ((it.assignedTo || it.assigned_to) !== currentUser()) return false;
+      } else if (state.filterAssignee === 'unassigned') {
+        if (it.assignedTo || it.assigned_to) return false;
+      } else if (state.filterAssignee !== 'all') {
+        if ((it.assignedTo || it.assigned_to) !== state.filterAssignee) return false;
+      }
+      return true;
+    });
+  }
+
+  // ── Render main view ──
+  function render() {
+    const body = document.getElementById('hnx-it_tasks-body');
+    if (!body) return;
+
+    const items = getITItems();
+    const filtered = applyFilters(items);
+    const cats = getCategories();
+    if (!(state.filterCategories instanceof Set)) {
+      state.filterCategories = new Set(cats.map(c => c.id).concat(['uncategorized']));
+    }
+
+    // Stats
+    const taskCount = items.filter(i => i.type === 'task').length;
+    const callCount = items.filter(i => i.type !== 'task').length;
+    const myCount = items.filter(i => (i.assignedTo||i.assigned_to) === currentUser() && i.status !== 'approved' && i.status !== 'cancelled').length;
+    const pendingApproval = items.filter(i => i.status === 'resolved').length;
+
+    // Build toolbar
+    const toolbar = `
+      <div class="itb-toolbar">
+        <button class="itb-btn primary" id="itbNewBtn">+ New IT Task</button>
+        <div class="itb-sep"></div>
+        <button class="itb-btn ${state.view==='kanban'?'active':''}" data-view="kanban">📋 Kanban</button>
+        <button class="itb-btn ${state.view==='list'?'active':''}" data-view="list">📝 List</button>
+        <div class="itb-sep"></div>
+        <select class="itb-select" id="itbFilterType">
+          <option value="all" ${state.filterType==='all'?'selected':''}>All types</option>
+          <option value="task" ${state.filterType==='task'?'selected':''}>Tasks only</option>
+          <option value="call" ${state.filterType==='call'?'selected':''}>Calls only</option>
+        </select>
+        <select class="itb-select" id="itbFilterAssignee">
+          <option value="all" ${state.filterAssignee==='all'?'selected':''}>All assignees</option>
+          <option value="me" ${state.filterAssignee==='me'?'selected':''}>Assigned to me</option>
+          <option value="unassigned" ${state.filterAssignee==='unassigned'?'selected':''}>Unassigned</option>
+        </select>
+        <select class="itb-select" id="itbFilterPriority">
+          <option value="all" ${state.filterPriority==='all'?'selected':''}>All priorities</option>
+          ${PRIORITIES.map(p => `<option value="${p}" ${state.filterPriority===p?'selected':''}>${p}</option>`).join('')}
+        </select>
+        <div class="itb-sep"></div>
+        <span class="itb-stat"><b>${items.length}</b> total</span>
+        <span class="itb-stat"><b>${taskCount}</b> tasks</span>
+        <span class="itb-stat"><b>${callCount}</b> calls</span>
+        <span class="itb-stat" style="color:#ff9c33;"><b style="color:#ff9c33;">${pendingApproval}</b> pending</span>
+        <span class="itb-stat" style="color:#67c5ff;"><b style="color:#67c5ff;">${myCount}</b> mine</span>
+      </div>
+    `;
+
+    // Build category chips
+    const chips = `
+      <div class="itb-chips">
+        ${cats.map(c => `<span class="itb-chip ${state.filterCategories.has(c.id)?'':'off'}" data-cat="${c.id}" style="border-color:${c.color};color:${c.color};background:${c.color}22;">${c.label}</span>`).join('')}
+        <span class="itb-chip ${state.filterCategories.has('uncategorized')?'':'off'}" data-cat="uncategorized" style="border-color:#666;color:#aaa;background:rgba(100,100,100,.2);">— Uncategorized</span>
+        <span class="itb-chip itb-chip-add" id="itbAddCatBtn">+ Add Category</span>
+      </div>
+    `;
+
+    let mainView = '';
+    if (state.view === 'kanban') {
+      mainView = renderKanban(filtered);
+    } else {
+      mainView = renderList(filtered);
+    }
+
+    body.innerHTML = `
+      <div class="itb-wrap">
+        <div style="font-size:14px;font-weight:800;color:#9fffaf;margin-bottom:14px;display:flex;align-items:center;gap:10px;">
+          ✅ IT Task Board
+          <span style="font-size:11px;color:#7aa9aa;font-weight:400;text-transform:none;">Custom-built for IT · tasks + calls unified queue</span>
+        </div>
+        ${toolbar}
+        ${chips}
+        ${mainView}
+      </div>
+    `;
+
+    wireEvents();
+  }
+
+  function renderKanban(items) {
+    return `<div class="itb-kanban">
+      ${STATUSES.map(st => {
+        const colItems = items.filter(i => i.status === st.id);
+        return `
+          <div class="itb-col" data-status="${st.id}">
+            <div class="itb-col-head" style="color:${st.color};">
+              <span>${st.label}</span>
+              <span class="itb-col-count">${colItems.length}</span>
+            </div>
+            <div class="itb-col-body" data-status="${st.id}">
+              ${colItems.map(it => renderCard(it)).join('') || '<div class="itb-empty">— empty —</div>'}
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>`;
+  }
+
+  function renderCard(it) {
+    const cat = categoryById(it.it_category);
+    const safeTitle = (it.title || '(no title)').toString().replace(/[<>]/g,'');
+    return `
+      <div class="itb-card" draggable="true" data-id="${it.id}">
+        <div class="itb-card-title">${safeTitle}</div>
+        <div class="itb-card-meta">
+          ${cat ? `<span class="itb-card-cat" style="background:${cat.color}22;color:${cat.color};">${cat.label}</span>` : ''}
+          ${it.type === 'task' ? '<span class="itb-card-type-task">TASK</span>' : '<span class="itb-card-type-call">CALL</span>'}
+          ${it.priority ? `<span class="itb-card-pri ${it.priority}">${it.priority.toUpperCase()}</span>` : ''}
+        </div>
+        <div class="itb-card-meta">
+          ${it.assignedToName || it.assigned_to || it.assignedTo || '— unassigned —'}
+          ${it.attachments && it.attachments.length ? ` · 📷 ${it.attachments.length}` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderList(items) {
+    // Sort
+    const sorted = items.slice().sort((a,b) => {
+      const sa = a[state.listSortBy] || 0;
+      const sb = b[state.listSortBy] || 0;
+      const cmp = sa < sb ? -1 : sa > sb ? 1 : 0;
+      return state.listSortDir === 'asc' ? cmp : -cmp;
+    });
+
+    return `<table class="itb-list">
+      <thead><tr>
+        <th data-sort="title">Title</th>
+        <th data-sort="it_category">Category</th>
+        <th data-sort="type">Type</th>
+        <th data-sort="priority">Priority</th>
+        <th data-sort="status">Status</th>
+        <th data-sort="assignedTo">Assignee</th>
+        <th data-sort="created_at">Created</th>
+      </tr></thead>
+      <tbody>
+        ${sorted.length ? sorted.map(it => {
+          const cat = categoryById(it.it_category);
+          const status = STATUSES.find(s => s.id === it.status) || { label: it.status || '—', color: '#7aa9aa' };
+          return `
+            <tr data-id="${it.id}">
+              <td><strong style="color:#9fffaf;">${(it.title||'(no title)').replace(/[<>]/g,'')}</strong></td>
+              <td>${cat ? `<span class="itb-card-cat" style="background:${cat.color}22;color:${cat.color};">${cat.label}</span>` : '—'}</td>
+              <td>${it.type === 'task' ? '<span class="itb-card-type-task">TASK</span>' : '<span class="itb-card-type-call">CALL</span>'}</td>
+              <td>${it.priority ? `<span class="itb-card-pri ${it.priority}">${it.priority.toUpperCase()}</span>` : '—'}</td>
+              <td style="color:${status.color};">${status.label}</td>
+              <td>${it.assignedToName || it.assigned_to || it.assignedTo || '— unassigned —'}</td>
+              <td>${it.created_at ? new Date(it.created_at).toLocaleDateString() : '—'}</td>
+            </tr>
+          `;
+        }).join('') : '<tr><td colspan="7" class="itb-empty">No IT items match the current filters.</td></tr>'}
+      </tbody>
+    </table>`;
+  }
+
+  // ── Modal ──
+  function ensureModal() {
+    if (document.getElementById('itbModal')) return;
+    const m = document.createElement('div');
+    m.id = 'itbModal';
+    m.innerHTML = `<div class="itb-mcard" id="itbMCard"></div>`;
+    m.addEventListener('click', (e) => { if (e.target === m) closeModal(); });
+    document.body.appendChild(m);
+  }
+  function closeModal() {
+    document.getElementById('itbModal')?.classList.remove('show');
+  }
+
+  function openNewModal() {
+    ensureModal();
+    const cats = getCategories();
+    document.getElementById('itbMCard').innerHTML = `
+      <div class="itb-mtitle">+ New IT Task / Call</div>
+      <div class="itb-mfield"><label>Title *</label><input type="text" id="itbF_title" class="itb-input" placeholder="What needs fixing or doing?"></div>
+      <div class="itb-mfield"><label>Description</label><textarea id="itbF_desc" class="itb-textarea" placeholder="Details, error messages, screenshots, etc."></textarea></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <div class="itb-mfield" style="flex:1;min-width:140px;"><label>Type</label>
+          <select id="itbF_type" class="itb-input"><option value="task">📋 Task (planned work)</option><option value="call">📞 Call (reactive)</option></select>
+        </div>
+        <div class="itb-mfield" style="flex:1;min-width:140px;"><label>Category</label>
+          <select id="itbF_cat" class="itb-input">
+            <option value="">— Uncategorized —</option>
+            ${cats.map(c => `<option value="${c.id}">${c.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="itb-mfield" style="flex:1;min-width:140px;"><label>Priority</label>
+          <select id="itbF_pri" class="itb-input">
+            <option value="info">Info</option><option value="warning" selected>Warning</option><option value="urgent">Urgent</option><option value="critical">Critical</option>
+          </select>
+        </div>
+        <div class="itb-mfield" style="flex:1;min-width:140px;"><label>Filed for (optional)</label>
+          <input type="text" id="itbF_filedFor" class="itb-input" placeholder="If walk-in, name of person">
+        </div>
+      </div>
+      <div class="itb-mactions">
+        <button class="itb-btn primary" id="itbF_create">✓ Create</button>
+        <button class="itb-btn" id="itbF_cancel">Cancel</button>
+      </div>
+    `;
+    document.getElementById('itbModal').classList.add('show');
+    setTimeout(() => document.getElementById('itbF_title')?.focus(), 50);
+    document.getElementById('itbF_cancel').onclick = closeModal;
+    document.getElementById('itbF_create').onclick = () => {
+      const title = document.getElementById('itbF_title').value.trim();
+      if (!title) { alert('Title required.'); return; }
+      const item = {
+        id: newId(),
+        module: 'it',
+        type: document.getElementById('itbF_type').value,
+        it_category: document.getElementById('itbF_cat').value || null,
+        title,
+        description: document.getElementById('itbF_desc').value.trim(),
+        priority: document.getElementById('itbF_pri').value,
+        filed_for: document.getElementById('itbF_filedFor').value.trim() || null,
+        status: 'open',
+        createdBy: currentUser(),
+        createdByName: currentUserName(),
+        created_at: Date.now(),
+        assignedTo: null, assignedToName: null,
+        awaiting_approval_since: null,
+        rejection_count: 0,
+        manager_escalated: false,
+        approval_history: [],
+        attachments: [],
+        history: [{ action:'created', by: currentUser(), at: Date.now() }]
+      };
+      saveITItem(item);
+      try { if (typeof audit === 'function') audit('it_task_created', `IT ${item.type} ${item.id} created: ${title}`); } catch(e){}
+      closeModal();
+      render();
+    };
+  }
+
+  function openEditModal(id) {
+    ensureModal();
+    const items = getITItems();
+    const it = items.find(i => i.id === id);
+    if (!it) return;
+    const cats = getCategories();
+    const status = STATUSES.find(s => s.id === it.status) || { label: it.status, color:'#aaa' };
+    const me = currentUser();
+    const isAssignee = (it.assignedTo === me || it.assigned_to === me);
+    const isCaller = it.createdBy === me;
+
+    const u = (typeof getCurrentUser === 'function' ? getCurrentUser() : null);
+    const isManager = (u && (u.role === 'admin' || u.role === 'manager'));
+
+    document.getElementById('itbMCard').innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;margin-bottom:10px;">
+        <div>
+          <div class="itb-mtitle">${(it.title||'(no title)').replace(/[<>]/g,'')}</div>
+          <div style="font-size:11px;color:#7aa9aa;text-transform:uppercase;letter-spacing:.5px;">
+            ${it.id} · ${it.type === 'task' ? 'TASK' : 'CALL'} · <span style="color:${status.color};">${status.label}</span>
+          </div>
+        </div>
+        <button class="itb-btn" id="itbE_close" style="padding:4px 10px;">✕</button>
+      </div>
+
+      <div class="itb-mfield"><label>Description</label>
+        <div style="background:#06120a;padding:10px;border-radius:6px;font-size:13px;border-left:3px solid #2eaa2e;white-space:pre-wrap;">${(it.description||'(no description)').replace(/[<>]/g,'')}</div>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;">
+        <div><strong style="color:#7aa9aa;">Filed by:</strong> ${it.createdByName||it.createdBy||'unknown'}${it.filed_for?` for <strong>${it.filed_for}</strong>`:''}</div>
+        <div><strong style="color:#7aa9aa;">Assigned:</strong> ${it.assignedToName||it.assigned_to||it.assignedTo||'— none —'}</div>
+        <div><strong style="color:#7aa9aa;">Priority:</strong> <span class="itb-card-pri ${it.priority||'info'}">${(it.priority||'info').toUpperCase()}</span></div>
+        ${it.rejection_count>0?`<div style="color:#ff8888;"><strong>${it.rejection_count}</strong> rejection(s)</div>`:''}
+      </div>
+
+      <div class="itb-mfield" style="margin-top:12px;"><label>📷 Photos (${(it.attachments||[]).length})</label>
+        <div class="itb-photos" id="itbE_photos">
+          ${(it.attachments||[]).map((url,idx) => `
+            <div class="itb-photo" style="background-image:url('${url}');">
+              <button class="itb-photo-del" data-idx="${idx}">×</button>
+            </div>
+          `).join('')}
+          <button class="itb-btn" id="itbE_addPhoto" style="height:80px;width:80px;">+ Photo</button>
+        </div>
+      </div>
+
+      <div class="itb-mactions">
+        ${it.status === 'open' ? `<button class="itb-btn primary" id="itbE_assignMe">👤 Assign to me</button>` : ''}
+        ${(isAssignee && (it.status === 'assigned' || it.status === 'open')) ? `<button class="itb-btn primary" id="itbE_start">▶ Start work</button>` : ''}
+        ${(isAssignee && it.status === 'in_progress') ? `<button class="itb-btn primary" id="itbE_ready">✓ Mark Ready to Close</button>` : ''}
+        ${(it.status === 'resolved' && (isCaller || isManager)) ? `<button class="itb-btn primary" id="itbE_approve">✓ Approve & Close</button>` : ''}
+        ${(it.status === 'resolved' && (isCaller || isManager)) ? `<button class="itb-btn" id="itbE_reject" style="border-color:#ff5555;color:#ff5555;">✗ Reject</button>` : ''}
+        ${(isManager && it.status !== 'approved' && it.status !== 'cancelled') ? `<button class="itb-btn" id="itbE_cancel" style="border-color:#888;color:#aaa;">✕ Cancel</button>` : ''}
+      </div>
+
+      <div style="margin-top:14px;font-size:11px;color:#7aa9aa;">
+        <strong>History (${(it.history||[]).length} events):</strong><br>
+        ${(it.history||[]).slice().reverse().slice(0,5).map(h => `· ${new Date(h.at).toLocaleString()} — ${h.action} by ${h.by||'?'}${h.reason?` (${h.reason})`:''}${h.note?` (${h.note})`:''}`).join('<br>') || '(none)'}
+      </div>
+    `;
+    document.getElementById('itbModal').classList.add('show');
+
+    document.getElementById('itbE_close').onclick = closeModal;
+    document.getElementById('itbE_assignMe')?.addEventListener('click', () => {
+      it.status = 'assigned'; it.assignedTo = me; it.assigned_to = me; it.assignedToName = currentUserName();
+      it.history = it.history || []; it.history.push({ action:'assigned', by: me, at: Date.now() });
+      saveITItem(it); closeModal(); render();
+    });
+    document.getElementById('itbE_start')?.addEventListener('click', () => {
+      it.status = 'in_progress';
+      it.history = it.history || []; it.history.push({ action:'started', by: me, at: Date.now() });
+      saveITItem(it); closeModal(); render();
+    });
+    document.getElementById('itbE_ready')?.addEventListener('click', () => {
+      const r = window.hnxMarkReadyToClose(it.id, me);
+      if (r && r.ok) { closeModal(); render(); }
+      else alert('Failed: ' + (r?.reason||'unknown'));
+    });
+    document.getElementById('itbE_approve')?.addEventListener('click', () => {
+      const r = window.hnxApproveIssue(it.id, me);
+      if (r && r.ok) { closeModal(); render(); }
+      else alert('Failed: ' + (r?.reason||'unknown'));
+    });
+    document.getElementById('itbE_reject')?.addEventListener('click', () => {
+      const reason = prompt('Why are you rejecting? (required)');
+      if (!reason || !reason.trim()) return;
+      const r = window.hnxRejectIssue(it.id, reason.trim(), me);
+      if (r && r.ok) { closeModal(); render(); }
+      else alert('Failed: ' + (r?.reason||'unknown'));
+    });
+    document.getElementById('itbE_cancel')?.addEventListener('click', () => {
+      if (!confirm('Cancel this ticket permanently?')) return;
+      it.status = 'cancelled'; it.history = it.history || [];
+      it.history.push({ action:'cancelled', by: me, at: Date.now() });
+      saveITItem(it); closeModal(); render();
+    });
+    document.getElementById('itbE_addPhoto')?.addEventListener('click', () => {
+      const url = prompt('Photo URL (or paste a data: URL):');
+      if (!url || !url.trim()) return;
+      it.attachments = it.attachments || [];
+      it.attachments.push(url.trim());
+      it.history = it.history || []; it.history.push({ action:'photo_added', by: me, at: Date.now() });
+      saveITItem(it); openEditModal(it.id);
+    });
+    document.querySelectorAll('.itb-photo-del').forEach(btn => {
+      btn.onclick = (e) => {
+        const idx = +e.target.dataset.idx;
+        it.attachments.splice(idx, 1);
+        saveITItem(it); openEditModal(it.id);
+      };
+    });
+  }
+
+  function openAddCategoryModal() {
+    ensureModal();
+    document.getElementById('itbMCard').innerHTML = `
+      <div class="itb-mtitle">+ Add IT Category</div>
+      <div class="itb-mfield"><label>Category name</label><input type="text" id="itbC_name" class="itb-input" placeholder="e.g. Backup Systems"></div>
+      <div class="itb-mfield"><label>Color (hex)</label><input type="text" id="itbC_color" class="itb-input" value="#67c5ff"></div>
+      <div class="itb-mactions">
+        <button class="itb-btn primary" id="itbC_save">✓ Add</button>
+        <button class="itb-btn" id="itbC_cancel">Cancel</button>
+      </div>
+    `;
+    document.getElementById('itbModal').classList.add('show');
+    document.getElementById('itbC_cancel').onclick = closeModal;
+    document.getElementById('itbC_save').onclick = () => {
+      const name = document.getElementById('itbC_name').value.trim();
+      const color = document.getElementById('itbC_color').value.trim() || '#67c5ff';
+      if (!name) { alert('Name required'); return; }
+      const id = name.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
+      const s = loadSettings();
+      s.categories = s.categories || DEFAULT_CATEGORIES.slice();
+      if (s.categories.find(c => c.id === id)) { alert('Already exists.'); return; }
+      s.categories.push({ id, label: name, color });
+      saveSettings(s);
+      state.filterCategories.add(id);
+      closeModal(); render();
+    };
+  }
+
+  // ── Wire events after render ──
+  function wireEvents() {
+    const body = document.getElementById('hnx-it_tasks-body');
+    if (!body) return;
+
+    document.getElementById('itbNewBtn')?.addEventListener('click', openNewModal);
+    document.getElementById('itbAddCatBtn')?.addEventListener('click', openAddCategoryModal);
+
+    body.querySelectorAll('[data-view]').forEach(b => {
+      b.onclick = () => { state.view = b.dataset.view; render(); };
+    });
+
+    document.getElementById('itbFilterType')?.addEventListener('change', e => { state.filterType = e.target.value; render(); });
+    document.getElementById('itbFilterAssignee')?.addEventListener('change', e => { state.filterAssignee = e.target.value; render(); });
+    document.getElementById('itbFilterPriority')?.addEventListener('change', e => { state.filterPriority = e.target.value; render(); });
+
+    body.querySelectorAll('.itb-chip[data-cat]').forEach(chip => {
+      chip.onclick = () => {
+        const id = chip.dataset.cat;
+        if (state.filterCategories.has(id)) state.filterCategories.delete(id);
+        else state.filterCategories.add(id);
+        render();
+      };
+    });
+
+    // Cards: click to open detail
+    body.querySelectorAll('.itb-card[data-id]').forEach(card => {
+      card.onclick = (e) => {
+        if (card.classList.contains('dragging')) return;
+        openEditModal(card.dataset.id);
+      };
+      // Drag-and-drop
+      card.ondragstart = (e) => {
+        card.classList.add('dragging');
+        e.dataTransfer.setData('text/plain', card.dataset.id);
+        e.dataTransfer.effectAllowed = 'move';
+      };
+      card.ondragend = () => card.classList.remove('dragging');
+    });
+
+    // List row click
+    body.querySelectorAll('.itb-list tbody tr[data-id]').forEach(tr => {
+      tr.onclick = () => openEditModal(tr.dataset.id);
+    });
+
+    // List header sort
+    body.querySelectorAll('.itb-list th[data-sort]').forEach(th => {
+      th.onclick = () => {
+        const key = th.dataset.sort;
+        if (state.listSortBy === key) state.listSortDir = (state.listSortDir === 'asc' ? 'desc' : 'asc');
+        else { state.listSortBy = key; state.listSortDir = 'desc'; }
+        render();
+      };
+    });
+
+    // Kanban drop zones
+    body.querySelectorAll('.itb-col-body[data-status]').forEach(col => {
+      col.ondragover = (e) => { e.preventDefault(); col.classList.add('drop-target'); };
+      col.ondragleave = () => col.classList.remove('drop-target');
+      col.ondrop = (e) => {
+        e.preventDefault();
+        col.classList.remove('drop-target');
+        const id = e.dataTransfer.getData('text/plain');
+        const newStatus = col.dataset.status;
+        const items = getITItems();
+        const it = items.find(i => i.id === id);
+        if (!it || it.status === newStatus) return;
+
+        // Use proper helpers for status transitions that require them
+        const me = currentUser();
+        if (newStatus === 'resolved' && it.status === 'in_progress') {
+          window.hnxMarkReadyToClose(it.id, me);
+        } else if (newStatus === 'approved' && it.status === 'resolved') {
+          window.hnxApproveIssue(it.id, me);
+        } else {
+          // Direct status change
+          it.status = newStatus;
+          it.history = it.history || [];
+          it.history.push({ action:'status_'+newStatus, by: me, at: Date.now() });
+          if (newStatus === 'assigned' && !it.assignedTo) {
+            it.assignedTo = me; it.assigned_to = me; it.assignedToName = currentUserName();
+          }
+          saveITItem(it);
+        }
+        render();
+      };
+    });
+  }
+
+  // ── Hook switchView so renderer runs ──
+  function hookSwitchView() {
+    if (typeof window.switchView !== 'function') return false;
+    if (window.switchView._hnxP7Wrapped) return true;
+    const orig = window.switchView;
+    window.switchView = function(viewId, ...rest) {
+      const result = orig.apply(this, [viewId, ...rest]);
+      try { if (viewId === 'it_tasks') setTimeout(render, 100); } catch(e){}
+      return result;
+    };
+    window.switchView._hnxP7Wrapped = true;
+    log('switchView hooked');
+    return true;
+  }
+
+  // ── Main ──
+  function run() {
+    injectStyles();
+    registerSettingsForSync();
+    ensureModal();
+    if (!hookSwitchView()) {
+      let tries = 0;
+      const iv = setInterval(() => { tries++; if (hookSwitchView() || tries > 20) clearInterval(iv); }, 250);
+    }
+    // If currently on the task board view, render now
+    setTimeout(() => {
+      const active = document.querySelector('.view.active');
+      if (active && active.id === 'view-it_tasks') render();
+    }, 600);
+    log('✅ P7 IT Task Board ready');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run);
+  } else {
+    setTimeout(run, 500);
+  }
+})();
+</script>
+<!-- ===================== END HNX v2.86-p7-it-task-board ===================== -->
 
 </body>
 </html>
