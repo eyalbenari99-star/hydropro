@@ -91878,10 +91878,10 @@ window._seedExportAll=function(){
 function _buildToolsMenu(){
   const items=[
     {icon:'🖥',label:'Operations Wall',hint:'Big-screen ops dashboard',action:'openOpsWall()'},
-    {icon:'🪟',label:'Monitors',hint:'Multi-window launcher',action:'openMultiMonitorLauncher()'},
+    {icon:'🪟',label:'Monitors',hint:'Multi-window launcher',action:'(typeof openMultiMonitorLauncher===\"function\"&&openMultiMonitorLauncher())'},
     {icon:'📋',label:'Daily Summary',hint:'End-of-shift report',action:'openDailySummaryModal()'},
     {icon:'📊',label:'Custom Reports',hint:'Build, save, schedule reports',action:'openReportsHub()'},
-    {icon:'📈',label:'Manager Summary',hint:'Aggregate KPI report',action:'openManagerSummary()'},
+    {icon:'📈',label:'Manager Summary',hint:'Aggregate KPI report',action:'(typeof openManagerSummary===\"function\"&&openManagerSummary())'},
     {icon:'💾',label:'Backup &amp; Restore',hint:'Save / restore data',action:'openBackupRestoreModal()'},
     {icon:'🔄',label:'Check for Updates',hint:'Manually check for new version',action:'_checkVersionUpdate&&_checkVersionUpdate()'}
   ];
@@ -100611,7 +100611,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.85.11b-setup';
+        vEl.textContent = orig + ' · HNX v2.85.11-setup';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -130574,7 +130574,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     trig.id = 'hnx-tb8-trigger';
     trig.className = 'hnx-tb8-trigger';
     trig.innerHTML = '<span style="font-size:14px;">🛠</span><span>SETUP</span>';
-    trig.title = 'Setup — Data, Config, Cloud sync';
+    trig.title = 'Setup — Data, Settings, Cloud sync';
     trig.onclick = function (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -130626,5 +130626,316 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.85.8a-topbar ===================== -->
+
+<!-- ===================== HNX v2.86-p1-itmaint (INLINE) ===================== -->
+<script>
+/* ==============================================================================
+   HNX v2.86 P1 — IT + Maintenance Split: Data Layer Enhancement
+   --------------------------------------------------------------------------
+   Decisions locked (2026-05-19) - planning Q&A with user:
+   - Q1: Manager (Eyal) handles both IT+Maint now, separate techs in future
+   - Q2: Photo optional, caller MUST approve to final close
+   - Q3: No auto-close. Daily reminders to caller until they approve.
+   - Q4: Manager sees pending approvals from day 1 (full transparency)
+   - Q5: Logged-in user can file on behalf of walk-ins (filed_for field)
+   - Q9: Existing hydroPro_issues_v2 schema kept (module field already exists)
+   - Cloud sync: hydroPro_issues_v2 was missing from sync — registering now
+   --------------------------------------------------------------------------
+   Idempotent. Runs on DOMContentLoaded. Safe alongside v2.85.7e-cloudfix
+   and v2.85.8a-topbar. No UI changes in P1 (UI lands in P2+).
+   ============================================================================== */
+(function HNX_v286_P1_ITMaint() {
+  const VER          = 'v2.86-p1-itmaint';
+  const FLAG_KEY     = 'hnx_v286_p1_done';
+  const ISSUES_KEY   = 'hydroPro_issues_v2';
+  const COMMENTS_KEY = 'hydroPro_ticket_comments_v1';
+  const TODAY        = new Date().toISOString().slice(0,10);
+  const BACKUP_KEY   = `hydroPro_issues_v2_PRE_P1_${TODAY.replace(/-/g,'')}`;
+
+  function log(...a){ console.log(`[${VER}]`, ...a); }
+  function warn(...a){ console.warn(`[${VER}]`, ...a); }
+
+  // ── Register new keys for cloud sync (idempotent) ──
+  function registerSyncKeys() {
+    if (typeof window.HNX_SYNCED_KEYS === 'undefined' || !Array.isArray(window.HNX_SYNCED_KEYS)) {
+      warn('HNX_SYNCED_KEYS not ready yet');
+      return false;
+    }
+    const toAdd = [ISSUES_KEY, COMMENTS_KEY];
+    let added = 0;
+    toAdd.forEach(k => {
+      if (window.HNX_SYNCED_KEYS.indexOf(k) === -1) {
+        window.HNX_SYNCED_KEYS.push(k);
+        added++;
+        log(`+ ${k} added to cloud sync`);
+      }
+    });
+    if (added) log(`Registered ${added} new sync key(s). Total: ${window.HNX_SYNCED_KEYS.length}`);
+    return true;
+  }
+
+  // ── Backfill new approval-workflow fields on existing issues ──
+  function backfillIssues() {
+    let issues = [];
+    try {
+      const raw = localStorage.getItem(ISSUES_KEY);
+      if (raw) issues = JSON.parse(raw);
+      if (!Array.isArray(issues)) issues = [];
+    } catch(e) {
+      warn('Failed to parse', ISSUES_KEY, e);
+      return { total: 0, modified: 0 };
+    }
+
+    if (issues.length === 0) {
+      log('No existing issues to backfill (clean state)');
+      return { total: 0, modified: 0 };
+    }
+
+    // Backup once before any modification
+    if (!localStorage.getItem(BACKUP_KEY)) {
+      try {
+        localStorage.setItem(BACKUP_KEY, JSON.stringify(issues));
+        log(`Backup saved → ${BACKUP_KEY}`);
+      } catch(e) {
+        warn('Backup save failed (quota?):', e);
+      }
+    }
+
+    let modified = 0;
+    issues.forEach(iss => {
+      let touched = false;
+      if (!('filed_for'                in iss)) { iss.filed_for                = null;  touched = true; }
+      if (!('awaiting_approval_since'  in iss)) { iss.awaiting_approval_since  = null;  touched = true; }
+      if (!('rejection_count'          in iss)) { iss.rejection_count          = 0;     touched = true; }
+      if (!('daily_reminder_last_sent' in iss)) { iss.daily_reminder_last_sent = null;  touched = true; }
+      if (!('manager_escalated'        in iss)) { iss.manager_escalated        = false; touched = true; }
+      if (!('approval_history'         in iss)) { iss.approval_history         = [];    touched = true; }
+
+      // Any existing 'resolved' issue without approval timestamp: set it now + flag manager
+      if (iss.status === 'resolved' && !iss.awaiting_approval_since) {
+        let ts = Date.now();
+        if (Array.isArray(iss.history)) {
+          const resolvedEvt = iss.history.find(h => h && (h.action === 'resolved' || h.action === 'status_resolved'));
+          if (resolvedEvt && resolvedEvt.at) ts = resolvedEvt.at;
+        }
+        iss.awaiting_approval_since = ts;
+        iss.manager_escalated = true;
+        touched = true;
+      }
+      if (touched) modified++;
+    });
+
+    localStorage.setItem(ISSUES_KEY, JSON.stringify(issues));
+    log(`Backfilled ${modified} of ${issues.length} issues`);
+    return { total: issues.length, modified };
+  }
+
+  // ── Init empty comments storage ──
+  function initComments() {
+    if (!localStorage.getItem(COMMENTS_KEY)) {
+      localStorage.setItem(COMMENTS_KEY, JSON.stringify([]));
+      log(`Initialized empty ${COMMENTS_KEY}`);
+    }
+  }
+
+  // ── Public helper API (used by P3 UI) ──
+  // Approve: caller confirms work done → status:resolved → status:approved
+  window.hnxApproveIssue = function(issueId, byUser) {
+    const issues = JSON.parse(localStorage.getItem(ISSUES_KEY) || '[]');
+    const iss = issues.find(i => i.id === issueId);
+    if (!iss) return { ok:false, reason:'not_found' };
+    if (iss.status !== 'resolved') return { ok:false, reason:`bad_status_${iss.status}` };
+    iss.status = 'approved';
+    iss.closed_at = Date.now();
+    iss.manager_escalated = false;
+    iss.history = iss.history || [];
+    iss.history.push({ action:'approved', by: byUser||'unknown', at: Date.now() });
+    iss.approval_history = iss.approval_history || [];
+    iss.approval_history.push({ type:'approved', by: byUser, at: Date.now() });
+    localStorage.setItem(ISSUES_KEY, JSON.stringify(issues));
+    try { if (typeof audit === 'function') audit('issue_approved', `Issue ${iss.id} approved by ${byUser}`); } catch(e){}
+    return { ok:true, issue: iss };
+  };
+
+  // Reject: caller says "not done" → status returns to in_progress, stays on manager radar
+  window.hnxRejectIssue = function(issueId, reason, byUser) {
+    const issues = JSON.parse(localStorage.getItem(ISSUES_KEY) || '[]');
+    const iss = issues.find(i => i.id === issueId);
+    if (!iss) return { ok:false, reason:'not_found' };
+    if (iss.status !== 'resolved') return { ok:false, reason:`bad_status_${iss.status}` };
+    iss.status = 'in_progress';
+    iss.rejection_count = (iss.rejection_count || 0) + 1;
+    iss.awaiting_approval_since = null;
+    iss.manager_escalated = true; // keep visible to manager
+    iss.history = iss.history || [];
+    iss.history.push({ action:'rejected', by: byUser||'unknown', at: Date.now(), reason: reason||'' });
+    iss.approval_history = iss.approval_history || [];
+    iss.approval_history.push({ type:'rejected', by: byUser, at: Date.now(), reason: reason||'' });
+    localStorage.setItem(ISSUES_KEY, JSON.stringify(issues));
+    try { if (typeof audit === 'function') audit('issue_rejected', `Issue ${iss.id} rejected by ${byUser}: ${reason||''}`); } catch(e){}
+    return { ok:true, issue: iss };
+  };
+
+  // When tech marks "ready to close": status:in_progress → status:resolved + start approval clock
+  window.hnxMarkReadyToClose = function(issueId, byUser) {
+    const issues = JSON.parse(localStorage.getItem(ISSUES_KEY) || '[]');
+    const iss = issues.find(i => i.id === issueId);
+    if (!iss) return { ok:false, reason:'not_found' };
+    if (iss.status === 'approved' || iss.status === 'cancelled') {
+      return { ok:false, reason:`already_${iss.status}` };
+    }
+    iss.status = 'resolved';
+    iss.awaiting_approval_since = Date.now();
+    iss.manager_escalated = true; // manager sees immediately (decision Q4)
+    iss.history = iss.history || [];
+    iss.history.push({ action:'ready_to_close', by: byUser||'unknown', at: Date.now() });
+    localStorage.setItem(ISSUES_KEY, JSON.stringify(issues));
+    try { if (typeof audit === 'function') audit('issue_ready_to_close', `Issue ${iss.id} marked ready by ${byUser}`); } catch(e){}
+    return { ok:true, issue: iss };
+  };
+
+  // Manager closes on caller's behalf (after multiple unanswered reminders)
+  window.hnxManagerForceClose = function(issueId, byUser, note) {
+    const issues = JSON.parse(localStorage.getItem(ISSUES_KEY) || '[]');
+    const iss = issues.find(i => i.id === issueId);
+    if (!iss) return { ok:false, reason:'not_found' };
+    if (iss.status !== 'resolved') return { ok:false, reason:`bad_status_${iss.status}` };
+    iss.status = 'approved';
+    iss.closed_at = Date.now();
+    iss.manager_escalated = false;
+    iss.history = iss.history || [];
+    iss.history.push({ action:'manager_force_closed', by: byUser||'manager', at: Date.now(), note: note||'No caller response after reminders' });
+    iss.approval_history = iss.approval_history || [];
+    iss.approval_history.push({ type:'manager_closed', by: byUser, at: Date.now(), note: note||'' });
+    localStorage.setItem(ISSUES_KEY, JSON.stringify(issues));
+    try { if (typeof audit === 'function') audit('issue_manager_closed', `Issue ${iss.id} force-closed by manager ${byUser}: ${note||''}`); } catch(e){}
+    return { ok:true, issue: iss };
+  };
+
+  // Query helpers
+  window.hnxGetPendingApprovalsFor = function(username) {
+    const issues = JSON.parse(localStorage.getItem(ISSUES_KEY) || '[]');
+    return issues.filter(i => i.status === 'resolved' && i.createdBy === username);
+  };
+  window.hnxGetAllPendingApprovals = function() {
+    const issues = JSON.parse(localStorage.getItem(ISSUES_KEY) || '[]');
+    return issues.filter(i => i.status === 'resolved');
+  };
+  window.hnxGetByModule = function(module) {
+    const issues = JSON.parse(localStorage.getItem(ISSUES_KEY) || '[]');
+    return issues.filter(i => i.module === module);
+  };
+
+  // Daily reminder check (called by P5; safe to invoke now too)
+  window.hnxCheckDailyReminders = function() {
+    const issues = JSON.parse(localStorage.getItem(ISSUES_KEY) || '[]');
+    const ONE_DAY = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    let reminded = 0;
+    issues.forEach(iss => {
+      if (iss.status !== 'resolved') return;
+      const since = iss.awaiting_approval_since || 0;
+      const last  = iss.daily_reminder_last_sent || 0;
+      // First reminder 24h after marked resolved, then every 24h
+      if (now - since >= ONE_DAY && now - last >= ONE_DAY) {
+        iss.daily_reminder_last_sent = now;
+        iss.approval_history = iss.approval_history || [];
+        iss.approval_history.push({ type:'reminder_sent', at: now });
+        reminded++;
+      }
+    });
+    if (reminded) {
+      localStorage.setItem(ISSUES_KEY, JSON.stringify(issues));
+      log(`Sent ${reminded} daily reminder(s)`);
+    }
+    return reminded;
+  };
+
+  // ── Version bump in topbar (best-effort) ──
+  function bumpVersionDisplay() {
+    try {
+      // Try common selectors used in HydroNexis-AI
+      const candidates = document.querySelectorAll(
+        '#versionDisplay, #appVersion, .version-display, [data-version], #version, [id*="ersion"]'
+      );
+      let bumped = 0;
+      candidates.forEach(el => {
+        if (el && el.textContent && /HNX v[\d.\w-]+/.test(el.textContent)) {
+          el.textContent = el.textContent.replace(/HNX v[\d.\w-]+/, 'HNX v2.86-p1');
+          bumped++;
+        }
+      });
+      if (bumped) log(`Bumped version label in ${bumped} element(s)`);
+    } catch(e) {}
+  }
+
+  // ── Success banner ──
+  function showBanner(stats, alreadyDone) {
+    try {
+      const b = document.createElement('div');
+      b.id = 'hnx-v286-banner';
+      b.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:99999;background:#0c2a14;color:#9fffaf;border:2px solid #2eaa2e;padding:14px 22px;border-radius:8px;font-family:monospace;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,0.6);max-width:640px;line-height:1.55;';
+      if (alreadyDone) {
+        b.innerHTML = `🔄 <strong>HNX v2.86 P1 — already migrated</strong><br>Approval-workflow API loaded. Issues sync to cloud.<br><span style="font-size:11px;opacity:0.7;">auto-hides in 8s</span>`;
+        document.body.appendChild(b);
+        setTimeout(() => b.remove(), 8000);
+      } else {
+        b.innerHTML = `✅ <strong>HNX v2.86 P1 Ready</strong><br>📊 Backfilled <strong>${stats.modified}</strong> of <strong>${stats.total}</strong> issues with approval fields<br>☁️ Registered <code style="background:rgba(0,0,0,0.4);padding:2px 6px;border-radius:3px;">hydroPro_issues_v2</code> for cloud sync<br>💾 Backup: <code style="background:rgba(0,0,0,0.4);padding:2px 6px;border-radius:3px;font-size:11px;">${BACKUP_KEY}</code><br><span style="font-size:11px;opacity:0.7;">auto-hides in 15s · ready for P2 (UI tabs)</span>`;
+        document.body.appendChild(b);
+        setTimeout(() => b.remove(), 15000);
+      }
+    } catch(e) {}
+  }
+
+  // ── Main entry ──
+  function run() {
+    // 1. Register sync keys (always, even if migration already done — defensive)
+    if (!registerSyncKeys()) {
+      // Retry once after delay if HNX_SYNCED_KEYS wasn't ready
+      setTimeout(() => registerSyncKeys(), 1500);
+    }
+
+    // 2. Initialize comments storage if missing
+    initComments();
+
+    // 3. Check migration flag — skip backfill if already done
+    const existing = localStorage.getItem(FLAG_KEY);
+    if (existing) {
+      log('P1 already done previously:', existing);
+      bumpVersionDisplay();
+      showBanner(null, true);
+      return;
+    }
+
+    // 4. Run backfill
+    log('Starting P1 backfill...');
+    const stats = backfillIssues();
+
+    // 5. Record flag
+    localStorage.setItem(FLAG_KEY, JSON.stringify({
+      done_at: new Date().toISOString(),
+      issues_total: stats.total,
+      issues_modified: stats.modified,
+      backup_key: BACKUP_KEY,
+      version: VER
+    }));
+
+    // 6. UI updates
+    bumpVersionDisplay();
+    showBanner(stats, false);
+    log('✅ Complete.');
+  }
+
+  // Run when DOM ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run);
+  } else {
+    // DOM already ready
+    setTimeout(run, 100); // tiny delay so HNX_SYNCED_KEYS is definitely populated
+  }
+})();
+</script>
+<!-- ===================== END HNX v2.86-p1-itmaint ===================== -->
+
 </body>
 </html>
