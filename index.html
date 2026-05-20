@@ -5790,6 +5790,8 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 <div class="view" id="view-pack_washtrim"><div id="washtrimBody"></div></div>
 <div class="view" id="view-pack_materials"><div id="stubPackMaterialsBody"></div></div>
 <div class="view" id="view-pack_operations"><div id="stubPackOperationsBody"></div></div>
+<div class="view" id="view-pack_calls"><div id="packCallsBody"></div></div>
+<div class="view" id="view-pack_checklist"></div>
 <!-- Logistics -->
 <div class="view" id="view-log_dash"><div id="stubLogDashBody"></div></div>
 <div class="view" id="view-log_deliveries"><div id="stubLogDeliveriesBody"></div></div>
@@ -19934,6 +19936,8 @@ const MODULES={
     description:'Daily output dashboard, Wash & Trim SOP, materials inventory, output standardization',
     views:[
       {id:'pack_cmd',label:'🎯 Command Center',perm:'viewPackaging',title:'Packaging Command Center · cameras + KPIs + AI Brain · cockpit view'},
+      {id:'pack_calls',label:'📞 Packaging Calls',perm:'viewPackaging',title:'Packaging calls & tickets — pending approvals + open packaging issues'},
+      {id:'pack_checklist',label:'✅ Daily Checklist',perm:'viewPackaging',title:'Packaging daily process & policy checklist — reviewed by QC'},
       {id:'pack_dash',label:'Dashboard',perm:'viewPackaging',title:'Packaging operations dashboard — daily output, per-product variance vs target weights, materials inventory snapshot, traceability + QC integration. Stage-2 capability for the Packaging domain.'},
       {id:'pack_washtrim',label:'🥬 Wash & Trim SOP',perm:'viewPackaging',title:'Daily lettuce wash, trim, spin, mix, pack & seal — Pick Ticket → process → weight log → output'},
       {id:'pack_materials',label:'📦 Materials',perm:'viewPackaging',title:'Packaging materials inventory — boxes, labels, films, trays, ice packs. Track stock levels, reorder points, suppliers.'},
@@ -20691,6 +20695,8 @@ function switchView(v,skipModuleCheck){
   if(v==='pack_washtrim'){renderWashTrim();return;}
   if(v==='pack_dash'){renderPackagingDash();return;}
   if(v==='pack_materials'){renderPackagingMaterials();return;}
+  if(v==='pack_calls'){renderPackCalls();return;}
+  if(v==='pack_checklist'){if(typeof renderModuleChecklist==='function')renderModuleChecklist('packaging','pack_checklist','✅ Packaging Monitoring Checklist');return;}
   if(v.startsWith('pack_'))renderStubModule('packaging',v);
   if(v.startsWith('log_'))renderStubModule('logistics',v);
   if(v==='crm_dash')renderCRMDash();
@@ -79880,6 +79886,42 @@ function _packLoadTargets(){
   }catch(e){return PACK_DEFAULT_TARGETS;}
 }
 
+window.renderPackCalls=function(){
+  let view=document.getElementById('view-pack_calls');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-pack_calls';(document.getElementById('appMain')||document.body).appendChild(view);}
+  let host=document.getElementById('packCallsBody');
+  if(!host){host=document.createElement('div');host.id='packCallsBody';view.appendChild(host);}
+  const u=(typeof getCurrentUser==='function'?getCurrentUser():null);
+  const username=(u&&u.username)||'unknown';
+  let issues=[];try{issues=JSON.parse(localStorage.getItem('hydroPro_issues_v2')||'[]');}catch(e){issues=[];}
+  const pk=issues.filter(i=>i&&i.module==='packaging');
+  const myPending=pk.filter(i=>i.status==='resolved'&&i.createdBy===username);
+  const allPending=pk.filter(i=>i.status==='resolved');
+  const open=pk.filter(i=>['open','assigned','in_progress'].includes(i.status));
+  const esc=s=>(s==null?'':String(s)).replace(/[<>]/g,'');
+  const fmtTime=ts=>{if(!ts)return '—';const diff=Date.now()-ts;const h=Math.floor(diff/3600000),d=Math.floor(h/24);if(d>0)return d+'d ago';if(h>0)return h+'h ago';return Math.floor(diff/60000)+'m ago';};
+  const item=(i,showApprove)=>`<div class="hnx-pending-item" onclick="window._hnxOpenApprovalModal&&window._hnxOpenApprovalModal('${i.id}')">
+      <div class="hnx-pi-info">
+        <div class="hnx-pi-title">${esc(i.title||'(no title)')}</div>
+        <div class="hnx-pi-meta">${i.priority?'<span style="color:#ff9c33;">['+esc((i.priority||'').toUpperCase())+']</span> · ':''}${esc(i.id)} · Filed by ${esc(i.createdByName||i.createdBy||'unknown')}${i.filed_for?' for '+esc(i.filed_for):''} · ${i.awaiting_approval_since?'Pending '+fmtTime(i.awaiting_approval_since):'Status: '+esc(i.status)}</div>
+      </div>
+      ${showApprove?`<button class="hnx-pi-action" onclick="event.stopPropagation();window._hnxOpenApprovalModal&&window._hnxOpenApprovalModal('${i.id}')">Review</button>`:''}
+    </div>`;
+  host.innerHTML=`
+    <div class="section-title">📞 Packaging — Calls & Tickets</div>
+    <div style="display:flex;gap:10px;margin:10px 0 16px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="if(typeof openCallModal==='function')openCallModal('packaging','Packaging')">📞 Raise Packaging Call</button>
+      <button class="btn btn-outline" onclick="switchView('pack_materials')">📦 Materials</button>
+      <button class="btn btn-outline" onclick="switchView('pack_washtrim')">🥬 Wash & Trim</button>
+    </div>
+    <div class="it-section-title">⏳ My Pending Approvals (${myPending.length})</div>
+    <div class="hnx-pending-list">${myPending.length?myPending.map(i=>item(i,true)).join(''):'<div class="hnx-empty">No tickets waiting for your approval.</div>'}</div>
+    <div class="it-section-title">📋 All Pending Approvals — Manager View (${allPending.length})</div>
+    <div class="hnx-pending-list">${allPending.length?allPending.map(i=>item(i,false)).join(''):'<div class="hnx-empty">No pending approvals across the team.</div>'}</div>
+    <div class="it-section-title">🔧 Open Packaging Tickets (${open.length})</div>
+    <div class="hnx-pending-list">${open.length?open.map(i=>item(i,false)).join(''):'<div class="hnx-empty">No open packaging tickets. All clear. ✅</div>'}</div>
+  `;
+};
 window.renderPackagingDash=function(){
   let view=document.getElementById('view-pack_dash');
   if(!view){view=document.createElement('div');view.className='view';view.id='view-pack_dash';(document.getElementById('appMain')||document.body).appendChild(view);}
@@ -90300,7 +90342,8 @@ const ALL_CHECKLIST_MODULES=[
   {key:'inventory',label:'📊 Inventory',configKey:'hydroPro_inventory_checklist_config',stateKey:'hydroPro_inventory_checklist',viewLink:'inv_checklist'},
   {key:'security',label:'🛡️ Security',configKey:'hydroPro_security_checklist_config',stateKey:'hydroPro_security_checklist',viewLink:'sec_checklist'},
   {key:'maintenance',label:'🔧 Maintenance',configKey:'hydroPro_maintenance_checklist_config',stateKey:'hydroPro_maintenance_checklist',viewLink:'maint_checklist'},
-  {key:'logistics',label:'🚛 Logistics',configKey:'hydroPro_logistics_checklist_config',stateKey:'hydroPro_logistics_checklist',viewLink:'log_checklist'}
+  {key:'logistics',label:'🚛 Logistics',configKey:'hydroPro_logistics_checklist_config',stateKey:'hydroPro_logistics_checklist',viewLink:'log_checklist'},
+  {key:'packaging',label:'📦 Packaging',configKey:'hydroPro_packaging_checklist_config',stateKey:'hydroPro_packaging_checklist',viewLink:'pack_checklist'}
 ];
 
 function _collectAllChecklists(){
@@ -90797,6 +90840,64 @@ const MODULE_CHECKLIST_DEFAULTS={
         'Fuel records reconciled',
         'Toll receipts collected',
         'Customer complaints actioned'
+      ]
+    }
+  },
+  packaging:{
+    sealing:{
+      icon:'🔏',label:'Sealing & Seal Integrity',
+      items:[
+        'All packs sealed airtight — no leaks',
+        'Seal bar temperature within spec',
+        'Random seal pull-test passed',
+        'Gas flush / MAP verified (if used)'
+      ]
+    },
+    labeling:{
+      icon:'🏷️',label:'Labeling & Traceability',
+      items:[
+        'Label matches product, grade & net weight',
+        'Lot / batch code printed and legible',
+        'Pack date & expiry / use-by correct',
+        'Barcode scans correctly',
+        'Traceability log updated per batch'
+      ]
+    },
+    cold_chain:{
+      icon:'❄️',label:'Cold Chain',
+      items:[
+        'Cold room temperature within range (logged)',
+        'Product core temp logged at packing',
+        'No product left at ambient beyond limit',
+        'Chillers / ice packs available and working'
+      ]
+    },
+    hygiene:{
+      icon:'🧼',label:'Hygiene & Food Safety',
+      items:[
+        'Work surfaces & equipment sanitized',
+        'Staff wearing required PPE (gloves, hairnet)',
+        'Handwash / sanitizing stations stocked',
+        'No pest activity observed',
+        'Waste removed and bins clean'
+      ]
+    },
+    materials:{
+      icon:'📦',label:'Packaging Materials',
+      items:[
+        'Adequate stock of boxes / films / trays / labels',
+        'No damaged or contaminated materials in use',
+        'Materials stored off floor and covered',
+        'Low-stock items flagged for reorder'
+      ]
+    },
+    weights:{
+      icon:'⚖️',label:'Weights & Output',
+      items:[
+        'Pack weights match target (within tolerance)',
+        'Scales calibrated / zeroed at shift start',
+        'Underweight packs reworked, not shipped',
+        'Daily output reconciled vs pick ticket'
       ]
     }
   }
@@ -100713,7 +100814,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p40-inv-calls';
+        vEl.textContent = orig + ' · HNX v2.86-p42-pack-checklist';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
