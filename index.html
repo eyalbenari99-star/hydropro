@@ -100635,7 +100635,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p30-backfill';
+        vEl.textContent = orig + ' · HNX v2.86-p30b-backfill';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -137256,6 +137256,15 @@ body.hnx-mobile-locked { overflow: hidden; }
       toast('↩ Back to today — live checklist','info');
       return;
     }
+    // Guard against partial dates: a native <input type=date> fires change on intermediate
+    // years as you type (0002, 0020, 0202 ...). Acting then would re-render and destroy the
+    // focused picker mid-typing, so the remaining digit keystrokes fall through to the global
+    // "1-9 switch module" hotkey (the "jumping to another module" bug). Only act once a full,
+    // plausible, non-future date is present.
+    const _m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateISO);
+    if(!_m) return;
+    const _yr = parseInt(_m[1],10);
+    if(_yr < 2000 || dateISO > t) return;
     window._clEditDate = dateISO;
     window._hnxP22ViewingPast = true;
     try{ if(typeof window.renderCL==='function') window.renderCL(); }catch(e){}
@@ -137266,7 +137275,13 @@ body.hnx-mobile-locked { overflow: hidden; }
   function injectEditUI(){
     const body = document.getElementById('clBody'); if(!body) return;
     const editing = editDate();
-    const di = document.getElementById('hnxP22PastDate'); if(di) di.value = editing || '';
+    const di = document.getElementById('hnxP22PastDate');
+    if(di){
+      // Keep digit/character keystrokes typed into the picker from bubbling to the global
+      // "1-9 switch module" hotkey, even if the picker is later re-rendered. Attached per element.
+      if(!di._p30KeyGuard){ di._p30KeyGuard=true; di.addEventListener('keydown', function(ev){ ev.stopPropagation(); }); }
+      di.value = editing || '';
+    }
     const bar = document.getElementById('hnxP22DateBar');
     let banner = document.getElementById('hnxP30EditBanner');
     if(editing){
