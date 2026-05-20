@@ -100638,7 +100638,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p34-cctv-prj11-fold';
+        vEl.textContent = orig + ' · HNX v2.86-p35-cal-views';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -133083,11 +133083,124 @@ body.hnx-mobile-locked { overflow: hidden; }
     {id:'other',label:'Other',color:'#cfd8dc'}
   ];
   function typeMeta(id){return CAL_TYPES.find(t=>t.id===id)||CAL_TYPES[CAL_TYPES.length-1];}
-  function renderCalendar(){
-    const body=document.getElementById('hnx-it_calendar-body');
-    if(!body){warn('hnx-it_calendar-body not found');return;}
-    injectStyles();
-    const events=load(CAL_KEY,[]);
+  // ============================================================
+  // IT CALENDAR — multi-view (Day / Week / Month / Year / List)  [p35]
+  // ============================================================
+  const _CAL_CSS=`<style>
+  .hnxcal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+  .hnxcal-dow{text-align:center;font-size:11px;font-weight:700;color:var(--text3,#8aa0a8);padding:4px 0;}
+  .hnxcal-cell{min-height:88px;background:var(--surface2,#16201a);border:1px solid var(--border,#2a3a2a);border-radius:6px;padding:3px 4px;cursor:pointer;overflow:hidden;transition:background .15s;}
+  .hnxcal-cell:hover{background:var(--surface3,#1c2530);}
+  .hnxcal-cell.empty{background:transparent;border:none;cursor:default;}
+  .hnxcal-cell.today{border-color:var(--accent2,#2eaa2e);box-shadow:0 0 0 1px var(--accent2,#2eaa2e) inset;}
+  .hnxcal-daynum{font-size:11px;font-weight:700;color:var(--text2,#cfd8dc);margin-bottom:2px;}
+  .hnxcal-cell.today .hnxcal-daynum{color:var(--accent2,#2eaa2e);}
+  .hnxcal-week{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+  .hnxcal-wcol{min-height:130px;background:var(--surface2,#16201a);border:1px solid var(--border,#2a3a2a);border-radius:6px;padding:4px;cursor:pointer;}
+  .hnxcal-wcol:hover{background:var(--surface3,#1c2530);}
+  .hnxcal-wcol.today{border-color:var(--accent2,#2eaa2e);box-shadow:0 0 0 1px var(--accent2,#2eaa2e) inset;}
+  .hnxcal-whead{font-size:11px;font-weight:700;color:var(--text2,#cfd8dc);margin-bottom:5px;text-align:center;}
+  .hnxcal-wcol.today .hnxcal-whead{color:var(--accent2,#2eaa2e);}
+  .hnxcal-year{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;}
+  .hnxcal-ymonth{background:var(--surface2,#16201a);border:1px solid var(--border,#2a3a2a);border-radius:8px;padding:8px;cursor:pointer;transition:border-color .15s;}
+  .hnxcal-ymonth:hover{border-color:var(--accent2,#2eaa2e);}
+  .hnxcal-ymhead{font-size:12px;font-weight:700;margin-bottom:5px;color:var(--text2,#cfd8dc);}
+  .hnxcal-ygrid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;}
+  .hnxcal-yd{font-size:9px;text-align:center;padding:2px 0;color:var(--text3,#8aa0a8);border-radius:2px;}
+  .hnxcal-yd.empty{visibility:hidden;}
+  .hnxcal-yd.has{background:var(--accent2,#2eaa2e)33;color:var(--text2,#cfd8dc);font-weight:700;}
+  .hnxcal-yd.today{outline:1px solid var(--accent2,#2eaa2e);}
+  .hnxcal-chip{cursor:pointer;font-size:10px;line-height:1.35;padding:1px 4px;margin:1px 0;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  </style>`;
+  let _itCalView=(function(){try{return localStorage.getItem('hnx_it_cal_view')||'month';}catch(_){return 'month';}})();
+  let _itCalAnchor=new Date();_itCalAnchor.setHours(0,0,0,0);
+  function _ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+  function _evByDate(events){const m={};events.forEach(e=>{if(!e||!e.date)return;(m[e.date]=m[e.date]||[]).push(e);});Object.keys(m).forEach(k=>m[k].sort((x,y)=>(x.time||'').localeCompare(y.time||'')));return m;}
+  function evCard(e){
+    const tm=typeMeta(e.type);
+    const dt=new Date(e.date+'T'+(e.time||'00:00'));
+    const statusClr=e.status==='done'?'#2eaa2e':e.status==='cancelled'?'#ff5555':e.status==='in_progress'?'#ff9c33':COLOR_IT;
+    return `<div class="p13-card" style="border-left-color:${tm.color};">
+      <div class="p13-row">
+        <div style="flex:1;min-width:220px;">
+          <div class="p13-row-title">${esc(e.title)}</div>
+          <div class="p13-row-meta" style="margin-top:3px;">📅 ${fmtDate(dt)} ${e.time?'· ⏰ '+esc(e.time):''}${e.endTime?' – '+esc(e.endTime):''}${e.location?' · 📍 '+esc(e.location):''}${e.assignedTo?' · 👤 '+esc(e.assignedTo):''}</div>
+          ${e.notes?`<div class="p13-row-meta" style="margin-top:6px;color:var(--text2);">${esc(e.notes)}</div>`:''}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;">
+          <span class="p13-pill" style="background:${tm.color}22;color:${tm.color};">${tm.label}</span>
+          <span class="p13-pill" style="background:${statusClr}22;color:${statusClr};">${(e.status||'scheduled').replace('_',' ').toUpperCase()}</span>
+        </div>
+      </div>
+      <div class="p13-actions" style="margin-top:10px;">
+        <button class="p13-btn sm" onclick="hnxCalEdit('${esc(e.id)}')">✏ Edit</button>
+        ${e.status!=='done'?`<button class="p13-btn sm ok" onclick="hnxCalSetStatus('${esc(e.id)}','done')">✓ Done</button>`:''}
+        ${e.status!=='in_progress'&&e.status!=='done'?`<button class="p13-btn sm warn" onclick="hnxCalSetStatus('${esc(e.id)}','in_progress')">▶ Start</button>`:''}
+        ${e.status!=='cancelled'?`<button class="p13-btn sm" onclick="hnxCalSetStatus('${esc(e.id)}','cancelled')">✕ Cancel</button>`:''}
+        <button class="p13-btn sm danger" onclick="hnxCalDel('${esc(e.id)}')">🗑 Delete</button>
+      </div>
+    </div>`;
+  }
+  function _calChip(e){
+    const tm=typeMeta(e.type);const done=e.status==='done',canc=e.status==='cancelled';
+    const dim=done||canc?'opacity:.5;text-decoration:line-through;':'';
+    return `<div class="hnxcal-chip" onclick="event.stopPropagation();hnxCalEdit('${esc(e.id)}')" title="${esc(e.title)}${e.time?' · '+esc(e.time):''}" style="background:${tm.color}22;color:${tm.color};border-left:2px solid ${tm.color};${dim}">${e.time?'<b>'+esc(e.time)+'</b> ':''}${esc(e.title)}</div>`;
+  }
+  const _MN=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const _MS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const _DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  function _calRangeLabel(){
+    const a=_itCalAnchor;
+    if(_itCalView==='day')return `${_DOW[a.getDay()]}, ${_MN[a.getMonth()]} ${a.getDate()}, ${a.getFullYear()}`;
+    if(_itCalView==='week'){const s=new Date(a);s.setDate(a.getDate()-a.getDay());const e=new Date(s);e.setDate(s.getDate()+6);
+      return _MS[s.getMonth()]===_MS[e.getMonth()]?`${_MS[s.getMonth()]} ${s.getDate()}–${e.getDate()}, ${e.getFullYear()}`:`${_MS[s.getMonth()]} ${s.getDate()} – ${_MS[e.getMonth()]} ${e.getDate()}, ${e.getFullYear()}`;}
+    if(_itCalView==='month')return `${_MN[a.getMonth()]} ${a.getFullYear()}`;
+    if(_itCalView==='year')return `${a.getFullYear()}`;
+    return 'All events';
+  }
+  function _calToolbar(){
+    const views=[['day','📆 Day'],['week','🗓 Week'],['month','📅 Month'],['year','📊 Year'],['list','📋 List']];
+    const seg=views.map(v=>`<button class="p13-btn sm ${_itCalView===v[0]?'primary':''}" onclick="hnxCalSetView('${v[0]}')">${v[1]}</button>`).join('');
+    const nav=_itCalView==='list'?'':`<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
+      <button class="p13-btn sm" onclick="hnxCalNav(-1)">‹</button>
+      <button class="p13-btn sm" onclick="hnxCalNav(0)">Today</button>
+      <button class="p13-btn sm" onclick="hnxCalNav(1)">›</button>
+      <span class="p13-sub" style="margin-left:6px;font-weight:700;color:var(--text2,#cfd8dc);">${_calRangeLabel()}</span></div>`;
+    return `<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;margin:12px 0;">
+      <div style="display:flex;gap:4px;flex-wrap:wrap;">${seg}</div>${nav}</div>`;
+  }
+  function _calMonth(events){
+    const byd=_evByDate(events);const a=_itCalAnchor;const y=a.getFullYear(),m=a.getMonth();
+    const startDow=new Date(y,m,1).getDay();const dim=new Date(y,m+1,0).getDate();const today=_ymd(new Date());
+    let cells='';for(let i=0;i<startDow;i++)cells+=`<div class="hnxcal-cell empty"></div>`;
+    for(let d=1;d<=dim;d++){const ds=_ymd(new Date(y,m,d));const evs=byd[ds]||[];const isToday=ds===today;
+      const shown=evs.slice(0,4).map(_calChip).join('');
+      const more=evs.length>4?`<div style="font-size:9px;color:var(--text3,#8aa0a8);">+${evs.length-4} more</div>`:'';
+      cells+=`<div class="hnxcal-cell${isToday?' today':''}" onclick="hnxCalAddOn('${ds}')"><div class="hnxcal-daynum">${d}</div>${shown}${more}</div>`;}
+    const head=_DOW.map(d=>`<div class="hnxcal-dow">${d}</div>`).join('');
+    return `<div class="hnxcal-grid">${head}${cells}</div><div class="p13-sub" style="margin-top:8px;color:var(--text3,#8aa0a8);">Tip: click any day to add an event · click an event to edit.</div>`;
+  }
+  function _calWeek(events){
+    const byd=_evByDate(events);const a=new Date(_itCalAnchor);const start=new Date(a);start.setDate(a.getDate()-a.getDay());const today=_ymd(new Date());
+    let cols='';for(let i=0;i<7;i++){const d=new Date(start);d.setDate(start.getDate()+i);const ds=_ymd(d);const evs=byd[ds]||[];const isToday=ds===today;
+      cols+=`<div class="hnxcal-wcol${isToday?' today':''}" onclick="hnxCalAddOn('${ds}')"><div class="hnxcal-whead">${_DOW[i]} ${d.getDate()}</div>${evs.map(_calChip).join('')||'<div style="font-size:10px;color:var(--text3,#8aa0a8);text-align:center;padding:4px;">—</div>'}</div>`;}
+    return `<div class="hnxcal-week">${cols}</div><div class="p13-sub" style="margin-top:8px;color:var(--text3,#8aa0a8);">Tip: click any day column to add an event.</div>`;
+  }
+  function _calDay(events){
+    const ds=_ymd(_itCalAnchor);const evs=events.filter(e=>e.date===ds).sort((a,b)=>(a.time||'').localeCompare(b.time||''));
+    const list=evs.length?`<div class="p13-grid" style="margin-top:10px;">${evs.map(evCard).join('')}</div>`:'<div class="p13-empty">No events on this day.</div>';
+    return `<div><button class="p13-btn sm primary" onclick="hnxCalAddOn('${ds}')">➕ Add event on this day</button></div>${list}`;
+  }
+  function _calYear(events){
+    const byd=_evByDate(events);const y=_itCalAnchor.getFullYear();const today=_ymd(new Date());let out='';
+    for(let m=0;m<12;m++){const startDow=new Date(y,m,1).getDay();const dim=new Date(y,m+1,0).getDate();let cnt=0,cells='';
+      for(let i=0;i<startDow;i++)cells+='<div class="hnxcal-yd empty"></div>';
+      for(let d=1;d<=dim;d++){const ds=_ymd(new Date(y,m,d));const has=(byd[ds]||[]).length;if(has)cnt+=has;
+        cells+=`<div class="hnxcal-yd${ds===today?' today':''}${has?' has':''}" title="${ds}${has?' · '+has+' event(s)':''}">${d}</div>`;}
+      out+=`<div class="hnxcal-ymonth" onclick="hnxCalGoMonth(${y},${m})"><div class="hnxcal-ymhead">${_MS[m]} <span style="color:var(--text3,#8aa0a8);font-weight:400;font-size:10px;">${cnt?cnt+' ev':''}</span></div><div class="hnxcal-ygrid">${cells}</div></div>`;}
+    return `<div class="hnxcal-year">${out}</div><div class="p13-sub" style="margin-top:8px;color:var(--text3,#8aa0a8);">Tip: click a month to open it.</div>`;
+  }
+  function _calList(events){
     const now=new Date();now.setHours(0,0,0,0);
     const future=events.filter(e=>{try{return new Date(e.date+'T'+(e.time||'00:00'))>=now;}catch(_){return false;}}).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
     const past=events.filter(e=>{try{return new Date(e.date+'T'+(e.time||'00:00'))<now;}catch(_){return false;}}).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
@@ -133096,33 +133209,39 @@ body.hnx-mobile-locked { overflow: hidden; }
     const thisWeek=future.filter(e=>new Date(e.date)<=weekCutoff);
     const thisMonth=future.filter(e=>{const d=new Date(e.date);return d>weekCutoff&&d<=monthCutoff;});
     const later=future.filter(e=>new Date(e.date)>monthCutoff);
-    function evCard(e){
-      const tm=typeMeta(e.type);
-      const dt=new Date(e.date+'T'+(e.time||'00:00'));
-      const statusClr=e.status==='done'?'#2eaa2e':e.status==='cancelled'?'#ff5555':e.status==='in_progress'?'#ff9c33':COLOR_IT;
-      return `<div class="p13-card" style="border-left-color:${tm.color};">
-        <div class="p13-row">
-          <div style="flex:1;min-width:220px;">
-            <div class="p13-row-title">${esc(e.title)}</div>
-            <div class="p13-row-meta" style="margin-top:3px;">📅 ${fmtDate(dt)} ${e.time?'· ⏰ '+esc(e.time):''}${e.endTime?' – '+esc(e.endTime):''}${e.location?' · 📍 '+esc(e.location):''}${e.assignedTo?' · 👤 '+esc(e.assignedTo):''}</div>
-            ${e.notes?`<div class="p13-row-meta" style="margin-top:6px;color:var(--text2);">${esc(e.notes)}</div>`:''}
-          </div>
-          <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;">
-            <span class="p13-pill" style="background:${tm.color}22;color:${tm.color};">${tm.label}</span>
-            <span class="p13-pill" style="background:${statusClr}22;color:${statusClr};">${(e.status||'scheduled').replace('_',' ').toUpperCase()}</span>
-          </div>
-        </div>
-        <div class="p13-actions" style="margin-top:10px;">
-          <button class="p13-btn sm" onclick="hnxCalEdit('${esc(e.id)}')">✏ Edit</button>
-          ${e.status!=='done'?`<button class="p13-btn sm ok" onclick="hnxCalSetStatus('${esc(e.id)}','done')">✓ Done</button>`:''}
-          ${e.status!=='in_progress'&&e.status!=='done'?`<button class="p13-btn sm warn" onclick="hnxCalSetStatus('${esc(e.id)}','in_progress')">▶ Start</button>`:''}
-          ${e.status!=='cancelled'?`<button class="p13-btn sm" onclick="hnxCalSetStatus('${esc(e.id)}','cancelled')">✕ Cancel</button>`:''}
-          <button class="p13-btn sm danger" onclick="hnxCalDel('${esc(e.id)}')">🗑 Delete</button>
-        </div>
-      </div>`;
-    }
     function group(title,arr){if(!arr.length)return'';return`<div style="margin-top:14px;"><div class="p13-sub" style="margin-bottom:6px;">${title} (${arr.length})</div><div class="p13-grid">${arr.map(evCard).join('')}</div></div>`;}
-    body.innerHTML=`<div class="p13-wrap">
+    return `${future.length===0&&past.length===0?'<div class="p13-empty">No IT events yet. Click ➕ New Event to schedule one.</div>':''}
+      ${group('🔥 THIS WEEK',thisWeek)}
+      ${group('📅 NEXT 30 DAYS',thisMonth)}
+      ${group('⏳ LATER',later)}
+      ${past.length?group('📋 PAST '+(past.length>20?'(showing 20)':''),past.slice(0,20)):''}`;
+  }
+  window.hnxCalSetView=function(v){_itCalView=v;try{localStorage.setItem('hnx_it_cal_view',v);}catch(_){}renderCalendar();};
+  window.hnxCalNav=function(dir){const d=_itCalAnchor;
+    if(dir===0){_itCalAnchor=new Date();_itCalAnchor.setHours(0,0,0,0);}
+    else if(_itCalView==='day')d.setDate(d.getDate()+dir);
+    else if(_itCalView==='week')d.setDate(d.getDate()+7*dir);
+    else if(_itCalView==='month')d.setMonth(d.getMonth()+dir);
+    else if(_itCalView==='year')d.setFullYear(d.getFullYear()+dir);
+    renderCalendar();};
+  window.hnxCalGoMonth=function(y,m){_itCalAnchor=new Date(y,m,1);_itCalAnchor.setHours(0,0,0,0);_itCalView='month';try{localStorage.setItem('hnx_it_cal_view','month');}catch(_){}renderCalendar();};
+  window.hnxCalAddOn=function(dateStr){hnxCalAdd();try{const el=document.getElementById('cal_date');if(el&&dateStr)el.value=dateStr;}catch(_){}};
+  function renderCalendar(){
+    const body=document.getElementById('hnx-it_calendar-body');
+    if(!body){warn('hnx-it_calendar-body not found');return;}
+    injectStyles();
+    const events=load(CAL_KEY,[]);
+    const now=new Date();now.setHours(0,0,0,0);
+    const future=events.filter(e=>{try{return new Date(e.date+'T'+(e.time||'00:00'))>=now;}catch(_){return false;}});
+    const weekCutoff=new Date();weekCutoff.setDate(weekCutoff.getDate()+7);
+    const thisWeek=future.filter(e=>{try{return new Date(e.date)<=weekCutoff;}catch(_){return false;}});
+    let main='';
+    if(_itCalView==='month')main=_calMonth(events);
+    else if(_itCalView==='week')main=_calWeek(events);
+    else if(_itCalView==='day')main=_calDay(events);
+    else if(_itCalView==='year')main=_calYear(events);
+    else main=_calList(events);
+    body.innerHTML=`${_CAL_CSS}<div class="p13-wrap">
       <div class="p13-head">
         <div>
           <div class="p13-title">📅 IT Calendar</div>
@@ -133132,11 +133251,8 @@ body.hnx-mobile-locked { overflow: hidden; }
           <button class="p13-btn primary" onclick="hnxCalAdd()">➕ New Event</button>
         </div>
       </div>
-      ${future.length===0&&past.length===0?'<div class="p13-empty">No IT events yet. Click ➕ New Event to schedule one.</div>':''}
-      ${group('🔥 THIS WEEK',thisWeek)}
-      ${group('📅 NEXT 30 DAYS',thisMonth)}
-      ${group('⏳ LATER',later)}
-      ${past.length?group('📋 PAST '+(past.length>20?'(showing 20)':''),past.slice(0,20)):''}
+      ${_calToolbar()}
+      ${main}
     </div>`;
   }
   function calForm(ev){
