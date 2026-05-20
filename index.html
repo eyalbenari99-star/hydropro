@@ -5783,6 +5783,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 <div class="view" id="view-inv_stock"><div id="stubInvStockBody"></div></div>
 <div class="view" id="view-inv_movements"><div id="stubInvMovementsBody"></div></div>
 <div class="view" id="view-inv_categories"><div id="stubInvCategoriesBody"></div></div>
+<div class="view" id="view-inv_calls"><div id="invCallsBody"></div></div>
 <!-- Packaging -->
 <div class="view" id="view-pack_dash"><div id="stubPackDashBody"></div></div>
 <div class="view" id="view-pack_materials"><div id="stubPackMaterialsBody"></div></div>
@@ -5811,6 +5812,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 <div class="view" id="view-qc_inspections"><div id="stubQcInspectionsBody"></div></div>
 <div class="view" id="view-qc_rejections"><div id="stubQcRejectionsBody"></div></div>
 <div class="view" id="view-qc_standards"><div id="stubQcStandardsBody"></div></div>
+<div class="view" id="view-qc_calls"><div id="qcCallsBody"></div></div>
 <!-- Fleet -->
 <div class="view" id="view-fleet_dash"><div id="stubFleetDashBody"></div></div>
 <div class="view" id="view-fleet_vehicles"><div id="stubFleetVehiclesBody"></div></div>
@@ -19875,7 +19877,8 @@ const MODULES={
       {id:'it_materials',      label:'📦 IT Item Request',    perm:'viewMaintenance',title:'IT items needed from inventory — cables, accessories, replacement parts'},
       {id:'it_devices',        label:'🖥️ IT Devices',         perm:'viewMaintenance',title:'Computers, printers, TVs, monitors, network equipment'},
       {id:'it_parts',          label:'🔩 IT Spare Parts',     perm:'viewMaintenance',title:'IT spare parts inventory · cables · adapters · components'},
-      {id:'it_matrix',         label:'📞 IT Open-Call Grid',     perm:'viewMaintenance',title:'IT open calls by Subject × Department'},
+      {id:'it_matrix',         label:'📊 IT Equipment Matrix',   perm:'viewMaintenance',title:'Equipment status × 14 departments · open maintenance tasks'},
+      {id:'it_open_calls',     label:'📞 IT Open-Call Grid',     perm:'viewMaintenance',title:'Open IT calls grouped by Department × Subject'},
       {id:'it_recurring',      label:'🔥 IT Recurring Tasks', perm:'viewMaintenance',title:'IT recurring tasks · device cleaning · backup checks · network audits'},
       {id:'it_daily_checklist',label:'☑️ IT Daily Checklist', perm:'viewMaintenance',title:'Daily IT checks · CCTV health · network · servers · power'},
       {id:'it_calls',          label:'📞 IT Open Calls',      perm:'viewMaintenance',title:'IT-module open calls · Pending Approvals · Approve/Reject'},
@@ -19919,6 +19922,7 @@ const MODULES={
     views:[
       {id:'inv_cmd',label:'🎯 Command Center',perm:'viewInventory',title:'Inventory Command Center · cameras + KPIs + AI Brain · cockpit view'},
       {id:'inv_dash',label:'Dashboard',perm:'viewInventory'},
+      {id:'inv_calls',label:'📞 Inventory Calls',perm:'viewInventory',title:'Inventory calls & tickets — pending approvals + open stock issues'},
       {id:'inv_stock',label:'📦 Stock',perm:'viewInventory'},
       {id:'inv_movements',label:'🔄 Movements',perm:'viewInventory'},
       {id:'inv_categories',label:'🏷️ Categories',perm:'viewInventory'}
@@ -19996,6 +20000,7 @@ const MODULES={
     views:[
       {id:'qc_cmd',label:'🎯 Command Center',perm:'viewQuality',title:'QC Command Center · cameras + KPIs + AI Brain · cockpit view'},
       {id:'qc_dash',label:'Dashboard',perm:'viewQuality'},
+      {id:'qc_calls',label:'📞 QC Calls',perm:'viewQuality',title:'Quality calls & tickets — pending approvals + open QC issues'},
       {id:'qc_prod_inspection',label:'🌱 Production Inspection',perm:'viewQuality',title:'Plant & crop inspection matrix — 10 inspection items × 14 GHs · daily checks. Plus aggregated flags: tasks not done, partly done, or done improperly across all modules.'},
       {id:'qc_inspections',label:'🔍 Product Inspections',perm:'viewQuality'},
       {id:'qc_rejections',label:'❌ Rejections',perm:'viewQuality'},
@@ -20682,6 +20687,7 @@ function switchView(v,skipModuleCheck){
   if(v==='inv_stock')renderInvStock();
   if(v==='inv_movements')renderInvMovements();
   if(v==='inv_categories')renderInvCategories();
+  if(v==='inv_calls')renderInvCalls();
   if(v==='pack_washtrim'){renderWashTrim();return;}
   if(v==='pack_dash'){renderPackagingDash();return;}
   if(v==='pack_materials'){renderPackagingMaterials();return;}
@@ -20702,6 +20708,7 @@ function switchView(v,skipModuleCheck){
   if(v==='qc_prod_inspection')renderQCProdInspection();
   if(v==='qc_rejections')renderQCRejections();
   if(v==='qc_standards')renderQCStandards();
+  if(v==='qc_calls')renderQCCalls();
   if(v.startsWith('fleet_'))renderStubModule('fleet',v);
   if(v.startsWith('lic_'))renderStubModule('licenses',v);
   if(v.startsWith('prj_'))renderStubModule('projects',v);
@@ -58215,6 +58222,40 @@ function renderQCDash(){renderQC('dashboard');}
 function renderQCInspections(){renderQC('inspections');}
 function renderQCRejections(){renderQC('rejections');}
 function renderQCStandards(){renderQC('standards');}
+function renderQCCalls(){
+  const host=document.getElementById('qcCallsBody');
+  if(!host)return;
+  const u=(typeof getCurrentUser==='function'?getCurrentUser():null);
+  const username=(u&&u.username)||'unknown';
+  let issues=[];try{issues=JSON.parse(localStorage.getItem('hydroPro_issues_v2')||'[]');}catch(e){issues=[];}
+  const qc=issues.filter(i=>i&&i.module==='quality');
+  const myPending=qc.filter(i=>i.status==='resolved'&&i.createdBy===username);
+  const allPending=qc.filter(i=>i.status==='resolved');
+  const open=qc.filter(i=>['open','assigned','in_progress'].includes(i.status));
+  const esc=s=>(s==null?'':String(s)).replace(/[<>]/g,'');
+  const fmtTime=ts=>{if(!ts)return '—';const diff=Date.now()-ts;const h=Math.floor(diff/3600000),d=Math.floor(h/24);if(d>0)return d+'d ago';if(h>0)return h+'h ago';return Math.floor(diff/60000)+'m ago';};
+  const item=(i,showApprove)=>`<div class="hnx-pending-item" onclick="window._hnxOpenApprovalModal&&window._hnxOpenApprovalModal('${i.id}')">
+      <div class="hnx-pi-info">
+        <div class="hnx-pi-title">${esc(i.title||'(no title)')}</div>
+        <div class="hnx-pi-meta">${i.priority?'<span style="color:#ff9c33;">['+esc((i.priority||'').toUpperCase())+']</span> · ':''}${esc(i.id)} · Filed by ${esc(i.createdByName||i.createdBy||'unknown')}${i.filed_for?' for '+esc(i.filed_for):''} · ${i.awaiting_approval_since?'Pending '+fmtTime(i.awaiting_approval_since):'Status: '+esc(i.status)}</div>
+      </div>
+      ${showApprove?`<button class="hnx-pi-action" onclick="event.stopPropagation();window._hnxOpenApprovalModal&&window._hnxOpenApprovalModal('${i.id}')">Review</button>`:''}
+    </div>`;
+  host.innerHTML=`
+    <div class="section-title">📞 Quality Control — Calls & Tickets</div>
+    <div style="display:flex;gap:10px;margin:10px 0 16px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="if(typeof openCallModal==='function')openCallModal('quality','Quality Control')">📞 Raise QC Call</button>
+      <button class="btn btn-outline" onclick="switchView('qc_rejections')">❌ Rejections</button>
+      <button class="btn btn-outline" onclick="switchView('qc_inspections')">🔍 Inspections</button>
+    </div>
+    <div class="it-section-title">⏳ My Pending Approvals (${myPending.length})</div>
+    <div class="hnx-pending-list">${myPending.length?myPending.map(i=>item(i,true)).join(''):'<div class="hnx-empty">No tickets waiting for your approval.</div>'}</div>
+    <div class="it-section-title">📋 All Pending Approvals — Manager View (${allPending.length})</div>
+    <div class="hnx-pending-list">${allPending.length?allPending.map(i=>item(i,false)).join(''):'<div class="hnx-empty">No pending approvals across the team.</div>'}</div>
+    <div class="it-section-title">🔧 Open QC Tickets (${open.length})</div>
+    <div class="hnx-pending-list">${open.length?open.map(i=>item(i,false)).join(''):'<div class="hnx-empty">No open QC tickets. All clear. ✅</div>'}</div>
+  `;
+}
 
 function renderQC(tab){
   _qcTab=tab||_qcTab;
@@ -58500,6 +58541,40 @@ function renderInvDash(){renderInv('dashboard');}
 function renderInvStock(){renderInv('stock');}
 function renderInvMovements(){renderInv('movements');}
 function renderInvCategories(){renderInv('categories');}
+function renderInvCalls(){
+  const host=document.getElementById('invCallsBody');
+  if(!host)return;
+  const u=(typeof getCurrentUser==='function'?getCurrentUser():null);
+  const username=(u&&u.username)||'unknown';
+  let issues=[];try{issues=JSON.parse(localStorage.getItem('hydroPro_issues_v2')||'[]');}catch(e){issues=[];}
+  const inv=issues.filter(i=>i&&i.module==='inventory');
+  const myPending=inv.filter(i=>i.status==='resolved'&&i.createdBy===username);
+  const allPending=inv.filter(i=>i.status==='resolved');
+  const open=inv.filter(i=>['open','assigned','in_progress'].includes(i.status));
+  const esc=s=>(s==null?'':String(s)).replace(/[<>]/g,'');
+  const fmtTime=ts=>{if(!ts)return '—';const diff=Date.now()-ts;const h=Math.floor(diff/3600000),d=Math.floor(h/24);if(d>0)return d+'d ago';if(h>0)return h+'h ago';return Math.floor(diff/60000)+'m ago';};
+  const item=(i,showApprove)=>`<div class="hnx-pending-item" onclick="window._hnxOpenApprovalModal&&window._hnxOpenApprovalModal('${i.id}')">
+      <div class="hnx-pi-info">
+        <div class="hnx-pi-title">${esc(i.title||'(no title)')}</div>
+        <div class="hnx-pi-meta">${i.priority?'<span style="color:#ff9c33;">['+esc((i.priority||'').toUpperCase())+']</span> · ':''}${esc(i.id)} · Filed by ${esc(i.createdByName||i.createdBy||'unknown')}${i.filed_for?' for '+esc(i.filed_for):''} · ${i.awaiting_approval_since?'Pending '+fmtTime(i.awaiting_approval_since):'Status: '+esc(i.status)}</div>
+      </div>
+      ${showApprove?`<button class="hnx-pi-action" onclick="event.stopPropagation();window._hnxOpenApprovalModal&&window._hnxOpenApprovalModal('${i.id}')">Review</button>`:''}
+    </div>`;
+  host.innerHTML=`
+    <div class="section-title">📞 Inventory — Calls & Tickets</div>
+    <div style="display:flex;gap:10px;margin:10px 0 16px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="if(typeof openCallModal==='function')openCallModal('inventory','Inventory')">📞 Raise Inventory Call</button>
+      <button class="btn btn-outline" onclick="switchView('inv_stock')">📦 Stock</button>
+      <button class="btn btn-outline" onclick="switchView('inv_movements')">🔄 Movements</button>
+    </div>
+    <div class="it-section-title">⏳ My Pending Approvals (${myPending.length})</div>
+    <div class="hnx-pending-list">${myPending.length?myPending.map(i=>item(i,true)).join(''):'<div class="hnx-empty">No tickets waiting for your approval.</div>'}</div>
+    <div class="it-section-title">📋 All Pending Approvals — Manager View (${allPending.length})</div>
+    <div class="hnx-pending-list">${allPending.length?allPending.map(i=>item(i,false)).join(''):'<div class="hnx-empty">No pending approvals across the team.</div>'}</div>
+    <div class="it-section-title">🔧 Open Inventory Tickets (${open.length})</div>
+    <div class="hnx-pending-list">${open.length?open.map(i=>item(i,false)).join(''):'<div class="hnx-empty">No open inventory tickets. All clear. ✅</div>'}</div>
+  `;
+}
 
 function renderInv(tab){
   _invTab=tab||_invTab;
@@ -100638,7 +100713,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p35-cal-views';
+        vEl.textContent = orig + ' · HNX v2.86-p40-inv-calls';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -131751,7 +131826,7 @@ body.hnx-mobile-locked { overflow: hidden; }
   const NEW_IT_VIEWS = [
     'it_tasks','it_calendar','it_materials','it_parts','it_matrix',
     'it_recurring','it_daily_checklist','it_tech_per_gh','it_gh_fer_matrix',
-    'it_cctv_wall','it_rfid'
+    'it_cctv_wall','it_rfid','it_open_calls'
   ];
 
   function ensureContainers() {
@@ -131817,9 +131892,9 @@ body.hnx-mobile-locked { overflow: hidden; }
     } catch(e) { return []; }
   }
 
-  // ── it_matrix · IT Call Matrix (real renderer using IT issue data) ──
-  renderers.it_matrix = function() {
-    const body = document.getElementById('hnx-it_matrix-body');
+  // ── it_open_calls · IT Open-Call Grid (open IT calls by Dept × Subject) ──
+  renderers.it_open_calls = function() {
+    const body = document.getElementById('hnx-it_open_calls-body');
     if (!body) return;
     const issues = getITIssues();
     const open = issues.filter(i => ['open','assigned','in_progress','resolved'].includes(i.status));
@@ -131997,19 +132072,13 @@ body.hnx-mobile-locked { overflow: hidden; }
   };
 
   renderers.it_daily_checklist = function() {
-    document.getElementById('hnx-it_daily_checklist-body').innerHTML = buildQueuePlaceholder(
-      '☑️ IT Daily Checklist',
-      [
-        'Morning: all CCTV cameras online (count)',
-        'Morning: all DVRs recording (verify last night)',
-        'Morning: server room temperature OK',
-        'Morning: internet uptime check',
-        'Afternoon: review any new user-reported IT issues',
-        'End of day: confirm backup ran successfully',
-        'End of day: lock IT room'
-      ],
-      null
-    );
+    // p36: wire to the shared module-checklist engine (IT defaults already exist in MODULE_CHECKLIST_DEFAULTS.it)
+    if (typeof renderModuleChecklist === 'function') {
+      try { renderModuleChecklist('it','it_daily_checklist','☑️ IT Daily Checklist'); return; }
+      catch(e){ warn('it_daily_checklist engine fail:', e); }
+    }
+    const b = document.getElementById('hnx-it_daily_checklist-body');
+    if (b) b.innerHTML = '<div style="padding:24px;color:var(--text3);">Checklist engine loading… reopen this tab in a moment.</div>';
   };
 
   renderers.it_gh_fer_matrix = function() {
@@ -133569,24 +133638,39 @@ body.hnx-mobile-locked { overflow: hidden; }
   // ============================================================
   const RFID_KEY='hydroPro_it_rfid_v1';
   regKey(RFID_KEY);
+  const READERS_KEY='hydroPro_it_rfid_readers_v1';
+  regKey(READERS_KEY);
   const RFID_TYPES=['Employee','Equipment','Vehicle','Inventory','Asset','Visitor','Other'];
   const RFID_STATUS=[{id:'active',label:'Active',clr:'#2eaa2e'},{id:'inactive',label:'Inactive',clr:'#cfd8dc'},{id:'lost',label:'Lost',clr:'#ff5555'},{id:'replaced',label:'Replaced',clr:'#ff9c33'}];
+  const RDR_STATUS=[{id:'online',label:'Online',clr:'#2eaa2e'},{id:'offline',label:'Offline',clr:'#ff5555'},{id:'maintenance',label:'Maintenance',clr:'#ff9c33'}];
   function rfidStatusMeta(id){return RFID_STATUS.find(x=>x.id===id)||RFID_STATUS[0];}
-  function renderRfid(){
-    const body=document.getElementById('hnx-it_rfid-body');
-    if(!body){warn('hnx-it_rfid-body not found');return;}
-    injectStyles();
+  function rdrStatusMeta(id){return RDR_STATUS.find(x=>x.id===id)||RDR_STATUS[0];}
+  let _rfidTab=(function(){try{return localStorage.getItem('hnx_it_rfid_tab')||'tags';}catch(_){return 'tags';}})();
+  function _rfidRecency(ts){
+    if(!ts)return {clr:'var(--text3,#8aa0a8)',bg:'transparent',lbl:'—'};
+    const h=(Date.now()-ts)/3600000;
+    if(h<1)return {clr:'#2eaa2e',bg:'#2eaa2e22',lbl:'<1h'};
+    if(h<24)return {clr:'#8bc34a',bg:'#8bc34a22',lbl:Math.round(h)+'h'};
+    const d=h/24;
+    if(d<7)return {clr:'#ff9c33',bg:'#ff9c3322',lbl:Math.round(d)+'d'};
+    return {clr:'#ff5555',bg:'#ff555522',lbl:Math.round(d)+'d'};
+  }
+  function _rdrName(id){const r=load(READERS_KEY,[]).find(x=>x.id===id);return r?r.name:'';}
+
+  // ---------- TAGS sub-view (returns inner HTML) ----------
+  function renderRfidTags(){
     const all=load(RFID_KEY,[]);
     const filter=window._hnxRfidFilter||'';
     const filtered=filter?all.filter(t=>(t.tag_id||'').toLowerCase().includes(filter.toLowerCase())||(t.asset_name||'').toLowerCase().includes(filter.toLowerCase())):all;
     function tCard(t){
       const sm=rfidStatusMeta(t.status);
+      const rdr=t.lastSeenReader?_rdrName(t.lastSeenReader):'';
       return `<div class="p13-card">
         <div class="p13-row">
           <div style="flex:1;min-width:220px;">
             <div class="p13-row-title">🆔 ${esc(t.tag_id)} <span style="font-weight:400;color:var(--text3);">→ ${esc(t.asset_name||'(unassigned)')}</span></div>
             <div class="p13-row-meta" style="margin-top:3px;">${esc(t.asset_type||'—')}${t.asset_id?' · ID: '+esc(t.asset_id):''}${t.location?' · 📍 '+esc(t.location):''}${t.assignedTo?' · 👤 '+esc(t.assignedTo):''}</div>
-            ${t.lastSeen?`<div class="p13-row-meta" style="margin-top:3px;">👁 Last seen: ${fmtDateTime(t.lastSeen)}${t.lastSeenBy?' at '+esc(t.lastSeenBy):''}</div>`:''}
+            ${t.lastSeen?`<div class="p13-row-meta" style="margin-top:3px;">👁 Last seen: ${fmtDateTime(t.lastSeen)}${rdr?' · 📡 '+esc(rdr):t.lastSeenBy?' at '+esc(t.lastSeenBy):''}</div>`:''}
             ${t.notes?`<div class="p13-row-meta" style="margin-top:6px;color:var(--text2);">${esc(t.notes)}</div>`:''}
           </div>
           <span class="p13-pill" style="background:${sm.clr}22;color:${sm.clr};align-self:flex-start;">${sm.label.toUpperCase()}</span>
@@ -133599,10 +133683,9 @@ body.hnx-mobile-locked { overflow: hidden; }
         </div>
       </div>`;
     }
-    body.innerHTML=`<div class="p13-wrap">
-      <div class="p13-head">
+    return `<div class="p13-head">
         <div>
-          <div class="p13-title">🆔 RFID Setup</div>
+          <div class="p13-title">🆔 RFID Tags</div>
           <div class="p13-sub">${all.length} tags · ${all.filter(t=>t.status==='active').length} active · ${all.filter(t=>t.status==='lost').length} lost</div>
         </div>
         <div class="p13-actions"><button class="p13-btn primary" onclick="hnxRfidAdd()">➕ Register Tag</button></div>
@@ -133611,8 +133694,7 @@ body.hnx-mobile-locked { overflow: hidden; }
         <input class="p13-input" style="max-width:300px;" placeholder="🔍 Search by tag ID or asset name..." value="${esc(filter)}" oninput="window._hnxRfidFilter=this.value;hnxRfidRender();">
         ${filter?`<button class="p13-btn sm" onclick="window._hnxRfidFilter='';hnxRfidRender();">✕ Clear</button>`:''}
       </div>
-      ${all.length===0?'<div class="p13-empty">No RFID tags registered yet. Click ➕ Register Tag to add one.</div>':filtered.length===0?'<div class="p13-empty">No tags match the filter.</div>':`<div class="p13-grid">${filtered.map(tCard).join('')}</div>`}
-    </div>`;
+      ${all.length===0?'<div class="p13-empty">No RFID tags registered yet. Click ➕ Register Tag to add one.</div>':filtered.length===0?'<div class="p13-empty">No tags match the filter.</div>':`<div class="p13-grid">${filtered.map(tCard).join('')}</div>`}`;
   }
   function rfidForm(t){
     t=t||{tag_id:'',asset_type:'Equipment',asset_name:'',asset_id:'',location:'',status:'active',assignedTo:'',notes:''};
@@ -133648,9 +133730,135 @@ body.hnx-mobile-locked { overflow: hidden; }
     else all.push(Object.assign({id:uid('rfid'),createdAt:Date.now(),createdBy:u.username},data));
     save(RFID_KEY,all);closeModal();renderRfid();notify('🆔 Tag '+(id?'updated':'registered'));
   };
-  window.hnxRfidSeen=function(id){const all=load(RFID_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;const u=curUser();all[i].lastSeen=Date.now();all[i].lastSeenBy=u.name;save(RFID_KEY,all);renderRfid();notify('👁 Seen logged');};
   window.hnxRfidSetStatus=function(id,s){const all=load(RFID_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;all[i].status=s;all[i].updatedAt=Date.now();save(RFID_KEY,all);renderRfid();notify('Status → '+s);};
   window.hnxRfidDel=function(id){if(!confirm('Delete this tag?'))return;save(RFID_KEY,load(RFID_KEY,[]).filter(x=>x.id!==id));renderRfid();notify('🆔 Tag deleted');};
+
+  // ---------- LOG SEEN (optionally at a reader) ----------
+  function seenForm(t){
+    const readers=load(READERS_KEY,[]);
+    return `<div class="p13m-title">👁 Log Sighting — ${esc(t.tag_id)}</div>
+      <div class="p13-field"><label>Seen at reader</label><select id="seen_reader" class="p13-select"><option value="">— Manual / unknown —</option>${readers.map(r=>`<option value="${esc(r.id)}">${esc(r.name)}${r.location?' ('+esc(r.location)+')':''}</option>`).join('')}</select></div>
+      <div class="p13-actions"><button class="p13-btn primary" onclick="hnxRfidSeenSave('${esc(t.id)}')">👁 Log Seen Now</button><button class="p13-btn" onclick="hnxP13CloseModal()">Cancel</button></div>`;
+  }
+  function _rfidDoSeen(id,readerId){
+    const all=load(RFID_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;
+    const u=curUser();const now=Date.now();
+    all[i].lastSeen=now;all[i].lastSeenBy=u.name;
+    if(readerId){all[i].lastSeenReader=readerId;all[i].seen=all[i].seen||{};all[i].seen[readerId]=now;}
+    save(RFID_KEY,all);renderRfid();notify('👁 Sighting logged');
+  }
+  window.hnxRfidSeen=function(id){const t=load(RFID_KEY,[]).find(x=>x.id===id);if(!t)return;const readers=load(READERS_KEY,[]);if(!readers.length)_rfidDoSeen(id,'');else openModal(seenForm(t));};
+  window.hnxRfidSeenSave=function(id){const el=document.getElementById('seen_reader');const rid=el?el.value:'';_rfidDoSeen(id,rid);closeModal();};
+  window.hnxRfidLogAt=function(tagId,readerId){_rfidDoSeen(tagId,readerId);};
+  window.hnxRfidRender=function(){renderRfid();};
+  window.hnxRfidTab=function(t){_rfidTab=t;try{localStorage.setItem('hnx_it_rfid_tab',t);}catch(_){}renderRfid();};
+
+  // ---------- READERS sub-view ----------
+  function renderRfidReaders(){
+    const readers=load(READERS_KEY,[]);
+    function rCard(r){
+      const sm=rdrStatusMeta(r.status);
+      return `<div class="p13-card" style="border-left-color:${sm.clr};">
+        <div class="p13-row">
+          <div style="flex:1;min-width:220px;">
+            <div class="p13-row-title">📡 ${esc(r.name)}${r.reader_code?` <span style="font-weight:400;color:var(--text3);">· ${esc(r.reader_code)}</span>`:''}</div>
+            <div class="p13-row-meta" style="margin-top:3px;">${r.location?'📍 '+esc(r.location):'—'}${r.ip?' · 🌐 '+esc(r.ip):''}</div>
+            ${r.lastPing?`<div class="p13-row-meta" style="margin-top:3px;">📶 Last ping: ${fmtDateTime(r.lastPing)}</div>`:''}
+            ${r.notes?`<div class="p13-row-meta" style="margin-top:6px;color:var(--text2);">${esc(r.notes)}</div>`:''}
+          </div>
+          <span class="p13-pill" style="background:${sm.clr}22;color:${sm.clr};align-self:flex-start;">${sm.label.toUpperCase()}</span>
+        </div>
+        <div class="p13-actions" style="margin-top:10px;">
+          <button class="p13-btn sm" onclick="hnxRdrPing('${esc(r.id)}')">📶 Ping now</button>
+          <button class="p13-btn sm" onclick="hnxRdrEdit('${esc(r.id)}')">✏ Edit</button>
+          ${r.status!=='offline'?`<button class="p13-btn sm danger" onclick="hnxRdrSetStatus('${esc(r.id)}','offline')">⚠ Offline</button>`:`<button class="p13-btn sm ok" onclick="hnxRdrSetStatus('${esc(r.id)}','online')">✓ Online</button>`}
+          <button class="p13-btn sm danger" onclick="hnxRdrDel('${esc(r.id)}')">🗑 Delete</button>
+        </div>
+      </div>`;
+    }
+    const online=readers.filter(r=>r.status==='online').length;
+    return `<div class="p13-head">
+        <div>
+          <div class="p13-title">📡 RFID Readers</div>
+          <div class="p13-sub">${readers.length} readers · ${online} online · ${readers.filter(r=>r.status==='offline').length} offline</div>
+        </div>
+        <div class="p13-actions"><button class="p13-btn primary" onclick="hnxRdrAdd()">➕ Add Reader</button></div>
+      </div>
+      ${readers.length===0?'<div class="p13-empty">No RFID readers yet. Click ➕ Add Reader to register one.</div>':`<div class="p13-grid">${readers.map(rCard).join('')}</div>`}`;
+  }
+  function rdrForm(r){
+    r=r||{name:'',reader_code:'',location:'',ip:'',status:'online',notes:''};
+    return `<div class="p13m-title">${r.id?'✏ Edit':'➕ Add'} RFID Reader</div>
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Reader Name *</label><input id="rdr_name" class="p13-input" value="${esc(r.name)}" placeholder="e.g. Main Gate Reader"></div>
+        <div class="p13-field"><label>Status</label><select id="rdr_status" class="p13-select">${RDR_STATUS.map(s=>`<option value="${s.id}" ${r.status===s.id?'selected':''}>${s.label}</option>`).join('')}</select></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="p13-field"><label>Reader Code</label><input id="rdr_code" class="p13-input" value="${esc(r.reader_code||'')}" placeholder="e.g. RDR-01"></div>
+        <div class="p13-field"><label>IP / Address</label><input id="rdr_ip" class="p13-input" value="${esc(r.ip||'')}" placeholder="optional"></div>
+      </div>
+      <div class="p13-field"><label>Location</label><input id="rdr_location" class="p13-input" value="${esc(r.location||'')}" placeholder="e.g. Main Gate, Warehouse Dock, GH3"></div>
+      <div class="p13-field"><label>Notes</label><textarea id="rdr_notes" class="p13-textarea">${esc(r.notes||'')}</textarea></div>
+      <div class="p13-actions"><button class="p13-btn primary" onclick="hnxRdrSave('${esc(r.id||'')}')">${r.id?'✓ Update':'✓ Add'}</button><button class="p13-btn" onclick="hnxP13CloseModal()">Cancel</button></div>`;
+  }
+  window.hnxRdrAdd=function(){openModal(rdrForm());};
+  window.hnxRdrEdit=function(id){const r=load(READERS_KEY,[]).find(x=>x.id===id);if(r)openModal(rdrForm(r));};
+  window.hnxRdrSave=function(id){
+    const name=document.getElementById('rdr_name').value.trim();if(!name){alert('Reader name required');return;}
+    const all=load(READERS_KEY,[]);const u=curUser();
+    const data={name:name,reader_code:document.getElementById('rdr_code').value.trim(),ip:document.getElementById('rdr_ip').value.trim(),
+      location:document.getElementById('rdr_location').value.trim(),status:document.getElementById('rdr_status').value,notes:document.getElementById('rdr_notes').value.trim()};
+    if(id){const i=all.findIndex(x=>x.id===id);if(i>=0)all[i]=Object.assign(all[i],data,{updatedAt:Date.now()});}
+    else all.push(Object.assign({id:uid('rdr'),createdAt:Date.now(),createdBy:u.username},data));
+    save(READERS_KEY,all);closeModal();renderRfid();notify('📡 Reader '+(id?'updated':'added'));
+  };
+  window.hnxRdrSetStatus=function(id,s){const all=load(READERS_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;all[i].status=s;all[i].updatedAt=Date.now();save(READERS_KEY,all);renderRfid();notify('Reader → '+s);};
+  window.hnxRdrPing=function(id){const all=load(READERS_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;all[i].lastPing=Date.now();all[i].status='online';save(READERS_KEY,all);renderRfid();notify('📶 Ping logged · reader online');};
+  window.hnxRdrDel=function(id){if(!confirm('Delete this reader?'))return;save(READERS_KEY,load(READERS_KEY,[]).filter(x=>x.id!==id));renderRfid();notify('📡 Reader deleted');};
+
+  // ---------- MATRIX sub-view (Tags × Readers last-seen heatmap) ----------
+  function renderRfidMatrix(){
+    const tags=load(RFID_KEY,[]);const readers=load(READERS_KEY,[]);
+    if(!readers.length||!tags.length){
+      return `<div class="p13-head"><div><div class="p13-title">🗺 Last-Seen Matrix</div><div class="p13-sub">Tags × Readers recency heatmap</div></div></div>
+        <div class="p13-empty">Need at least one ${!readers.length?'reader (add one in 📡 Readers)':'tag'}${!readers.length&&!tags.length?' and one tag':''} to build the matrix. Once you have both, use 👁 Log Seen (or tap a cell here) to record where each tag was last seen.</div>`;
+    }
+    const header=`<th style="position:sticky;left:0;background:var(--surface3,#1c2530);text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;color:var(--text3,#8aa0a8);">Tag ↓ / Reader →</th>`+
+      readers.map(r=>`<th style="padding:6px 8px;font-size:10px;color:var(--text3,#8aa0a8);white-space:nowrap;">📡 ${esc(r.name)}</th>`).join('');
+    const rows=tags.map(t=>{
+      const cells=readers.map(r=>{
+        const ts=(t.seen&&t.seen[r.id])||0;const rc=_rfidRecency(ts);
+        return `<td onclick="hnxRfidLogAt('${esc(t.id)}','${esc(r.id)}')" title="${ts?'Last seen '+fmtDateTime(ts):'Never seen here'} — tap to log now" style="text-align:center;padding:6px;cursor:pointer;background:${rc.bg};color:${rc.clr};font-weight:700;font-size:11px;border:1px solid var(--border,#2a3a2a);">${rc.lbl}</td>`;
+      }).join('');
+      return `<tr><td style="position:sticky;left:0;background:var(--surface2,#16201a);padding:6px 8px;font-size:11px;white-space:nowrap;border:1px solid var(--border,#2a3a2a);">🆔 ${esc(t.tag_id)}<div style="color:var(--text3,#8aa0a8);font-weight:400;">${esc(t.asset_name||'')}</div></td>${cells}</tr>`;
+    }).join('');
+    return `<div class="p13-head"><div><div class="p13-title">🗺 Last-Seen Matrix</div><div class="p13-sub">${tags.length} tags × ${readers.length} readers · tap a cell to log a sighting now</div></div></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;font-size:11px;color:var(--text3,#8aa0a8);">
+        <span><span style="display:inline-block;width:10px;height:10px;background:#2eaa2e;border-radius:2px;"></span> &lt;1h</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:#8bc34a;border-radius:2px;"></span> today</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:#ff9c33;border-radius:2px;"></span> this week</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:#ff5555;border-radius:2px;"></span> older</span>
+        <span>— never</span>
+      </div>
+      <div style="overflow-x:auto;"><table style="border-collapse:collapse;min-width:100%;"><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  // ---------- dispatcher ----------
+  function renderRfid(){
+    const body=document.getElementById('hnx-it_rfid-body');
+    if(!body){warn('hnx-it_rfid-body not found');return;}
+    injectStyles();
+    const tabs=`<div class="sensor-tabs" style="margin-bottom:12px;">
+      <button class="sensor-tab ${_rfidTab==='tags'?'active':''}" onclick="hnxRfidTab('tags')">🏷 Tags</button>
+      <button class="sensor-tab ${_rfidTab==='readers'?'active':''}" onclick="hnxRfidTab('readers')">📡 Readers</button>
+      <button class="sensor-tab ${_rfidTab==='matrix'?'active':''}" onclick="hnxRfidTab('matrix')">🗺 Last-Seen Matrix</button>
+    </div>`;
+    let inner='';
+    if(_rfidTab==='readers')inner=renderRfidReaders();
+    else if(_rfidTab==='matrix')inner=renderRfidMatrix();
+    else inner=renderRfidTags();
+    body.innerHTML=`<div class="p13-wrap">${tabs}${inner}</div>`;
+  }
   window.hnxRfidRender=renderRfid;
 
   // ============================================================
