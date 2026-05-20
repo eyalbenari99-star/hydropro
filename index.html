@@ -100622,7 +100622,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p20';
+        vEl.textContent = orig + ' · HNX v2.86-p26';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -134741,13 +134741,13 @@ body.hnx-mobile-locked { overflow: hidden; }
   const KEY = 'hydroPro_it_matrix_v2';
   try { if(Array.isArray(window.HNX_SYNCED_KEYS) && window.HNX_SYNCED_KEYS.indexOf(KEY)===-1) window.HNX_SYNCED_KEYS.push(KEY); } catch(e){}
 
-  const DEFAULT_LOCATIONS = ['GH1','GH2','GH3','GH4','GH5','GH6','GH7','GH8','GH9','GH10','Fer Room 1','Fer Room 2','Fer Room 3','Server Room','Office','IT Room'];
+  const DEFAULT_LOCATIONS = ['GH1','GH2','GH3','GH4','GH5','GH6','GH7','GH8','GH9','GH10','Fer1&2','Fer3&4','Fer5&6','Fer7&8','Fer9','Fer10','Fer11','Fer12','Fer15&16','Server','Office','IT Rm'];
 
   const DEFAULT_GROUPS = {
     cctv:    { label:'CCTV',         icon:'📹', items:['Indoor Camera','Outdoor Camera','PTZ Camera','Dome Camera','Bullet Camera'] },
     network: { label:'Network',      icon:'📡', items:['Switch','Router','Access Point','Patch Panel','Modem','PoE Injector','Fiber Converter'] },
     sensors: { label:'Sensors',      icon:'🌡', items:['EC','pH','Temperature','Light','CO2','Oxygen','Humidity','Wind','Pool Level','Pressure','Flow Meter'] },
-    phones:  { label:'Phones',       icon:'📞', items:['Office Phone','Mobile Phone','Radio','Intercom'] },
+    phones:  { label:'Phones / Comms', icon:'📞', items:['IP PBX','VoIP Gateway','Phone Line','SIM Card','Office Phone','Mobile Phone','Radio','Intercom'] },
     pcs:     { label:'PCs / Peripherals', icon:'💻', items:['Laptop','Desktop','Monitor','Keyboard','Mouse','Printer','Charger','Scanner','Webcam','Speakers','Headset'] },
     cabling: { label:'Cabling',      icon:'🔌', items:['Ethernet (CAT6)','HDMI','VGA','USB','Power Cord','Fiber Optic'] },
     other:   { label:'Other',        icon:'⚙',  items:[] }
@@ -135094,6 +135094,1813 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.86-p20-it-matrix-v2 ===================== -->
+
+<!-- ===================== HNX v2.86-p21-checklist-v2-AB (INLINE) ===================== -->
+<!-- IT Daily Checklist v2 — Phase A (Rich Issue Popup) + Phase B (Item Types & Validation)
+     • Replaces simple status pills with a rich 7-field issue popup on Warning/Fail
+     • Adds new item field types: count/file/photo/sub-checklist/validation
+     • Sub-checklists are matrix-driven and location-filterable
+     • Auto-suggests severity/Warning/Fail based on numeric validation ranges
+     • Wraps (does not replace) the existing P19 hnxCkSetStatus
+-->
+<script>
+(function(){
+  if(window.hnxP21Loaded) return;
+  window.hnxP21Loaded = true;
+  const VER = 'v2.86-p21-AB';
+  const ITCLR = '#67c5ff';
+
+  // ============ Storage keys (re-use existing + add issues log) ============
+  const ITEMS_KEY  = 'hydroPro_it_checklist_items_v1';
+  const LOG_KEY    = 'hydroPro_it_checklist_log_v1';
+  const ISSUES_KEY = 'hydroPro_it_checklist_issues_v1';   // shadow record (each entry also creates a real call)
+  const CFG_KEY    = 'hydroPro_it_checklist_cfg_v1';       // per-item validation/templates/etc
+  const MATRIX_KEY = 'hydroPro_it_matrix_v2';
+
+  try {
+    if(Array.isArray(window.HNX_SYNCED_KEYS)){
+      [ISSUES_KEY, CFG_KEY].forEach(k=>{ if(window.HNX_SYNCED_KEYS.indexOf(k)===-1) window.HNX_SYNCED_KEYS.push(k); });
+    }
+  } catch(e){}
+
+  // ============ Helpers ============
+  function load(k,f){ try{const v=JSON.parse(localStorage.getItem(k)||'null'); return v===null?f:v;}catch(e){return f;} }
+  function save(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); try{ if(typeof window.hnxScheduleSync==='function') window.hnxScheduleSync(k); }catch(e){} return true; }catch(e){ return false; } }
+  function uid(p){ return (p||'iss')+'-'+Date.now()+'-'+Math.floor(Math.random()*899+100); }
+  function esc(s){ return String(s==null?'':s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'})[c]); }
+  function todayISO(){ return new Date().toISOString().slice(0,10); }
+  function notify(m,t){ try{ if(typeof toast==='function') toast(m); else if(typeof _toast==='function') _toast(m,t||'info'); }catch(e){} }
+  function curUserName(){
+    try{
+      if(typeof getCurrentUser==='function'){
+        const u=getCurrentUser(); if(u) return u.name || u.username || 'unknown';
+      }
+      if(typeof curUser==='function'){
+        const c=curUser(); if(c) return typeof c==='string'?c:(c.name||c.username||'unknown');
+      }
+    }catch(e){}
+    return 'unknown';
+  }
+  function loadMatrix(){ return load(MATRIX_KEY, null); }
+  function loadItems(){ return load(ITEMS_KEY, []) || []; }
+  function loadCfg(){ return load(CFG_KEY, {}) || {}; }
+  function saveCfg(c){ save(CFG_KEY, c); }
+
+  // ============ Defaults: per-item smart config ============
+  // Each item id → { criticalCC:bool, severityOnWarning:str, severityOnFail:str, templates:[str], validation:{min,max,unit}, photoReqOnFail:bool }
+  const DEFAULT_ITEM_CFG = {
+    'ck-cctv-count':       { templates:['Camera offline','No video signal','Lens dirty','Cable cut/loose','Power lost','Image distorted'], photoReqOnFail:true, severityOnFail:'high', criticalCC:false },
+    'ck-dvr':              { templates:['DVR rebooting','No recording','HDD full','Time out of sync','Lost network'], photoReqOnFail:true, severityOnFail:'high', criticalCC:true },
+    'ck-server-temp':      { templates:['Above 25°C','Above 28°C — CRITICAL','AC failed','Fan stopped','Vent blocked'], validation:{min:18,max:24,unit:'°C',warnAbove:25,failAbove:28}, photoReqOnFail:true, severityOnWarning:'high', severityOnFail:'critical', criticalCC:true },
+    'ck-internet':         { templates:['No internet','Slow speed','Intermittent','ISP outage reported','Router rebooted'], severityOnFail:'critical', criticalCC:true },
+    'ck-backup':           { templates:['Backup did not run','Backup failed midway','Disk full','Tape missing','Verify failed'], photoReqOnFail:true, severityOnFail:'critical', criticalCC:true },
+    'ck-radios':           { templates:['Radio battery dead','Static/no clear voice','Lost signal in GH','Charger broken','Antenna damaged'], severityOnFail:'medium' },
+    'ck-rfid':             { templates:['Reader not lighting','Reader offline','Card not detected','Door not opening','Power issue'], severityOnFail:'high' },
+    'ck-attendance':       { templates:['Device offline','SD card full','Time wrong','Fingerprint not reading','Card reader failed'], severityOnFail:'high' },
+    'ck-user-issues':      { templates:['Slow PC','Password reset needed','Email not working','Software install request','Hardware swap'], severityOnFail:'medium' },
+    'ck-security':         { templates:['Door alarm triggered','Motion alert','Window left open','Tampering detected','Camera blinded'], severityOnFail:'critical', criticalCC:true, photoReqOnFail:true },
+    'ck-network-load':     { templates:['Switch port saturated','Bandwidth maxed','High latency','Packet loss','Cable swap needed'], validation:{min:0,max:70,unit:'%',warnAbove:80,failAbove:95}, severityOnFail:'high' },
+    'ck-tonight-backup':   { templates:['Confirmed running','Estimated 3 hours','To external drive','Cloud sync enabled','Snapshot scheduled'], severityOnFail:'critical', criticalCC:true },
+    'ck-lock-it-room':     { templates:['Door locked','Lights off','AC set to night mode','Cameras armed','Photo of locked door'], photoReqOnFail:true, severityOnFail:'high' },
+    'ck-power-down':       { templates:['All non-essential PCs off','Server room cool','Power strips off','Locked monitors','UPS check ok'], severityOnFail:'medium' }
+  };
+
+  // Smart severity defaults — used if no per-item config
+  const FALLBACK_SEVERITY = { warning:'medium', fail:'high' };
+
+  // Due date by severity (days from today)
+  const DUE_DAYS = { critical:0, urgent:1, high:2, medium:5, low:7 };
+
+  // Severity → label/color
+  const SEV_META = {
+    low:      { lbl:'Low',      color:'#67c5ff', icon:'🟢' },
+    medium:   { lbl:'Medium',   color:'#f4d03f', icon:'🟡' },
+    high:     { lbl:'High',     color:'#ff8c42', icon:'🟠' },
+    urgent:   { lbl:'Urgent',   color:'#ff5252', icon:'🔥' },
+    critical: { lbl:'Critical', color:'#ff1744', icon:'🚨' }
+  };
+
+  // ============ CSS injection ============
+  function injectStyles(){
+    if(document.getElementById('hnxP21Styles')) return;
+    const st=document.createElement('style'); st.id='hnxP21Styles';
+    st.textContent = `
+      #hnxP21Modal{position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:100010;display:none;align-items:flex-start;justify-content:center;padding:14px;overflow-y:auto;}
+      #hnxP21Modal.show{display:flex;}
+      .p21-card{background:#0d1922;border:2px solid ${ITCLR};border-radius:12px;padding:18px;width:100%;max-width:680px;color:var(--text,#e0f0ff);font-family:var(--mono,monospace);max-height:96vh;overflow-y:auto;box-shadow:0 8px 32px rgba(103,197,255,0.25);}
+      .p21-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #1a3344;}
+      .p21-title{font-size:16px;font-weight:800;color:${ITCLR};line-height:1.3;}
+      .p21-sub{font-size:11px;color:#7c9eb3;margin-top:4px;}
+      .p21-x{background:transparent;border:1.5px solid ${ITCLR};color:${ITCLR};padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:700;font-family:inherit;}
+      .p21-field{margin-bottom:14px;}
+      .p21-lbl{display:block;font-size:11px;font-weight:700;color:${ITCLR};text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;}
+      .p21-lbl .req{color:#ff5252;margin-left:3px;}
+      .p21-input,.p21-textarea,.p21-select{width:100%;padding:9px 11px;background:#0a1620;border:1.5px solid #234455;border-radius:6px;color:#e0f0ff;font-family:inherit;font-size:13px;box-sizing:border-box;}
+      .p21-input:focus,.p21-textarea:focus,.p21-select:focus{outline:none;border-color:${ITCLR};box-shadow:0 0 0 2px rgba(103,197,255,0.15);}
+      .p21-textarea{min-height:64px;resize:vertical;}
+      .p21-row{display:flex;gap:10px;flex-wrap:wrap;}
+      .p21-row > *{flex:1;min-width:140px;}
+      .p21-chip{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;background:rgba(103,197,255,0.12);border:1px solid ${ITCLR};border-radius:14px;font-size:11px;color:${ITCLR};margin:3px;cursor:default;}
+      .p21-chip .chip-x{background:transparent;border:none;color:${ITCLR};cursor:pointer;padding:0 0 0 4px;font-weight:700;}
+      .p21-chip.add-chip{cursor:pointer;background:transparent;border-style:dashed;}
+      .p21-chip.add-chip:hover{background:rgba(103,197,255,0.18);}
+      .p21-pill-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;}
+      .p21-sev-pill{padding:7px 12px;border-radius:18px;border:1.5px solid #2a4555;background:#0a1620;color:#7c9eb3;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s;}
+      .p21-sev-pill.active{transform:scale(1.05);}
+      .p21-sev-pill[data-sev="low"].active{ background:#67c5ff;color:#000;border-color:#67c5ff; }
+      .p21-sev-pill[data-sev="medium"].active{ background:#f4d03f;color:#000;border-color:#f4d03f; }
+      .p21-sev-pill[data-sev="high"].active{ background:#ff8c42;color:#000;border-color:#ff8c42; }
+      .p21-sev-pill[data-sev="urgent"].active{ background:#ff5252;color:#fff;border-color:#ff5252; }
+      .p21-sev-pill[data-sev="critical"].active{ background:#ff1744;color:#fff;border-color:#ff1744;animation:p21pulse 1.2s infinite; }
+      @keyframes p21pulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,23,68,0.7);} 50%{box-shadow:0 0 0 8px rgba(255,23,68,0);} }
+      .p21-pick-box{background:#0a1620;border:1.5px solid #234455;border-radius:6px;padding:8px;max-height:160px;overflow-y:auto;}
+      .p21-pick-search{width:100%;padding:6px 9px;background:#050d14;border:1px solid #234455;border-radius:4px;color:#e0f0ff;font-family:inherit;font-size:12px;margin-bottom:6px;box-sizing:border-box;}
+      .p21-pick-item{padding:6px 9px;border-radius:4px;cursor:pointer;font-size:12px;color:#e0f0ff;display:flex;justify-content:space-between;align-items:center;}
+      .p21-pick-item:hover{background:rgba(103,197,255,0.08);}
+      .p21-pick-item.selected{background:rgba(103,197,255,0.18);color:${ITCLR};font-weight:600;}
+      .p21-pick-item .sub{font-size:10px;color:#7c9eb3;}
+      .p21-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px;padding-top:14px;border-top:1px solid #1a3344;flex-wrap:wrap;}
+      .p21-btn{padding:9px 16px;border-radius:6px;border:1.5px solid ${ITCLR};background:transparent;color:${ITCLR};font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;}
+      .p21-btn:hover{background:rgba(103,197,255,0.12);}
+      .p21-btn.primary{background:${ITCLR};color:#000;}
+      .p21-btn.primary:hover{background:#8bd1ff;}
+      .p21-btn.danger{border-color:#ff5252;color:#ff5252;}
+      .p21-btn.danger:hover{background:rgba(255,82,82,0.12);}
+      .p21-photo-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+      .p21-photo-thumb{position:relative;width:64px;height:64px;border-radius:6px;background-size:cover;background-position:center;border:1.5px solid #234455;}
+      .p21-photo-thumb .rm{position:absolute;top:-6px;right:-6px;width:18px;height:18px;background:#ff5252;color:#fff;border:none;border-radius:50%;cursor:pointer;font-size:11px;font-weight:700;line-height:18px;padding:0;}
+      .p21-tpl-row{display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;}
+      .p21-tpl{padding:4px 9px;background:rgba(103,197,255,0.08);border:1px solid #234455;border-radius:12px;color:#7c9eb3;font-size:10px;cursor:pointer;}
+      .p21-tpl:hover{background:rgba(103,197,255,0.18);color:${ITCLR};border-color:${ITCLR};}
+      .p21-warn-banner{background:rgba(244,208,63,0.12);border:1px solid #f4d03f;border-radius:6px;padding:8px 12px;font-size:12px;color:#f4d03f;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+      .p21-fail-banner{background:rgba(255,82,82,0.12);border:1px solid #ff5252;border-radius:6px;padding:8px 12px;font-size:12px;color:#ff5252;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+      .p21-info-banner{background:rgba(103,197,255,0.08);border:1px solid ${ITCLR};border-radius:6px;padding:7px 11px;font-size:11px;color:${ITCLR};margin-top:6px;}
+      .p21-mic-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(103,197,255,0.08);border:1px solid #234455;border-radius:6px;color:${ITCLR};font-size:11px;cursor:pointer;font-family:inherit;margin-top:6px;}
+      .p21-mic-btn.recording{background:rgba(255,82,82,0.18);border-color:#ff5252;color:#ff5252;animation:p21pulse 1s infinite;}
+      .p21-sublist{margin-top:8px;padding:8px;background:#050d14;border:1px solid #234455;border-radius:6px;}
+      .p21-sublist-item{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;}
+      .p21-sublist-item input[type=checkbox]{accent-color:${ITCLR};}
+      .p21-valid-hint{font-size:10px;color:#f4d03f;margin-top:3px;}
+      .p21-photo-input{display:none;}
+    `;
+    document.head.appendChild(st);
+  }
+
+  // ============ Get item by id ============
+  function getItem(itemId){
+    const items = loadItems();
+    return items.find(i => i.id === itemId) || null;
+  }
+  function getCfg(itemId){
+    const cfg = loadCfg();
+    return cfg[itemId] || DEFAULT_ITEM_CFG[itemId] || {};
+  }
+
+  // ============ Matrix dataset for pickers ============
+  function getMatrixLocations(){
+    const m = loadMatrix();
+    if(m && Array.isArray(m.locations) && m.locations.length) return m.locations.slice();
+    return ['GH1','GH2','GH3','GH4','GH5','GH6','GH7','GH8','GH9','GH10','Fer Room 1','Fer Room 2','Fer Room 3','Server Room','Office','IT Room'];
+  }
+  function getMatrixItems(){
+    const m = loadMatrix();
+    const out = [];
+    if(m && m.groups){
+      Object.keys(m.groups).forEach(gid => {
+        const g = m.groups[gid];
+        (g.items||[]).forEach(name => {
+          out.push({ id: gid+':'+name, label: (g.icon||'')+' '+name, group: g.label||gid });
+        });
+      });
+    }
+    // Always include "Other" at end
+    return out;
+  }
+  function getItemsForGroup(groupHint){
+    // groupHint can be a string like 'cctv', 'sensors', or the item.name (we'll match loosely)
+    const all = getMatrixItems();
+    if(!groupHint) return all;
+    const h = String(groupHint).toLowerCase();
+    return all.filter(x => x.group.toLowerCase().includes(h) || x.id.toLowerCase().startsWith(h));
+  }
+
+  // ============ Issue popup state ============
+  let _draft = null; // current popup draft
+
+  function newDraft(itemId, triggerStatus){
+    const it = getItem(itemId) || {id:itemId,name:itemId,section:'morning'};
+    const cfg = getCfg(itemId);
+    const severityDefault = (triggerStatus==='warning')
+      ? (cfg.severityOnWarning || FALLBACK_SEVERITY.warning)
+      : (cfg.severityOnFail || FALLBACK_SEVERITY.fail);
+    return {
+      id: uid('iss'),
+      itemId: itemId,
+      itemName: it.name || itemId,
+      triggerStatus: triggerStatus, // 'warning' or 'fail'
+      affectedItems: [],   // array of {id,label,group} from matrix
+      affectedItemsOther: '',
+      locations: [],       // array of strings from matrix
+      locationsOther: '',
+      description: '',
+      severity: severityDefault,
+      photos: [],          // array of dataURL strings (compressed)
+      reportedBy: curUserName(),
+      filedFor: '',
+      contactPhone: '',
+      witnesses: [],       // array of strings
+      dueDate: '',         // YYYY-MM-DD
+      criticalCC: !!cfg.criticalCC,
+      photoReq: !!(cfg.photoReqOnFail && triggerStatus==='fail'),
+      measurementValue: '',
+      cfg: cfg
+    };
+  }
+
+  function computeDueDate(severity){
+    const days = (DUE_DAYS[severity]==null) ? 5 : DUE_DAYS[severity];
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0,10);
+  }
+
+  // ============ Image compression ============
+  function compressImage(file, maxBytes, callback){
+    const reader = new FileReader();
+    reader.onload = function(e){
+      const img = new Image();
+      img.onload = function(){
+        let { width, height } = img;
+        const maxDim = 1280;
+        if(width > maxDim || height > maxDim){
+          if(width >= height){ height = Math.round(height * maxDim / width); width = maxDim; }
+          else { width = Math.round(width * maxDim / height); height = maxDim; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        let quality = 0.78;
+        let dataUrl = canvas.toDataURL('image/jpeg', quality);
+        // shrink iteratively
+        let safety = 0;
+        while(dataUrl.length * 0.75 > maxBytes && quality > 0.3 && safety < 5){
+          quality -= 0.12;
+          dataUrl = canvas.toDataURL('image/jpeg', quality);
+          safety++;
+        }
+        callback(dataUrl);
+      };
+      img.onerror = function(){ callback(null); };
+      img.src = e.target.result;
+    };
+    reader.onerror = function(){ callback(null); };
+    reader.readAsDataURL(file);
+  }
+
+  // ============ Voice-to-text (Web Speech API) ============
+  let _recognizer = null, _recording = false;
+  function startVoiceRec(targetId){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!SR){ notify('Voice input not supported on this browser','warn'); return; }
+    const btn = document.getElementById('hnxP21MicBtn');
+    if(_recording){
+      try{ _recognizer.stop(); }catch(e){}
+      return;
+    }
+    _recognizer = new SR();
+    _recognizer.continuous = true;
+    _recognizer.interimResults = false;
+    _recognizer.lang = (navigator.language || 'en-US');
+    _recognizer.onresult = function(e){
+      let txt = '';
+      for(let i = e.resultIndex; i < e.results.length; i++){
+        if(e.results[i].isFinal) txt += e.results[i][0].transcript + ' ';
+      }
+      const ta = document.getElementById(targetId);
+      if(ta && txt.trim()){ ta.value = (ta.value ? ta.value + ' ' : '') + txt.trim(); _draft.description = ta.value; }
+    };
+    _recognizer.onstart = function(){ _recording=true; if(btn){ btn.classList.add('recording'); btn.textContent='🔴 Stop'; } };
+    _recognizer.onend   = function(){ _recording=false; if(btn){ btn.classList.remove('recording'); btn.textContent='🎙 Voice'; } };
+    _recognizer.onerror = function(){ _recording=false; if(btn){ btn.classList.remove('recording'); btn.textContent='🎙 Voice'; } };
+    try{ _recognizer.start(); }catch(e){ notify('Mic error','warn'); }
+  }
+
+  // ============ Render the modal ============
+  function renderModal(){
+    let m = document.getElementById('hnxP21Modal');
+    if(!m){
+      m = document.createElement('div'); m.id='hnxP21Modal';
+      m.addEventListener('click', e => { if(e.target===m) closeModal(); });
+      document.body.appendChild(m);
+    }
+    const d = _draft;
+    const isWarn = d.triggerStatus === 'warning';
+    const bannerCls = isWarn ? 'p21-warn-banner' : 'p21-fail-banner';
+    const bannerIcon = isWarn ? '⚠' : '🔴';
+    const bannerText = isWarn ? 'Warning reported — please fill out details' : 'Failure reported — please fill out details';
+    const matrixItems = getMatrixItems();
+    const matrixLocs = getMatrixLocations();
+    const cfg = d.cfg || {};
+
+    // Build chip strings
+    const itemChips = d.affectedItems.map(it => `<span class="p21-chip">${esc(it.label)} <button class="chip-x" onclick="window.hnxP21RemoveItem('${esc(it.id)}')">✕</button></span>`).join('');
+    const locChips  = d.locations.map(l => `<span class="p21-chip">${esc(l)} <button class="chip-x" onclick="window.hnxP21RemoveLoc('${esc(l)}')">✕</button></span>`).join('');
+    const wChips    = d.witnesses.map((w,i) => `<span class="p21-chip">${esc(w)} <button class="chip-x" onclick="window.hnxP21RemoveWitness(${i})">✕</button></span>`).join('');
+
+    const tpls = (cfg.templates||[]).map(t => `<span class="p21-tpl" onclick="window.hnxP21AppendTpl('${esc(t).replace(/'/g,"\\'")}')">${esc(t)}</span>`).join('');
+
+    const photos = d.photos.map((p,i) => `<div class="p21-photo-thumb" style="background-image:url(${p})"><button class="rm" onclick="window.hnxP21RemovePhoto(${i})">✕</button></div>`).join('');
+
+    const sevPills = Object.keys(SEV_META).map(s => {
+      const meta = SEV_META[s];
+      return `<button class="p21-sev-pill ${d.severity===s?'active':''}" data-sev="${s}" onclick="window.hnxP21SetSev('${s}')">${meta.icon} ${meta.lbl}</button>`;
+    }).join('');
+
+    const ccBadge = d.criticalCC ? `<div class="p21-info-banner">📨 Manager will be auto-CC'd on this issue (critical item).</div>` : '';
+
+    // Validation hint
+    let validHint = '';
+    if(cfg.validation){
+      const v = cfg.validation;
+      const val = parseFloat(d.measurementValue);
+      let hint = `Normal range: ${v.min}–${v.max} ${v.unit||''}`;
+      if(!isNaN(val)){
+        if(v.failAbove && val >= v.failAbove) hint += ` · ⚠ Above ${v.failAbove} = Fail`;
+        else if(v.warnAbove && val >= v.warnAbove) hint += ` · ⚠ Above ${v.warnAbove} = Warning`;
+      }
+      validHint = `<div class="p21-valid-hint">${esc(hint)}</div>`;
+    }
+
+    const showMeasurement = !!cfg.validation;
+
+    m.innerHTML = `
+      <div class="p21-card">
+        <div class="p21-head">
+          <div>
+            <div class="p21-title">${bannerIcon} ${esc(d.itemName)}</div>
+            <div class="p21-sub">${VER} · Daily Checklist Issue Report</div>
+          </div>
+          <button class="p21-x" onclick="window.hnxP21Close()">✕</button>
+        </div>
+
+        <div class="${bannerCls}">${bannerIcon} ${bannerText}</div>
+        ${ccBadge}
+
+        ${showMeasurement ? `
+        <div class="p21-field">
+          <label class="p21-lbl">Measurement (${esc(cfg.validation.unit||'')})</label>
+          <input class="p21-input" type="number" step="any" value="${esc(d.measurementValue)}" oninput="window.hnxP21SetMeas(this.value)" placeholder="Enter measured value">
+          ${validHint}
+        </div>` : ''}
+
+        <div class="p21-field">
+          <label class="p21-lbl">Affected items <span class="req">*</span></label>
+          <div>${itemChips}<span class="p21-chip add-chip" onclick="window.hnxP21OpenItemPicker()">+ Add item</span></div>
+          <input class="p21-input" style="margin-top:6px;" placeholder="Or type custom item (Other)" value="${esc(d.affectedItemsOther)}" oninput="window.hnxP21SetItemsOther(this.value)">
+        </div>
+
+        <div class="p21-field">
+          <label class="p21-lbl">Where (location) <span class="req">*</span></label>
+          <div>${locChips}<span class="p21-chip add-chip" onclick="window.hnxP21OpenLocPicker()">+ Add location</span></div>
+          <input class="p21-input" style="margin-top:6px;" placeholder="Or type custom location (Other)" value="${esc(d.locationsOther)}" oninput="window.hnxP21SetLocsOther(this.value)">
+        </div>
+
+        <div class="p21-field">
+          <label class="p21-lbl">Description <span class="req">*</span></label>
+          <textarea class="p21-textarea" id="hnxP21Desc" placeholder="Describe what happened..." oninput="window.hnxP21SetDesc(this.value)">${esc(d.description)}</textarea>
+          <button class="p21-mic-btn" id="hnxP21MicBtn" onclick="window.hnxP21Mic()">🎙 Voice</button>
+          ${tpls ? `<div class="p21-tpl-row">${tpls}</div>` : ''}
+          ${d.photoReq ? `<div class="p21-info-banner" style="margin-top:6px;">📷 A photo is required for this item on Fail.</div>` : ''}
+        </div>
+
+        <div class="p21-field">
+          <label class="p21-lbl">Severity</label>
+          <div class="p21-pill-row">${sevPills}</div>
+          <div class="p21-info-banner" style="margin-top:8px;">Due date auto-set to <strong>${esc(d.dueDate)}</strong> based on severity. Adjust below.</div>
+        </div>
+
+        <div class="p21-row">
+          <div class="p21-field">
+            <label class="p21-lbl">Due date</label>
+            <input class="p21-input" type="date" value="${esc(d.dueDate)}" oninput="window.hnxP21SetDue(this.value)">
+          </div>
+          <div class="p21-field">
+            <label class="p21-lbl">Contact phone</label>
+            <input class="p21-input" placeholder="e.g. 0917-XXX-XXXX" value="${esc(d.contactPhone)}" oninput="window.hnxP21SetPhone(this.value)">
+          </div>
+        </div>
+
+        <div class="p21-field">
+          <label class="p21-lbl">Photos</label>
+          <div class="p21-photo-grid">${photos}</div>
+          <input type="file" id="hnxP21PhotoInput" class="p21-photo-input" accept="image/*" capture="environment" multiple onchange="window.hnxP21AddPhotos(this)">
+          <button class="p21-btn" style="margin-top:6px;" onclick="document.getElementById('hnxP21PhotoInput').click()">📷 Add photo</button>
+        </div>
+
+        <div class="p21-row">
+          <div class="p21-field">
+            <label class="p21-lbl">Reported by</label>
+            <input class="p21-input" value="${esc(d.reportedBy)}" oninput="window.hnxP21SetReporter(this.value)">
+          </div>
+          <div class="p21-field">
+            <label class="p21-lbl">Filed for (optional)</label>
+            <input class="p21-input" placeholder="If reporting on behalf of someone" value="${esc(d.filedFor)}" oninput="window.hnxP21SetFiledFor(this.value)">
+          </div>
+        </div>
+
+        <div class="p21-field">
+          <label class="p21-lbl">Witnesses (optional)</label>
+          <div>${wChips}<span class="p21-chip add-chip" onclick="window.hnxP21AddWitness()">+ Add witness</span></div>
+        </div>
+
+        <div class="p21-actions">
+          <button class="p21-btn" onclick="window.hnxP21Close()">Cancel</button>
+          <button class="p21-btn primary" onclick="window.hnxP21Submit()">✓ Submit &amp; Raise Call</button>
+        </div>
+      </div>
+    `;
+    m.classList.add('show');
+  }
+
+  // ============ Public modal API ============
+  window.hnxP21OpenIssueModal = function(itemId, status){
+    injectStyles();
+    _draft = newDraft(itemId, status);
+    _draft.dueDate = computeDueDate(_draft.severity);
+    // Smart pre-fill of affectedItems based on item name keyword
+    const it = getItem(itemId) || {};
+    const guessGroup = (it.name||'').toLowerCase();
+    if(guessGroup.includes('cctv') || guessGroup.includes('camera')){
+      // pre-set group filter hint for picker — don't auto-add items but hint
+      _draft._groupHint = 'cctv';
+    } else if(guessGroup.includes('sensor') || guessGroup.includes('temp') || guessGroup.includes('ec') || guessGroup.includes('ph')){
+      _draft._groupHint = 'sensor';
+    } else if(guessGroup.includes('network') || guessGroup.includes('internet') || guessGroup.includes('switch')){
+      _draft._groupHint = 'network';
+    } else if(guessGroup.includes('phone') || guessGroup.includes('radio')){
+      _draft._groupHint = 'phones';
+    } else if(guessGroup.includes('rfid')){
+      _draft._groupHint = 'network'; // RFID readers usually network gear
+    }
+    renderModal();
+  };
+
+  window.hnxP21Close = function(){
+    const m = document.getElementById('hnxP21Modal');
+    if(m) m.classList.remove('show');
+    _draft = null;
+  };
+
+  // ============ Field setters ============
+  window.hnxP21SetDesc      = v => { if(_draft) _draft.description = v; };
+  window.hnxP21SetMeas      = v => {
+    if(!_draft) return;
+    _draft.measurementValue = v;
+    const cfg = _draft.cfg;
+    if(cfg && cfg.validation){
+      const val = parseFloat(v);
+      if(!isNaN(val)){
+        // Auto-suggest severity bump
+        if(cfg.validation.failAbove && val >= cfg.validation.failAbove){
+          _draft.severity = cfg.severityOnFail || 'critical';
+          _draft.triggerStatus = 'fail';
+        } else if(cfg.validation.warnAbove && val >= cfg.validation.warnAbove){
+          _draft.severity = cfg.severityOnWarning || 'high';
+          _draft.triggerStatus = 'warning';
+        }
+        _draft.dueDate = computeDueDate(_draft.severity);
+        renderModal();
+      }
+    }
+  };
+  window.hnxP21SetSev       = s => {
+    if(!_draft) return;
+    _draft.severity = s;
+    _draft.dueDate = computeDueDate(s);
+    renderModal();
+  };
+  window.hnxP21SetDue       = v => { if(_draft) _draft.dueDate = v; };
+  window.hnxP21SetPhone     = v => { if(_draft) _draft.contactPhone = v; };
+  window.hnxP21SetReporter  = v => { if(_draft) _draft.reportedBy = v; };
+  window.hnxP21SetFiledFor  = v => { if(_draft) _draft.filedFor = v; };
+  window.hnxP21SetItemsOther= v => { if(_draft) _draft.affectedItemsOther = v; };
+  window.hnxP21SetLocsOther = v => { if(_draft) _draft.locationsOther = v; };
+
+  // ============ Witnesses ============
+  window.hnxP21AddWitness = function(){
+    const name = prompt('Witness name:');
+    if(name && name.trim()){
+      _draft.witnesses.push(name.trim());
+      renderModal();
+    }
+  };
+  window.hnxP21RemoveWitness = function(i){
+    _draft.witnesses.splice(i,1);
+    renderModal();
+  };
+
+  // ============ Item picker ============
+  window.hnxP21OpenItemPicker = function(){
+    const all = getMatrixItems();
+    const selected = new Set(_draft.affectedItems.map(x=>x.id));
+    // Build picker modal
+    let pm = document.getElementById('hnxP21SubModal');
+    if(!pm){ pm=document.createElement('div'); pm.id='hnxP21SubModal'; pm.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:100015;display:flex;align-items:center;justify-content:center;padding:14px;'; pm.addEventListener('click',e=>{if(e.target===pm)pm.remove();}); document.body.appendChild(pm); }
+    const list = all.map(it => `
+      <div class="p21-pick-item ${selected.has(it.id)?'selected':''}" data-id="${esc(it.id)}" onclick="window.hnxP21TogglePickItem('${esc(it.id)}')">
+        <span>${esc(it.label)}</span><span class="sub">${esc(it.group)}</span>
+      </div>`).join('');
+    pm.innerHTML = `
+      <div class="p21-card" style="max-width:520px;max-height:80vh;">
+        <div class="p21-head"><div class="p21-title">Pick affected items</div>
+          <button class="p21-x" onclick="document.getElementById('hnxP21SubModal').remove()">✕</button>
+        </div>
+        <input class="p21-pick-search" id="hnxP21PickSearch" placeholder="🔍 Type to filter..." oninput="window.hnxP21FilterPick(this.value, 'item')">
+        <div class="p21-pick-box" id="hnxP21PickBox" style="max-height:50vh;">${list}</div>
+        <div class="p21-actions">
+          <button class="p21-btn primary" onclick="document.getElementById('hnxP21SubModal').remove()">Done</button>
+        </div>
+      </div>`;
+  };
+  window.hnxP21TogglePickItem = function(id){
+    const all = getMatrixItems();
+    const it = all.find(x=>x.id===id); if(!it) return;
+    const idx = _draft.affectedItems.findIndex(x=>x.id===id);
+    if(idx>=0) _draft.affectedItems.splice(idx,1);
+    else _draft.affectedItems.push(it);
+    // Re-render the picker only (live update)
+    const box = document.getElementById('hnxP21PickBox');
+    if(box){
+      const sel = new Set(_draft.affectedItems.map(x=>x.id));
+      box.querySelectorAll('.p21-pick-item').forEach(el => {
+        const eid = el.getAttribute('data-id');
+        el.classList.toggle('selected', sel.has(eid));
+      });
+    }
+    renderModal();
+  };
+  window.hnxP21RemoveItem = function(id){
+    _draft.affectedItems = _draft.affectedItems.filter(x=>x.id!==id);
+    renderModal();
+  };
+
+  // ============ Location picker ============
+  window.hnxP21OpenLocPicker = function(){
+    const all = getMatrixLocations();
+    const selected = new Set(_draft.locations);
+    let pm = document.getElementById('hnxP21SubModal');
+    if(!pm){ pm=document.createElement('div'); pm.id='hnxP21SubModal'; pm.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:100015;display:flex;align-items:center;justify-content:center;padding:14px;'; pm.addEventListener('click',e=>{if(e.target===pm)pm.remove();}); document.body.appendChild(pm); }
+    const list = all.map(loc => `
+      <div class="p21-pick-item ${selected.has(loc)?'selected':''}" data-id="${esc(loc)}" onclick="window.hnxP21TogglePickLoc('${esc(loc).replace(/'/g,"\\'")}')">
+        <span>${esc(loc)}</span>
+      </div>`).join('');
+    pm.innerHTML = `
+      <div class="p21-card" style="max-width:520px;max-height:80vh;">
+        <div class="p21-head"><div class="p21-title">Pick locations</div>
+          <button class="p21-x" onclick="document.getElementById('hnxP21SubModal').remove()">✕</button>
+        </div>
+        <input class="p21-pick-search" id="hnxP21PickSearch" placeholder="🔍 Type to filter..." oninput="window.hnxP21FilterPick(this.value, 'loc')">
+        <div class="p21-pick-box" id="hnxP21PickBox" style="max-height:50vh;">${list}</div>
+        <div class="p21-actions">
+          <button class="p21-btn primary" onclick="document.getElementById('hnxP21SubModal').remove()">Done</button>
+        </div>
+      </div>`;
+  };
+  window.hnxP21TogglePickLoc = function(loc){
+    const idx = _draft.locations.indexOf(loc);
+    if(idx>=0) _draft.locations.splice(idx,1);
+    else _draft.locations.push(loc);
+    const box = document.getElementById('hnxP21PickBox');
+    if(box){
+      const sel = new Set(_draft.locations);
+      box.querySelectorAll('.p21-pick-item').forEach(el => {
+        const v = el.getAttribute('data-id');
+        el.classList.toggle('selected', sel.has(v));
+      });
+    }
+    renderModal();
+  };
+  window.hnxP21RemoveLoc = function(loc){
+    _draft.locations = _draft.locations.filter(x=>x!==loc);
+    renderModal();
+  };
+
+  // ============ Filter pickers (search) ============
+  window.hnxP21FilterPick = function(q, mode){
+    const box = document.getElementById('hnxP21PickBox'); if(!box) return;
+    const ql = String(q||'').trim().toLowerCase();
+    box.querySelectorAll('.p21-pick-item').forEach(el => {
+      const txt = el.textContent.toLowerCase();
+      el.style.display = (!ql || txt.includes(ql)) ? '' : 'none';
+    });
+  };
+
+  // ============ Templates ============
+  window.hnxP21AppendTpl = function(t){
+    if(!_draft) return;
+    _draft.description = (_draft.description ? _draft.description + ' · ' : '') + t;
+    renderModal();
+  };
+
+  // ============ Photos ============
+  window.hnxP21AddPhotos = function(input){
+    const files = Array.from(input.files||[]);
+    if(!files.length) return;
+    let remaining = files.length;
+    files.forEach(f => {
+      compressImage(f, 200*1024, dataUrl => {
+        if(dataUrl) _draft.photos.push(dataUrl);
+        remaining--;
+        if(remaining===0){ input.value=''; renderModal(); }
+      });
+    });
+  };
+  window.hnxP21RemovePhoto = function(i){
+    _draft.photos.splice(i,1);
+    renderModal();
+  };
+
+  // ============ Voice ============
+  window.hnxP21Mic = function(){
+    startVoiceRec('hnxP21Desc');
+  };
+
+  // ============ Submit ============
+  window.hnxP21Submit = function(){
+    if(!_draft) return;
+    // Validation
+    if(!_draft.description.trim() && _draft.photos.length===0){
+      notify('Please enter a description or add a photo','warn');
+      return;
+    }
+    if(_draft.affectedItems.length===0 && !_draft.affectedItemsOther.trim()){
+      notify('Please pick at least one affected item','warn');
+      return;
+    }
+    if(_draft.locations.length===0 && !_draft.locationsOther.trim()){
+      notify('Please pick at least one location','warn');
+      return;
+    }
+    if(_draft.photoReq && _draft.photos.length===0){
+      notify('A photo is required for this item on Fail','warn');
+      return;
+    }
+
+    // Build call subject + description
+    const sevMeta = SEV_META[_draft.severity] || SEV_META.medium;
+    const prefix = _draft.criticalCC ? '🚨 CRITICAL · Manager CC · ' : '';
+    const itemsLbl = [..._draft.affectedItems.map(x=>x.label), _draft.affectedItemsOther].filter(Boolean).join(', ');
+    const locsLbl  = [..._draft.locations, _draft.locationsOther].filter(Boolean).join(', ');
+    const subject  = `${prefix}${sevMeta.icon} ${_draft.itemName} — ${itemsLbl} @ ${locsLbl}`;
+
+    let body = _draft.description.trim();
+    body += `\n\n━━━ DAILY CHECKLIST ISSUE ━━━`;
+    body += `\n📋 Item: ${_draft.itemName}`;
+    body += `\n${sevMeta.icon} Severity: ${sevMeta.lbl}`;
+    body += `\n⏱ Status: ${_draft.triggerStatus.toUpperCase()}`;
+    body += `\n🎯 Affected: ${itemsLbl}`;
+    body += `\n📍 Location: ${locsLbl}`;
+    body += `\n📅 Due: ${_draft.dueDate}`;
+    body += `\n👤 Reported by: ${_draft.reportedBy}`;
+    if(_draft.filedFor.trim()) body += `\n   On behalf of: ${_draft.filedFor.trim()}`;
+    if(_draft.contactPhone.trim()) body += `\n📞 Contact: ${_draft.contactPhone.trim()}`;
+    if(_draft.witnesses.length) body += `\n👥 Witnesses: ${_draft.witnesses.join(', ')}`;
+    if(_draft.measurementValue) body += `\n📊 Measurement: ${_draft.measurementValue}${_draft.cfg && _draft.cfg.validation ? ' ' + (_draft.cfg.validation.unit||'') : ''}`;
+    if(_draft.criticalCC) body += `\n\n⚠ MANAGER AUTO-CC: This is a critical item — manager has been notified.`;
+
+    // Create the call
+    try {
+      const calls = (typeof loadCalls==='function') ? loadCalls() : [];
+      const callId = uid('call');
+      const now = Date.now();
+
+      // Mirror submitCall schema as closely as possible
+      const call = {
+        id: callId,
+        subject: subject,
+        description: body,
+        priority: _draft.severity === 'critical' ? 'critical' : (_draft.severity === 'urgent' || _draft.severity === 'high' ? 'high' : 'medium'),
+        group: 'operations',
+        department: 'it',
+        area: '',
+        areaText: locsLbl,
+        subsystem: itemsLbl,
+        sourceModule: 'it_daily_checklist',
+        sourceLabel: 'IT Daily Checklist',
+        raisedBy: _draft.reportedBy,
+        raisedAt: now,
+        maintTaskId: null,
+        contactPhone: _draft.contactPhone,
+        equipment: itemsLbl,
+        equipmentCategory: '',
+        requestedBy: _draft.filedFor || _draft.reportedBy,
+        attachments: _draft.photos.map((p,i) => ({ name:'photo-'+(i+1)+'.jpg', dataUrl:p, type:'image/jpeg', addedAt:now })),
+        status: 'new_call',
+        acceptedBy: '',
+        acceptedAt: null,
+        updates: [],
+        closedAt: null,
+        closedBy: '',
+        closeNote: '',
+        recommendation: '',
+        // Daily-checklist-specific fields
+        dueDate: _draft.dueDate,
+        severity: _draft.severity,
+        criticalCC: _draft.criticalCC,
+        witnesses: _draft.witnesses.slice(),
+        checklistItemId: _draft.itemId,
+        checklistTriggerStatus: _draft.triggerStatus,
+        checklistMeasurement: _draft.measurementValue || ''
+      };
+
+      calls.push(call);
+      if(typeof saveCalls==='function') saveCalls(calls);
+      else { localStorage.setItem('hydroPro_issues_v2', JSON.stringify(calls)); }
+
+      // Also save a shadow issue record (independent log)
+      const issues = load(ISSUES_KEY, []);
+      issues.push({ ...call, callId: callId });
+      save(ISSUES_KEY, issues);
+
+      // Update checklist log entry
+      try {
+        const log = load(LOG_KEY, {});
+        const day = todayISO();
+        if(!log[day]) log[day] = {};
+        log[day][_draft.itemId] = {
+          status: _draft.triggerStatus,
+          notes: _draft.description.slice(0,200),
+          callId: callId,
+          severity: _draft.severity,
+          ts: now
+        };
+        save(LOG_KEY, log);
+      } catch(e){}
+
+      if(typeof audit==='function') audit('checklist_issue_raised', `Checklist issue: "${_draft.itemName}" → call ${callId}`);
+      try{ if(typeof updateCallsBadge==='function') updateCallsBadge(); }catch(e){}
+
+      notify(`✓ Call raised: ${_draft.itemName}`, 'ok');
+      window.hnxP21Close();
+
+      // Re-render checklist if visible
+      if(typeof window.hnxCkRender === 'function'){
+        try{ window.hnxCkRender(); }catch(e){}
+      }
+    } catch(err){
+      console.warn('P21 submit error', err);
+      notify('Failed to raise call: '+(err.message||'error'), 'warn');
+    }
+  };
+
+  // ============ Wrap hnxCkSetStatus so Warning/Fail triggers popup ============
+  function installSetStatusWrapper(){
+    if(typeof window.hnxCkSetStatus !== 'function'){
+      setTimeout(installSetStatusWrapper, 500);
+      return;
+    }
+    if(window.hnxCkSetStatus.__p21wrapped) return;
+    const orig = window.hnxCkSetStatus;
+    window.hnxCkSetStatus = function(itemId, status){
+      // Call original first (saves the status), then open popup for warning/fail
+      try { orig.apply(this, arguments); } catch(e){ console.warn('orig hnxCkSetStatus error', e); }
+      if(status === 'warning' || status === 'fail'){
+        // Slight delay so the original render completes
+        setTimeout(() => { try{ window.hnxP21OpenIssueModal(itemId, status); }catch(e){ console.warn('open issue modal failed', e); } }, 80);
+      }
+    };
+    window.hnxCkSetStatus.__p21wrapped = true;
+  }
+
+  // ============ Phase B: extended renderer hooks (sub-checklists & validation) ============
+  // We don't replace the existing renderer — instead we listen for renders and decorate.
+  function decorateChecklist(){
+    const body = document.getElementById('hnx-it_daily_checklist-body');
+    if(!body) return;
+    // Find each item row and inject extras if cfg has validation/sub-checklist
+    const items = loadItems();
+    items.forEach(it => {
+      const cfg = getCfg(it.id);
+      if(!cfg.validation && !cfg.subChecklist) return;
+      // Find the textarea or pill row container for this item
+      const ta = body.querySelector(`textarea[onblur*="'${it.id}'"]`);
+      if(!ta) return;
+      const container = ta.parentElement;
+      if(!container || container.querySelector('.p21-decoration')) return;
+
+      const deco = document.createElement('div');
+      deco.className = 'p21-decoration';
+      deco.style.cssText = 'margin-top:6px;display:flex;flex-direction:column;gap:6px;';
+
+      // Validation field
+      if(cfg.validation){
+        const v = cfg.validation;
+        const log = load(LOG_KEY, {});
+        const today = todayISO();
+        const cur = (log[today] && log[today][it.id]) ? log[today][it.id] : {};
+        const measVal = cur.measurement || '';
+        deco.innerHTML += `
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:#7c9eb3;">
+            <strong style="color:${ITCLR};">📊 Measurement:</strong>
+            <input type="number" step="any" placeholder="Value" value="${esc(measVal)}" style="width:100px;padding:5px 8px;background:#0a1620;border:1px solid #234455;border-radius:4px;color:#e0f0ff;font-family:var(--mono,monospace);font-size:11px;"
+              onblur="window.hnxP21SaveMeasurement('${esc(it.id)}', this.value)">
+            <span>${esc(v.unit||'')}</span>
+            <span style="color:#7c9eb3;">· Normal: ${v.min}–${v.max} ${esc(v.unit||'')}${v.warnAbove?' · ⚠'+v.warnAbove:''}${v.failAbove?' · 🔴'+v.failAbove:''}</span>
+          </div>`;
+      }
+
+      // Sub-checklist (matrix-driven)
+      if(cfg.subChecklist){
+        const sub = buildSubChecklistHtml(it.id, cfg.subChecklist);
+        deco.innerHTML += sub;
+      }
+
+      container.appendChild(deco);
+    });
+  }
+  window.hnxP21SaveMeasurement = function(itemId, val){
+    try {
+      const log = load(LOG_KEY, {});
+      const today = todayISO();
+      if(!log[today]) log[today] = {};
+      if(!log[today][itemId]) log[today][itemId] = {};
+      log[today][itemId].measurement = val;
+      save(LOG_KEY, log);
+      // Check validation thresholds and auto-suggest status
+      const cfg = getCfg(itemId);
+      if(cfg && cfg.validation){
+        const num = parseFloat(val);
+        if(!isNaN(num)){
+          let suggest = null;
+          if(cfg.validation.failAbove != null && num >= cfg.validation.failAbove) suggest = 'fail';
+          else if(cfg.validation.warnAbove != null && num >= cfg.validation.warnAbove) suggest = 'warning';
+          if(suggest){
+            notify(`Measurement ${val} ${cfg.validation.unit||''} → auto-suggested ${suggest.toUpperCase()}`, 'warn');
+            if(typeof window.hnxCkSetStatus === 'function'){
+              setTimeout(() => window.hnxCkSetStatus(itemId, suggest), 300);
+            }
+          }
+        }
+      }
+    } catch(e){}
+  };
+
+  function buildSubChecklistHtml(itemId, subCfg){
+    // subCfg: { matrixGroup:'cctv', filterLocation:'GH3' } — pulls items from matrix
+    const m = loadMatrix(); if(!m) return '';
+    const group = m.groups[subCfg.matrixGroup];
+    if(!group) return '';
+    const log = load(LOG_KEY, {});
+    const today = todayISO();
+    const sub = (log[today] && log[today][itemId] && log[today][itemId].subChecks) ? log[today][itemId].subChecks : {};
+    const items = (group.items||[]);
+    const html = items.map((name,i) => {
+      const checked = !!sub[name];
+      return `<label class="p21-sublist-item"><input type="checkbox" ${checked?'checked':''} onchange="window.hnxP21SaveSubCheck('${esc(itemId)}', '${esc(name).replace(/'/g,"\\'")}', this.checked)"> ${esc(name)}</label>`;
+    }).join('');
+    const filterLbl = subCfg.filterLocation ? ` @ ${subCfg.filterLocation}` : '';
+    return `<div class="p21-sublist"><div style="font-size:11px;color:${ITCLR};font-weight:700;text-transform:uppercase;margin-bottom:6px;">${group.icon||''} ${esc(group.label)} sub-checklist${esc(filterLbl)}</div>${html}</div>`;
+  }
+  window.hnxP21SaveSubCheck = function(itemId, name, checked){
+    try {
+      const log = load(LOG_KEY, {});
+      const today = todayISO();
+      if(!log[today]) log[today] = {};
+      if(!log[today][itemId]) log[today][itemId] = {};
+      if(!log[today][itemId].subChecks) log[today][itemId].subChecks = {};
+      log[today][itemId].subChecks[name] = !!checked;
+      save(LOG_KEY, log);
+    } catch(e){}
+  };
+
+  // ============ Hook into existing renderer via observer ============
+  function startObserver(){
+    const target = document.getElementById('hnx-it_daily_checklist-body');
+    if(!target){ setTimeout(startObserver, 800); return; }
+    let last = '';
+    const obs = new MutationObserver(() => {
+      const sig = target.innerHTML.length + ':' + (target.children.length||0);
+      if(sig !== last){
+        last = sig;
+        setTimeout(decorateChecklist, 50);
+      }
+    });
+    obs.observe(target, { childList:true, subtree:true });
+    // Initial decoration
+    setTimeout(decorateChecklist, 200);
+  }
+
+  // ============ Install ============
+  function install(){
+    injectStyles();
+    installSetStatusWrapper();
+    startObserver();
+    console.log('[HNX] '+VER+' installed');
+  }
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', install);
+  } else {
+    install();
+  }
+})();
+</script>
+<!-- ===================== END HNX v2.86-p21-checklist-v2-AB ===================== -->
+
+<!-- ===================== HNX v2.86-p22-checklist-dates-ai (INLINE) ===================== -->
+<!-- Production Daily Checklist v2.86-p22
+     Part 1 — DATE: shows the report date on the checklist + a date picker to view past saved reports (read-only summary)
+     Part 2 — AI CARRY-OVER REVIEW: compares the most recent previous day's flagged items (warn/danger) to today.
+              For each still-open / not-yet-rechecked item, prompts a dropdown:
+              ✅ Solved · 📈 Better · 🔧 On-going solution · 🔴 Still issue · 📢 Report to management
+              Trigger = BOTH (auto banner when carry-overs exist + a manual 🧠 AI Review button).
+     Wraps (does not replace) renderCL.
+-->
+<script>
+(function(){
+  if(window.hnxP22Loaded) return;
+  window.hnxP22Loaded = true;
+  const VER = 'v2.86-p22';
+  const SNAP_KEY   = 'hydroPro_cl_daily_snapshot_v1';      // existing
+  const REVIEW_KEY = 'hydroPro_cl_carryover_review_v1';    // new
+  try { if(Array.isArray(window.HNX_SYNCED_KEYS) && window.HNX_SYNCED_KEYS.indexOf(REVIEW_KEY)===-1) window.HNX_SYNCED_KEYS.push(REVIEW_KEY); } catch(e){}
+
+  // ---------- helpers ----------
+  function todayISO(){ return new Date().toISOString().slice(0,10); }
+  function esc(s){ return String(s==null?'':s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'})[c]); }
+  function load(k,f){ try{const v=JSON.parse(localStorage.getItem(k)||'null'); return v===null?f:v;}catch(e){return f;} }
+  function save(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); try{ if(typeof window.hnxScheduleSync==='function') window.hnxScheduleSync(k);}catch(e){} return true;}catch(e){return false;} }
+  function loadSnaps(){ if(typeof window._loadDailySnapshots==='function'){ try{return window._loadDailySnapshots();}catch(e){} } return load(SNAP_KEY, {}); }
+  function fmtDate(iso){ try{ const d=new Date(iso+'T00:00:00'); return d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}); }catch(e){ return iso; } }
+  function toast(m,t){ try{ if(typeof showToast==='function') showToast(m,t||'info',2600); else if(typeof window.showToast==='function') window.showToast(m,t||'info'); }catch(e){} }
+  function curUser(){ try{ if(typeof window.curUser==='function'){const c=window.curUser();return typeof c==='string'?c:(c&&(c.name||c.username))||'unknown';} if(typeof getCurrentUser==='function'){const u=getCurrentUser();return u&&(u.name||u.username)||'unknown';} }catch(e){} return 'System Admin'; }
+  function curGH(){ const sel=document.getElementById('facSelect'); return (sel&&sel.value) || (Array.isArray(window.GREENHOUSES)?window.GREENHOUSES[0]:'GH1'); }
+  function cats(gh){ if(typeof window.getCategoriesForGh==='function'){ try{return window.getCategoriesForGh(gh);}catch(e){} } return (Array.isArray(window.CATEGORIES)?window.CATEGORIES:[]); }
+  function statusOf(gh,catId,idx){ try{ if(typeof window.getStatus==='function') return window.getStatus(gh,catId,idx); }catch(e){} return null; }
+  function noteOf(gh,catId,idx){ try{ if(typeof window.getNote==='function') return window.getNote(gh,catId,idx)||''; }catch(e){} return ''; }
+
+  // ---------- review log ----------
+  function loadReview(){ return load(REVIEW_KEY, {}); }
+  function getReview(gh, key, dateISO){
+    const r = loadReview(); const d = dateISO || todayISO();
+    return (r[d] && r[d][gh] && r[d][gh][key]) || null;
+  }
+  function setReview(gh, key, rec){
+    const r = loadReview(); const d = todayISO();
+    if(!r[d]) r[d]={}; if(!r[d][gh]) r[d][gh]={};
+    r[d][gh][key] = rec;
+    save(REVIEW_KEY, r);
+  }
+
+  // ---------- carry-over detection ----------
+  function mostRecentPrevDate(){
+    const snaps = loadSnaps(); const dates = Object.keys(snaps).sort(); const t = todayISO();
+    for(let i=dates.length-1;i>=0;i--){ if(dates[i] < t) return dates[i]; }
+    return null;
+  }
+  function daysOpen(gh, key){
+    // count consecutive prior snapshot days where this item was warn/danger
+    const snaps = loadSnaps(); const dates = Object.keys(snaps).sort(); const t = todayISO();
+    let count = 0, firstDate = null;
+    for(let i=dates.length-1;i>=0;i--){
+      if(dates[i] >= t) continue;
+      const g = snaps[dates[i]] && snaps[dates[i]][gh];
+      const st = g && g.statuses && g.statuses[key];
+      if(st==='warn' || st==='danger'){ count++; firstDate = dates[i]; }
+      else break;
+    }
+    return { count, firstDate };
+  }
+  function getCarryovers(gh){
+    const prevDate = mostRecentPrevDate();
+    if(!prevDate) return { prevDate:null, items:[] };
+    const snaps = loadSnaps();
+    const prevGh = snaps[prevDate] && snaps[prevDate][gh];
+    if(!prevGh || !prevGh.statuses) return { prevDate, items:[] };
+    const out = [];
+    cats(gh).forEach(c => {
+      (c.items||[]).forEach((txt, idx) => {
+        const key = c.id + '_' + idx;
+        const prevStatus = prevGh.statuses[key];
+        if(prevStatus==='warn' || prevStatus==='danger'){
+          const todayStatus = statusOf(gh, c.id, idx);
+          const review = getReview(gh, key);
+          const open = daysOpen(gh, key);
+          out.push({
+            catId:c.id, catName:c.name, catIcon:c.icon||'📋', idx, itemName:txt, key,
+            prevStatus, prevNote:(prevGh.notes||{})[key]||'', todayStatus,
+            reviewed: !!review, reviewStatus: review?review.status:null,
+            daysOpen: open.count, firstDate: open.firstDate||prevDate
+          });
+        }
+      });
+    });
+    return { prevDate, items:out };
+  }
+  // items that still need a review decision today
+  function pendingCarryovers(gh){
+    const { items } = getCarryovers(gh);
+    return items.filter(it => !it.reviewed);
+  }
+
+  // ---------- styles ----------
+  function injectStyles(){
+    if(document.getElementById('hnxP22Styles')) return;
+    const st = document.createElement('style'); st.id='hnxP22Styles';
+    st.textContent = `
+      .p22-datebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0 6px;padding:8px 12px;background:var(--surface2,#13211b);border:1px solid var(--border,#1f3a2a);border-left:3px solid var(--accent,#4caf50);border-radius:8px;font-family:var(--mono,monospace);}
+      .p22-datebar .lbl{font-size:10px;color:var(--text3,#7c9eb3);text-transform:uppercase;letter-spacing:.5px;font-weight:700;}
+      .p22-datebar .today{font-size:13px;color:var(--accent,#4caf50);font-weight:800;}
+      .p22-datebar input[type=date]{background:var(--surface,#0d1a14);border:1px solid var(--border,#1f3a2a);border-radius:6px;color:var(--text,#e0f0e8);font-family:inherit;font-size:12px;padding:5px 8px;}
+      .p22-datebar .p22-mini{font-size:10px;color:var(--text3,#7c9eb3);}
+      .p22-aibtn{padding:5px 11px;border-radius:6px;border:1.5px solid #ba68c8;background:rgba(186,104,200,.12);color:#ce93d8;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;}
+      .p22-aibtn:hover{background:rgba(186,104,200,.22);}
+      .p22-banner{margin:6px 0 10px;padding:10px 13px;background:rgba(186,104,200,.10);border:1px solid #ba68c8;border-radius:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-family:var(--mono,monospace);}
+      .p22-banner .icon{font-size:18px;}
+      .p22-banner .txt{flex:1;min-width:160px;font-size:12px;color:#ce93d8;font-weight:600;}
+      .p22-banner button{padding:6px 13px;border-radius:6px;border:none;background:#ba68c8;color:#160a18;font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;}
+      .p22-modal{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:100020;display:none;align-items:flex-start;justify-content:center;padding:14px;overflow-y:auto;}
+      .p22-modal.show{display:flex;}
+      .p22-card{background:#0d1a14;border:2px solid #ba68c8;border-radius:12px;padding:18px;width:100%;max-width:720px;color:var(--text,#e0f0e8);font-family:var(--mono,monospace);max-height:96vh;overflow-y:auto;box-shadow:0 8px 32px rgba(186,104,200,.25);}
+      .p22-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px;padding-bottom:12px;border-bottom:1px solid #2a3b2f;}
+      .p22-title{font-size:16px;font-weight:800;color:#ce93d8;line-height:1.3;}
+      .p22-sub{font-size:11px;color:#7c9eb3;margin-top:4px;}
+      .p22-x{background:transparent;border:1.5px solid #ba68c8;color:#ce93d8;padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:700;font-family:inherit;}
+      .p22-item{background:rgba(255,255,255,.02);border:1px solid #2a3b2f;border-radius:9px;padding:12px;margin-top:11px;}
+      .p22-item .row1{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+      .p22-item .iname{font-size:13px;font-weight:700;color:var(--text,#e0f0e8);flex:1;min-width:140px;}
+      .p22-tag{font-size:9px;font-weight:800;padding:2px 7px;border-radius:10px;text-transform:uppercase;letter-spacing:.4px;}
+      .p22-tag.warn{background:#3a2800;color:#ffb74d;border:1px solid #ffb74d;}
+      .p22-tag.danger{background:#3a0e0e;color:#ff8a80;border:1px solid #ff8a80;}
+      .p22-tag.ok{background:#1b3a1c;color:#81c784;border:1px solid #81c784;}
+      .p22-tag.none{background:#222;color:#9e9e9e;border:1px solid #555;}
+      .p22-tag.days{background:rgba(186,104,200,.12);color:#ce93d8;border:1px solid #ba68c8;}
+      .p22-meta{font-size:11px;color:#7c9eb3;margin-top:6px;line-height:1.5;}
+      .p22-meta b{color:#a8c5b5;}
+      .p22-flow{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;}
+      .p22-controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px;align-items:center;}
+      .p22-select{flex:1;min-width:170px;padding:8px 10px;background:#0a140e;border:1.5px solid #2a3b2f;border-radius:6px;color:var(--text,#e0f0e8);font-family:inherit;font-size:12px;}
+      .p22-select:focus{outline:none;border-color:#ba68c8;}
+      .p22-note{width:100%;margin-top:8px;padding:8px 10px;background:#0a140e;border:1.5px solid #2a3b2f;border-radius:6px;color:var(--text,#e0f0e8);font-family:inherit;font-size:12px;box-sizing:border-box;min-height:40px;resize:vertical;}
+      .p22-note:focus{outline:none;border-color:#ba68c8;}
+      .p22-saved{font-size:10px;color:#81c784;font-weight:700;}
+      .p22-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid #2a3b2f;flex-wrap:wrap;}
+      .p22-btn{padding:9px 16px;border-radius:6px;border:1.5px solid #ba68c8;background:transparent;color:#ce93d8;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;}
+      .p22-btn.primary{background:#ba68c8;color:#160a18;}
+      .p22-empty{text-align:center;padding:30px 14px;color:#7c9eb3;font-size:13px;}
+      .p22-pastpanel{margin:6px 0 10px;padding:12px;background:var(--surface2,#13211b);border:1px solid var(--border,#1f3a2a);border-radius:8px;font-family:var(--mono,monospace);}
+      .p22-pastpanel h4{margin:0 0 8px;font-size:12px;color:var(--accent,#4caf50);text-transform:uppercase;letter-spacing:.5px;}
+      .p22-pastrow{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.05);font-size:11px;}
+      .p22-pastrow:last-child{border-bottom:none;}
+      .p22-pastrow .pn{flex:1;color:var(--text2,#a8c5b5);}
+    `;
+    document.head.appendChild(st);
+  }
+
+  // ---------- review status options ----------
+  const REVIEW_OPTS = [
+    { v:'',            lbl:'— Choose status —' },
+    { v:'solved',      lbl:'✅ Solved' },
+    { v:'better',      lbl:'📈 Better (improving)' },
+    { v:'ongoing',     lbl:'🔧 On-going solution' },
+    { v:'still',       lbl:'🔴 Still issue' },
+    { v:'escalate',    lbl:'📢 Report to management' }
+  ];
+  const REVIEW_LBL = { solved:'✅ Solved', better:'📈 Better', ongoing:'🔧 On-going', still:'🔴 Still issue', escalate:'📢 Reported to mgmt' };
+
+  // ---------- date bar + banner injection (after renderCL) ----------
+  function injectDateBar(){
+    const toolbar = document.getElementById('clToolbar');
+    const body = document.getElementById('clBody');
+    if(!toolbar || !body) return;
+    const gh = curGH();
+
+    // ----- DATE BAR -----
+    let bar = document.getElementById('hnxP22DateBar');
+    if(!bar){
+      bar = document.createElement('div'); bar.id='hnxP22DateBar'; bar.className='p22-datebar';
+      toolbar.parentNode.insertBefore(bar, toolbar.nextSibling);
+    }
+    const pend = pendingCarryovers(gh).length;
+    bar.innerHTML = `
+      <span class="lbl">📅 Report date:</span>
+      <span class="today">${fmtDate(todayISO())}</span>
+      <span class="p22-mini">· ${esc(gh)}</span>
+      <span style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span class="lbl">View past:</span>
+        <input type="date" id="hnxP22PastDate" max="${todayISO()}" onchange="window.hnxP22ViewPast(this.value)">
+        <button class="p22-aibtn" onclick="window.hnxP22OpenReview()">🧠 AI Review${pend?` (${pend})`:''}</button>
+      </span>`;
+
+    // ----- AUTO BANNER -----
+    let banner = document.getElementById('hnxP22Banner');
+    const co = getCarryovers(gh);
+    if(pend > 0){
+      if(!banner){
+        banner = document.createElement('div'); banner.id='hnxP22Banner'; banner.className='p22-banner';
+        body.parentNode.insertBefore(banner, body);
+      }
+      banner.style.display='flex';
+      banner.innerHTML = `
+        <span class="icon">🧠</span>
+        <span class="txt">${pend} carry-over issue${pend>1?'s':''} from ${fmtDate(co.prevDate)} need review — were they solved?</span>
+        <button onclick="window.hnxP22OpenReview()">Review now →</button>`;
+    } else if(banner){
+      banner.style.display='none';
+    }
+
+    // hide past panel when not viewing past
+    const pp = document.getElementById('hnxP22PastPanel');
+    if(pp && !window._hnxP22ViewingPast) pp.style.display='none';
+  }
+
+  // ---------- view a past day's saved report (read-only summary) ----------
+  window.hnxP22ViewPast = function(dateISO){
+    const body = document.getElementById('clBody');
+    if(!body) return;
+    if(!dateISO){ window._hnxP22ViewingPast=false; const pp=document.getElementById('hnxP22PastPanel'); if(pp)pp.style.display='none'; return; }
+    const gh = curGH();
+    const snaps = loadSnaps();
+    const g = snaps[dateISO] && snaps[dateISO][gh];
+    let panel = document.getElementById('hnxP22PastPanel');
+    if(!panel){ panel=document.createElement('div'); panel.id='hnxP22PastPanel'; panel.className='p22-pastpanel'; body.parentNode.insertBefore(panel, body); }
+    window._hnxP22ViewingPast = true;
+    panel.style.display='block';
+    if(!g || !g.statuses){
+      panel.innerHTML = `<h4>📅 ${fmtDate(dateISO)} · ${esc(gh)} — no saved report</h4><div class="p22-mini" style="color:#7c9eb3;font-size:11px;">No checklist snapshot was stored for this date. Snapshots begin the first day this version runs.</div>`;
+      return;
+    }
+    const rows = [];
+    cats(gh).forEach(c => {
+      (c.items||[]).forEach((txt, idx) => {
+        const key = c.id+'_'+idx;
+        const stt = g.statuses[key];
+        if(stt==='warn' || stt==='danger'){
+          const note = (g.notes||{})[key] || '';
+          rows.push(`<div class="p22-pastrow"><span class="p22-tag ${stt}">${stt==='danger'?'✕ Critical':'⚠ Warning'}</span><span class="pn">${esc(c.icon||'')} ${esc(c.name)} — ${esc(txt)}${note?' · '+esc(note):''}</span></div>`);
+        }
+      });
+    });
+    panel.innerHTML = `<h4>📅 ${fmtDate(dateISO)} · ${esc(gh)} — saved report (read-only)</h4>${rows.length?rows.join(''):'<div style="color:#81c784;font-size:12px;">✓ No issues flagged that day — all clear.</div>'}<div style="margin-top:8px;"><button class="p22-btn" onclick="window.hnxP22ViewPast('')">✕ Back to today</button></div>`;
+  };
+
+  // ---------- AI review modal ----------
+  window.hnxP22OpenReview = function(){
+    injectStyles();
+    const gh = curGH();
+    const { prevDate, items } = getCarryovers(gh);
+    let m = document.getElementById('hnxP22Modal');
+    if(!m){ m=document.createElement('div'); m.id='hnxP22Modal'; m.className='p22-modal'; m.addEventListener('click',e=>{if(e.target===m)window.hnxP22CloseReview();}); document.body.appendChild(m); }
+
+    let inner;
+    if(!prevDate){
+      inner = `<div class="p22-empty">🧠 No previous checklist day to compare yet.<br><span style="font-size:11px;">Carry-over review starts once there's at least one earlier saved day for ${esc(gh)}.</span></div>`;
+    } else if(items.length===0){
+      inner = `<div class="p22-empty">✓ No carry-over issues from ${fmtDate(prevDate)} for ${esc(gh)}.<br><span style="font-size:11px;">Nothing flagged the previous day. All clear!</span></div>`;
+    } else {
+      inner = items.map((it,i) => {
+        const tStatus = it.todayStatus;
+        const tTag = tStatus==='danger'?'<span class="p22-tag danger">✕ Today: Critical</span>'
+                   : tStatus==='warn'?'<span class="p22-tag warn">⚠ Today: Warning</span>'
+                   : tStatus==='ok'?'<span class="p22-tag ok">✓ Today: OK</span>'
+                   : '<span class="p22-tag none">○ Not re-checked today</span>';
+        const pTag = it.prevStatus==='danger'?'<span class="p22-tag danger">✕ Critical</span>':'<span class="p22-tag warn">⚠ Warning</span>';
+        // smart default
+        let suggest = '';
+        if(tStatus==='ok') suggest='solved';
+        else if(tStatus==='warn') suggest='better';
+        else if(tStatus==='danger') suggest='still';
+        const rev = getReview(gh, it.key);
+        const chosen = rev ? rev.status : suggest;
+        const opts = REVIEW_OPTS.map(o => `<option value="${o.v}" ${o.v===chosen?'selected':''}>${o.lbl}</option>`).join('');
+        return `
+          <div class="p22-item" data-key="${esc(it.key)}" data-cat="${esc(it.catId)}" data-idx="${it.idx}">
+            <div class="row1">
+              <span class="iname">${esc(it.catIcon)} ${esc(it.itemName)}</span>
+              <span class="p22-tag days">${it.daysOpen}d open</span>
+              ${rev?`<span class="p22-saved">✓ ${REVIEW_LBL[rev.status]||'saved'}</span>`:''}
+            </div>
+            <div class="p22-meta"><b>Category:</b> ${esc(it.catName)} · <b>First flagged:</b> ${fmtDate(it.firstDate)}${it.prevNote?`<br><b>Prev note:</b> ${esc(it.prevNote)}`:''}</div>
+            <div class="p22-flow">${pTag} <span style="color:#7c9eb3;">→</span> ${tTag}</div>
+            <div class="p22-controls">
+              <select class="p22-select" id="hnxP22Sel-${i}">${opts}</select>
+            </div>
+            <textarea class="p22-note" id="hnxP22Note-${i}" placeholder="Progress note (optional) — what was done, what's pending…">${rev&&rev.note?esc(rev.note):''}</textarea>
+          </div>`;
+      }).join('');
+    }
+
+    m.innerHTML = `
+      <div class="p22-card">
+        <div class="p22-head">
+          <div>
+            <div class="p22-title">🧠 AI Carry-over Review — ${esc(gh)}</div>
+            <div class="p22-sub">${VER} · Comparing ${prevDate?fmtDate(prevDate):'—'} → ${fmtDate(todayISO())} · ${items.length} flagged item${items.length===1?'':'s'}</div>
+          </div>
+          <button class="p22-x" onclick="window.hnxP22CloseReview()">✕</button>
+        </div>
+        ${inner}
+        ${items.length? `<div class="p22-actions">
+          <button class="p22-btn" onclick="window.hnxP22CloseReview()">Cancel</button>
+          <button class="p22-btn primary" onclick="window.hnxP22SaveReview(${items.length})">✓ Save all decisions</button>
+        </div>`:`<div class="p22-actions"><button class="p22-btn primary" onclick="window.hnxP22CloseReview()">Close</button></div>`}
+      </div>`;
+    m.classList.add('show');
+    window._hnxP22ReviewItems = items;
+  };
+
+  window.hnxP22CloseReview = function(){
+    const m = document.getElementById('hnxP22Modal'); if(m) m.classList.remove('show');
+  };
+
+  window.hnxP22SaveReview = function(count){
+    const gh = curGH();
+    const items = window._hnxP22ReviewItems || [];
+    let saved=0, escalated=0, solved=0, skipped=0;
+    for(let i=0;i<items.length;i++){
+      const it = items[i];
+      const sel = document.getElementById('hnxP22Sel-'+i);
+      const noteEl = document.getElementById('hnxP22Note-'+i);
+      const status = sel ? sel.value : '';
+      const note = noteEl ? noteEl.value.trim() : '';
+      if(!status){ skipped++; continue; }
+      const rec = {
+        status, note,
+        itemName: it.itemName, catId: it.catId, catName: it.catName, idx: it.idx,
+        prevStatus: it.prevStatus, todayStatus: it.todayStatus,
+        daysOpen: it.daysOpen, firstDate: it.firstDate,
+        reviewedAt: Date.now(), reviewedBy: curUser()
+      };
+      setReview(gh, it.key, rec);
+      saved++;
+
+      // Side effects
+      if(status==='solved'){
+        solved++;
+        // mark today's checklist item OK if function available
+        try{ if(typeof window.setStatus==='function'){ window.setStatus(gh, it.catId, it.idx, 'ok'); } }catch(e){}
+      } else if(status==='escalate'){
+        escalated++;
+        raiseManagementCall(gh, it, note);
+      }
+    }
+    toast(`✓ Saved ${saved} decision${saved===1?'':'s'}${solved?` · ${solved} solved`:''}${escalated?` · ${escalated} escalated`:''}${skipped?` · ${skipped} skipped`:''}`, escalated?'warn':'ok');
+    window.hnxP22CloseReview();
+    // re-render checklist so OK changes + banner update show
+    try{ if(typeof window.renderCL==='function') window.renderCL(); }catch(e){}
+  };
+
+  // ---------- escalate to management → raise a call ----------
+  function raiseManagementCall(gh, it, note){
+    try{
+      const _ld = window.loadCalls; const _sv = window.saveCalls;
+      if(typeof _ld!=='function' || typeof _sv!=='function') return;
+      const calls = _ld();
+      const now = Date.now();
+      const callId = 'call-'+now+'-'+Math.floor(Math.random()*899+100);
+      const subject = `📢 ESCALATED TO MGMT · ${gh} — ${it.catName}: ${it.itemName}`;
+      let body = `Carry-over issue escalated to management from the daily checklist.`;
+      body += `\n\n━━━ CARRY-OVER ESCALATION ━━━`;
+      body += `\n📋 Item: ${it.itemName}`;
+      body += `\n📂 Category: ${it.catName}`;
+      body += `\n📍 Greenhouse: ${gh}`;
+      body += `\n🔴 Days open: ${it.daysOpen} (first flagged ${fmtDate(it.firstDate)})`;
+      body += `\n⏱ Previous status: ${it.prevStatus==='danger'?'Critical':'Warning'}`;
+      if(note) body += `\n📝 Note: ${note}`;
+      body += `\n👤 Escalated by: ${curUser()}`;
+      calls.push({
+        id: callId, subject, description: body,
+        priority: it.prevStatus==='danger'?'critical':'high',
+        group:'office', department:'management', area: gh, areaText: gh,
+        subsystem: it.catName, sourceModule:'production', sourceLabel:`Checklist Carry-over · ${gh}`,
+        raisedBy: curUser(), raisedAt: now, maintTaskId:null,
+        contactPhone:'', equipment: it.itemName, equipmentCategory:'', requestedBy: curUser(),
+        attachments:[], status:'new_call', acceptedBy:'', acceptedAt:null, updates:[],
+        closedAt:null, closedBy:'', closeNote:'', recommendation:'',
+        escalatedToMgmt:true, carryoverDaysOpen: it.daysOpen, checklistItemKey: it.key
+      });
+      _sv(calls);
+      try{ if(typeof audit==='function') audit('checklist_escalated', `Escalated to mgmt: ${gh} · ${it.itemName}`); }catch(e){}
+      try{ if(typeof updateCallsBadge==='function') updateCallsBadge(); }catch(e){}
+    }catch(e){ console.warn('P22 escalate error', e); }
+  }
+
+  // ---------- wrap renderCL ----------
+  function wrapRenderCL(){
+    if(typeof window.renderCL !== 'function'){ setTimeout(wrapRenderCL, 400); return; }
+    if(window.renderCL.__p22wrapped) return;
+    const orig = window.renderCL;
+    window.renderCL = function(){
+      const r = orig.apply(this, arguments);
+      try{ injectStyles(); setTimeout(injectDateBar, 30); }catch(e){ console.warn('P22 inject err', e); }
+      return r;
+    };
+    window.renderCL.__p22wrapped = true;
+    // if checklist already on screen, inject now
+    if(document.getElementById('clToolbar')){ injectStyles(); setTimeout(injectDateBar, 50); }
+  }
+
+  function install(){
+    injectStyles();
+    wrapRenderCL();
+    // Ensure today's snapshot is captured so tomorrow there's history to compare
+    try{ if(typeof window.snapshotChecklistDaily==='function') window.snapshotChecklistDaily(); }catch(e){}
+    console.log('[HNX] '+VER+' installed');
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', install);
+  else install();
+})();
+</script>
+<!-- ===================== END HNX v2.86-p22-checklist-dates-ai ===================== -->
+
+<!-- ===================== HNX v2.86-p23-matrix-loc-phones (INLINE) ===================== -->
+<!-- One-time migration of the saved GH & Fer IT Matrix:
+     • Renames Fertigation rooms to short paired names (Fer1&2 … Fer15&16)
+     • Shortens facility names (Server Room→Server, IT Room→IT Rm)
+     • Expands the Phones group → Phones / Comms (IP PBX, VoIP Gateway, Phone Line, SIM Card + existing)
+     Counts for renamed locations are carried over. Runs once (guarded by a flag).
+-->
+<script>
+(function(){
+  if(window.hnxP23Loaded) return; window.hnxP23Loaded = true;
+  const VER='v2.86-p23';
+  const KEY='hydroPro_it_matrix_v2';
+  const FLAG='hnx_p23_loc_phones_migrated_v2';   // bump suffix if re-migration needed
+
+  const NEW_LOCATIONS=['GH1','GH2','GH3','GH4','GH5','GH6','GH7','GH8','GH9','GH10','Fer1&2','Fer3&4','Fer5&6','Fer7&8','Fer9','Fer10','Fer11','Fer12','Fer15&16','Server','Office','IT Rm'];
+  const NEW_PHONES=['IP PBX','VoIP Gateway','Phone Line','SIM Card','Office Phone','Mobile Phone','Radio','Intercom'];
+  const RENAME={ 'Server Room':'Server', 'IT Room':'IT Rm' };      // carry counts over
+  const DROP=['Fer Room 1','Fer Room 2','Fer Room 3'];             // replaced by enumerated set
+
+  function load(k,f){ try{const v=JSON.parse(localStorage.getItem(k)||'null'); return v===null?f:v;}catch(e){return f;} }
+  function save(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); try{ if(typeof window.hnxScheduleSync==='function') window.hnxScheduleSync(k);}catch(e){} return true;}catch(e){return false;} }
+
+  function migrate(){
+    if(localStorage.getItem(FLAG)) return;
+    const s = load(KEY, null);
+    if(s){
+      // 1) carry counts for renamed locations, drop replaced ones
+      if(s.counts && typeof s.counts==='object'){
+        Object.keys(RENAME).forEach(oldL=>{
+          if(s.counts[oldL]){ if(!s.counts[RENAME[oldL]]) s.counts[RENAME[oldL]]=s.counts[oldL]; delete s.counts[oldL]; }
+        });
+        DROP.forEach(l=>{ if(s.counts[l]) delete s.counts[l]; });
+      }
+      // 2) replace location list
+      s.locations = NEW_LOCATIONS.slice();
+      // 3) expand phones group (preserve any custom items the user added)
+      if(s.groups){
+        if(!s.groups.phones) s.groups.phones = { label:'Phones / Comms', icon:'📞', items:[] };
+        s.groups.phones.label = 'Phones / Comms';
+        const merged = NEW_PHONES.slice();
+        (s.groups.phones.items||[]).forEach(it=>{ if(merged.indexOf(it)===-1) merged.push(it); });
+        s.groups.phones.items = merged;
+      }
+      save(KEY, s);
+      console.log('[HNX] '+VER+' migrated matrix: '+NEW_LOCATIONS.length+' locations, phones='+NEW_PHONES.length);
+    }
+    localStorage.setItem(FLAG,'1');
+    // refresh the matrix if it's on screen
+    try{
+      const active=document.querySelector('.view.active');
+      if(active && active.id==='view-it_gh_fer_matrix' && typeof window.hnxP20Render==='function'){ setTimeout(window.hnxP20Render, 200); }
+    }catch(e){}
+  }
+
+  // run after P20 has had a chance to load/save its state
+  function go(){ setTimeout(migrate, 1200); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', go);
+  else go();
+})();
+</script>
+<!-- ===================== END HNX v2.86-p23-matrix-loc-phones ===================== -->
+
+<!-- ===================== HNX v2.86-p24-call-matrix-link (INLINE) ===================== -->
+<!-- Connects the Raise Call form to the GH & Fer IT Matrix.
+     Adds 3 cascading dropdowns: Matrix Group → Item (sub-list of that group) → Location.
+     Selections are saved on the call as matrixGroup / matrixItem / matrixLocation
+     AND appended to the description, so the matrix (P25) can tally calls per cell.
+     Follows the P14/P15 pattern: wraps openCallModal + submitCall, never replaces.
+-->
+<script>
+(function(){
+  if(window.hnxP24Loaded) return; window.hnxP24Loaded = true;
+  const VER='v2.86-p24'; const MKEY='hydroPro_it_matrix_v2';
+  function load(k,f){ try{const v=JSON.parse(localStorage.getItem(k)||'null'); return v===null?f:v;}catch(e){return f;} }
+  function esc(s){ return String(s==null?'':s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'})[c]); }
+  function matrix(){ const s=load(MKEY,null); return { groups:(s&&s.groups)||{}, locations:(s&&s.locations)||[] }; }
+  function groupLabel(gid){ const g=matrix().groups[gid]; return g?(g.label||gid):gid; }
+
+  function groupOpts(sel){ const gs=matrix().groups; return '<option value="">— group —</option>'+Object.keys(gs).map(gid=>`<option value="${esc(gid)}" ${gid===sel?'selected':''}>${esc(gs[gid].icon||'')} ${esc(gs[gid].label||gid)}</option>`).join(''); }
+  function itemOpts(gid, sel){ const g=matrix().groups[gid]; let o='<option value="">— item —</option>'; if(g){ (g.items||[]).forEach(it=>{ o+=`<option value="${esc(it)}" ${it===sel?'selected':''}>${esc(it)}</option>`; }); } return o; }
+  function locOpts(sel){ return '<option value="">— location —</option>'+matrix().locations.map(l=>`<option value="${esc(l)}" ${l===sel?'selected':''}>${esc(l)}</option>`).join(''); }
+
+  function injectSection(){
+    const existing = document.getElementById('callP24MatrixWrap');
+    const d = window._callDraft || {};
+    if(existing){
+      // refresh option lists (matrix data may have changed since last open)
+      const gSel=document.getElementById('callP24Group'); if(gSel) gSel.innerHTML=groupOpts(d.matrixGroup||'');
+      const iSel=document.getElementById('callP24Item');  if(iSel) iSel.innerHTML=itemOpts(d.matrixGroup||'', d.matrixItem||'');
+      const lSel=document.getElementById('callP24Loc');   if(lSel) lSel.innerHTML=locOpts(d.matrixLocation||'');
+      return true;
+    }
+    const anchor = document.getElementById('callP14ModuleWrap') || document.getElementById('callSourceLine');
+    if(!anchor || !anchor.parentNode) return false;
+    const wrap=document.createElement('div'); wrap.id='callP24MatrixWrap'; wrap.className='call-field-row';
+    wrap.style.cssText='background:rgba(103,197,255,0.05);border:1.5px dashed #67c5ff;border-radius:7px;padding:9px 11px;margin:4px 0;';
+    wrap.innerHTML =
+      '<div class="call-field-label" style="font-weight:700;color:#67c5ff;margin-bottom:5px;">🔗 Link to IT Matrix (optional)</div>'
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+      +   '<select id="callP24Group" class="call-select" style="flex:1;min-width:110px;" onchange="hnxP24OnGroup(this.value)">'+groupOpts(d.matrixGroup||'')+'</select>'
+      +   '<select id="callP24Item" class="call-select" style="flex:1;min-width:110px;" onchange="hnxP24Set(\'matrixItem\',this.value)">'+itemOpts(d.matrixGroup||'', d.matrixItem||'')+'</select>'
+      +   '<select id="callP24Loc" class="call-select" style="flex:1;min-width:110px;" onchange="hnxP24Set(\'matrixLocation\',this.value)">'+locOpts(d.matrixLocation||'')+'</select>'
+      + '</div>'
+      + '<div style="font-size:10px;color:var(--text3);margin-top:5px;">Connects this call to a matrix cell — group → item → location.</div>';
+    anchor.parentNode.insertBefore(wrap, anchor.nextSibling);
+    return true;
+  }
+
+  window.hnxP24OnGroup = function(gid){
+    const iSel=document.getElementById('callP24Item');
+    if(iSel) iSel.innerHTML=itemOpts(gid, '');
+    hnxP24Set('matrixGroup', gid);
+    hnxP24Set('matrixItem', '');
+  };
+  window.hnxP24Set = function(field, val){ if(window._callDraft) window._callDraft[field]=val; };
+
+  function hookOpen(){
+    if(typeof window.openCallModal!=='function') return false;
+    if(window.openCallModal._hnxP24Wrapped) return true;
+    const orig=window.openCallModal;
+    window.openCallModal=function(){
+      const r=orig.apply(this, arguments);
+      if(window._callDraft){ window._callDraft.matrixGroup=''; window._callDraft.matrixItem=''; window._callDraft.matrixLocation=''; }
+      setTimeout(injectSection, 140);   // after P14/P15 inject their parts
+      return r;
+    };
+    window.openCallModal._hnxP24Wrapped=true;
+    return true;
+  }
+
+  function hookSubmit(){
+    if(typeof window.submitCall!=='function') return false;
+    if(window.submitCall._hnxP24Wrapped) return true;
+    const orig=window.submitCall;
+    window.submitCall=function(){
+      const d=window._callDraft||{};
+      const mg=d.matrixGroup||'', mi=d.matrixItem||'', ml=d.matrixLocation||'';
+      if(mg||mi||ml){
+        const descEl=document.getElementById('callDesc');
+        if(descEl && descEl.value.indexOf('🔗 Matrix link:')===-1){
+          descEl.value = descEl.value + `\n\n🔗 Matrix link: ${groupLabel(mg)}${mi?' › '+mi:''}${ml?' @ '+ml:''}`;
+        }
+      }
+      const before = (typeof window.loadCalls==='function') ? window.loadCalls().length : 0;
+      const r = orig.apply(this, arguments);
+      // patch the newly-created call with structured matrix fields
+      try{
+        if(typeof window.loadCalls==='function' && typeof window.saveCalls==='function'){
+          const calls=window.loadCalls();
+          if(calls.length > before){
+            const c=calls[calls.length-1];
+            c.matrixGroup=mg; c.matrixItem=mi; c.matrixLocation=ml;
+            window.saveCalls(calls);
+          }
+        }
+      }catch(e){ console.warn('P24 patch call failed', e); }
+      return r;
+    };
+    window.submitCall._hnxP24Wrapped=true;
+    return true;
+  }
+
+  function run(){
+    let t=0;
+    const iv=setInterval(()=>{
+      t++;
+      const a=hookOpen(); const b=hookSubmit();
+      if(document.getElementById('callModal')) injectSection();
+      if((a&&b) || t>30){ clearInterval(iv); if(a&&b) console.log('[HNX] '+VER+' ready'); }
+    }, 300);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', run);
+  else setTimeout(run, 1150);
+})();
+</script>
+<!-- ===================== END HNX v2.86-p24-call-matrix-link ===================== -->
+
+<!-- ===================== HNX v2.86-p25-matrix-live-activity (INLINE) ===================== -->
+<!-- Overlays live call activity onto GH & Fer IT Matrix cells.
+     Reads calls linked via P24 (matrixGroup / matrixItem / matrixLocation).
+     • Item cell  → count of OPEN calls for that group+item+location
+     • Group cell → sum of OPEN calls for that group+location (any item)
+     Shows a red badge on active cells; click badge → modal listing the linked calls.
+     Uses a MutationObserver so it re-decorates on every matrix render.
+-->
+<script>
+(function(){
+  if(window.hnxP25Loaded) return; window.hnxP25Loaded = true;
+  const VER='v2.86-p25'; const ITCLR='#67c5ff';
+  function esc(s){ return String(s==null?'':s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'})[c]); }
+  function isOpen(c){ const s=(c.status||'new_call'); return s.indexOf('closed')!==0; }
+  function loadCalls(){ try{ if(typeof window.loadCalls==='function') return window.loadCalls(); }catch(e){} try{ return JSON.parse(localStorage.getItem('hydroPro_issues_v2')||'[]'); }catch(e){ return []; } }
+  function fmtWhen(ts){ try{ return new Date(ts).toLocaleDateString('en-US',{month:'short',day:'numeric'}); }catch(e){ return ''; } }
+
+  function injectStyles(){
+    if(document.getElementById('hnxP25Styles')) return;
+    const st=document.createElement('style'); st.id='hnxP25Styles';
+    st.textContent=`
+      td.p20-cell.p25-has{position:relative;}
+      .p25-badge{position:absolute;top:1px;right:1px;min-width:15px;height:15px;line-height:15px;padding:0 3px;border-radius:8px;font-size:9px;font-weight:800;font-family:var(--mono,monospace);text-align:center;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.5);}
+      .p25-badge.crit{background:#ff1744;color:#fff;animation:p25pulse 1.4s infinite;}
+      .p25-badge.warn{background:#ff8c42;color:#160a00;}
+      .p25-badge.norm{background:${ITCLR};color:#001018;}
+      @keyframes p25pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,23,68,.6);}50%{box-shadow:0 0 0 5px rgba(255,23,68,0);}}
+      #hnxP25Modal{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:100025;display:none;align-items:flex-start;justify-content:center;padding:14px;overflow-y:auto;}
+      #hnxP25Modal.show{display:flex;}
+      .p25-card{background:#0d1922;border:2px solid ${ITCLR};border-radius:12px;padding:18px;width:100%;max-width:600px;color:#e0f0ff;font-family:var(--mono,monospace);max-height:92vh;overflow-y:auto;}
+      .p25-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #1a3344;}
+      .p25-title{font-size:15px;font-weight:800;color:${ITCLR};}
+      .p25-sub{font-size:11px;color:#7c9eb3;margin-top:3px;}
+      .p25-x{background:transparent;border:1.5px solid ${ITCLR};color:${ITCLR};padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:700;font-family:inherit;}
+      .p25-call{background:rgba(255,255,255,.02);border:1px solid #1a3344;border-radius:8px;padding:10px 12px;margin-top:9px;}
+      .p25-call .s{font-size:13px;font-weight:700;color:#cfe8ff;}
+      .p25-call .m{font-size:11px;color:#7c9eb3;margin-top:4px;line-height:1.5;}
+      .p25-pri{font-size:9px;font-weight:800;padding:2px 7px;border-radius:9px;text-transform:uppercase;margin-left:6px;}
+      .p25-pri.critical{background:#3a0e0e;color:#ff8a80;border:1px solid #ff8a80;}
+      .p25-pri.high{background:#3a2800;color:#ffb74d;border:1px solid #ffb74d;}
+      .p25-pri.medium{background:#1b2a3a;color:#90caf9;border:1px solid #90caf9;}
+      .p25-empty{text-align:center;color:#7c9eb3;font-size:13px;padding:24px;}
+      .p25-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid #1a3344;}
+      .p25-btn{padding:8px 15px;border-radius:6px;border:1.5px solid ${ITCLR};background:transparent;color:${ITCLR};font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;}
+      .p25-btn.primary{background:${ITCLR};color:#001018;}
+    `;
+    document.head.appendChild(st);
+  }
+
+  // Build activity index from linked calls
+  function buildIndex(){
+    const calls=loadCalls();
+    const idx={ item:{}, group:{} };  // item['gid|item|loc']=[calls], group['gid|loc']=[calls]
+    calls.forEach(c=>{
+      if(!isOpen(c)) return;
+      const gid=c.matrixGroup||'', it=c.matrixItem||'', loc=c.matrixLocation||'';
+      if(!gid || !loc) return;
+      if(it){ const k=gid+'|'+it+'|'+loc; (idx.item[k]=idx.item[k]||[]).push(c); }
+      const gk=gid+'|'+loc; (idx.group[gk]=idx.group[gk]||[]).push(c);
+    });
+    return idx;
+  }
+
+  const RE=/hnxP20CellMenu\('([^']*)','([^']*)',(?:'([^']*)'|null)\)/;
+  function parseCell(td){
+    const oc=td.getAttribute('onclick')||''; const m=oc.match(RE);
+    if(!m) return null;
+    return { loc:m[1], gid:m[2], item:(m[3]!==undefined?m[3]:null) };
+  }
+
+  function badgeClass(calls){
+    if(calls.some(c=>(c.priority==='critical'))) return 'crit';
+    if(calls.some(c=>(c.priority==='high'))) return 'warn';
+    return 'norm';
+  }
+
+  function decorate(){
+    const view=document.getElementById('view-it_gh_fer_matrix');
+    if(!view) return;
+    const tbl=view.querySelector('.p20-tbl'); if(!tbl) return;
+    injectStyles();
+    const idx=buildIndex();
+    // clear old badges
+    view.querySelectorAll('.p25-badge').forEach(b=>b.remove());
+    view.querySelectorAll('td.p20-cell').forEach(td=>{
+      const info=parseCell(td); if(!info) return;
+      let calls=[];
+      if(info.item){ calls = idx.item[info.gid+'|'+info.item+'|'+info.loc] || []; }
+      else { calls = idx.group[info.gid+'|'+info.loc] || []; }
+      if(!calls.length) return;
+      td.classList.add('p25-has');
+      const b=document.createElement('span');
+      b.className='p25-badge '+badgeClass(calls);
+      b.textContent=calls.length;
+      b.title=calls.length+' open call'+(calls.length>1?'s':'')+' — click to view';
+      b.setAttribute('onclick', `event.stopPropagation();hnxP25Show('${esc(info.loc)}','${esc(info.gid)}',${info.item?("'"+esc(info.item)+"'"):'null'})`);
+      td.appendChild(b);
+    });
+  }
+
+  window.hnxP25Show=function(loc, gid, item){
+    injectStyles();
+    const idx=buildIndex();
+    const calls = item ? (idx.item[gid+'|'+item+'|'+loc]||[]) : (idx.group[gid+'|'+loc]||[]);
+    let m=document.getElementById('hnxP25Modal');
+    if(!m){ m=document.createElement('div'); m.id='hnxP25Modal'; m.addEventListener('click',e=>{if(e.target===m)hnxP25Close();}); document.body.appendChild(m); }
+    const gl=(function(){ try{ const s=JSON.parse(localStorage.getItem('hydroPro_it_matrix_v2')||'{}'); return (s.groups&&s.groups[gid]&&s.groups[gid].label)||gid; }catch(e){ return gid; } })();
+    const ttl = `${gl}${item?' › '+esc(item):''} @ ${esc(loc)}`;
+    const list = calls.length ? calls.slice().sort((a,b)=>(b.raisedAt||0)-(a.raisedAt||0)).map(c=>`
+      <div class="p25-call">
+        <div class="s">${esc(c.subject||'(no subject)')}<span class="p25-pri ${esc(c.priority||'medium')}">${esc(c.priority||'medium')}</span></div>
+        <div class="m">📅 ${fmtWhen(c.raisedAt)} · 👤 ${esc(c.raisedBy||'—')} · status: ${esc((c.status||'new_call').replace(/_/g,' '))}</div>
+      </div>`).join('') : `<div class="p25-empty">No open calls linked here.</div>`;
+    m.innerHTML=`
+      <div class="p25-card">
+        <div class="p25-head">
+          <div><div class="p25-title">🔗 Linked calls</div><div class="p25-sub">${ttl} · ${calls.length} open</div></div>
+          <button class="p25-x" onclick="hnxP25Close()">✕</button>
+        </div>
+        ${list}
+        <div class="p25-actions">
+          <button class="p25-btn" onclick="hnxP25Close()">Close</button>
+          <button class="p25-btn primary" onclick="hnxP25Close();if(typeof openCallModal==='function')openCallModal('it_gh_fer_matrix','IT Matrix');">📞 Raise new call</button>
+        </div>
+      </div>`;
+    m.classList.add('show');
+  };
+  window.hnxP25Close=function(){ const m=document.getElementById('hnxP25Modal'); if(m) m.classList.remove('show'); };
+
+  // observe the matrix view for re-renders
+  function startObserver(){
+    const view=document.getElementById('view-it_gh_fer_matrix');
+    if(!view){ setTimeout(startObserver, 800); return; }
+    let last='';
+    const obs=new MutationObserver(()=>{
+      const tbl=view.querySelector('.p20-tbl'); if(!tbl) return;
+      const sig=tbl.innerHTML.length+':'+tbl.querySelectorAll('td.p20-cell').length;
+      if(sig!==last){ last=sig; setTimeout(decorate, 60); }
+    });
+    obs.observe(view, { childList:true, subtree:true });
+    setTimeout(decorate, 300);
+  }
+  // backup: wrap hnxP20Render
+  function wrapRender(){
+    if(typeof window.hnxP20Render==='function' && !window.hnxP20Render.__p25){
+      const orig=window.hnxP20Render;
+      window.hnxP20Render=function(){ const r=orig.apply(this,arguments); setTimeout(decorate,80); return r; };
+      window.hnxP20Render.__p25=true;
+    } else if(typeof window.hnxP20Render!=='function'){ setTimeout(wrapRender, 600); }
+  }
+  function install(){ injectStyles(); startObserver(); wrapRender(); console.log('[HNX] '+VER+' installed'); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', install);
+  else install();
+})();
+</script>
+<!-- ===================== END HNX v2.86-p25-matrix-live-activity ===================== -->
+
+<!-- ===================== HNX v2.86-p26-matrix-ai-brain (INLINE) ===================== -->
+<!-- AI Brain (rule-based v1) for the GH & Fer IT Matrix.
+     Analyzes matrix-linked calls (P24) + history → surfaces pattern insights & suggestions:
+       • repeated failures on one unit → recommend replacement
+       • critical open calls → act now
+       • a location with many issues → facility-level root cause
+       • one item failing across many locations → batch/supplier/firmware issue
+       • high lifetime call count → low-reliability unit → preventive maintenance
+     Renders a collapsible "🧠 AI Brain" panel at the top of the matrix view.
+     Pure client-side rules (no external calls). Claude-API deep analysis can be layered later.
+-->
+<script>
+(function(){
+  if(window.hnxP26Loaded) return; window.hnxP26Loaded = true;
+  const VER='v2.86-p26';
+  function esc(s){ return String(s==null?'':s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'})[c]); }
+  function isOpen(c){ const s=(c.status||'new_call'); return s.indexOf('closed')!==0; }
+  function loadCalls(){ try{ if(typeof window.loadCalls==='function') return window.loadCalls(); }catch(e){} try{ return JSON.parse(localStorage.getItem('hydroPro_issues_v2')||'[]'); }catch(e){ return []; } }
+  function matrixGroups(){ try{ const s=JSON.parse(localStorage.getItem('hydroPro_it_matrix_v2')||'{}'); return s.groups||{}; }catch(e){ return {}; } }
+  function gLabel(gid){ const g=matrixGroups()[gid]; return g?(g.label||gid):gid; }
+
+  function injectStyles(){
+    if(document.getElementById('hnxP26Styles')) return;
+    const st=document.createElement('style'); st.id='hnxP26Styles';
+    st.textContent=`
+      #hnxP26Panel{margin:10px 0 12px;border:1.5px solid #ba68c8;border-radius:10px;background:rgba(186,104,200,.06);font-family:var(--mono,monospace);overflow:hidden;}
+      .p26-bar{display:flex;align-items:center;gap:10px;padding:10px 13px;cursor:pointer;flex-wrap:wrap;}
+      .p26-bar .t{font-size:14px;font-weight:800;color:#ce93d8;}
+      .p26-bar .c{font-size:10px;color:#7c9eb3;text-transform:uppercase;letter-spacing:.5px;}
+      .p26-pill{font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;}
+      .p26-pill.crit{background:#3a0e0e;color:#ff8a80;border:1px solid #ff8a80;}
+      .p26-pill.warn{background:#3a2800;color:#ffb74d;border:1px solid #ffb74d;}
+      .p26-pill.ok{background:#1b3a1c;color:#81c784;border:1px solid #81c784;}
+      .p26-toggle{margin-left:auto;color:#ce93d8;font-size:12px;}
+      .p26-body{padding:0 13px 12px;display:none;}
+      #hnxP26Panel.open .p26-body{display:block;}
+      .p26-ins{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;margin-top:8px;border-radius:8px;background:rgba(255,255,255,.02);border-left:3px solid #555;}
+      .p26-ins.crit{border-left-color:#ff1744;}
+      .p26-ins.warn{border-left-color:#ff8c42;}
+      .p26-ins.info{border-left-color:#67c5ff;}
+      .p26-ins.ok{border-left-color:#81c784;}
+      .p26-ins .ic{font-size:17px;line-height:1.2;}
+      .p26-ins .tx{flex:1;}
+      .p26-ins .h{font-size:12px;font-weight:700;color:#e0f0e8;}
+      .p26-ins .s{font-size:11px;color:#a8b5c5;margin-top:3px;line-height:1.5;}
+      .p26-learn{font-size:10px;color:#7c9eb3;margin-top:10px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.08);line-height:1.5;}
+      .p26-refresh{padding:4px 9px;border-radius:6px;border:1px solid #ba68c8;background:transparent;color:#ce93d8;font-family:inherit;font-size:10px;font-weight:700;cursor:pointer;}
+    `;
+    document.head.appendChild(st);
+  }
+
+  // ---- rule engine ----
+  function genInsights(){
+    const calls=loadCalls();
+    const byCell={}, byLoc={}, byItem={};
+    calls.forEach(c=>{
+      const gid=c.matrixGroup||'', loc=c.matrixLocation||'';
+      if(!gid || !loc) return;
+      const open=isOpen(c);
+      const ck=gid+'|'+(c.matrixItem||'')+'|'+loc;
+      const o=byCell[ck]||(byCell[ck]={open:0,total:0,crit:0,last:0,item:c.matrixItem||'',gid,loc});
+      o.total++; if(open){o.open++; if(c.priority==='critical')o.crit++;} o.last=Math.max(o.last,c.raisedAt||0);
+      if(open){
+        byLoc[loc]=(byLoc[loc]||0)+1;
+        const ik=gid+'|'+(c.matrixItem||'');
+        const io=byItem[ik]||(byItem[ik]={n:0,locs:{},item:c.matrixItem||'',gid});
+        io.n++; io.locs[loc]=1;
+      }
+    });
+    const ins=[];
+    const seen={};
+    const push=(sev,icon,h,s)=>{ const k=sev+h; if(seen[k])return; seen[k]=1; ins.push({sev,icon,h,s}); };
+
+    Object.keys(byCell).forEach(k=>{ const o=byCell[k];
+      if(o.crit>0) push('crit','🚨',`${o.item||gLabel(o.gid)} @ ${o.loc}: critical open call`,'Act now — critical priority. Assign a tech and track to closure.');
+    });
+    Object.keys(byCell).forEach(k=>{ const o=byCell[k];
+      if(o.open>=3) push('crit','🔴',`${gLabel(o.gid)} › ${o.item||'—'} @ ${o.loc}: ${o.open} open calls`,'Repeated failures on one unit — recommend on-site inspection or replacement.');
+    });
+    Object.keys(byLoc).forEach(loc=>{ if(byLoc[loc]>=4) push('warn','📍',`${loc}: ${byLoc[loc]} open issues across items`,'Concentrated at one location — likely a facility-level cause (power, network backbone, environment). Investigate the site, not just devices.'); });
+    Object.keys(byItem).forEach(ik=>{ const o=byItem[ik]; const n=Object.keys(o.locs).length;
+      if(n>=3) push('warn','🔁',`${o.item||gLabel(o.gid)} failing in ${n} locations`,'Same item type failing widely — check for a common factor: batch, supplier, firmware, or shared power/network.');
+    });
+    Object.keys(byCell).forEach(k=>{ const o=byCell[k];
+      if(o.total>=4 && o.open>=1) push('info','📈',`${o.item||gLabel(o.gid)} @ ${o.loc}: ${o.total} calls logged over time`,'Low-reliability unit. Consider scheduled preventive maintenance or budgeting a replacement.');
+    });
+
+    // sort by severity weight
+    const w={crit:0,warn:1,info:2,ok:3};
+    ins.sort((a,b)=>w[a.sev]-w[b.sev]);
+    const capped=ins.slice(0,8);
+    const counts={crit:ins.filter(x=>x.sev==='crit').length, warn:ins.filter(x=>x.sev==='warn').length};
+    if(capped.length===0){ capped.push({sev:'ok',icon:'✅',h:'No patterns detected',s:'All matrix-linked calls are within normal range. Nothing needs attention right now.'}); }
+    return { list:capped, counts, totalLinked: calls.filter(c=>c.matrixGroup&&c.matrixLocation).length };
+  }
+
+  function buildPanel(){
+    const view=document.getElementById('view-it_gh_fer_matrix'); if(!view) return;
+    const tbl=view.querySelector('.p20-tbl'); if(!tbl) return; // wait for matrix
+    injectStyles();
+    const data=genInsights();
+    let panel=document.getElementById('hnxP26Panel');
+    const wasOpen = panel ? panel.classList.contains('open') : true; // default open
+    if(!panel){
+      panel=document.createElement('div'); panel.id='hnxP26Panel';
+      if(wasOpen) panel.classList.add('open');
+      // insert before the table's container (top of the matrix view, under the header)
+      const tblWrap = view.querySelector('.p20-tbl-wrap') || tbl.closest('div');
+      if(tblWrap && tblWrap.parentNode){ tblWrap.parentNode.insertBefore(panel, tblWrap); }
+      else { view.insertBefore(panel, view.firstChild); }
+    }
+    const critPill = data.counts.crit ? `<span class="p26-pill crit">${data.counts.crit} critical</span>` : '';
+    const warnPill = data.counts.warn ? `<span class="p26-pill warn">${data.counts.warn} watch</span>` : '';
+    const okPill = (!data.counts.crit && !data.counts.warn) ? `<span class="p26-pill ok">clear</span>` : '';
+    const items=data.list.map(x=>`
+      <div class="p26-ins ${x.sev}">
+        <span class="ic">${x.icon}</span>
+        <div class="tx"><div class="h">${esc(x.h)}</div><div class="s">${esc(x.s)}</div></div>
+      </div>`).join('');
+    panel.innerHTML=`
+      <div class="p26-bar" onclick="hnxP26Toggle(event)">
+        <span class="t">🧠 AI Brain</span>
+        ${critPill}${warnPill}${okPill}
+        <span class="c">${data.totalLinked} linked call${data.totalLinked===1?'':'s'} analyzed</span>
+        <button class="p26-refresh" onclick="event.stopPropagation();hnxP26Refresh()">↻</button>
+        <span class="p26-toggle">${panel.classList.contains('open')?'▼':'▶'}</span>
+      </div>
+      <div class="p26-body">
+        ${items}
+        <div class="p26-learn">📚 Rule-based analysis that sharpens as more calls are logged with matrix links (group › item @ location). The more your team uses 🔗 Link to IT Matrix when raising calls, the more precise these suggestions become.</div>
+      </div>`;
+  }
+  window.hnxP26Toggle=function(e){ const p=document.getElementById('hnxP26Panel'); if(!p)return; p.classList.toggle('open'); const t=p.querySelector('.p26-toggle'); if(t)t.textContent=p.classList.contains('open')?'▼':'▶'; };
+  window.hnxP26Refresh=function(){ buildPanel(); };
+
+  // observe matrix for renders (signature based on TABLE only → panel updates never loop)
+  function startObserver(){
+    const view=document.getElementById('view-it_gh_fer_matrix');
+    if(!view){ setTimeout(startObserver, 800); return; }
+    let last='';
+    const obs=new MutationObserver(()=>{
+      const tbl=view.querySelector('.p20-tbl'); if(!tbl) return;
+      const sig=tbl.querySelectorAll('td.p20-cell').length+':'+tbl.querySelectorAll('tr').length;
+      if(sig!==last){ last=sig; setTimeout(buildPanel, 90); }
+    });
+    obs.observe(view, { childList:true, subtree:true });
+    setTimeout(buildPanel, 350);
+  }
+  function install(){ injectStyles(); startObserver(); console.log('[HNX] '+VER+' installed'); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', install);
+  else install();
+})();
+</script>
+<!-- ===================== END HNX v2.86-p26-matrix-ai-brain ===================== -->
+
 
 </body>
 </html>
