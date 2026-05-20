@@ -19875,15 +19875,15 @@ const MODULES={
       {id:'it_materials',      label:'📦 IT Item Request',    perm:'viewMaintenance',title:'IT items needed from inventory — cables, accessories, replacement parts'},
       {id:'it_devices',        label:'🖥️ IT Devices',         perm:'viewMaintenance',title:'Computers, printers, TVs, monitors, network equipment'},
       {id:'it_parts',          label:'🔩 IT Spare Parts',     perm:'viewMaintenance',title:'IT spare parts inventory · cables · adapters · components'},
-      {id:'it_matrix',         label:'📊 IT Call Matrix',     perm:'viewMaintenance',title:'IT open calls by Subject × Department'},
+      {id:'it_matrix',         label:'📞 IT Open-Call Grid',     perm:'viewMaintenance',title:'IT open calls by Subject × Department'},
       {id:'it_recurring',      label:'🔥 IT Recurring Tasks', perm:'viewMaintenance',title:'IT recurring tasks · device cleaning · backup checks · network audits'},
       {id:'it_daily_checklist',label:'☑️ IT Daily Checklist', perm:'viewMaintenance',title:'Daily IT checks · CCTV health · network · servers · power'},
       {id:'it_calls',          label:'📞 IT Open Calls',      perm:'viewMaintenance',title:'IT-module open calls · Pending Approvals · Approve/Reject'},
-      {id:'it_gh_fer_matrix',  label:'💧 GH & Fer Matrix',    perm:'viewMaintenance',title:'IT equipment matrix · GH × Fertigation rooms · cameras, devices, radios'},
+      {id:'it_gh_fer_matrix',  label:'🗺 GH & Fer Equipment',    perm:'viewMaintenance',title:'IT equipment by GH × Fertigation rooms · cameras, devices, radios'},
       {id:'it_cctv',           label:'📹 CCTV',               perm:'viewMaintenance',title:'CCTV cameras live view'},
-      {id:'it_cctv_wall',      label:'📺 DVR & CCTV Wall',    perm:'viewMaintenance',title:'Visual of all DVRs and CCTV cameras · master CCTV wall'},
+      {id:'it_cctv_wall',      label:'📺 DVR & CCTV Wall',    perm:'viewMaintenance',hidden:true,title:'Visual of all DVRs and CCTV cameras · master CCTV wall (reached via CCTV → 📺 DVR Wall)'},
       {id:'it_radios',         label:'📻 Radios',             perm:'viewMaintenance',title:'Radios and communication devices'},
-      {id:'it_prj11',          label:'🏭 PRJ11 Devices',      perm:'viewMaintenance',title:'PRJ11-specific IT devices'},
+      {id:'it_prj11',          label:'🏭 PRJ11 Devices',      perm:'viewMaintenance',hidden:true,title:'PRJ11-specific IT devices (reached via IT Devices → 🏭 PRJ11)'},
       {id:'it_rfid',           label:'🆔 RFID Setup',         perm:'viewMaintenance',title:'RFID setup, tag registry, reader configuration, RFID matrix by location'}
     ]
   },
@@ -32513,6 +32513,7 @@ function cctvTabsHTML(active){
     <button class="sensor-tab ${active==='daily'?'active':''}" onclick="switchCctvTab('daily')">✅ Daily Check</button>
     <button class="sensor-tab ${active==='inventory'?'active':''}" onclick="switchCctvTab('inventory')">📷 Camera Inventory</button>
     <button class="sensor-tab ${active==='nvrs'?'active':''}" onclick="switchCctvTab('nvrs')">📦 NVRs</button>
+    <button class="sensor-tab" onclick="switchView('it_cctv_wall')">📺 DVR Wall</button>
   </div>`;
 }
 
@@ -33372,6 +33373,7 @@ function devTabsHTML(active){
     <button class="sensor-tab ${active==='inventory'?'active':''}" onclick="switchDevTab('inventory')">📋 Inventory</button>
     <button class="sensor-tab ${active==='check'?'active':''}" onclick="switchDevTab('check')">✅ Daily Check</button>
     <button class="sensor-tab ${active==='stats'?'active':''}" onclick="switchDevTab('stats')">📊 Stats</button>
+    <button class="sensor-tab" onclick="switchView('it_prj11')">🏭 PRJ11</button>
   </div>`;
 }
 
@@ -56109,6 +56111,7 @@ function renderPrj11Devices(){
   }).join('');
 
   document.getElementById('prj11DevicesBody').innerHTML=`
+    <div style="margin-bottom:10px;"><button class="btn btn-outline" onclick="switchView('it_devices')" style="font-size:12px;">← 🖥 Back to IT Devices</button></div>
     <div class="section-title">🏭 PRJ11 Indoor Devices — Daily Check (7:30 AM)</div>
 
     <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.6;">
@@ -100635,7 +100638,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p30b-backfill';
+        vEl.textContent = orig + ' · HNX v2.86-p34-cctv-prj11-fold';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -131848,7 +131851,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     });
 
     body.innerHTML = `
-      ${viewHeader('📊 IT Call Matrix', `${open.length} open IT calls grouped by Department × Subject`, 'maint_matrix')}
+      ${viewHeader('📞 IT Open-Call Grid', `${open.length} open IT calls grouped by Department × Subject`, 'maint_matrix')}
       <div style="padding:14px 20px;">
         ${open.length ? `
           <table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:12px;background:var(--surface2,#0e2118);border-radius:8px;overflow:hidden;border:1.5px solid var(--border,#1a3a2a);">
@@ -131907,6 +131910,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     if (!body) return;
     body.innerHTML = `
       ${viewHeader('📺 DVR & CCTV Wall', 'Master visual of all DVRs and CCTV cameras', null)}
+      <div style="padding:8px 20px 0;"><button class="it-dash-btn" onclick="switchView('it_cctv')" style="font-size:12px;padding:6px 14px;">← 📹 Back to CCTV</button></div>
       <div style="padding:20px;">
         <div style="background:#1a2a1a;border:1.5px solid #2eaa2e;border-radius:8px;padding:20px;color:#9fffaf;font-family:monospace;text-align:center;">
           <div style="font-size:14px;margin-bottom:12px;">The master CCTV wall view shows all your DVRs and cameras across all sites.</div>
@@ -132010,7 +132014,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 
   renderers.it_gh_fer_matrix = function() {
     document.getElementById('hnx-it_gh_fer_matrix-body').innerHTML = buildQueuePlaceholder(
-      '💧 GH & Fertigation IT Matrix',
+      '🗺 GH & Fertigation Equipment',
       [
         'Each GH × IT equipment type (cameras, sensors, radios, PRJ11 controllers)',
         'Each Fertigation room × IT equipment matrix',
@@ -133190,6 +133194,8 @@ body.hnx-mobile-locked { overflow: hidden; }
     if(!body){warn('hnx-it_materials-body not found');return;}
     injectStyles();
     const all=load(REQ_KEY,[]);
+    const _parts=load(PARTS_KEY,[]);
+    const _partById=function(pid){return _parts.find(p=>p.id===pid);};
     const pending=all.filter(r=>r.status==='pending');
     const active=all.filter(r=>['approved','ordered'].includes(r.status));
     const done=all.filter(r=>['fulfilled','rejected','cancelled'].includes(r.status));
@@ -133203,6 +133209,7 @@ body.hnx-mobile-locked { overflow: hidden; }
             <div class="p13-row-meta" style="margin-top:3px;">📦 ${esc(r.category||'—')} · 👤 ${esc(r.requesterName||r.requester||'—')} · ${fmtDate(r.createdAt)}${r.estimatedCost?' · 💰 '+esc(r.estimatedCost):''}</div>
             ${r.justification?`<div class="p13-row-meta" style="margin-top:6px;color:var(--text2);"><strong>Why:</strong> ${esc(r.justification)}</div>`:''}
             ${r.vendor?`<div class="p13-row-meta" style="margin-top:3px;">🏪 ${esc(r.vendor)}</div>`:''}
+            ${(function(){ if(!r.partId) return ''; const lp=_partById(r.partId); if(!lp) return `<div class="p13-row-meta" style="margin-top:3px;color:var(--text3);">🔩 Linked part no longer exists</div>`; const isOut=lp.qty===0,isLow=lp.minQty>0&&lp.qty<lp.minQty; const c=isOut?'#ff5555':isLow?'#ff9c33':'#2eaa2e'; return `<div class="p13-row-meta" style="margin-top:3px;">🔩 Linked: ${esc(lp.name)} · <span style="color:${c};font-weight:700;">${lp.qty} in stock</span>${isOut?' (OUT)':isLow?' (LOW)':''}</div>`; })()}
             ${r.rejectedReason?`<div class="p13-row-meta" style="margin-top:3px;color:#ff5555;"><strong>Rejected:</strong> ${esc(r.rejectedReason)}</div>`:''}
           </div>
           <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;">
@@ -133251,6 +133258,7 @@ body.hnx-mobile-locked { overflow: hidden; }
         <div class="p13-field"><label>Quantity</label><input type="number" id="req_qty" class="p13-input" value="${esc(r.qty)}" min="1"></div>
         <div class="p13-field"><label>Category</label><select id="req_category" class="p13-select">${REQ_CATS.map(c=>`<option value="${c}" ${r.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
       </div>
+      <div class="p13-field"><label>🔩 Link to spare part (optional)</label><select id="req_partId" class="p13-select"><option value="">— none —</option>${load(PARTS_KEY,[]).map(p=>`<option value="${esc(p.id)}" ${r.partId===p.id?'selected':''}>${esc(p.name)} (${p.qty} in stock)</option>`).join('')}</select></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <div class="p13-field"><label>Urgency</label><select id="req_urgency" class="p13-select">${REQ_URG.map(u=>`<option value="${u.id}" ${r.urgency===u.id?'selected':''}>${u.label}</option>`).join('')}</select></div>
         <div class="p13-field"><label>Estimated Cost (₱)</label><input id="req_estimatedCost" class="p13-input" value="${esc(r.estimatedCost)}" placeholder="optional"></div>
@@ -133269,6 +133277,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     const data={item,qty:Number(document.getElementById('req_qty').value)||1,category:document.getElementById('req_category').value,
       urgency:document.getElementById('req_urgency').value,justification:just,
       vendor:document.getElementById('req_vendor').value.trim(),estimatedCost:document.getElementById('req_estimatedCost').value.trim()};
+    {const _pe=document.getElementById('req_partId'); if(_pe) data.partId=_pe.value||'';}
     if(document.getElementById('req_status'))data.status=document.getElementById('req_status').value;
     if(id){const i=all.findIndex(x=>x.id===id);if(i>=0){all[i]=Object.assign(all[i],data,{updatedAt:now});}}
     else{all.push(Object.assign({id:uid('req'),requester:u.username,requesterName:u.name,createdAt:now,status:'pending'},data));}
@@ -133276,7 +133285,18 @@ body.hnx-mobile-locked { overflow: hidden; }
   };
   window.hnxReqApprove=function(id){const all=load(REQ_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;const u=curUser();all[i].status='approved';all[i].approvedBy=u.username;all[i].approvedByName=u.name;all[i].approvedAt=Date.now();save(REQ_KEY,all);renderRequests();notify('✓ Request approved');};
   window.hnxReqReject=function(id){const reason=prompt('Rejection reason:');if(!reason)return;const all=load(REQ_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;const u=curUser();all[i].status='rejected';all[i].rejectedReason=reason;all[i].rejectedBy=u.username;all[i].rejectedAt=Date.now();save(REQ_KEY,all);renderRequests();notify('✕ Request rejected');};
-  window.hnxReqSetStatus=function(id,s){const all=load(REQ_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;all[i].status=s;if(s==='fulfilled')all[i].fulfilledAt=Date.now();all[i].updatedAt=Date.now();save(REQ_KEY,all);renderRequests();notify('Status → '+s);};
+  window.hnxReqSetStatus=function(id,s){const all=load(REQ_KEY,[]);const i=all.findIndex(x=>x.id===id);if(i<0)return;const _was=all[i].status;all[i].status=s;if(s==='fulfilled')all[i].fulfilledAt=Date.now();all[i].updatedAt=Date.now();save(REQ_KEY,all);
+    // LINK: fulfilling a request that's linked to a spare part offers to add the received qty into stock
+    if(s==='fulfilled'&&_was!=='fulfilled'&&all[i].partId&&!all[i].restockedToStock){
+      const parts=load(PARTS_KEY,[]);const pi=parts.findIndex(p=>p.id===all[i].partId);
+      if(pi>=0){const addQty=Number(all[i].qty)||1;
+        if(confirm('📦 Add '+addQty+' × "'+parts[pi].name+'" into Spare Parts stock?\n(current stock: '+parts[pi].qty+' → '+(parts[pi].qty+addQty)+')')){
+          const u=curUser();parts[pi].qty=(parts[pi].qty||0)+addQty;parts[pi].lastRestockedAt=Date.now();parts[pi].lastRestockedBy=u.name;
+          save(PARTS_KEY,parts);all[i].restockedToStock=true;save(REQ_KEY,all);notify('📦 +'+addQty+' added to '+parts[pi].name+' stock');
+        }
+      }
+    }
+    renderRequests();notify('Status → '+s);};
   window.hnxReqDel=function(id){if(!confirm('Delete this request?'))return;save(REQ_KEY,load(REQ_KEY,[]).filter(x=>x.id!==id));renderRequests();notify('📦 Request deleted');};
 
   // ============================================================
@@ -133290,6 +133310,8 @@ body.hnx-mobile-locked { overflow: hidden; }
     if(!body){warn('hnx-it_parts-body not found');return;}
     injectStyles();
     const all=load(PARTS_KEY,[]);
+    const _reqs=load(REQ_KEY,[]);
+    const _openReqCount=function(pid){return _reqs.filter(r=>r.partId===pid&&['pending','approved','ordered'].includes(r.status)).length;};
     const low=all.filter(p=>p.minQty>0&&p.qty<p.minQty);
     const out=all.filter(p=>p.qty===0);
     function pCard(p){
@@ -133300,6 +133322,7 @@ body.hnx-mobile-locked { overflow: hidden; }
           <div style="flex:1;min-width:200px;">
             <div class="p13-row-title">${esc(p.name)}</div>
             <div class="p13-row-meta" style="margin-top:3px;">🏷 ${esc(p.category||'—')}${p.partNumber?' · P/N: '+esc(p.partNumber):''}${p.location?' · 📍 '+esc(p.location):''}${p.vendor?' · 🏪 '+esc(p.vendor):''}</div>
+            ${(function(){ const n=_openReqCount(p.id); return n?`<div class="p13-row-meta" style="margin-top:3px;color:#67c5ff;font-weight:600;">🛒 ${n} open item request${n>1?'s':''} → incoming</div>`:''; })()}
             ${p.notes?`<div class="p13-row-meta" style="margin-top:5px;color:var(--text2);">${esc(p.notes)}</div>`:''}
             ${p.lastRestockedAt?`<div class="p13-row-meta" style="margin-top:3px;">📦 Last restocked: ${fmtDate(p.lastRestockedAt)}${p.lastRestockedBy?' by '+esc(p.lastRestockedBy):''}</div>`:''}
           </div>
@@ -133390,7 +133413,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     body.innerHTML=`<div class="p13-wrap">
       <div class="p13-head">
         <div>
-          <div class="p13-title">💧 GH & Fertigation IT Matrix</div>
+          <div class="p13-title">🗺 GH & Fertigation Equipment</div>
           <div class="p13-sub">${total} IT devices across ${MATRIX_LOCS.length} locations · click any cell to edit</div>
         </div>
         <div class="p13-actions"><button class="p13-btn" onclick="hnxMatrixReset()">↻ Reset</button></div>
@@ -134929,7 +134952,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     body.innerHTML = `<div class="p20-wrap">
       <div class="p20-head">
         <div>
-          <div class="p20-title">💧 GH &amp; Fertigation IT Matrix</div>
+          <div class="p20-title">🗺 GH &amp; Fertigation Equipment</div>
           <div class="p20-sub">${grandTotal} IT devices · ${s.locations.length} locations · ${Object.keys(s.groups).length} groups · click any cell to edit · expand groups for item-level detail</div>
         </div>
         <div class="p20-actions">
@@ -135010,7 +135033,7 @@ body.hnx-mobile-locked { overflow: hidden; }
         }
         const desc = document.getElementById('callDesc');
         if(desc){
-          desc.value = `Issue with ${item?(g.label+' › '+item):g.label} at ${loc}. Reported from GH & Fer Matrix.\n\nLocation: ${loc}\nGroup: ${g.label}\nItem: ${item||'(group level)'}\n`;
+          desc.value = `Issue with ${item?(g.label+' › '+item):g.label} at ${loc}. Reported from GH & Fer Equipment.\n\nLocation: ${loc}\nGroup: ${g.label}\nItem: ${item||'(group level)'}\n`;
         }
       }, 200);
     } else {
@@ -136522,7 +136545,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     const wrap=document.createElement('div'); wrap.id='callP24MatrixWrap'; wrap.className='call-field-row';
     wrap.style.cssText='background:rgba(103,197,255,0.05);border:1.5px dashed #67c5ff;border-radius:7px;padding:9px 11px;margin:4px 0;';
     wrap.innerHTML =
-      '<div class="call-field-label" style="font-weight:700;color:#67c5ff;margin-bottom:5px;">🔗 Link to IT Matrix (optional)</div>'
+      '<div class="call-field-label" style="font-weight:700;color:#67c5ff;margin-bottom:5px;">🔗 Link to GH & Fer Equipment (optional)</div>'
       + '<div style="display:flex;gap:6px;flex-wrap:wrap;">'
       +   '<select id="callP24Group" class="call-select" style="flex:1;min-width:110px;" onchange="hnxP24OnGroup(this.value)">'+groupOpts(d.matrixGroup||'')+'</select>'
       +   '<select id="callP24Item" class="call-select" style="flex:1;min-width:110px;" onchange="hnxP24Set(\'matrixItem\',this.value)">'+itemOpts(d.matrixGroup||'', d.matrixItem||'')+'</select>'
@@ -136724,7 +136747,7 @@ body.hnx-mobile-locked { overflow: hidden; }
         ${list}
         <div class="p25-actions">
           <button class="p25-btn" onclick="hnxP25Close()">Close</button>
-          <button class="p25-btn primary" onclick="hnxP25Close();if(typeof openCallModal==='function')openCallModal('it_gh_fer_matrix','IT Matrix');">📞 Raise new call</button>
+          <button class="p25-btn primary" onclick="hnxP25Close();if(typeof openCallModal==='function')openCallModal('it_gh_fer_matrix','GH & Fer Equipment');">📞 Raise new call</button>
         </div>
       </div>`;
     m.classList.add('show');
@@ -136888,7 +136911,7 @@ body.hnx-mobile-locked { overflow: hidden; }
       </div>
       <div class="p26-body">
         ${items}
-        <div class="p26-learn">📚 Rule-based analysis that sharpens as more calls are logged with matrix links (group › item @ location). The more your team uses 🔗 Link to IT Matrix when raising calls, the more precise these suggestions become.</div>
+        <div class="p26-learn">📚 Rule-based analysis that sharpens as more calls are logged with matrix links (group › item @ location). The more your team uses 🔗 Link to GH & Fer Equipment when raising calls, the more precise these suggestions become.</div>
       </div>`;
   }
   window.hnxP26Toggle=function(e){ const p=document.getElementById('hnxP26Panel'); if(!p)return; p.classList.toggle('open'); const t=p.querySelector('.p26-toggle'); if(t)t.textContent=p.classList.contains('open')?'▼':'▶'; };
@@ -137410,6 +137433,92 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.86-p30-checklist-backfill ===================== -->
+<!-- ===================== HNX v2.86-p31-it-cloudsync (INLINE) ===================== -->
+<script>
+(function(){
+  if(window.hnxP31Loaded) return;
+  window.hnxP31Loaded = true;
+  const VER = 'v2.86-p31-it-cloudsync';
+  function log(){ try{ console.log.apply(console, ['[HNX '+VER+']'].concat([].slice.call(arguments))); }catch(e){} }
+  function warn(){ try{ console.warn.apply(console, ['[HNX '+VER+']'].concat([].slice.call(arguments))); }catch(e){} }
+
+  // IT-module localStorage keys that were never registered for cloud sync.
+  // EXCLUDES hydroPro_dvr_devices_v1 (DVR credentials must stay device-local).
+  const IT_SYNC_KEYS = [
+    'hydroPro_it_calendar_v1',         // IT Calendar (PM schedule)
+    'hydroPro_it_requests_v1',         // IT Item Request
+    'hydroPro_it_spares_v1',           // IT Spare Parts
+    'hydroPro_it_rfid_v1',             // RFID Setup
+    'hydroPro_it_matrix_v1',           // GH & Fer Matrix (equipment counts)
+    'hydroPro_it_matrix_v2',           // IT Call Matrix (config/layout)
+    'hydroPro_it_settings_v1',         // IT settings
+    'hydroPro_it_devices',             // IT Devices register
+    'hydroPro_it_device_checks',       // Device check history
+    'hydroPro_it_cctv_cameras',        // CCTV cameras (metadata, no creds)
+    'hydroPro_it_cctv_nvrs',           // NVRs (metadata, no creds)
+    'hydroPro_it_cctv_checks',         // CCTV check history
+    'hydroPro_it_radios',              // Radios inventory
+    'hydroPro_it_auto_tasks',          // Recurring auto-task ledger
+    'hydroPro_it_checklist_cfg_v1',    // IT Daily Checklist config (P19)
+    'hydroPro_it_checklist_log_v1',    // IT Daily Checklist log (P19)
+    'hydroPro_it_checklist_items_v1',  // IT Daily Checklist items (P19)
+    'hydroPro_it_checklist_issues_v1', // IT Daily Checklist issues (P19)
+    'hydroPro_it_checklist_config',    // legacy checklist config (rollup dashboard)
+    'hydroPro_it_checklist'            // legacy checklist state (rollup dashboard)
+  ];
+  const DO_NOT_SYNC = 'hydroPro_dvr_devices_v1'; // explicit safety guard
+
+  let _done = false;
+  function register(){
+    if(_done) return true;
+    const arr = window.HNX_SYNCED_KEYS;
+    if(typeof arr === 'undefined' || !Array.isArray(arr)) return false; // not ready yet
+
+    let added = 0;
+    IT_SYNC_KEYS.forEach(function(k){
+      if(k === DO_NOT_SYNC) return;
+      if(arr.indexOf(k) === -1){ arr.push(k); added++; }
+    });
+    _done = true;
+    log('Registered ' + added + ' IT key(s) for cloud sync. Total synced keys: ' + arr.length);
+
+    // Best-effort: push existing IT data up now if cloud is already connected.
+    // Safe no-op if the active backend isn't connected or lacks schedulePush.
+    try{
+      const be = window._hnxBackend;
+      if(be && be.state === 'connected' && typeof be.schedulePush === 'function'){
+        let pushed = 0;
+        IT_SYNC_KEYS.forEach(function(k){
+          if(k === DO_NOT_SYNC) return;
+          try{ if(localStorage.getItem(k) != null){ be.schedulePush(k); pushed++; } }catch(e){}
+        });
+        if(pushed) log('Scheduled immediate cloud push for ' + pushed + ' IT key(s) with existing data.');
+      } else {
+        log('Cloud not connected yet — IT data will sync on next connect / save / page-load sync.');
+      }
+    }catch(e){ warn('immediate push skipped:', e); }
+
+    return true;
+  }
+
+  function run(){
+    if(register()) return;
+    let tries = 0;
+    const iv = setInterval(function(){
+      tries++;
+      if(register() || tries > 40){
+        clearInterval(iv);
+        if(!_done) warn('HNX_SYNCED_KEYS never became available — IT keys not registered.');
+      }
+    }, 300);
+  }
+
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+  else run();
+})();
+</script>
+<!-- ===================== END HNX v2.86-p31-it-cloudsync ===================== -->
+
 
 
 
