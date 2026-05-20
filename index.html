@@ -15857,14 +15857,24 @@ async function autoWrite(immediate){
     }catch(err){console.warn('Auto-save failed:',err);}
   },immediate?0:800);
 }
-function getItem(gh,cat,idx){return state[gh].items[cat+'_'+idx]||false;}
-function setItem(gh,cat,idx,v){state[gh].items[cat+'_'+idx]=v;saveState();}
-function getStatus(gh,cat,idx){return state[gh].statuses[cat+'_'+idx]||null;}
-function setStatus(gh,cat,idx,v){state[gh].statuses[cat+'_'+idx]=v;saveState();}
-function getLocations(gh,cat,idx){return state[gh].locations[cat+'_'+idx]||[];}
-function setLocations(gh,cat,idx,arr){state[gh].locations[cat+'_'+idx]=arr;saveState();}
-function getNote(gh,cat,idx){return (state[gh].notes&&state[gh].notes[cat+'_'+idx])||'';}
-function setNote(gh,cat,idx,v){if(!state[gh].notes)state[gh].notes={};state[gh].notes[cat+'_'+idx]=v;saveState();}
+// ===== P30: back-fill (edit past date) mode helpers =====
+// When window._clEditDate is set and != today, the checklist getters/setters below
+// read/write snapshots[_clEditDate][gh] instead of the live state[gh]. Live path is
+// untouched when not editing. Snapshot shape: {statuses,items,notes,locations}.
+function _clActiveDate(){var d=window._clEditDate;if(!d)return null;var t=new Date().toISOString().slice(0,10);return d!==t?d:null;}
+function _clSnapsRead(){try{return _loadDailySnapshots();}catch(e){return {};}}
+function _clGhRead(gh){var d=_clActiveDate();if(!d)return null;var s=_clSnapsRead();return (s[d]&&s[d][gh])||null;}
+function _clGhWrite(gh){var d=_clActiveDate();if(!d)return null;var s=_clSnapsRead();if(!s[d])s[d]={};if(!s[d].__backfilled)s[d].__backfilled=true;if(!s[d][gh])s[d][gh]={statuses:{},items:{},notes:{},locations:{}};var g=s[d][gh];if(!g.statuses)g.statuses={};if(!g.items)g.items={};if(!g.notes)g.notes={};if(!g.locations)g.locations={};return {snaps:s,g:g};}
+function _clSnapsSave(s){try{_saveDailySnapshots(s);}catch(e){}try{if(typeof window.hnxScheduleSync==='function')window.hnxScheduleSync(CL_DAILY_SNAPSHOT_KEY);}catch(e){}}
+
+function getItem(gh,cat,idx){if(_clActiveDate()){var g=_clGhRead(gh);return (g&&g.items&&g.items[cat+'_'+idx])||false;}return state[gh].items[cat+'_'+idx]||false;}
+function setItem(gh,cat,idx,v){if(_clActiveDate()){var o=_clGhWrite(gh);if(o){o.g.items[cat+'_'+idx]=v;_clSnapsSave(o.snaps);}return;}state[gh].items[cat+'_'+idx]=v;saveState();}
+function getStatus(gh,cat,idx){if(_clActiveDate()){var g=_clGhRead(gh);return (g&&g.statuses&&g.statuses[cat+'_'+idx])||null;}return state[gh].statuses[cat+'_'+idx]||null;}
+function setStatus(gh,cat,idx,v){if(_clActiveDate()){var o=_clGhWrite(gh);if(o){o.g.statuses[cat+'_'+idx]=v;_clSnapsSave(o.snaps);}return;}state[gh].statuses[cat+'_'+idx]=v;saveState();}
+function getLocations(gh,cat,idx){if(_clActiveDate()){var g=_clGhRead(gh);return (g&&g.locations&&g.locations[cat+'_'+idx])||[];}return state[gh].locations[cat+'_'+idx]||[];}
+function setLocations(gh,cat,idx,arr){if(_clActiveDate()){var o=_clGhWrite(gh);if(o){o.g.locations[cat+'_'+idx]=arr;_clSnapsSave(o.snaps);}return;}state[gh].locations[cat+'_'+idx]=arr;saveState();}
+function getNote(gh,cat,idx){if(_clActiveDate()){var g=_clGhRead(gh);return (g&&g.notes&&g.notes[cat+'_'+idx])||'';}return (state[gh].notes&&state[gh].notes[cat+'_'+idx])||'';}
+function setNote(gh,cat,idx,v){if(_clActiveDate()){var o=_clGhWrite(gh);if(o){o.g.notes[cat+'_'+idx]=v;_clSnapsSave(o.snaps);}return;}if(!state[gh].notes)state[gh].notes={};state[gh].notes[cat+'_'+idx]=v;saveState();}
 function formatLoc(l){
   if(l.type==='all')return'🟢 All tables';
   if(l.type==='majority')return'🟡 Majority';
@@ -17623,6 +17633,7 @@ const CL_HISTORY_KEY='hydroPro_cl_history_v1';
 function _loadClHistory(){try{return JSON.parse(localStorage.getItem(CL_HISTORY_KEY)||'{}');}catch(e){return {};}}
 function _saveClHistory(o){try{localStorage.setItem(CL_HISTORY_KEY,JSON.stringify(o||{}));}catch(e){}}
 function _logChecklistHistory(gh,cat,idx,status){
+  if(typeof _clActiveDate==='function'&&_clActiveDate())return; // P30: back-fill writes to its own snapshot, not today's history
   const hist=_loadClHistory();
   const today=new Date().toISOString().slice(0,10);
   const key=`${gh}__${cat}__${idx}`;
@@ -17651,9 +17662,10 @@ function snapshotChecklistDaily(){
       const s=state[gh]||{};
       snaps[today][gh]={statuses:Object.assign({},s.statuses||{}),items:Object.assign({},s.items||{}),notes:Object.assign({},s.notes||{})};
     });
-    // Trim — keep last 14 days only
+    // Trim — keep recent auto-captured days, but NEVER delete manually back-filled dates (P30)
     const dates=Object.keys(snaps).sort();
-    if(dates.length>14){dates.slice(0,dates.length-14).forEach(d=>delete snaps[d]);}
+    const _keepAuto=60;
+    if(dates.length>_keepAuto){dates.slice(0,dates.length-_keepAuto).forEach(d=>{if(!(snaps[d]&&snaps[d].__backfilled))delete snaps[d];});}
     _saveDailySnapshots(snaps);
   }
 }
@@ -17673,6 +17685,7 @@ function getYesterdayStatus(gh,cat,idx){
 }
 // ----- Auto-create call on critical -----
 function _autoCreateCallFromChecklist(gh,cat,idx,catObj,itemName){
+  if(typeof _clActiveDate==='function'&&_clActiveDate())return; // P30: no live call when back-filling history
   const note=getNote(gh,cat,idx)||'';
   const locs=getLocations(gh,cat,idx)||[];
   const locStr=locs.length?locs.map(l=>l.type==='all'?'All tables':(l.type==='majority'?'Majority':`Table ${l.table}#${l.number}`)).join(', '):'';
@@ -100622,7 +100635,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p29';
+        vEl.textContent = orig + ' · HNX v2.86-p30';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -137157,6 +137170,231 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===================== END HNX v2.86-p29-pulse-motion-neon ===================== -->
+
+<!-- ===================== HNX v2.86-p30-checklist-backfill (INLINE) ===================== -->
+<!-- Production Daily Checklist: editable past-date back-fill + deeper AI review.
+     - Picking a PAST date enters BACK-FILL edit mode (banner "Editing [date] - back-filling, not today");
+       the whole checklist becomes editable for that date and every tick auto-saves into that date's
+       snapshot. Date = today / cleared returns to the normal live checklist.
+     - Implemented by an edit-date branch in the checklist getters/setters (getStatus/setStatus/
+       getNote/setNote/getItem/setItem/getLocations/setLocations): when window._clEditDate is set and
+       != today they target snapshots[_clEditDate][gh] instead of live state[gh], then re-render.
+     - snapshotChecklistDaily trim now preserves manually back-filled dates (flagged __backfilled).
+     - Back-fill suppresses live side effects (no auto management call, no today per-item history write).
+     - AI review = BOTH: P22 today-vs-most-recent-previous-day PLUS a new trends section across ALL
+       recorded/back-filled dates (per item: flagged-day count, longest streak, resolutions, recurrence).
+     - Snapshot + review keys registered for cloud sync. Wraps renderCL + hnxP22OpenReview; overrides
+       hnxP22ViewPast. Additive only - does not replace existing logic.
+-->
+<script>
+(function(){
+  if(window.hnxP30Loaded) return;
+  window.hnxP30Loaded = true;
+  const VER = 'v2.86-p30';
+  const SNAP_KEY   = 'hydroPro_cl_daily_snapshot_v1';
+  const REVIEW_KEY = 'hydroPro_cl_carryover_review_v1';
+
+  // Ensure back-fill snapshots (and the review log) cloud-sync
+  try{
+    if(Array.isArray(window.HNX_SYNCED_KEYS)){
+      [SNAP_KEY, REVIEW_KEY].forEach(k=>{ if(window.HNX_SYNCED_KEYS.indexOf(k)===-1) window.HNX_SYNCED_KEYS.push(k); });
+    }
+  }catch(e){}
+
+  // ---------- helpers (self-contained) ----------
+  function todayISO(){ return new Date().toISOString().slice(0,10); }
+  function esc(s){ return String(s==null?'':s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'})[c]); }
+  function fmtDate(iso){ try{ const d=new Date(iso+'T00:00:00'); return d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}); }catch(e){ return iso; } }
+  function toast(m,t){ try{ if(typeof showToast==='function') showToast(m,t||'info',2600); else if(typeof window.showToast==='function') window.showToast(m,t||'info'); }catch(e){} }
+  function loadSnaps(){ if(typeof window._loadDailySnapshots==='function'){ try{return window._loadDailySnapshots();}catch(e){} } try{return JSON.parse(localStorage.getItem(SNAP_KEY)||'{}');}catch(e){return {};} }
+  function curGH(){ const sel=document.getElementById('facSelect'); return (sel&&sel.value) || (Array.isArray(window.GREENHOUSES)?window.GREENHOUSES[0]:'GH1'); }
+  function cats(gh){ if(typeof window.getCategoriesForGh==='function'){ try{return window.getCategoriesForGh(gh);}catch(e){} } return (Array.isArray(window.CATEGORIES)?window.CATEGORIES:[]); }
+  function editDate(){ const d=window._clEditDate; if(!d)return null; return d!==todayISO()?d:null; }
+
+  // ---------- styles ----------
+  function injectStyles(){
+    if(document.getElementById('hnxP30Styles')) return;
+    const st=document.createElement('style'); st.id='hnxP30Styles';
+    st.textContent = `
+      .p30-editbanner{margin:6px 0 10px;padding:11px 14px;background:rgba(255,193,7,.10);border:1px solid #ffca28;border-left:4px solid #ffb300;border-radius:9px;display:flex;align-items:center;gap:11px;flex-wrap:wrap;font-family:var(--mono,monospace);box-shadow:0 0 14px rgba(255,179,0,.12);}
+      .p30-editbanner .icon{font-size:20px;}
+      .p30-editbanner .txt{flex:1;min-width:180px;font-size:12.5px;color:#ffd97a;font-weight:600;line-height:1.45;}
+      .p30-editbanner .txt b{color:#ffe9b0;}
+      .p30-editbanner button{padding:7px 14px;border-radius:7px;border:none;background:#ffb300;color:#241a00;font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;}
+      .p30-editbanner button:hover{background:#ffc233;}
+      .p30-trends{margin-top:16px;padding-top:14px;border-top:1px dashed #3a2b46;}
+      .p30-trends .p30-thead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:4px;}
+      .p30-trends .p30-ttitle{font-size:14px;font-weight:800;color:#ce93d8;}
+      .p30-trends .p30-trange{font-size:11px;color:#7c9eb3;}
+      .p30-trends .p30-tnote{font-size:11px;color:#9cc4ae;margin:2px 0 8px;line-height:1.5;}
+      .p30-trow{background:rgba(255,255,255,.02);border:1px solid #2a3b2f;border-radius:9px;padding:11px 12px;margin-top:9px;}
+      .p30-trow .r1{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+      .p30-trow .iname{font-size:13px;font-weight:700;color:var(--text,#e0f0e8);flex:1;min-width:150px;}
+      .p30-pat{font-size:9.5px;font-weight:800;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:.4px;border:1px solid;}
+      .p30-pat.recur{background:rgba(255,167,38,.12);color:#ffb74d;border-color:#ffb74d;}
+      .p30-pat.persist{background:rgba(255,138,128,.12);color:#ff8a80;border-color:#ff8a80;}
+      .p30-pat.resolved{background:rgba(129,199,132,.12);color:#81c784;border-color:#81c784;}
+      .p30-metrics{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px;}
+      .p30-chip{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:7px;background:#0a140e;border:1px solid #2a3b2f;color:#a8c5b5;}
+      .p30-chip b{color:#ce93d8;}
+      .p30-tmeta{font-size:10.5px;color:#7c9eb3;margin-top:7px;line-height:1.5;}
+      .p30-tmeta b{color:#a8c5b5;}
+      .p30-tempty{text-align:center;padding:18px 12px;color:#7c9eb3;font-size:12px;}
+    `;
+    document.head.appendChild(st);
+  }
+
+  // ---------- ENTER / EXIT back-fill edit mode ----------
+  // Override P22's read-only "view past" with an editable back-fill mode.
+  window.hnxP22ViewPast = function(dateISO){
+    const t = todayISO();
+    const pp = document.getElementById('hnxP22PastPanel'); if(pp) pp.style.display='none'; // retire old read-only panel
+    if(!dateISO || dateISO===t){
+      window._clEditDate = null;
+      window._hnxP22ViewingPast = false;
+      try{ if(typeof window.renderCL==='function') window.renderCL(); }catch(e){}
+      toast('↩ Back to today — live checklist','info');
+      return;
+    }
+    window._clEditDate = dateISO;
+    window._hnxP22ViewingPast = true;
+    try{ if(typeof window.renderCL==='function') window.renderCL(); }catch(e){}
+    toast('✏️ Back-fill mode — editing '+fmtDate(dateISO),'info');
+  };
+
+  // ---------- edit-mode banner + date-bar relabel (runs after P22 injectDateBar) ----------
+  function injectEditUI(){
+    const body = document.getElementById('clBody'); if(!body) return;
+    const editing = editDate();
+    const di = document.getElementById('hnxP22PastDate'); if(di) di.value = editing || '';
+    const bar = document.getElementById('hnxP22DateBar');
+    let banner = document.getElementById('hnxP30EditBanner');
+    if(editing){
+      if(bar){ const tl=bar.querySelector('.today'); if(tl){ tl.textContent='✏️ '+fmtDate(editing); tl.style.color='#ffca28'; } }
+      const cob = document.getElementById('hnxP22Banner'); if(cob) cob.style.display='none'; // hide carry-over banner while back-filling
+      if(!banner){ banner=document.createElement('div'); banner.id='hnxP30EditBanner'; banner.className='p30-editbanner'; body.parentNode.insertBefore(banner, body); }
+      banner.style.display='flex';
+      banner.innerHTML = `<span class="icon">✏️</span><span class="txt">Editing <b>${esc(fmtDate(editing))}</b> — back-filling, not today. Every tick auto-saves into this date\u2019s snapshot.</span><button onclick="window.hnxP22ViewPast('')">↩ Back to today</button>`;
+    } else {
+      if(banner) banner.style.display='none';
+      if(bar){ const tl=bar.querySelector('.today'); if(tl) tl.style.color=''; }
+    }
+  }
+
+  // ---------- multi-date TRENDS (analyzes ALL recorded/back-filled dates) ----------
+  function computeTrends(gh){
+    const snaps = loadSnaps();
+    const dates = Object.keys(snaps).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+    let backfilledCount=0, autoCount=0;
+    dates.forEach(d=>{ if(snaps[d] && snaps[d].__backfilled) backfilledCount++; else autoCount++; });
+    const items=[];
+    cats(gh).forEach(c=>{
+      (c.items||[]).forEach((txt,idx)=>{
+        const key=c.id+'_'+idx;
+        const seq=[];
+        dates.forEach(d=>{ const g=snaps[d]&&snaps[d][gh]; if(!g) return; const st=(g.statuses&&g.statuses[key])||null; seq.push(st); });
+        const flaggedDays=seq.filter(s=>s==='warn'||s==='danger').length;
+        if(!flaggedDays) return;
+        let longest=0,cur=0,streaks=0,resolutions=0,prevFlag=false,firstIdx=-1,lastIdx=-1;
+        seq.forEach((s,i)=>{
+          const f=(s==='warn'||s==='danger');
+          if(f){ if(firstIdx<0)firstIdx=i; lastIdx=i; cur++; if(cur>longest)longest=cur; if(!prevFlag)streaks++; }
+          else { if(prevFlag && (s==='ok'||s===null)) resolutions++; cur=0; }
+          prevFlag=f;
+        });
+        // recompute first/last flagged DATE from dates that actually have this gh
+        const ghDates=[]; dates.forEach(d=>{ if(snaps[d]&&snaps[d][gh]) ghDates.push(d); });
+        const firstFlagged = firstIdx>=0 ? ghDates[firstIdx] : null;
+        const lastFlagged  = lastIdx>=0 ? ghDates[lastIdx] : null;
+        let pattern;
+        if(streaks>=2) pattern={cls:'recur',txt:'🔁 Recurring · returned '+streaks+'×'};
+        else if(resolutions>=1) pattern={cls:'resolved',txt:'✅ Resolved'};
+        else pattern={cls:'persist',txt:'⛔ Persistent'};
+        items.push({key,catName:c.name,catIcon:c.icon||'📋',itemName:txt,flaggedDays,longest,streaks,resolutions,firstFlagged,lastFlagged,pattern});
+      });
+    });
+    items.sort((a,b)=> (b.flaggedDays-a.flaggedDays) || (b.longest-a.longest) || (b.streaks-a.streaks));
+    return {dates,items,backfilledCount,autoCount,first:dates[0]||null,last:dates[dates.length-1]||null};
+  }
+
+  function buildTrendsHTML(gh){
+    const t = computeTrends(gh);
+    const range = (t.first&&t.last) ? (fmtDate(t.first)+' → '+fmtDate(t.last)) : '—';
+    let head = `<div class="p30-thead"><span class="p30-ttitle">📈 History trends — ${esc(gh)}</span><span class="p30-trange">${t.dates.length} day${t.dates.length===1?'':'s'} · ${range}</span></div>`;
+    head += `<div class="p30-tnote">Analyzing every recorded day for ${esc(gh)} (${t.backfilledCount} back-filled, ${t.autoCount} auto-captured). Per item: how many days flagged, longest unbroken streak, how many times it was resolved, and whether it keeps coming back.</div>`;
+    if(!t.dates.length){
+      return head + `<div class="p30-tempty">No snapshot history yet. Use “View past” to pick a date and back-fill it, then re-open this review.</div>`;
+    }
+    if(!t.items.length){
+      return head + `<div class="p30-tempty">✓ Across all ${t.dates.length} recorded day${t.dates.length===1?'':'s'}, no item for ${esc(gh)} was ever flagged warn/critical.</div>`;
+    }
+    const rows = t.items.map(it=>{
+      return `<div class="p30-trow">
+        <div class="r1">
+          <span class="iname">${esc(it.catIcon)} ${esc(it.itemName)}</span>
+          <span class="p30-pat ${it.pattern.cls}">${it.pattern.txt}</span>
+        </div>
+        <div class="p30-metrics">
+          <span class="p30-chip"><b>${it.flaggedDays}</b> day${it.flaggedDays===1?'':'s'} flagged</span>
+          <span class="p30-chip">longest streak <b>${it.longest}</b></span>
+          <span class="p30-chip"><b>${it.resolutions}</b> resolution${it.resolutions===1?'':'s'}</span>
+          <span class="p30-chip"><b>${it.streaks}</b> occurrence${it.streaks===1?'':'s'}</span>
+        </div>
+        <div class="p30-tmeta"><b>Category:</b> ${esc(it.catName)} · <b>First flagged:</b> ${it.firstFlagged?fmtDate(it.firstFlagged):'—'} · <b>Last flagged:</b> ${it.lastFlagged?fmtDate(it.lastFlagged):'—'}</div>
+      </div>`;
+    }).join('');
+    return head + rows;
+  }
+
+  function injectTrends(){
+    const m = document.getElementById('hnxP22Modal'); if(!m) return;
+    const card = m.querySelector('.p22-card'); if(!card) return;
+    if(card.querySelector('#hnxP30Trends')) return; // already added for this open
+    const sec = document.createElement('div');
+    sec.id='hnxP30Trends'; sec.className='p30-trends';
+    try{ sec.innerHTML = buildTrendsHTML(curGH()); }catch(e){ sec.innerHTML='<div class="p30-tempty">Trends unavailable.</div>'; }
+    const actions = card.querySelector('.p22-actions');
+    if(actions) card.insertBefore(sec, actions); else card.appendChild(sec);
+  }
+
+  // wrap AI review modal — keep P22 today-vs-previous, append all-dates trends
+  function wrapOpenReview(){
+    if(typeof window.hnxP22OpenReview !== 'function'){ setTimeout(wrapOpenReview, 400); return; }
+    if(window.hnxP22OpenReview.__p30wrapped) return;
+    const orig = window.hnxP22OpenReview;
+    window.hnxP22OpenReview = function(){
+      const r = orig.apply(this, arguments);
+      try{ injectStyles(); setTimeout(injectTrends, 20); }catch(e){ console.warn('P30 trends err', e); }
+      return r;
+    };
+    window.hnxP22OpenReview.__p30wrapped = true;
+  }
+
+  // wrap renderCL (outermost) — inject edit-mode UI after P22's date bar
+  function wrapRenderCL(){
+    if(typeof window.renderCL !== 'function'){ setTimeout(wrapRenderCL, 400); return; }
+    if(window.renderCL.__p30wrapped) return;
+    const orig = window.renderCL;
+    window.renderCL = function(){
+      const r = orig.apply(this, arguments);
+      try{ injectStyles(); setTimeout(injectEditUI, 70); }catch(e){ console.warn('P30 inject err', e); }
+      return r;
+    };
+    window.renderCL.__p30wrapped = true;
+    if(document.getElementById('clToolbar')){ injectStyles(); setTimeout(injectEditUI, 90); }
+  }
+
+  function install(){
+    injectStyles();
+    wrapRenderCL();
+    wrapOpenReview();
+    console.log('[HNX] '+VER+' installed (checklist back-fill + multi-date AI trends)');
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', install);
+  else install();
+})();
+</script>
+<!-- ===================== END HNX v2.86-p30-checklist-backfill ===================== -->
 
 
 
