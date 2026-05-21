@@ -20076,7 +20076,7 @@ const MODULES={
       {id:'it_cctv',           label:'📹 CCTV',               perm:'viewIT',title:'CCTV cameras live view'},
       {id:'it_cctv_wall',      label:'📺 DVR & CCTV Wall',    perm:'viewIT',hidden:true,title:'Visual of all DVRs and CCTV cameras · master CCTV wall (reached via CCTV → 📺 DVR Wall)'},
       {id:'it_radios',         label:'📻 Radios',             perm:'viewIT',title:'Radios and communication devices'},
-      {id:'it_prj11',          label:'🏭 PRJ11 Devices',      perm:'viewIT',hidden:true,title:'PRJ11-specific IT devices (reached via IT Devices → 🏭 PRJ11)'},
+      {id:'it_prj11',          label:'🏭 PRJ11 Devices',      perm:'viewMaintenance',hidden:true,title:'PRJ11-specific IT devices (reached via IT Devices → 🏭 PRJ11)'},
       {id:'it_rfid',           label:'🆔 RFID Setup',         perm:'viewIT',title:'RFID setup, tag registry, reader configuration, RFID matrix by location'}
     ]
   },
@@ -20288,9 +20288,10 @@ function getVisibleViews(modId){
     if(v.hidden)return false;
     // Dividers always pass through
     if(v.divider)return true;
-    // Existing role-based perm check
-    if(v.perm&&!can(v.perm))return false;
-    // NEW: per-user override check (when user-perms module is loaded)
+    // Role-based perm check — but a per-user grant (canViewTab) overrides a role denial.
+    // p55: fixes e.g. an IT+Maintenance supervisor (role has viewIT:false) who is granted IT per-user.
+    if(v.perm&&!can(v.perm)&&!(typeof canViewTab==='function'&&canViewTab(v.id,modId)))return false;
+    // Per-user override check (when user-perms module is loaded)
     if(typeof canViewTab==='function'){
       if(!canViewTab(v.id,modId))return false;
     }
@@ -101301,7 +101302,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p54-it-perm-fix';
+        vEl.textContent = orig + ' · HNX v2.86-p55-it-access-fix';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
