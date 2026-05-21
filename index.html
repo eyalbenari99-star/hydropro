@@ -6303,7 +6303,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 
 <script>
 
-/* === HNX v2.86-p67-split-dots STORAGE COMPRESSION SHIM ===
+/* === HNX v2.86-p70-status-motion STORAGE COMPRESSION SHIM ===
    localStorage is capped at ~5MB and was overflowing (quota errors).
    This transparently LZ-compresses large hydroPro_ values (lossless) and,
    on boot, shrinks anything already stored to free space immediately.
@@ -130006,6 +130006,7 @@ body.hnx-mobile-locked { overflow: hidden; }
         });
       });
   }
+  try{window.__hnxApi=api;}catch(e){}
 
   function getLocalUser(){
     try{
@@ -138821,14 +138822,7 @@ body.hnx-mobile-locked { overflow: hidden; }
   #hnxCellBoxOverlay .hnx-cellbox-split > div:first-child{ border-right:none !important; border-bottom:1px solid var(--border); }
   .hnx-sup-split{ grid-template-columns:1fr !important; }
 }
-.hnx-cellsplit{display:flex;gap:5px;justify-content:center;align-items:center;}
-.hnx-cellsplit .cs-half{display:flex;flex-direction:column;align-items:center;gap:2px;}
-.hnx-cellsplit .cs-ico{font-size:12px;line-height:1;}
-.hnx-cellsplit .cs-dot{width:7px;height:7px;border-radius:50%;display:block;box-shadow:0 0 4px currentColor;}
-.hnx-cellsplit .cs-ok{background:#4caf50;color:#4caf50;}
-.hnx-cellsplit .cs-warn{background:#ffc107;color:#ffc107;}
-.hnx-cellsplit .cs-crit{background:#ef5350;color:#ef5350;}
-.hnx-cellsplit .cs-predict{background:#42a5f5;color:#42a5f5;}
+/* inline split now reuses crops .hnx-split-* classes */
 </style>
 <script>
 (function(){
@@ -138863,7 +138857,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     var sevColor={ok:'#4caf50',watch:'#ffc107',warn:'#ff9800',critical:'#ef5350'}[String(a.severity||'').toLowerCase()]||'var(--text3)';
     return (a.severity?'<div style="display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;color:'+sevColor+';border:1px solid '+sevColor+';border-radius:5px;padding:1px 7px;margin-bottom:9px;">'+esc(a.severity)+'</div>':'')+
       sec('Monitoring',a.monitoring)+sec('Conclusion',a.conclusion)+sec('Recommendation',a.recommendation,'#4caf50')+sec('Past experience',a.pastExperience,'var(--text3)')+
-      '<div style="font-size:9px;color:var(--text3);font-family:var(--mono);margin-top:6px;">AI \u00b7 '+new Date(c.ts||Date.now()).toLocaleTimeString()+'</div>';
+      '<div style="font-size:9px;color:var(--text3);font-family:var(--mono);margin-top:6px;">'+(c.src==='cloud'?'Cloud AI':'Local brain')+' \u00b7 '+new Date(c.ts||Date.now()).toLocaleTimeString()+'</div>';
   }
 
   function renderBox(moduleId,key,ck,cell){
@@ -138914,17 +138908,52 @@ body.hnx-mobile-locked { overflow: hidden; }
     ov.appendChild(box); document.body.appendChild(ov);
   }
 
-  window.hnxCellAnalyze=function(moduleId,key){
+  window.hnxLocalAnalyze=function(cell){
+    var items=(cell&&cell.items)||[];
+    var crit=0,warn=0,open=0;
+    items.forEach(function(it){
+      var p=String(it.priority||it.status||'').toLowerCase();
+      if(/crit|urgent|danger|alert/.test(p)) crit++;
+      else if(/high|warn|medium/.test(p)) warn++;
+      var st=String(it.status||'').toLowerCase();
+      if(st && !/done|closed|resolved/.test(st)) open++;
+    });
+    var n=items.length, loc=(cell.row||'')+' \u00b7 '+(cell.col||'');
+    var sev = crit>0?'critical':(warn>=2?'warn':(warn>0?'watch':'ok'));
+    var mon,con,rec,past='';
+    if(crit>0){
+      mon='Watch the '+crit+' critical item'+(crit>1?'s':'')+' in '+loc+' closely \u2014 downtime risk.';
+      con=loc+' has '+crit+' critical'+(warn?' and '+warn+' elevated':'')+' item'+((crit+warn)>1?'s':'')+'; needs action now.';
+      rec='Tackle the critical item'+(crit>1?'s':'')+' first \u2014 assign an owner and set a same-day target.';
+    } else if(warn>0){
+      mon='Keep an eye on the '+warn+' elevated item'+(warn>1?'s':'')+' before they escalate.';
+      con=loc+' is stable with '+warn+' item'+(warn>1?'s':'')+' worth monitoring.';
+      rec='Check within 24\u201348h and clear open items to avoid build-up.';
+    } else if(n>0){
+      con=loc+' looks healthy \u2014 '+n+' item'+(n>1?'s':'')+', none critical.';
+      mon='Routine monitoring; nothing urgent in '+loc+'.';
+      rec='Maintain the current schedule and log routine checks.';
+    } else {
+      con='No activity recorded in '+loc+'.';
+      mon='No items logged for '+loc+'.';
+      rec='Confirm whether a check is due; log status if applicable.';
+    }
+    if(open>0) past=open+' item'+(open>1?'s':'')+' still open in this cell.';
+    return {monitoring:mon,conclusion:con,recommendation:rec,pastExperience:past,severity:sev};
+  };
+
+    window.hnxCellAnalyze=function(moduleId,key){
     var ck=moduleId+'::'+key;
     var cell=(window.__hnxCells[moduleId]||{})[key]; if(!cell) return;
-    window.__hnxAiCache[ck]={__loading:true};
+    window.__hnxAiCache[ck]={analysis:window.hnxLocalAnalyze(cell),ts:Date.now(),src:'local'};
     var p=document.getElementById('hnxAiPanel'); if(p)p.innerHTML=aiPanelContent(ck);
+    var fn=(typeof window.__hnxApi==='function')?window.__hnxApi:(typeof api==='function'?api:null);
+    if(!fn) return;
     var ctx={ module:cell.moduleLabel||moduleId, row:cell.row, col:cell.col,
       calls:(cell.items||[]).map(function(it){return {item:it.item||it.name,note:it.note||'',priority:it.priority||'',status:it.status||'',date:it.date||''};}) };
-    if(typeof api!=='function'){ window.__hnxAiCache[ck]={__error:'Cloud not connected'}; var q=document.getElementById('hnxAiPanel'); if(q)q.innerHTML=aiPanelContent(ck); return; }
-    api('/ai/analyze',{method:'POST',body:JSON.stringify({context:ctx})})
-      .then(function(d){ window.__hnxAiCache[ck]={analysis:(d&&d.analysis)||{},ts:(d&&d.ts)||Date.now()}; var r=document.getElementById('hnxAiPanel'); if(r)r.innerHTML=aiPanelContent(ck); })
-      .catch(function(e){ window.__hnxAiCache[ck]={__error:(e&&e.message)||'AI request failed'}; var r=document.getElementById('hnxAiPanel'); if(r)r.innerHTML=aiPanelContent(ck); });
+    fn('/ai/analyze',{method:'POST',body:JSON.stringify({context:ctx})})
+      .then(function(d){ if(d&&d.analysis){ window.__hnxAiCache[ck]={analysis:d.analysis,ts:d.ts||Date.now(),src:'cloud'}; var r=document.getElementById('hnxAiPanel'); if(r)r.innerHTML=aiPanelContent(ck);} })
+      .catch(function(e){});
   };
 
   window.hnxCellSetStatus=function(callId,status,sel){
@@ -138942,15 +138971,15 @@ body.hnx-mobile-locked { overflow: hidden; }
     var panel=document.getElementById('hnxSupAiPanel'); if(!panel) return;
     var note=''; var ta=document.getElementById('supModalNote'); if(ta) note=ta.value||'';
     var status=modal.dataset.status||'';
-    var ctx={ module:'Production (crops)', row:(modal.dataset.catname||'')+' \u00b7 '+(modal.dataset.item||''), col:modal.dataset.gh||'',
-      calls:[{item:modal.dataset.item||'',note:note,priority:status,status:status,date:''}] };
-    panel.innerHTML='<span style="color:#42a5f5;">\ud83e\udde0 Analyzing\u2026</span>';
-    if(typeof api!=='function'){ panel.innerHTML='<span style="color:var(--warn,#ff9800);">\u26a0 Cloud not connected</span>'; return; }
+    var cell={ moduleLabel:'Production (crops)', row:(modal.dataset.catname||'')+' \u00b7 '+(modal.dataset.item||''), col:modal.dataset.gh||'',
+      items:[{item:modal.dataset.item||'',note:note,priority:status,status:status}] };
     function sec(l,v,c){ if(!v) return ''; return '<div style="margin-bottom:8px;"><div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:'+(c||'#42a5f5')+';text-transform:uppercase;margin-bottom:2px;">'+l+'</div><div style="font-size:12px;color:var(--text);line-height:1.45;">'+esc(v)+'</div></div>'; }
-    api('/ai/analyze',{method:'POST',body:JSON.stringify({context:ctx})})
-      .then(function(d){ var a=(d&&d.analysis)||{}; var sev={ok:'#4caf50',watch:'#ffc107',warn:'#ff9800',critical:'#ef5350'}[String(a.severity||'').toLowerCase()]||'var(--text3)';
-        panel.innerHTML=(a.severity?'<div style="display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;color:'+sev+';border:1px solid '+sev+';border-radius:5px;padding:1px 7px;margin-bottom:8px;">'+esc(a.severity)+'</div>':'')+sec('Monitoring',a.monitoring)+sec('Conclusion',a.conclusion)+sec('Recommendation',a.recommendation,'#4caf50')+sec('Past experience',a.pastExperience,'var(--text3)'); })
-      .catch(function(e){ panel.innerHTML='<span style="color:var(--warn,#ff9800);">\u26a0 '+esc((e&&e.message)||'AI failed')+'</span><div style="font-size:10px;color:var(--text3);margin-top:5px;">Needs your Worker /ai/analyze live.</div>'; });
+    function render(a,src){ var sev={ok:'#4caf50',watch:'#ffc107',warn:'#ff9800',critical:'#ef5350'}[String(a.severity||'').toLowerCase()]||'var(--text3)';
+      panel.innerHTML=(a.severity?'<div style="display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;color:'+sev+';border:1px solid '+sev+';border-radius:5px;padding:1px 7px;margin-bottom:8px;">'+esc(a.severity)+'</div>':'')+sec('Monitoring',a.monitoring)+sec('Conclusion',a.conclusion)+sec('Recommendation',a.recommendation,'#4caf50')+sec('Past experience',a.pastExperience,'var(--text3)')+'<div style="font-size:9px;color:var(--text3);font-family:var(--mono);margin-top:4px;">'+(src==='cloud'?'Cloud AI':'Local brain')+'</div>'; }
+    render(window.hnxLocalAnalyze(cell),'local');
+    var fn=(typeof window.__hnxApi==='function')?window.__hnxApi:(typeof api==='function'?api:null);
+    if(!fn) return;
+    fn('/ai/analyze',{method:'POST',body:JSON.stringify({context:{module:cell.moduleLabel,row:cell.row,col:cell.col,calls:cell.items}})}).then(function(d){ if(d&&d.analysis) render(d.analysis,'cloud'); }).catch(function(e){});
   };
 
   window.hnxInlineSplit=function(items){
@@ -138961,11 +138990,15 @@ body.hnx-mobile-locked { overflow: hidden; }
       if(/crit|urgent|danger|alert/.test(p)) crit++;
       else if(/high|warn|medium/.test(p)) warn++;
     });
-    var hs = crit>0?'crit':(warn>0?'warn':'ok');
-    var as = crit>0?'crit':(warn>=2?'predict':(warn>0?'warn':'ok'));
-    return '<div class="hnx-cellsplit">'+
-      '<div class="cs-half"><span class="cs-ico">\ud83d\udccb</span><span class="cs-dot cs-'+hs+'"></span></div>'+
-      '<div class="cs-half"><span class="cs-ico">\ud83e\udde0</span><span class="cs-dot cs-'+as+'"></span></div>'+
+    var clSt = crit>0?'crit':(warn>0?'warn':'ok');
+    var aiSt = crit>0?'crit':(warn>=2?'predict':(warn>0?'warn':'ok'));
+    var aiLbl = {crit:'ALERT',warn:'WATCH',predict:'FCAST',ok:'OK'}[aiSt];
+    var n=items.length;
+    return '<div style="position:relative;height:30px;width:100%;">'+
+      '<div class="hnx-split-wrap">'+
+        '<div class="hnx-split-half hnx-split-half--left hnx-cl--'+clSt+'"><span class="hh-icon">\ud83d\udccb</span><span class="hh-lbl">'+n+'</span></div>'+
+        '<div class="hnx-split-half hnx-ai--'+aiSt+'"><span class="hh-icon">\ud83e\udde0</span><span class="hh-lbl">'+aiLbl+'</span></div>'+
+      '</div>'+
     '</div>';
   };
 
@@ -138977,6 +139010,46 @@ body.hnx-mobile-locked { overflow: hidden; }
 
 
 
+
+
+<style id="hnx-status-motion">
+/* ===== HNX status-driven motion (shared by all matrices via .hnx-cl--/.hnx-ai-- classes) ===== */
+@keyframes hnxPulseCrit{
+  0%,100%{ box-shadow: inset 0 0 0 1px rgba(255,82,82,.30), 0 0 0 0 rgba(255,82,82,0); }
+  50%    { box-shadow: inset 0 0 0 1px rgba(255,82,82,.65), 0 0 9px 1px rgba(255,82,82,.50); }
+}
+@keyframes hnxBreatheWarn{
+  0%,100%{ background: rgba(255,167,38,.12); }
+  50%    { background: rgba(255,167,38,.26); }
+}
+@keyframes hnxShimmerFcast{
+  0%,100%{ opacity:.80; }
+  50%    { opacity:1; }
+}
+@keyframes hnxIconPop{
+  0%,100%{ transform: scale(1); }
+  50%    { transform: scale(1.20); }
+}
+/* CRITICAL -> red glow pulse + icon pop (fastest = most urgent) */
+.hnx-cl--crit, .hnx-ai--crit{ animation: hnxPulseCrit 1.25s ease-in-out infinite; }
+.hnx-cl--crit .hh-icon, .hnx-ai--crit .hh-icon{
+  animation: hnxIconPop 1.25s ease-in-out infinite; opacity:1;
+  filter: drop-shadow(0 0 3px rgba(255,82,82,.7));
+}
+/* WARN -> gentle amber breathe (slower) */
+.hnx-cl--warn, .hnx-ai--warn{ animation: hnxBreatheWarn 2.4s ease-in-out infinite; }
+/* FORECAST (AI predict) -> calm cyan shimmer + slow icon pop */
+.hnx-ai--predict{ animation: hnxShimmerFcast 2.8s ease-in-out infinite; }
+.hnx-ai--predict .hh-icon{
+  animation: hnxIconPop 2.8s ease-in-out infinite;
+  filter: drop-shadow(0 0 2px rgba(77,208,225,.7));
+}
+/* OK stays static. Respect reduced-motion. */
+@media (prefers-reduced-motion: reduce){
+  .hnx-cl--crit,.hnx-ai--crit,.hnx-cl--warn,.hnx-ai--warn,.hnx-ai--predict,
+  .hnx-cl--crit .hh-icon,.hnx-ai--crit .hh-icon,.hnx-ai--predict .hh-icon{ animation:none !important; }
+}
+</style>
 
 </body>
 </html>
