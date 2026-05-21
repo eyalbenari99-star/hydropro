@@ -16174,7 +16174,8 @@ const MODULE_META={
   production:  {label:'Production',  icon:'🌱', color:'#9ccc65'},
   maintenance: {label:'Maintenance', icon:'🔧', color:'#42a5f5'},
   irrigation:  {label:'Irrigation',  icon:'💧', color:'#4dd0e1'},
-  logistics:   {label:'Logistics',   icon:'🚚', color:'#ffa726'}
+  logistics:   {label:'Logistics',   icon:'🚚', color:'#ffa726'},
+  quality:     {label:'Quality',     icon:'🔬', color:'#ec407a'}
 };
 function getTaskModule(t){
   if(!t)return 'production';
@@ -58549,6 +58550,7 @@ function renderQCSop(){
       <span style="font-size:11px;color:#90a4ae;font-weight:400;">Standard Operating Procedures · processes &amp; policies · QC-governed</span>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:7px;margin:12px 0 14px;">${tabs}</div>
+    <div id="qc-sop-files"></div>
     <div id="qc-sop-body"><div style="padding:20px;text-align:center;color:#90a4ae;">Loading…</div></div>
   `;
   if(typeof window.renderSopModuleTab==='function'){
@@ -58557,8 +58559,100 @@ function renderQCSop(){
   }else{
     const b=document.getElementById('qc-sop-body');if(b)b.innerHTML='<div style="padding:20px;text-align:center;color:#90a4ae;">SOP engine not loaded.</div>';
   }
+  try{if(typeof window._qcRenderSopFiles==='function')window._qcRenderSopFiles(active);}catch(e){}
 }
 window.renderQCSop=renderQCSop;
+
+/* ===== HNX v2.86-p62 · QC SOP document files =====
+   Admin-only upload (new + updated versions), download, delete.
+   Everyone else is view-only (no download/delete, no upload control).
+   In-app storage (localStorage) with ~1.5MB/file cap; auto-syncs via the
+   hydroPro_ key prefix. Designed to migrate to IndexedDB in the later step. */
+const _QC_SOP_FILES_KEY='hydroPro_sop_files_v1';
+const _QC_SOP_MAX_BYTES=1572864; // ~1.5 MB
+function _qcSopFilesLoad(){try{const a=JSON.parse(localStorage.getItem(_QC_SOP_FILES_KEY)||'[]');return Array.isArray(a)?a:[];}catch(e){return [];}}
+function _qcSopFilesSave(a){
+  try{localStorage.setItem(_QC_SOP_FILES_KEY,JSON.stringify(a||[]));}
+  catch(e){try{if(typeof showToast==='function')showToast('Storage full — could not save SOP file','warn');}catch(_){}return false;}
+  try{if(typeof hnxScheduleSync==='function')hnxScheduleSync(_QC_SOP_FILES_KEY);}catch(e){}
+  return true;
+}
+function _qcIsAdmin(){try{return typeof isAdmin==='function'&&isAdmin();}catch(e){return false;}}
+function _qcSopWho(){try{const u=(typeof getCurrentUser==='function')?getCurrentUser():null;return (u&&(u.name||u.username))||'admin';}catch(e){return 'admin';}}
+function _qcSopBase(name){return String(name||'').replace(/\s*\(v\d+\)\s*/i,' ').replace(/\.[^.]+$/,'').trim().toLowerCase();}
+function _qcSopFmtSize(b){b=+b||0;return b>=1048576?(b/1048576).toFixed(1)+' MB':b>=1024?Math.round(b/1024)+' KB':b+' B';}
+window._qcSopUpload=function(dept){
+  if(!_qcIsAdmin()){try{if(typeof showToast==='function')showToast('Only admin can upload SOP files','warn');}catch(e){}return;}
+  const inp=document.createElement('input');inp.type='file';
+  inp.accept='.pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,application/pdf';
+  inp.onchange=function(){
+    const f=inp.files&&inp.files[0];if(!f)return;
+    if(f.size>_QC_SOP_MAX_BYTES){alert('That file is '+_qcSopFmtSize(f.size)+'. The in-app limit is 1.5 MB. Use a smaller file (or wait for the cloud-storage step for large PDFs).');return;}
+    const r=new FileReader();
+    r.onload=function(){
+      const all=_qcSopFilesLoad();
+      const base=_qcSopBase(f.name);
+      const prev=all.filter(x=>x.dept===dept&&x.base===base);
+      const version=prev.reduce((m,x)=>Math.max(m,x.version||1),0)+1;
+      all.push({id:'sopf_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),dept:dept,name:f.name,base:base,type:f.type||'',size:f.size,data:r.result,version:version,by:_qcSopWho(),at:Date.now()});
+      if(_qcSopFilesSave(all)){try{if(typeof showToast==='function')showToast('Uploaded '+f.name+(version>1?(' (v'+version+')'):''),'ok');}catch(e){}}
+      _qcRenderSopFiles(dept);
+    };
+    r.onerror=function(){alert('Could not read that file.');};
+    r.readAsDataURL(f);
+  };
+  inp.click();
+};
+window._qcSopDownload=function(id){
+  if(!_qcIsAdmin()){try{if(typeof showToast==='function')showToast('Only admin can download SOP files','warn');}catch(e){}return;}
+  const f=_qcSopFilesLoad().find(x=>x.id===id);if(!f)return;
+  try{const a=document.createElement('a');a.href=f.data;a.download=f.name;document.body.appendChild(a);a.click();a.remove();}catch(e){alert('Download failed.');}
+};
+window._qcSopDelete=function(id,dept){
+  if(!_qcIsAdmin()){try{if(typeof showToast==='function')showToast('Only admin can delete SOP files','warn');}catch(e){}return;}
+  const all=_qcSopFilesLoad();const f=all.find(x=>x.id===id);if(!f)return;
+  if(!confirm('Delete "'+f.name+'"'+((f.version||1)>1?(' v'+f.version):'')+'? This cannot be undone.'))return;
+  _qcSopFilesSave(all.filter(x=>x.id!==id));
+  try{if(typeof showToast==='function')showToast('Deleted '+f.name,'ok');}catch(e){}
+  _qcRenderSopFiles(dept);
+};
+window._qcRenderSopFiles=function(dept){
+  const box=document.getElementById('qc-sop-files');if(!box)return;
+  const admin=_qcIsAdmin();
+  const esc=s=>(s==null?'':String(s)).replace(/[<>"]/g,'');
+  const deptLabel=((typeof _QC_SOP_DEPTS!=='undefined'&&_QC_SOP_DEPTS.find(d=>d.key===dept))||{label:dept}).label;
+  const all=_qcSopFilesLoad().filter(x=>x.dept===dept);
+  const groups={};all.forEach(f=>{(groups[f.base]=groups[f.base]||[]).push(f);});
+  Object.keys(groups).forEach(b=>groups[b].sort((a,c)=>(c.version||1)-(a.version||1)));
+  const keys=Object.keys(groups);
+  let rows;
+  if(!keys.length){
+    rows='<div style="padding:14px;text-align:center;color:#90a4ae;font-size:12px;">No SOP files uploaded for '+esc(deptLabel)+' yet.'+(admin?' Use “⬆ Upload SOP file”.':' (View-only — ask an admin to upload.)')+'</div>';
+  }else{
+    rows=keys.map(function(b){
+      const versions=groups[b];const cur=versions[0];const older=versions.slice(1);
+      const dt=new Date(cur.at).toLocaleDateString();
+      const adminBtns=admin?('<button class="btn btn-outline" style="padding:4px 9px;font-size:11px;" onclick="window._qcSopDownload(\''+cur.id+'\')">⬇ Download</button>'
+        +'<button class="btn btn-outline" style="padding:4px 9px;font-size:11px;color:#ef5350;border-color:#ef535055;" onclick="window._qcSopDelete(\''+cur.id+'\',\''+dept+'\')">🗑 Delete</button>'):'';
+      const olderHtml=older.length?('<div style="margin-top:6px;padding-left:10px;border-left:2px solid rgba(255,255,255,.08);">'+older.map(function(o){
+        return '<div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#90a4ae;padding:3px 0;"><span>v'+o.version+' · '+new Date(o.at).toLocaleDateString()+' · '+_qcSopFmtSize(o.size)+'</span>'
+          +(admin?('<button class="btn btn-outline" style="padding:2px 7px;font-size:10px;" onclick="window._qcSopDownload(\''+o.id+'\')">⬇</button><button class="btn btn-outline" style="padding:2px 7px;font-size:10px;color:#ef5350;border-color:#ef535055;" onclick="window._qcSopDelete(\''+o.id+'\',\''+dept+'\')">🗑</button>'):'')+'</div>';
+      }).join('')+'</div>'):'';
+      return '<div style="border:1px solid rgba(255,255,255,.10);border-radius:10px;padding:10px 12px;margin-bottom:8px;">'
+        +'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><span style="font-size:18px;">📄</span>'
+        +'<div style="flex:1;min-width:160px;"><div style="color:#eceff1;font-weight:700;font-size:13px;">'+esc(cur.name)+'</div>'
+        +'<div style="font-size:10.5px;color:#90a4ae;">v'+cur.version+' · '+_qcSopFmtSize(cur.size)+' · '+dt+' · by '+esc(cur.by)+(older.length?(' · '+older.length+' older'):'')+'</div></div>'
+        +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+adminBtns+'</div></div>'+olderHtml+'</div>';
+    }).join('');
+  }
+  box.innerHTML='<div style="border:1px solid '+(admin?'#ec407a55':'rgba(255,255,255,.10)')+';border-radius:12px;padding:12px 14px;margin-bottom:16px;background:rgba(236,64,121,.05);">'
+    +'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
+    +'<span style="font-weight:800;color:#f48fb1;font-size:13px;">📂 SOP Documents — '+esc(deptLabel)+'</span>'
+    +'<span style="font-size:10.5px;color:#90a4ae;">'+(admin?'Admin: upload new / updated versions, download, delete':'View-only · ask an admin to upload or share files')+'</span>'
+    +'<span style="flex:1;"></span>'
+    +(admin?('<button class="btn btn-primary" style="padding:5px 12px;font-size:12px;" onclick="window._qcSopUpload(\''+dept+'\')">⬆ Upload SOP file</button>'):'<span style="font-size:10.5px;color:#607d8b;border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:3px 10px;">🔒 view-only</span>')
+    +'</div>'+rows+'</div>';
+};
 /* ===== Logistics · Megabox & Crate Matrix (returnable container reconciliation) ===== */
 function _mbxLoad(){
   try{const d=JSON.parse(localStorage.getItem('hydroPro_log_megabox_v1'));if(d&&Array.isArray(d.clients))return d;}catch(e){}
@@ -101329,7 +101423,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p60-vision-banner';
+        vEl.textContent = orig + ' · HNX v2.86-p62-qc-sop-files';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
