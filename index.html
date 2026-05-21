@@ -6303,7 +6303,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 
 <script>
 
-/* === HNX v2.86-p65-crops-ai STORAGE COMPRESSION SHIM ===
+/* === HNX v2.86-p67-split-dots STORAGE COMPRESSION SHIM ===
    localStorage is capped at ~5MB and was overflowing (quota errors).
    This transparently LZ-compresses large hydroPro_ values (lossless) and,
    on boot, shrinks anything already stored to free space immediately.
@@ -43829,8 +43829,7 @@ function renderMaintMatrix(){
       const icon=kindIcon(kind);
       try{ hnxRegisterCell('maint', sub.id+'::'+d.id, {moduleLabel:'Maintenance', row:sub.name, col:d.label, items:items}); }catch(e){}
       return `<td style="text-align:center;padding:6px 0;${cellStyle(kind)};cursor:${ct?'pointer':'default'};" ${ct?`onclick="hnxOpenCellBox('maint','${sub.id}','${d.id}')"`:''} title="${sub.name} × ${d.label}: ${ct} call${ct===1?'':'s'}${ct?' · '+kind:''}">
-        <div style="font-family:var(--mono);font-weight:700;font-size:13px;">${ct?icon:'·'}</div>
-        ${ct?`<div style="font-family:var(--mono);font-size:9px;opacity:0.85;font-weight:700;">${ct}</div>`:''}
+        ${ct?hnxInlineSplit(items):'<div style="font-family:var(--mono);font-weight:700;font-size:13px;">·</div>'}
       </td>`;
     }).join('');
     // Row total color = highest priority present in this row
@@ -74768,8 +74767,7 @@ function renderItEquipmentMatrix(){
         title="${_esc(tip)}"
         style="border:1px solid ${style.border};text-align:center;padding:8px 4px;cursor:${clickable?'pointer':'default'};background:${style.bg};min-width:60px;transition:filter .1s;"
         ${clickable?'onmouseover="this.style.filter=\'brightness(1.3)\'" onmouseout="this.style.filter=\'\'"':''}>
-        <div style="font-size:13px;line-height:1;color:${style.color};">${style.icon}</div>
-        ${items.length?`<div style="font-family:var(--mono);font-size:9px;margin-top:2px;color:${style.color};">${items.length}${taskCt?'<span style="opacity:0.7;">/'+taskCt+'⚙</span>':''}</div>`:''}
+        ${items.length?hnxInlineSplit(items):''}
       </td>`;
     });
     const rowKind=rowAgg.danger>0?'danger':rowAgg.warn>0?'warn':rowTotal===0?'none':rowAgg.ok===rowTotal?'ok':'unchecked';
@@ -138823,6 +138821,14 @@ body.hnx-mobile-locked { overflow: hidden; }
   #hnxCellBoxOverlay .hnx-cellbox-split > div:first-child{ border-right:none !important; border-bottom:1px solid var(--border); }
   .hnx-sup-split{ grid-template-columns:1fr !important; }
 }
+.hnx-cellsplit{display:flex;gap:5px;justify-content:center;align-items:center;}
+.hnx-cellsplit .cs-half{display:flex;flex-direction:column;align-items:center;gap:2px;}
+.hnx-cellsplit .cs-ico{font-size:12px;line-height:1;}
+.hnx-cellsplit .cs-dot{width:7px;height:7px;border-radius:50%;display:block;box-shadow:0 0 4px currentColor;}
+.hnx-cellsplit .cs-ok{background:#4caf50;color:#4caf50;}
+.hnx-cellsplit .cs-warn{background:#ffc107;color:#ffc107;}
+.hnx-cellsplit .cs-crit{background:#ef5350;color:#ef5350;}
+.hnx-cellsplit .cs-predict{background:#42a5f5;color:#42a5f5;}
 </style>
 <script>
 (function(){
@@ -138945,6 +138951,22 @@ body.hnx-mobile-locked { overflow: hidden; }
       .then(function(d){ var a=(d&&d.analysis)||{}; var sev={ok:'#4caf50',watch:'#ffc107',warn:'#ff9800',critical:'#ef5350'}[String(a.severity||'').toLowerCase()]||'var(--text3)';
         panel.innerHTML=(a.severity?'<div style="display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;color:'+sev+';border:1px solid '+sev+';border-radius:5px;padding:1px 7px;margin-bottom:8px;">'+esc(a.severity)+'</div>':'')+sec('Monitoring',a.monitoring)+sec('Conclusion',a.conclusion)+sec('Recommendation',a.recommendation,'#4caf50')+sec('Past experience',a.pastExperience,'var(--text3)'); })
       .catch(function(e){ panel.innerHTML='<span style="color:var(--warn,#ff9800);">\u26a0 '+esc((e&&e.message)||'AI failed')+'</span><div style="font-size:10px;color:var(--text3);margin-top:5px;">Needs your Worker /ai/analyze live.</div>'; });
+  };
+
+  window.hnxInlineSplit=function(items){
+    items=items||[];
+    var crit=0,warn=0;
+    items.forEach(function(it){
+      var p=String(it.priority||it.status||'').toLowerCase();
+      if(/crit|urgent|danger|alert/.test(p)) crit++;
+      else if(/high|warn|medium/.test(p)) warn++;
+    });
+    var hs = crit>0?'crit':(warn>0?'warn':'ok');
+    var as = crit>0?'crit':(warn>=2?'predict':(warn>0?'warn':'ok'));
+    return '<div class="hnx-cellsplit">'+
+      '<div class="cs-half"><span class="cs-ico">\ud83d\udccb</span><span class="cs-dot cs-'+hs+'"></span></div>'+
+      '<div class="cs-half"><span class="cs-ico">\ud83e\udde0</span><span class="cs-dot cs-'+as+'"></span></div>'+
+    '</div>';
   };
 
   window.hnxCloseCellBox=function(){ var o=document.getElementById('hnxCellBoxOverlay'); if(o)o.remove(); };
