@@ -6303,7 +6303,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 
 <script>
 
-/* === HNX v2.86-p71-labels STORAGE COMPRESSION SHIM ===
+/* === HNX v2.86-p75-svg-icons STORAGE COMPRESSION SHIM ===
    localStorage is capped at ~5MB and was overflowing (quota errors).
    This transparently LZ-compresses large hydroPro_ values (lossless) and,
    on boot, shrinks anything already stored to free space immediately.
@@ -56850,6 +56850,82 @@ function _indoorDaysOpen(itemId){
 // MAIN RENDER
 // ============================================================
 
+function _indoorTargetOptions(proj){
+  var sh=_indoorShelves(proj);
+  var o='<optgroup label="Whole shelf">'+sh.map(function(s){return '<option value="'+s+'">'+s+' (all tables)</option>';}).join('')+'</optgroup>';
+  o+='<optgroup label="Single table">'+_indoorAllTables(proj).map(function(t){return '<option value="'+t+'">'+t+'</option>';}).join('')+'</optgroup>';
+  return o;
+}
+function _indoorEntriesOf(v){
+  if(v && v.entries) return v.entries;
+  var out=[]; var t=(v&&v.tables)||{};
+  for(var k in t){ if(t[k]&&t[k]!=='none') out.push({target:k,status:t[k],note:'',by:'',ts:0}); }
+  return out;
+}
+function _indoorEntrySummaryCell(v){
+  v=v||{}; var t=v.tables||{}; var warn=0,dang=0,ok=0;
+  for(var k in t){ if(t[k]==='warn')warn++; else if(t[k]==='danger')dang++; else if(t[k]==='ok')ok++; }
+  var worst=dang>0?'danger':warn>0?'warn':ok>0?'ok':'none';
+  var icon=worst==='danger'?'\u2715':worst==='warn'?'\u26a0':worst==='ok'?'\u2713':'\u00b7';
+  var col=worst==='danger'?'#ef5350':worst==='warn'?'#ffb300':worst==='ok'?'#4caf50':'var(--text3)';
+  var aff=warn+dang;
+  return '<td class="indoor-cell" style="text-align:center;color:'+col+';"><span class="icon">'+icon+'</span>'+(aff>0?' <span class="lbl">'+aff+'</span>':'')+'</td>';
+}
+function _indoorAddFormHTML(itemId){
+  var day=_indoorLoad(_indoorProj,_indoorDate); var v=day.items[itemId]||{};
+  var ents=_indoorEntriesOf(v);
+  var SLBL={ok:'\u2713 OK',warn:'\u26a0 Warning',danger:'\u2715 Critical'};
+  var SCOL={ok:'#4caf50',warn:'#ffb300',danger:'#ef5350'};
+  var list = ents.length ? ents.map(function(e,i){
+    return '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;margin-top:5px;background:var(--surface);">'
+      +'<span style="font-family:var(--mono);font-size:11px;color:var(--accent2);min-width:58px;">'+e.target+'</span>'
+      +'<span style="font-size:11px;font-weight:700;color:'+(SCOL[e.status]||'var(--text3)')+';white-space:nowrap;">'+(SLBL[e.status]||e.status)+'</span>'
+      +'<span style="font-size:11px;color:var(--text);flex:1;">'+((e.note||'').replace(/</g,'&lt;'))+'</span>'
+      +(e.by?'<span style="font-size:9px;color:var(--text3);">'+e.by+'</span>':'')
+      +'<button class="btn btn-outline" style="font-size:10px;padding:2px 7px;color:var(--danger);" onclick="indoorRemoveEntry(\''+itemId+'\','+i+')" title="Remove">\u2715</button>'
+    +'</div>';
+  }).join('') : '<div style="font-size:11px;color:var(--text3);margin-top:6px;">No entries yet \u2014 pick a shelf/table, set status, add a note, then tap Add.</div>';
+  return '<div style="margin-top:10px;">'
+    +'<div style="font-size:11px;color:var(--text3);margin-bottom:5px;">Report by table/shelf:</div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
+      +'<select id="indoorSel_'+itemId+'" class="users-input" style="font-size:11px;padding:5px 8px;max-width:160px;">'+_indoorTargetOptions(_indoorProj)+'</select>'
+      +'<select id="indoorStat_'+itemId+'" class="users-input" style="font-size:11px;padding:5px 8px;">'
+        +'<option value="warn">\u26a0 Warning</option><option value="danger">\u2715 Critical</option><option value="ok">\u2713 OK</option></select>'
+      +'<input id="indoorEntNote_'+itemId+'" class="users-input" placeholder="note (optional)" style="font-size:11px;padding:5px 8px;flex:1;min-width:120px;">'
+      +'<button class="btn btn-primary" style="font-size:11px;padding:6px 13px;font-weight:700;" onclick="indoorAddEntry(\''+itemId+'\')">\uff0b Add</button>'
+    +'</div>'
+    +'<div style="margin-top:6px;">'+list+'</div>'
+  +'</div>';
+}
+function indoorAddEntry(itemId){
+  var sel=document.getElementById('indoorSel_'+itemId);
+  var stt=document.getElementById('indoorStat_'+itemId);
+  var nt=document.getElementById('indoorEntNote_'+itemId);
+  if(!sel||!stt)return;
+  var target=sel.value, status=stt.value, note=nt?nt.value.trim():'';
+  if(!target)return;
+  var day=_indoorLoad(_indoorProj,_indoorDate);
+  if(!day.items[itemId])day.items[itemId]={};
+  var v=day.items[itemId];
+  if(!v.entries)v.entries=_indoorEntriesOf(v).slice();
+  v.entries.push({target:target,status:status,note:note,by:_indoorUser(),ts:Date.now()});
+  v.tables=v.tables||{};
+  var targets = target.indexOf('.')>=0 ? [target] : _indoorTables(_indoorProj,target);
+  targets.forEach(function(t){v.tables[t]=status;});
+  _indoorSave(_indoorProj,_indoorDate,day);
+  if(typeof showToast==='function')showToast('Entry added: '+target,'ok');
+  renderIndoorProjects();
+}
+function indoorRemoveEntry(itemId,idx){
+  var day=_indoorLoad(_indoorProj,_indoorDate);
+  var v=day.items[itemId]; if(!v)return;
+  if(!v.entries)v.entries=_indoorEntriesOf(v).slice();
+  v.entries.splice(idx,1);
+  v.tables={};
+  v.entries.forEach(function(e){ var ts=e.target.indexOf('.')>=0?[e.target]:_indoorTables(_indoorProj,e.target); ts.forEach(function(t){v.tables[t]=e.status;}); });
+  _indoorSave(_indoorProj,_indoorDate,day);
+  renderIndoorProjects();
+}
 function renderIndoorProjects(){
   if(!_indoorDate)_indoorDate=new Date().toISOString().slice(0,10);
   const today=new Date().toISOString().slice(0,10);
@@ -56983,7 +57059,7 @@ function renderIndoorProjects(){
           ${persistBadge}
           ${photoIcon}
         </td>
-        ${cells}
+        ${_indoorEntrySummaryCell(v)}
       </tr>`);
 
       // Expand panel (note + photo) when item is open
@@ -57001,21 +57077,12 @@ function renderIndoorProjects(){
               <input type="file" accept="image/*" capture="environment" style="display:none;" onchange="indoorAddPhoto('${it.id}',this)">
             </label>`;
 
-        tableRows.push(`<tr class="indoor-detail-row"><td colspan="${totalCols2+1}" style="background:var(--surface2);padding:14px 20px;">
+        tableRows.push(`<tr class="indoor-detail-row"><td colspan="2" style="background:var(--surface2);padding:14px 20px;">
           <div style="display:grid;grid-template-columns:1fr 280px;gap:16px;align-items:flex-start;">
             <div>
               <label class="field-label">📝 Note for "${it.label}"</label>
               <textarea class="users-input" style="resize:vertical;min-height:60px;width:100%;" placeholder="e.g. 'burned tips, possibly LED' or 'spreading from edge'" onchange="indoorSetNote('${it.id}',this.value)">${(v.note||'').replace(/</g,'&lt;')}</textarea>
-              <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
-                <span style="font-size:11px;color:var(--text3);align-self:center;">Mark whole shelf:</span>
-                ${shelves.map(sh=>`<div style="display:inline-flex;gap:2px;border:1px solid var(--border);border-radius:4px;padding:1px;">
-                  <span style="font-size:9px;font-family:var(--mono);align-self:center;padding:0 4px;color:var(--text3);">${sh}</span>
-                  <button class="btn btn-outline" style="font-size:10px;padding:2px 6px;color:#4caf50;" onclick="indoorMarkShelf('${it.id}','${sh}','ok')" title="Mark all tables in ${sh} as OK">✓</button>
-                  <button class="btn btn-outline" style="font-size:10px;padding:2px 6px;color:#ffb300;" onclick="indoorMarkShelf('${it.id}','${sh}','warn')" title="Warn">⚠</button>
-                  <button class="btn btn-outline" style="font-size:10px;padding:2px 6px;color:#ef5350;" onclick="indoorMarkShelf('${it.id}','${sh}','danger')" title="Critical">✕</button>
-                  <button class="btn btn-outline" style="font-size:10px;padding:2px 6px;color:var(--text3);" onclick="indoorMarkShelf('${it.id}','${sh}','none')" title="Clear">·</button>
-                </div>`).join('')}
-              </div>
+              ${_indoorAddFormHTML(it.id)}
             </div>
             <div>
               <label class="field-label">📷 Photo</label>
@@ -57033,9 +57100,8 @@ function renderIndoorProjects(){
         <thead>
           <tr>
             <th class="row-label-th" style="min-width:240px;background:var(--surface3);">Item</th>
-            ${shelfHeaderCells}
+            <th style="text-align:center;padding:6px 12px;background:var(--surface3);font-family:var(--mono);font-size:11px;color:var(--accent2);min-width:90px;">Status</th>
           </tr>
-          ${subHeaderRow}
         </thead>
         <tbody>${tableRows.join('')}</tbody>
       </table>
@@ -89999,7 +90065,7 @@ window.renderInvMatrix=function(){
       const bg=pct===100?'#0f2e10':pct>=70?'#2e1e00':'#2e0808';
       const tc=pct===100?'var(--ok)':pct>=70?'var(--warn)':'var(--danger)';
       totalIt+=total;totalOk+=okCt;
-      return `<td style="text-align:center;background:${bg};color:${tc};font-family:var(--mono);font-weight:700;padding:8px 4px;">${pct}%<div style="font-size:9px;font-weight:400;opacity:0.8;">${okCt}/${total}</div></td>`;
+      return `<td style="text-align:center;padding:4px 3px;min-width:80px;" title="${okCt}/${total} (${pct}%)">${(typeof hnxRatioSplit==='function')?hnxRatioSplit(okCt,total):(pct+'%')}</td>`;
     }).join('');
     const grandPct=totalIt?Math.round(totalOk/totalIt*100):0;
     const tc=grandPct===100?'var(--ok)':grandPct>=70?'var(--warn)':'var(--danger)';
@@ -90415,7 +90481,7 @@ window.renderFleetMatrix=function(){
       const bg=pct===100?'#0f2e10':pct>=70?'#2e1e00':'#2e0808';
       const tc=pct===100?'var(--ok)':pct>=70?'var(--warn)':'var(--danger)';
       totalV+=total;totalOk+=okCt;
-      return `<td style="text-align:center;background:${bg};color:${tc};font-family:var(--mono);font-weight:700;padding:8px 4px;">${pct}%<div style="font-size:9px;font-weight:400;opacity:0.8;">${okCt}/${total}</div></td>`;
+      return `<td style="text-align:center;padding:4px 3px;min-width:80px;" title="${okCt}/${total} (${pct}%)">${(typeof hnxRatioSplit==='function')?hnxRatioSplit(okCt,total):(pct+'%')}</td>`;
     }).join('');
     const grandPct=totalV?Math.round(totalOk/totalV*100):0;
     const tc=grandPct===100?'var(--ok)':grandPct>=70?'var(--warn)':'var(--danger)';
@@ -90788,7 +90854,7 @@ window.renderCrmCustomerMatrix=function(){
       const bg=pct===100?'#0f2e10':pct>=70?'#2e1e00':'#2e0808';
       const tc=pct===100?'var(--ok)':pct>=70?'var(--warn)':'var(--danger)';
       totalC+=total;totalOk+=okCt;
-      return `<td style="text-align:center;background:${bg};color:${tc};font-family:var(--mono);font-weight:700;padding:8px 4px;">${pct}%<div style="font-size:9px;font-weight:400;opacity:0.8;">${okCt}/${total}</div></td>`;
+      return `<td style="text-align:center;padding:4px 3px;min-width:80px;" title="${okCt}/${total} (${pct}%)">${(typeof hnxRatioSplit==='function')?hnxRatioSplit(okCt,total):(pct+'%')}</td>`;
     }).join('');
     const grandPct=totalC?Math.round(totalOk/totalC*100):0;
     const tc=grandPct===100?'var(--ok)':grandPct>=70?'var(--warn)':'var(--danger)';
@@ -129470,12 +129536,12 @@ body.hnx-mobile-locked { overflow: hidden; }
       '<div class="hnx-split-wrap" data-key="' + newKey + '">' +
         '<div class="hnx-split-half hnx-split-half--left hnx-cl--' + cl.status + '" ' +
              'title="' + String(cl.tip).replace(/"/g, '&quot;') + '">' +
-          '<span class="hh-icon">📋</span>' +
+          '<span class="hh-icon"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/></svg></span>' +
           '<span class="hh-lbl">' + cl.label + '</span>' +
         '</div>' +
         '<div class="hnx-split-half hnx-ai--' + ai.status + '" ' +
              'title="' + aiTip.replace(/"/g, '&quot;') + '">' +
-          '<span class="hh-icon">🧠</span>' +
+          '<span class="hh-icon"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" style="vertical-align:-2px;"><path d="M11 2l1.7 6 6 1.7-6 1.7-1.7 6-1.7-6-6-1.7 6-1.7z"/><path d="M18.5 13.5l.8 2.5 2.5.8-2.5.8-.8 2.5-.8-2.5-2.5-.8 2.5-.8z"/></svg></span>' +
           '<span class="hh-lbl">' + ai.label + '</span>' +
         '</div>' +
       '</div>';
@@ -138854,8 +138920,10 @@ body.hnx-mobile-locked { overflow: hidden; }
     if(c.__error)   return '<div style="color:var(--warn,#ff9800);padding:8px 0;">\u26a0 '+esc(c.__error)+'<div style="font-size:10px;color:var(--text3);margin-top:5px;">The AI brain needs your Worker <code>/ai/analyze</code> route live (key + deploy).</div></div>';
     var a=c.analysis||{};
     function sec(label,val,color){ if(!val) return ''; return '<div style="margin-bottom:9px;"><div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:'+(color||'#42a5f5')+';text-transform:uppercase;margin-bottom:2px;">'+label+'</div><div style="font-size:12px;color:var(--text);line-height:1.45;">'+esc(val)+'</div></div>'; }
-    var sevColor={ok:'#4caf50',watch:'#ffc107',warn:'#ff9800',critical:'#ef5350'}[String(a.severity||'').toLowerCase()]||'var(--text3)';
-    return (a.severity?'<div style="display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;color:'+sevColor+';border:1px solid '+sevColor+';border-radius:5px;padding:1px 7px;margin-bottom:9px;">'+esc(a.severity)+'</div>':'')+
+    var _sv=String(a.severity||'').toLowerCase();
+    var sevColor={ok:'#4caf50',watch:'#ffb300',warn:'#26c6da',critical:'#ef5350'}[_sv]||'var(--text3)';
+    var sevLbl={ok:'OK',watch:'WARN',warn:'TREND',critical:'CRIT'}[_sv]||esc(a.severity);
+    return (a.severity?'<div style="display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;color:'+sevColor+';border:1px solid '+sevColor+';border-radius:5px;padding:1px 7px;margin-bottom:9px;">'+sevLbl+'</div>':'')+
       sec('Monitoring',a.monitoring)+sec('Conclusion',a.conclusion)+sec('Recommendation',a.recommendation,'#4caf50')+sec('Past experience',a.pastExperience,'var(--text3)')+
       '<div style="font-size:9px;color:var(--text3);font-family:var(--mono);margin-top:6px;">'+(c.src==='cloud'?'Cloud AI':'Local brain')+' \u00b7 '+new Date(c.ts||Date.now()).toLocaleTimeString()+'</div>';
   }
@@ -138908,7 +138976,19 @@ body.hnx-mobile-locked { overflow: hidden; }
     ov.appendChild(box); document.body.appendChild(ov);
   }
 
-  window.hnxLocalAnalyze=function(cell){
+  window.hnxRatioSplit=function(met,total){
+    if(!total) return '<div style="text-align:center;color:var(--text3);font-size:12px;font-family:var(--mono);">—</div>';
+    var pct=Math.round(met/total*100);
+    var st=pct===100?'ok':(pct>=70?'warn':'crit');
+    var lbl={ok:'OK',warn:'WARN',crit:'CRIT'}[st];
+    return '<div style="position:relative;height:30px;">'
+      +'<div class="hnx-split-wrap">'
+        +'<div class="hnx-split-half hnx-split-half--left hnx-cl--'+st+'"><span class="hh-icon"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/></svg></span><span class="hh-lbl">'+met+'/'+total+'</span></div>'
+        +'<div class="hnx-split-half hnx-ai--'+st+'"><span class="hh-icon"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" style="vertical-align:-2px;"><path d="M11 2l1.7 6 6 1.7-6 1.7-1.7 6-1.7-6-6-1.7 6-1.7z"/><path d="M18.5 13.5l.8 2.5 2.5.8-2.5.8-.8 2.5-.8-2.5-2.5-.8 2.5-.8z"/></svg></span><span class="hh-lbl">'+lbl+'</span></div>'
+      +'</div></div>';
+  };
+
+    window.hnxLocalAnalyze=function(cell){
     var items=(cell&&cell.items)||[];
     var crit=0,warn=0,open=0;
     items.forEach(function(it){
@@ -138974,8 +139054,8 @@ body.hnx-mobile-locked { overflow: hidden; }
     var cell={ moduleLabel:'Production (crops)', row:(modal.dataset.catname||'')+' \u00b7 '+(modal.dataset.item||''), col:modal.dataset.gh||'',
       items:[{item:modal.dataset.item||'',note:note,priority:status,status:status}] };
     function sec(l,v,c){ if(!v) return ''; return '<div style="margin-bottom:8px;"><div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:'+(c||'#42a5f5')+';text-transform:uppercase;margin-bottom:2px;">'+l+'</div><div style="font-size:12px;color:var(--text);line-height:1.45;">'+esc(v)+'</div></div>'; }
-    function render(a,src){ var sev={ok:'#4caf50',watch:'#ffc107',warn:'#ff9800',critical:'#ef5350'}[String(a.severity||'').toLowerCase()]||'var(--text3)';
-      panel.innerHTML=(a.severity?'<div style="display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;color:'+sev+';border:1px solid '+sev+';border-radius:5px;padding:1px 7px;margin-bottom:8px;">'+esc(a.severity)+'</div>':'')+sec('Monitoring',a.monitoring)+sec('Conclusion',a.conclusion)+sec('Recommendation',a.recommendation,'#4caf50')+sec('Past experience',a.pastExperience,'var(--text3)')+'<div style="font-size:9px;color:var(--text3);font-family:var(--mono);margin-top:4px;">'+(src==='cloud'?'Cloud AI':'Local brain')+'</div>'; }
+    function render(a,src){ var _sv=String(a.severity||'').toLowerCase(); var sev={ok:'#4caf50',watch:'#ffb300',warn:'#26c6da',critical:'#ef5350'}[_sv]||'var(--text3)'; var slbl={ok:'OK',watch:'WARN',warn:'TREND',critical:'CRIT'}[_sv]||esc(a.severity);
+      panel.innerHTML=(a.severity?'<div style="display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;color:'+sev+';border:1px solid '+sev+';border-radius:5px;padding:1px 7px;margin-bottom:8px;">'+slbl+'</div>':'')+sec('Monitoring',a.monitoring)+sec('Conclusion',a.conclusion)+sec('Recommendation',a.recommendation,'#4caf50')+sec('Past experience',a.pastExperience,'var(--text3)')+'<div style="font-size:9px;color:var(--text3);font-family:var(--mono);margin-top:4px;">'+(src==='cloud'?'Cloud AI':'Local brain')+'</div>'; }
     render(window.hnxLocalAnalyze(cell),'local');
     var fn=(typeof window.__hnxApi==='function')?window.__hnxApi:(typeof api==='function'?api:null);
     if(!fn) return;
@@ -138996,8 +139076,8 @@ body.hnx-mobile-locked { overflow: hidden; }
     var n=items.length;
     return '<div style="position:relative;height:30px;width:100%;">'+
       '<div class="hnx-split-wrap">'+
-        '<div class="hnx-split-half hnx-split-half--left hnx-cl--'+clSt+'"><span class="hh-icon">\ud83d\udccb</span><span class="hh-lbl">'+n+'</span></div>'+
-        '<div class="hnx-split-half hnx-ai--'+aiSt+'"><span class="hh-icon">\ud83e\udde0</span><span class="hh-lbl">'+aiLbl+'</span></div>'+
+        '<div class="hnx-split-half hnx-split-half--left hnx-cl--'+clSt+'"><span class="hh-icon"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/></svg></span><span class="hh-lbl">'+n+'</span></div>'+
+        '<div class="hnx-split-half hnx-ai--'+aiSt+'"><span class="hh-icon"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" style="vertical-align:-2px;"><path d="M11 2l1.7 6 6 1.7-6 1.7-1.7 6-1.7-6-6-1.7 6-1.7z"/><path d="M18.5 13.5l.8 2.5 2.5.8-2.5.8-.8 2.5-.8-2.5-2.5-.8 2.5-.8z"/></svg></span><span class="hh-lbl">'+aiLbl+'</span></div>'+
       '</div>'+
     '</div>';
   };
