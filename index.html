@@ -141031,5 +141031,475 @@ body.hnx-mobile-locked { overflow: hidden; }
 [class*="hnx-ai--"] .hh-icon{ color:#5aa9ff !important; }
 </style>
 
+
+<!-- ===================== 🌿 AGRONOMICS MODULE (v1) — added as a Production sub-tab =====================
+     Self-contained late-injection block (see _hookCrmFilesViews pattern). Does NOT modify any existing module.
+     Claude-vision diagnosis via Worker POST /ai/vision. All state under hydroPro_ keys → auto cloud-sync.
+     Guardrail: nutrient / "act" suggestions are human-approved only — never auto-applied. -->
+<script>
+(function _hnxAgronomicsV1(){
+  if(window.__HNX_AGRO_V1__) return;
+  window.__HNX_AGRO_V1__=true;
+
+  /* ---------- helpers ---------- */
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function toast(m,t){ try{ if(typeof window.showToast==='function') window.showToast(m,t||'ok'); }catch(e){} }
+  function load(key,def){ try{ var s=localStorage.getItem(key); return s?JSON.parse(s):def; }catch(e){ return def; } }
+  function save(key,val){ try{ localStorage.setItem(key,JSON.stringify(val)); }catch(e){ toast('Storage full — old entries may need clearing','warn'); } }
+  function nowISO(){ return new Date().toISOString(); }
+  function uid(){ return 'ag_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+
+  var LOG_KEY='hydroPro_agro_log_v1';          // running record of diagnoses + corrections (experience log + history)
+  var KNOW_KEY='hydroPro_agro_knowhow_v1';      // editable know-how rules fed into every call
+  var SET_KEY='hydroPro_agro_settings_v1';      // {confidenceThreshold, lastGh, lastCrop}
+  var LOG_CAP=120;                              // keep payload light for cloud sync
+
+  /* marker definitions distilled from the Agronomics brief — seeded into every call as steering context */
+  var MARKERS={
+    chlorosis:'yellowing of leaf tissue (often nitrogen / micronutrient related)',
+    necrosis:'death of leaf tissue — brown/black dead areas',
+    curling:'leaf edges curling or cupping',
+    spotting:'yellow spots with darker centers',
+    'leaf spot':'discrete lesions/spots on the leaf',
+    'tip burn':'browning/scorching of leaf tips (calcium/transpiration related)',
+    bolting:'premature flowering / vertical stem elongation',
+    healthy:'no visible stress — normal colour and form'
+  };
+  var VOCAB=['bolting','tip burn','end caps','gutters','cooling pads','zigzag pipes','rockwool','NFT channels','transplant','harvest'];
+
+  var DEFAULT_KNOWHOW=[
+    'Crop is hydroponic NFT-grown lettuce & leafy greens at ABA Pardes (10 greenhouses, GH1–GH10).',
+    'Tip burn here is usually calcium uptake / airflow related, not a disease — check transpiration & cooling pads before nutrients.',
+    'Mild edge yellowing on outer/older leaves is often normal senescence, not chlorosis — only flag chlorosis if newer/inner leaves are affected.',
+    'Never recommend auto-dosing. Nutrient changes are a recommendation for the supervisor to approve.'
+  ];
+
+  function getSettings(){ var s=load(SET_KEY,null)||{}; if(s.confidenceThreshold==null)s.confidenceThreshold=0.5; return s; }
+  function setSettings(p){ var s=getSettings(); Object.assign(s,p); save(SET_KEY,s); }
+  function getKnowHow(){ var k=load(KNOW_KEY,null); if(!Array.isArray(k)){ k=DEFAULT_KNOWHOW.slice(); save(KNOW_KEY,k); } return k; }
+  function getLog(){ var l=load(LOG_KEY,[]); return Array.isArray(l)?l:[]; }
+  function setLog(l){ if(l.length>LOG_CAP) l=l.slice(0,LOG_CAP); save(LOG_KEY,l); }
+
+  function sevColor(sev){
+    sev=(sev||'').toLowerCase();
+    if(sev==='healthy'||sev==='none') return 'var(--ok,#9ccc65)';
+    if(sev==='severe'||sev==='critical') return 'var(--danger,#ef5350)';
+    if(sev==='moderate') return 'var(--warn,#ffa726)';
+    if(sev==='mild') return 'var(--info,#4dd0e1)';
+    return 'var(--text3,#90a4ae)';
+  }
+  function confPct(c){ if(c==null||isNaN(c))return null; c=Number(c); return c<=1?Math.round(c*100):Math.round(c); }
+
+  /* ---------- image handling ---------- */
+  function fileToScaled(file, maxDim, quality){
+    return new Promise(function(resolve,reject){
+      var fr=new FileReader();
+      fr.onerror=function(){ reject(new Error('Could not read image')); };
+      fr.onload=function(){
+        var img=new Image();
+        img.onerror=function(){ reject(new Error('Invalid image')); };
+        img.onload=function(){
+          var w=img.width,h=img.height, scale=Math.min(1, maxDim/Math.max(w,h));
+          var cw=Math.max(1,Math.round(w*scale)), ch=Math.max(1,Math.round(h*scale));
+          var cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+          cv.getContext('2d').drawImage(img,0,0,cw,ch);
+          var dataUrl=cv.toDataURL('image/jpeg', quality||0.8);
+          resolve(dataUrl);
+        };
+        img.src=fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+  function stripPrefix(dataUrl){ var i=dataUrl.indexOf(','); return i>=0?dataUrl.slice(i+1):dataUrl; }
+
+  /* ---------- view shell ---------- */
+  function ensureView(){
+    var v=document.getElementById('view-agronomics');
+    if(!v){
+      v=document.createElement('div'); v.className='view'; v.id='view-agronomics';
+      (document.getElementById('appMain')||document.body).appendChild(v);
+    }
+    return v;
+  }
+
+  var TABS=[['diagnose','🔬 Diagnose'],['history','🗂 History'],['knowhow','📚 Know-How'],['report','📅 Daily Report']];
+  var _activeTab='diagnose';
+
+  function renderShell(){
+    var v=ensureView();
+    if(v.getAttribute('data-built')==='1') return v;
+    var tabBtns=TABS.map(function(t){
+      return '<button class="agro-tab" data-tab="'+t[0]+'" onclick="window.__agroTab(\''+t[0]+'\')" '+
+             'style="padding:7px 13px;border:1px solid var(--border,#2a3b32);border-radius:8px;background:var(--surface,#0f1a14);'+
+             'color:var(--text2,#b9d3c4);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">'+t[1]+'</button>';
+    }).join('');
+    v.innerHTML=
+      '<div style="max-width:920px;margin:0 auto;">'+
+        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">'+
+          '<div style="font-size:19px;font-weight:800;color:var(--text,#e8f5e9);">🌿 Agronomics</div>'+
+          '<div style="font-size:11px;color:var(--text3,#90a4ae);">Photo → AI plant-health diagnosis · learns from your corrections & know-how</div>'+
+        '</div>'+
+        '<div style="font-size:11px;color:var(--text3,#90a4ae);margin-bottom:12px;line-height:1.5;">'+
+          'Powered by Claude vision via your Worker. Diagnoses are decision support — nutrient actions need your approval and are never auto-applied.'+
+        '</div>'+
+        '<div id="agroTabBar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">'+tabBtns+'</div>'+
+        '<div id="agroDiagnose" class="agro-pane"></div>'+
+        '<div id="agroHistory" class="agro-pane" style="display:none;"></div>'+
+        '<div id="agroKnowHow" class="agro-pane" style="display:none;"></div>'+
+        '<div id="agroReport" class="agro-pane" style="display:none;"></div>'+
+      '</div>';
+    v.setAttribute('data-built','1');
+    return v;
+  }
+
+  window.__agroTab=function(tab){
+    _activeTab=tab;
+    var map={diagnose:'agroDiagnose',history:'agroHistory',knowhow:'agroKnowHow',report:'agroReport'};
+    Object.keys(map).forEach(function(k){ var el=document.getElementById(map[k]); if(el)el.style.display=(k===tab?'':'none'); });
+    var bar=document.getElementById('agroTabBar');
+    if(bar)bar.querySelectorAll('.agro-tab').forEach(function(b){
+      var on=b.getAttribute('data-tab')===tab;
+      b.style.background=on?'var(--accent,#1f6f43)':'var(--surface,#0f1a14)';
+      b.style.color=on?'#fff':'var(--text2,#b9d3c4)';
+      b.style.borderColor=on?'var(--accent,#1f6f43)':'var(--border,#2a3b32)';
+    });
+    if(tab==='diagnose')renderDiagnose();
+    else if(tab==='history')renderHistory();
+    else if(tab==='knowhow')renderKnowHow();
+    else if(tab==='report')renderReport();
+  };
+
+  function card(inner,extra){ return '<div style="background:var(--surface,#0f1a14);border:1px solid var(--border,#2a3b32);border-radius:12px;padding:16px;'+(extra||'')+'">'+inner+'</div>'; }
+  function fieldLabel(t){ return '<div style="font-size:11px;color:var(--text3,#90a4ae);font-weight:700;margin-bottom:5px;">'+t+'</div>'; }
+  function inputStyle(){ return 'width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid var(--border,#2a3b32);border-radius:8px;background:var(--bg,#0a120d);color:var(--text,#e8f5e9);font-size:13px;font-family:inherit;'; }
+
+  /* ---------- DIAGNOSE ---------- */
+  function renderDiagnose(){
+    var el=document.getElementById('agroDiagnose'); if(!el)return;
+    var s=getSettings();
+    var ghOpts=''; for(var i=1;i<=10;i++){ var g='GH'+i; ghOpts+='<option value="'+g+'" '+(s.lastGh===g?'selected':'')+'>'+g+'</option>'; }
+    el.innerHTML=
+      card(
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">'+
+          '<div>'+fieldLabel('Greenhouse')+'<select id="agroGh" style="'+inputStyle()+'">'+ghOpts+'</select></div>'+
+          '<div>'+fieldLabel('Crop / variety')+'<input id="agroCrop" list="agroCropList" placeholder="e.g. romaine, oakleaf, basil" value="'+esc(s.lastCrop||'')+'" style="'+inputStyle()+'">'+
+            '<datalist id="agroCropList"><option value="Romaine"><option value="Oakleaf"><option value="Butterhead"><option value="Lollo Rossa"><option value="Batavia"><option value="Basil"><option value="Arugula"><option value="Spinach"></datalist></div>'+
+        '</div>'+
+        '<div style="margin-bottom:12px;">'+fieldLabel('Table / line / location (optional)')+'<input id="agroLoc" placeholder="e.g. Table A3, line 4" style="'+inputStyle()+'"></div>'+
+        '<div style="margin-bottom:12px;">'+fieldLabel('Question for the AI (optional)')+'<input id="agroQ" placeholder="e.g. is this tip burn or a deficiency?" style="'+inputStyle()+'"></div>'+
+        '<div style="margin-bottom:12px;">'+fieldLabel('Plant photo')+
+          '<input id="agroFile" type="file" accept="image/*" capture="environment" onchange="window.__agroPreview(this)" style="'+inputStyle()+'padding:8px;">'+
+          '<div id="agroPreview" style="margin-top:10px;"></div>'+
+        '</div>'+
+        '<button id="agroGo" onclick="window.__agroRun()" style="width:100%;padding:12px;border:none;border-radius:9px;background:var(--accent,#1f6f43);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">🔬 Diagnose plant</button>'+
+        '<div style="margin-top:14px;display:flex;align-items:center;gap:10px;">'+
+          '<span style="font-size:10px;color:var(--text3,#90a4ae);white-space:nowrap;">Low-confidence flag</span>'+
+          '<input type="range" min="30" max="90" step="5" value="'+confPct(s.confidenceThreshold)+'" oninput="window.__agroSetThreshold(this.value)" style="flex:1;accent-color:var(--accent,#1f6f43);">'+
+          '<span id="agroThreshVal" style="font-size:11px;font-family:var(--mono,monospace);color:var(--text2,#b9d3c4);min-width:34px;text-align:right;">'+confPct(s.confidenceThreshold)+'%</span>'+
+        '</div>'+
+        '<div style="font-size:10px;color:var(--text3,#90a4ae);text-align:center;margin-top:8px;">Diagnoses below this confidence get a \u201cverify manually\u201d flag \u00b7 image is downscaled before sending</div>'
+      )+
+      '<div id="agroResult" style="margin-top:16px;"></div>';
+  }
+
+  window.__agroPreview=function(input){
+    var box=document.getElementById('agroPreview'); if(!box)return;
+    var f=input.files&&input.files[0]; if(!f){ box.innerHTML=''; return; }
+    fileToScaled(f,260,0.7).then(function(u){
+      box.innerHTML='<img src="'+u+'" style="max-width:100%;max-height:220px;border-radius:10px;border:1px solid var(--border,#2a3b32);">';
+    }).catch(function(){ box.innerHTML='<div style="font-size:11px;color:var(--warn,#ffa726);">Couldn\u2019t preview this image.</div>'; });
+  };
+
+  window.__agroSetThreshold=function(v){
+    var pct=Math.max(5,Math.min(100,parseInt(v,10)||50));
+    setSettings({confidenceThreshold:pct/100});
+    var el=document.getElementById('agroThreshVal'); if(el)el.textContent=pct+'%';
+  };
+
+  function cloudReady(){
+    if(location.protocol==='file:') return {ok:false,msg:'Cloud AI is blocked when running from a downloaded file. Open your live Netlify site to use Agronomics.'};
+    if(typeof window.__hnxApi!=='function' || !localStorage.getItem('hnx_cloud_token')) return {ok:false,msg:'Connect cloud AI first (sign in to the Worker) — Agronomics uses the same connection as your AI analyze calls.'};
+    return {ok:true};
+  }
+
+  window.__agroRun=function(){
+    var fileEl=document.getElementById('agroFile');
+    var f=fileEl&&fileEl.files&&fileEl.files[0];
+    var res=document.getElementById('agroResult');
+    if(!f){ if(res)res.innerHTML='<div style="color:var(--warn,#ffa726);font-size:12px;">Please choose or take a photo first.</div>'; return; }
+    var rc=cloudReady();
+    if(!rc.ok){ if(res)res.innerHTML=card('<div style="color:var(--warn,#ffa726);font-size:12px;line-height:1.5;">\u26a0 '+esc(rc.msg)+'</div>'); return; }
+
+    var gh=(document.getElementById('agroGh')||{}).value||'';
+    var crop=((document.getElementById('agroCrop')||{}).value||'').trim();
+    var loc=((document.getElementById('agroLoc')||{}).value||'').trim();
+    var q=((document.getElementById('agroQ')||{}).value||'').trim();
+    setSettings({lastGh:gh,lastCrop:crop});
+
+    var btn=document.getElementById('agroGo'); var old=btn?btn.innerHTML:'';
+    if(btn){ btn.disabled=true; btn.innerHTML='🤖 Analyzing photo…'; }
+    if(res)res.innerHTML='<div style="font-size:12px;color:var(--text3,#90a4ae);padding:8px 0;">🤖 Sending to Claude vision…</div>';
+
+    Promise.all([ fileToScaled(f,1024,0.8), fileToScaled(f,140,0.5) ]).then(function(arr){
+      var big=arr[0], thumb=arr[1];
+      var recent=getLog().slice(0,6).map(function(r){
+        return {gh:r.gh,crop:r.crop,issue:r.issue,severity:r.severity,location:r.location, correctedTo:(r.override?r.override.issue:null)};
+      });
+      var ctx={
+        site:'ABA Pardes', system:'hydroponic NFT lettuce & leafy greens (10 greenhouses GH1-GH10)',
+        greenhouse:gh, crop:crop||'unknown leafy green', location:loc||'',
+        markerDefinitions:MARKERS, vocabulary:VOCAB,
+        recentDiagnoses:recent,
+        instructions:'Diagnose visible plant-health issues. Return issue, category (one of: chlorosis, necrosis, leaf spot, tip burn, curling, spotting, bolting, healthy, other), severity (mild/moderate/severe, or healthy), confidence 0-1, likely cause, recommended action. If you recommend a nutrient change, frame it as a recommendation requiring human approval — do NOT instruct auto-dosing.'
+      };
+      var payload={ image:stripPrefix(big), mediaType:'image/jpeg', context:ctx, knowHow:getKnowHow().join('\n'), question:q };
+      return window.__hnxApi('/ai/vision',{method:'POST',body:JSON.stringify(payload)}).then(function(d){
+        return {d:d,thumb:thumb};
+      });
+    }).then(function(o){
+      var d=o.d||{};
+      // tolerate either flat JSON or nested under .analysis/.result
+      var src=d.issue!=null?d:(d.analysis||d.result||d);
+      var sev=(src.severity||'').toString().toLowerCase();
+      var cat=(src.category||'').toString().toLowerCase();
+      if((cat==='healthy'||/healthy|no.*(issue|stress)/.test((src.issue||'').toLowerCase())) && !sev) sev='healthy';
+      var rec={
+        id:uid(), ts:nowISO(), gh:gh, crop:crop, location:loc||(src.location||''), question:q,
+        issue:src.issue||'(no issue returned)', category:src.category||'other',
+        severity:sev||'', confidence:(src.confidence!=null?Number(src.confidence):null),
+        cause:src.cause||'', action:src.action||'', aiLocation:src.location||'',
+        thumb:o.thumb, override:null, actionApproved:false, confirmed:false
+      };
+      var log=getLog(); log.unshift(rec); setLog(log);
+      renderResult(rec, true);
+      try{ if(typeof window.hnxCloudPush==='function')window.hnxCloudPush(); }catch(e){}
+    }).catch(function(e){
+      if(res)res.innerHTML=card('<div style="color:var(--danger,#ef5350);font-size:12px;line-height:1.5;">\u26a0 Diagnosis failed: '+esc(e&&e.message?e.message:'unknown error')+'<div style="color:var(--text3,#90a4ae);margin-top:6px;font-size:10px;">If this says the route is missing, confirm the Worker has POST /ai/vision deployed.</div></div>');
+    }).then(function(){ if(btn){ btn.disabled=false; btn.innerHTML=old; } });
+  };
+
+  function renderResult(rec, fresh){
+    var res=document.getElementById('agroResult'); if(!res)return;
+    var s=getSettings();
+    var cp=confPct(rec.confidence);
+    var low=(rec.confidence!=null && Number(rec.confidence)<= (s.confidenceThreshold<=1?s.confidenceThreshold:s.confidenceThreshold/100));
+    var sc=sevColor(rec.override?rec.override.severity:rec.severity);
+    var shownIssue=rec.override?rec.override.issue:rec.issue;
+    var shownSev=rec.override?rec.override.severity:rec.severity;
+    var html=
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;">'+
+        (rec.thumb?'<img src="'+rec.thumb+'" style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:2px solid '+sc+';">':'')+
+        '<div style="flex:1;min-width:200px;">'+
+          '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">'+
+            '<span style="font-size:16px;font-weight:800;color:var(--text,#e8f5e9);">'+esc(shownIssue)+'</span>'+
+            (shownSev?'<span style="font-size:11px;font-weight:800;text-transform:uppercase;color:'+sc+';border:1px solid '+sc+';padding:2px 8px;border-radius:20px;">'+esc(shownSev)+'</span>':'')+
+            (rec.override?'<span style="font-size:10px;color:var(--info,#4dd0e1);">✏️ corrected by you</span>':'')+
+          '</div>'+
+          '<div style="font-size:12px;color:var(--text2,#b9d3c4);margin-bottom:3px;"><b style="color:var(--text3,#90a4ae);">Category:</b> '+esc(rec.category||'—')+(cp!=null?' · <b style="color:var(--text3,#90a4ae);">Confidence:</b> '+cp+'%'+(low?' <span style="color:var(--warn,#ffa726);">(low — verify manually)</span>':''):'')+'</div>'+
+          (rec.location?'<div style="font-size:12px;color:var(--text2,#b9d3c4);margin-bottom:3px;"><b style="color:var(--text3,#90a4ae);">Location:</b> '+esc(rec.location)+(rec.aiLocation&&rec.aiLocation!==rec.location?' · AI noted: '+esc(rec.aiLocation):'')+'</div>':'')+
+          (rec.cause?'<div style="font-size:12px;color:var(--text2,#b9d3c4);margin-top:8px;line-height:1.5;"><b style="color:var(--text3,#90a4ae);">Likely cause:</b> '+esc(rec.cause)+'</div>':'')+
+        '</div>'+
+      '</div>';
+    if(rec.action){
+      html+='<div style="margin-top:12px;background:var(--bg,#0a120d);border:1px dashed var(--warn,#ffa726);border-radius:9px;padding:11px;">'+
+        '<div style="font-size:11px;font-weight:800;color:var(--warn,#ffa726);margin-bottom:4px;">⚠ RECOMMENDED ACTION — needs your approval (not auto-applied)</div>'+
+        '<div style="font-size:12px;color:var(--text2,#b9d3c4);line-height:1.5;">'+esc(rec.action)+'</div>'+
+        '<div style="margin-top:9px;">'+
+          (rec.actionApproved
+            ? '<span style="font-size:11px;color:var(--ok,#9ccc65);font-weight:700;">✓ Approved by you '+(rec.actionApprovedAt?'· '+new Date(rec.actionApprovedAt).toLocaleString():'')+'</span>'
+            : '<button onclick="window.__agroApprove(\''+rec.id+'\')" style="padding:6px 12px;border:1px solid var(--ok,#9ccc65);background:transparent;color:var(--ok,#9ccc65);border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">Approve this action</button>')+
+        '</div>'+
+      '</div>';
+    }
+    html+='<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">'+
+      (rec.confirmed?'<span style="font-size:11px;color:var(--ok,#9ccc65);font-weight:700;align-self:center;">✓ Confirmed correct</span>'
+        :'<button onclick="window.__agroConfirm(\''+rec.id+'\')" style="padding:8px 14px;border:1px solid var(--ok,#9ccc65);background:transparent;color:var(--ok,#9ccc65);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">Looks right ✓</button>')+
+      '<button onclick="window.__agroOverride(\''+rec.id+'\')" style="padding:8px 14px;border:1px solid var(--info,#4dd0e1);background:transparent;color:var(--info,#4dd0e1);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">✏️ Override / correct</button>'+
+    '</div>'+
+    '<div id="agroOverrideBox"></div>';
+    res.innerHTML=card(html, fresh?'border-color:'+sc+';':'');
+  }
+
+  function findRec(id){ var l=getLog(); for(var i=0;i<l.length;i++){ if(l[i].id===id)return {rec:l[i],log:l,idx:i}; } return null; }
+
+  window.__agroConfirm=function(id){
+    var f=findRec(id); if(!f)return; f.rec.confirmed=true; f.rec.override=null; setLog(f.log);
+    toast('Logged as confirmed','ok'); renderResult(f.rec,false);
+    try{ if(typeof window.hnxCloudPush==='function')window.hnxCloudPush(); }catch(e){}
+  };
+
+  window.__agroApprove=function(id){
+    var f=findRec(id); if(!f)return; f.rec.actionApproved=true; f.rec.actionApprovedAt=nowISO(); setLog(f.log);
+    toast('Action approved & logged','ok'); renderResult(f.rec,false);
+    try{ if(typeof window.hnxCloudPush==='function')window.hnxCloudPush(); }catch(e){}
+  };
+
+  window.__agroOverride=function(id){
+    var box=document.getElementById('agroOverrideBox'); if(!box)return;
+    var f=findRec(id); if(!f)return; var r=f.rec;
+    var cats=['chlorosis','necrosis','leaf spot','tip burn','curling','spotting','bolting','healthy','other'];
+    var sevs=['mild','moderate','severe','healthy'];
+    box.innerHTML='<div style="margin-top:12px;background:var(--bg,#0a120d);border:1px solid var(--info,#4dd0e1);border-radius:9px;padding:12px;">'+
+      '<div style="font-size:12px;font-weight:800;color:var(--info,#4dd0e1);margin-bottom:8px;">Correct this diagnosis</div>'+
+      fieldLabel('Correct issue / label')+'<input id="ovIssue" value="'+esc(r.issue)+'" style="'+inputStyle()+'margin-bottom:9px;">'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:9px;">'+
+        '<div>'+fieldLabel('Category')+'<select id="ovCat" style="'+inputStyle()+'">'+cats.map(function(c){return '<option '+(c===(r.category||'').toLowerCase()?'selected':'')+'>'+c+'</option>';}).join('')+'</select></div>'+
+        '<div>'+fieldLabel('Severity')+'<select id="ovSev" style="'+inputStyle()+'">'+sevs.map(function(c){return '<option '+(c===(r.severity||'').toLowerCase()?'selected':'')+'>'+c+'</option>';}).join('')+'</select></div>'+
+      '</div>'+
+      fieldLabel('Note (what the AI got wrong — sharpens future calls)')+'<textarea id="ovNote" rows="2" placeholder="optional" style="'+inputStyle()+'resize:vertical;margin-bottom:10px;"></textarea>'+
+      '<div style="display:flex;gap:8px;">'+
+        '<button onclick="window.__agroSaveOverride(\''+id+'\')" style="padding:8px 14px;border:none;background:var(--info,#4dd0e1);color:#04201f;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Save correction</button>'+
+        '<button onclick="document.getElementById(\'agroOverrideBox\').innerHTML=\'\'" style="padding:8px 14px;border:1px solid var(--border,#2a3b32);background:transparent;color:var(--text2,#b9d3c4);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">Cancel</button>'+
+      '</div>'+
+      '<div style="font-size:10px;color:var(--text3,#90a4ae);margin-top:8px;">Tip: turn a recurring correction into a permanent rule in the Know-How tab.</div>'+
+    '</div>';
+  };
+
+  window.__agroSaveOverride=function(id){
+    var f=findRec(id); if(!f)return; var r=f.rec;
+    r.override={ issue:((document.getElementById('ovIssue')||{}).value||'').trim()||r.issue,
+                 category:(document.getElementById('ovCat')||{}).value||r.category,
+                 severity:(document.getElementById('ovSev')||{}).value||r.severity,
+                 note:((document.getElementById('ovNote')||{}).value||'').trim(), ts:nowISO() };
+    r.confirmed=false; setLog(f.log);
+    toast('Correction saved — future calls will use it','ok');
+    renderResult(r,false);
+    try{ if(typeof window.hnxCloudPush==='function')window.hnxCloudPush(); }catch(e){}
+  };
+
+  /* ---------- HISTORY ---------- */
+  function renderHistory(){
+    var el=document.getElementById('agroHistory'); if(!el)return;
+    var log=getLog();
+    if(!log.length){ el.innerHTML=card('<div style="font-size:12px;color:var(--text3,#90a4ae);">No diagnoses yet. Run one from the Diagnose tab and it will appear here.</div>'); return; }
+    var rows=log.map(function(r){
+      var shownIssue=r.override?r.override.issue:r.issue, shownSev=r.override?r.override.severity:r.severity;
+      var sc=sevColor(shownSev); var cp=confPct(r.confidence);
+      return '<div style="display:flex;gap:11px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border,#2a3b32);">'+
+        (r.thumb?'<img src="'+r.thumb+'" style="width:48px;height:48px;object-fit:cover;border-radius:7px;border:1px solid '+sc+';flex-shrink:0;">':'<div style="width:48px;height:48px;border-radius:7px;background:var(--bg,#0a120d);flex-shrink:0;"></div>')+
+        '<div style="flex:1;min-width:0;">'+
+          '<div style="font-size:13px;font-weight:700;color:var(--text,#e8f5e9);">'+esc(shownIssue)+(r.override?' <span style="font-size:9px;color:var(--info,#4dd0e1);">✏️</span>':'')+(r.confirmed?' <span style="font-size:9px;color:var(--ok,#9ccc65);">✓</span>':'')+'</div>'+
+          '<div style="font-size:10px;color:var(--text3,#90a4ae);">'+esc(r.gh||'')+(r.crop?' · '+esc(r.crop):'')+(r.location?' · '+esc(r.location):'')+' · '+new Date(r.ts).toLocaleString()+'</div>'+
+        '</div>'+
+        '<div style="text-align:right;flex-shrink:0;">'+
+          (shownSev?'<div style="font-size:10px;font-weight:800;text-transform:uppercase;color:'+sc+';">'+esc(shownSev)+'</div>':'')+
+          (cp!=null?'<div style="font-size:10px;color:var(--text3,#90a4ae);font-family:var(--mono,monospace);">'+cp+'%</div>':'')+
+        '</div>'+
+      '</div>';
+    }).join('');
+    el.innerHTML=card(
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
+        '<div style="font-size:13px;font-weight:800;color:var(--text,#e8f5e9);">Diagnosis & correction log</div>'+
+        '<div style="font-size:10px;color:var(--text3,#90a4ae);">'+log.length+' record'+(log.length===1?'':'s')+' · last '+LOG_CAP+' kept</div>'+
+      '</div>'+rows+
+      '<div style="font-size:10px;color:var(--text3,#90a4ae);margin-top:10px;line-height:1.5;">Every diagnosis + your correction is the labeled dataset that a custom model can train on later.</div>'
+    );
+  }
+
+  /* ---------- KNOW-HOW ---------- */
+  function renderKnowHow(){
+    var el=document.getElementById('agroKnowHow'); if(!el)return;
+    var rules=getKnowHow();
+    var rows=rules.map(function(t,i){
+      return '<div style="display:flex;gap:9px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--border,#2a3b32);">'+
+        '<div style="flex:1;font-size:12px;color:var(--text2,#b9d3c4);line-height:1.5;">'+esc(t)+'</div>'+
+        '<button onclick="window.__agroDelRule('+i+')" style="border:none;background:transparent;color:var(--danger,#ef5350);font-size:12px;cursor:pointer;flex-shrink:0;">✕</button>'+
+      '</div>';
+    }).join('');
+    el.innerHTML=card(
+      '<div style="font-size:13px;font-weight:800;color:var(--text,#e8f5e9);margin-bottom:4px;">Know-how rules</div>'+
+      '<div style="font-size:11px;color:var(--text3,#90a4ae);margin-bottom:12px;line-height:1.5;">These rules are sent with <b>every</b> diagnosis to steer the AI toward your greenhouses. The model doesn\u2019t auto-learn — your rules + corrections do the steering.</div>'+
+      (rows||'<div style="font-size:12px;color:var(--text3,#90a4ae);">No rules yet.</div>')+
+      '<div style="margin-top:12px;">'+
+        fieldLabel('Add a rule')+
+        '<textarea id="agroNewRule" rows="2" placeholder="e.g. In GH7, edge yellowing is usually from the cooling-pad draft, not a deficiency." style="'+inputStyle()+'resize:vertical;margin-bottom:9px;"></textarea>'+
+        '<button onclick="window.__agroAddRule()" style="padding:8px 14px;border:none;background:var(--accent,#1f6f43);color:#fff;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Add rule</button>'+
+      '</div>'
+    );
+  }
+  window.__agroAddRule=function(){
+    var t=((document.getElementById('agroNewRule')||{}).value||'').trim(); if(!t)return;
+    var r=getKnowHow(); r.push(t); save(KNOW_KEY,r); toast('Rule added','ok'); renderKnowHow();
+    try{ if(typeof window.hnxCloudPush==='function')window.hnxCloudPush(); }catch(e){}
+  };
+  window.__agroDelRule=function(i){
+    var r=getKnowHow(); if(i<0||i>=r.length)return; r.splice(i,1); save(KNOW_KEY,r); renderKnowHow();
+    try{ if(typeof window.hnxCloudPush==='function')window.hnxCloudPush(); }catch(e){}
+  };
+
+  /* ---------- DAILY REPORT ---------- */
+  function renderReport(){
+    var el=document.getElementById('agroReport'); if(!el)return;
+    var log=getLog();
+    var today=new Date(); today.setHours(0,0,0,0);
+    var todays=log.filter(function(r){ var d=new Date(r.ts); return d>=today; });
+    var byCat={}, sev={mild:0,moderate:0,severe:0,healthy:0,other:0};
+    todays.forEach(function(r){
+      var c=(r.override?r.override.category:r.category)||'other'; byCat[c]=(byCat[c]||0)+1;
+      var sv=(r.override?r.override.severity:r.severity||'').toLowerCase(); if(sev[sv]==null)sev.other++; else sev[sv]++;
+    });
+    var n=todays.length;
+    var healthyN=sev.healthy, issues=n-healthyN;
+    var score=n? Math.round((healthyN + sev.mild*0.6 + sev.moderate*0.3)/n*100) :null;
+    var sc=score==null?'var(--text3,#90a4ae)':(score>=80?'var(--ok,#9ccc65)':score>=55?'var(--warn,#ffa726)':'var(--danger,#ef5350)');
+    var catRows=Object.keys(byCat).sort(function(a,b){return byCat[b]-byCat[a];}).map(function(c){
+      return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border,#2a3b32);font-size:12px;color:var(--text2,#b9d3c4);"><span>'+esc(c)+'</span><span style="font-family:var(--mono,monospace);font-weight:700;">'+byCat[c]+'</span></div>';
+    }).join('') || '<div style="font-size:12px;color:var(--text3,#90a4ae);">No scans today.</div>';
+    el.innerHTML=card(
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">'+
+        '<div style="font-size:14px;font-weight:800;color:var(--text,#e8f5e9);">📅 Daily plant-health report</div>'+
+        '<div style="font-size:11px;color:var(--text3,#90a4ae);">'+today.toLocaleDateString()+'</div>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;text-align:center;">'+
+        '<div><div style="font-size:22px;font-weight:800;color:'+sc+';font-family:var(--mono,monospace);">'+(score==null?'—':score)+'</div><div style="font-size:9px;color:var(--text3,#90a4ae);">HEALTH SCORE</div></div>'+
+        '<div><div style="font-size:22px;font-weight:800;color:var(--text,#e8f5e9);font-family:var(--mono,monospace);">'+n+'</div><div style="font-size:9px;color:var(--text3,#90a4ae);">SCANS</div></div>'+
+        '<div><div style="font-size:22px;font-weight:800;color:var(--ok,#9ccc65);font-family:var(--mono,monospace);">'+healthyN+'</div><div style="font-size:9px;color:var(--text3,#90a4ae);">HEALTHY</div></div>'+
+        '<div><div style="font-size:22px;font-weight:800;color:var(--warn,#ffa726);font-family:var(--mono,monospace);">'+issues+'</div><div style="font-size:9px;color:var(--text3,#90a4ae);">ISSUES</div></div>'+
+      '</div>'+
+      '<div style="font-size:11px;font-weight:700;color:var(--text3,#90a4ae);margin-bottom:4px;">By category (today)</div>'+catRows+
+      '<div style="font-size:11px;font-weight:700;color:var(--text3,#90a4ae);margin:14px 0 4px;">By severity (today)</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px;">'+
+        ['mild','moderate','severe'].map(function(s){return '<span style="padding:3px 9px;border-radius:20px;border:1px solid '+sevColor(s)+';color:'+sevColor(s)+';font-weight:700;text-transform:uppercase;">'+s+': '+sev[s]+'</span>';}).join('')+
+      '</div>'
+    );
+  }
+
+  /* ---------- registration ---------- */
+  function registerView(){
+    try{
+      if(typeof MODULES==='undefined'||!MODULES.production||!MODULES.production.views)return false;
+      var vs=MODULES.production.views;
+      var has=vs.some(function(v){return v.id==='agronomics';});
+      if(!has){
+        var entry={id:'agronomics',label:'🌿 Agronomics',perm:null,
+          title:'AI plant-health diagnosis from a photo (Claude vision) — issue, severity, likely cause & recommended action. Override to correct it, write know-how rules that sharpen future calls, review history + a daily plant-health report. Nutrient actions require your approval; never auto-applied.'};
+        var hi=-1; for(var i=0;i<vs.length;i++){ if(vs[i].id==='history'){hi=i;break;} }
+        if(hi>=0)vs.splice(hi,0,entry); else vs.push(entry);
+        if(typeof currentModule!=='undefined' && currentModule==='production' && typeof renderModuleHeader==='function'){
+          try{ renderModuleHeader('production'); }catch(e){}
+        }
+      }
+      return true;
+    }catch(e){ return false; }
+  }
+
+  function hookSwitch(){
+    if(!window.switchView || window.switchView.__agroHooked) return;
+    var orig=window.switchView;
+    window.switchView=function(v){
+      var r=orig.apply(this,arguments);
+      if(v==='agronomics'){ setTimeout(function(){ renderShell(); window.__agroTab(_activeTab); },60); }
+      return r;
+    };
+    window.switchView.__agroHooked=true;
+  }
+
+  function attempt(){ registerView(); hookSwitch(); }
+  setTimeout(attempt,500);
+  setInterval(attempt,4000);
+})();
+</script>
+
 </body>
 </html>
