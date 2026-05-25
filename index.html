@@ -143170,5 +143170,180 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 
+<!-- ================================================================
+     HNX CCTV LIVE-FALLBACK PATCH  (v1)
+     Fixes: "Live CCTV Wall" tiles stuck on "connecting…" + Refresh
+     doing nothing.
+
+     WHY: each connected tile is a still-image snapshot
+        <img data-snap=".../api/frame.jpeg?src=NAME">
+     and the "connecting…" overlay only hides on the image's onload.
+     This bridge serves /api/streams fine but /api/frame.jpeg errors
+     for every camera, so onload never fires -> stuck "connecting…".
+     Refresh just re-requests the same failing snapshot.
+
+     FIX (no renderer rewrite, fully self-contained, idempotent):
+     when a tile's snapshot fails or stalls, swap that tile to the
+     LIVE go2rtc player iframe (/stream.html?src=NAME) — the same
+     reliable endpoint tap-to-fullscreen already uses. Re-runs on
+     every wall re-render (incl. Refresh) and on scroll. Throttled
+     to 4 concurrent stream starts; viewport-gated so the "All" tab
+     doesn't open 80 streams at once.
+
+     Manual controls (console):
+       window.__hnxCctvLive.kick()        // re-scan now
+       window.__hnxCctvLive.forceLive()   // upgrade ALL connected tiles immediately
+       window.__hnxCctvLive.disable()     // turn the patch off for this session
+     ================================================================ -->
+<script>
+(function(){
+  'use strict';
+  if (window.__hnxCctvLive) { try{ window.__hnxCctvLive.kick(); }catch(e){} return; }
+
+  var GRACE_MS   = 3500;   // give a snapshot this long to load before upgrading
+  var PAR        = 4;      // max concurrent stream starts
+  var SLOT_MS    = 8000;   // free a load slot after this even if iframe never fires 'load'
+  var VP_MARGIN  = 400;    // px outside viewport still counted as "near"
+  var enabled    = true;
+
+  var queue = [];          // tiles waiting to upgrade
+  var inflight = 0;
+
+  function snapToLive(snap){
+    // .../api/frame.jpeg?src=NAME[&t=..]  ->  .../stream.html?src=NAME[&t=..]
+    if(!snap) return '';
+    if(snap.indexOf('/api/frame.jpeg') < 0) return '';
+    return snap.replace('/api/frame.jpeg','/stream.html');
+  }
+  function snapOk(img){
+    try { return img.complete && img.naturalWidth > 2; } catch(e){ return false; }
+  }
+  function nearViewport(el){
+    try{
+      var r = el.getBoundingClientRect();
+      var h = window.innerHeight || document.documentElement.clientHeight;
+      return r.bottom > -VP_MARGIN && r.top < h + VP_MARGIN;
+    }catch(e){ return true; }
+  }
+
+  // Only the in-page wall (.itcctv-wall-grid). The full-screen wall
+  // (#itCctvWallBody) has its own loader and is intentionally left alone.
+  function tiles(){
+    var out = [];
+    var grids = document.querySelectorAll('.itcctv-wall-grid');
+    Array.prototype.forEach.call(grids, function(g){
+      Array.prototype.forEach.call(g.querySelectorAll('img[data-snap]'), function(img){
+        var tile = img.parentNode;
+        if(tile) out.push({ tile: tile, img: img });
+      });
+    });
+    return out;
+  }
+
+  function scan(){
+    if(!enabled) return;
+    tiles().forEach(function(j){
+      var tile = j.tile, img = j.img;
+      var st = tile.getAttribute('data-hnxlive');
+      if(st) return;                       // already handled this tile
+      tile.setAttribute('data-hnxlive','watch');
+      // upgrade immediately if the snapshot errors out
+      img.addEventListener('error', function(){ consider(tile, img, true); }, false);
+      // otherwise give it a grace window to load on its own
+      setTimeout(function(){ consider(tile, img, false); }, GRACE_MS);
+    });
+  }
+
+  function consider(tile, img, force){
+    if(!enabled) return;
+    var st = tile.getAttribute('data-hnxlive');
+    if(st === 'live' || st === 'queued') return;
+    if(!force && snapOk(img)){ tile.setAttribute('data-hnxlive','snap'); return; } // snapshot works — keep it light
+    tile.setAttribute('data-hnxlive','queued');
+    queue.push({ tile: tile, img: img });
+    pump();
+  }
+
+  function pump(){
+    if(!enabled) return;
+    var deferred = [];
+    while(inflight < PAR && queue.length){
+      var job = queue.shift();
+      if(!document.body.contains(job.tile)) continue;          // tile was re-rendered away
+      if(job.tile.getAttribute('data-hnxlive') === 'live') continue;
+      if(!nearViewport(job.tile)){ deferred.push(job); continue; } // wait until scrolled near
+      upgrade(job.tile, job.img);
+    }
+    // keep off-screen tiles waiting for a scroll
+    if(deferred.length) queue = deferred.concat(queue);
+  }
+
+  function upgrade(tile, img){
+    var snap = img.getAttribute('data-snap') || '';
+    var live = snapToLive(snap);
+    if(!live){ tile.setAttribute('data-hnxlive','snap'); return; }
+    tile.setAttribute('data-hnxlive','live');
+    img.removeAttribute('data-snap');      // stop the 4s snapshot polling for this dead endpoint
+    inflight++;
+
+    var ifr = document.createElement('iframe');
+    ifr.src = live;
+    ifr.setAttribute('allow','autoplay; fullscreen');
+    ifr.setAttribute('referrerpolicy','no-referrer');
+    ifr.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:none;background:#000;z-index:0;';
+
+    var done = false;
+    function freeSlot(){ if(done) return; done = true; inflight--; pump(); }
+    ifr.addEventListener('load', function(){
+      var off = tile.querySelector('.hnx-snap-off'); if(off) off.style.display = 'none';
+      try{ img.style.display = 'none'; }catch(e){}
+      freeSlot();
+    }, { once:true });
+    setTimeout(freeSlot, SLOT_MS);         // never deadlock a slot
+
+    // sit behind the existing label (z2) and tap-to-fullscreen overlay (z3)
+    tile.insertBefore(ifr, tile.firstChild);
+  }
+
+  // Force every connected tile to the live player right now (skip grace)
+  function forceLive(){
+    tiles().forEach(function(j){
+      var st = j.tile.getAttribute('data-hnxlive');
+      if(st === 'live') return;
+      j.tile.setAttribute('data-hnxlive','queued');
+      queue.push(j);
+    });
+    pump();
+  }
+
+  // Re-scan whenever the wall is re-rendered (Refresh / tab switch / arrange)
+  var deb;
+  function kick(){ clearTimeout(deb); deb = setTimeout(scan, 120); }
+  var pdeb;
+  function kickPump(){ clearTimeout(pdeb); pdeb = setTimeout(pump, 100); }
+
+  try{
+    var mo = new MutationObserver(function(muts){
+      for(var i=0;i<muts.length;i++){
+        if(muts[i].addedNodes && muts[i].addedNodes.length){ kick(); return; }
+      }
+    });
+    mo.observe(document.body, { childList:true, subtree:true });
+  }catch(e){}
+
+  window.addEventListener('scroll', kickPump, true);
+  window.addEventListener('resize', kickPump);
+
+  function disable(){ enabled = false; queue = []; }
+
+  window.__hnxCctvLive = { kick:kick, scan:scan, forceLive:forceLive, disable:disable };
+  // first pass (covers the wall already on screen at load)
+  kick();
+  console.log('[HNX-CCTV] live-fallback active — snapshot tiles upgrade to live player on stall/error.');
+})();
+</script>
+<!-- ================= END HNX CCTV LIVE-FALLBACK PATCH ================= -->
+
+
 </body>
 </html>
