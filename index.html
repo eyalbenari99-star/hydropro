@@ -134885,18 +134885,21 @@ body.hnx-mobile-locked { overflow: hidden; }
     `;
   };
 
-  /* IT LIVE CCTV GRID (all cameras, 3 per row, tap = full screen) */
+  /* IT LIVE CCTV GRID (all cameras, 3 per row, tap = full screen, drag to arrange) */
   window.__itCctvGrid = (function(){
     var BASE_KEY='hydroPro_cctv_base_v1';
     var STREAMS_KEY='hydroPro_camera_streams';
+    var ORDER_KEY='hydroPro_cctv_order_v1';
     var DEFAULT_BASE='https://cctv.abapardes.com.ph';
-    var _state={ filter:'all', q:'', mount:'', streams:[], detectMsg:'', connectCam:'' };
+    var _state={ filter:'all', q:'', mount:'', streams:[], detectMsg:'', connectCam:'', arrange:false, dragId:null };
 
     function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
     function getBase(){ try{ return localStorage.getItem(BASE_KEY)||DEFAULT_BASE; }catch(e){ return DEFAULT_BASE; } }
     function setBase(v){ try{ localStorage.setItem(BASE_KEY,((v||'').trim().replace(/\/+$/,''))||DEFAULT_BASE); push(); }catch(e){} }
     function loadStreams(){ try{ return JSON.parse(localStorage.getItem(STREAMS_KEY)||'{}')||{}; }catch(e){ return {}; } }
     function saveStreams(m){ try{ localStorage.setItem(STREAMS_KEY,JSON.stringify(m)); push(); }catch(e){} }
+    function loadOrder(){ try{ return JSON.parse(localStorage.getItem(ORDER_KEY)||'[]')||[]; }catch(e){ return []; } }
+    function saveOrder(a){ try{ localStorage.setItem(ORDER_KEY,JSON.stringify(a)); push(); }catch(e){} }
     function push(){ try{ if(typeof window.hnxCloudPush==='function')window.hnxCloudPush(); }catch(e){} }
     function canEdit(){ try{ return (typeof window.isAdmin!=='function')||window.isAdmin(); }catch(e){ return true; } }
     function cams(){ try{ return (window.loadCameras?window.loadCameras():[]).filter(function(c){return (c.status||'active')==='active';}); }catch(e){ return []; } }
@@ -134907,13 +134910,54 @@ body.hnx-mobile-locked { overflow: hidden; }
     }
     function nameFromUrl(u){ if(!u) return ''; var m=String(u).match(/[?&]src=([^&]+)/); if(m){ try{ return decodeURIComponent(m[1]); }catch(e){ return m[1]; } } return u; }
 
+    /* ── ordering ── */
+    function orderedIds(){ var list=cams(); var ids=list.map(function(c){return c.id;}); var saved=loadOrder(); var out=saved.filter(function(id){return ids.indexOf(id)>=0;}); ids.forEach(function(id){ if(out.indexOf(id)<0) out.push(id); }); return out; }
+    function orderCams(list){ var ord=orderedIds(); var byId={}; list.forEach(function(c){ byId[c.id]=c; }); return ord.map(function(id){return byId[id];}).filter(Boolean); }
+    function dragStart(id){ _state.dragId=id; }
+    function drop(targetId){ var id=_state.dragId; _state.dragId=null; if(!id||id===targetId) return; var order=orderedIds(); var from=order.indexOf(id); if(from<0) return; order.splice(from,1); var to=order.indexOf(targetId); if(to<0) to=order.length; order.splice(to,0,id); saveOrder(order); render(); }
+    function _shift(id,d){ var order=orderedIds(); var i=order.indexOf(id); if(i<0) return; var j=i+d; if(j<0||j>=order.length) return; var tmp=order[i]; order[i]=order[j]; order[j]=tmp; saveOrder(order); render(); }
+    function moveLeft(id){ _shift(id,-1); }
+    function moveRight(id){ _shift(id,1); }
+    function toggleArrange(){ _state.arrange=!_state.arrange; render(); }
+
     function render(bodyId){
       if(bodyId)_state.mount=bodyId;
       var body=document.getElementById(_state.mount||'hnx-it_cctv_wall-body'); if(!body) return;
       var list=cams(); var streams=loadStreams();
+      var ordered=orderCams(list);
       var connected=list.filter(function(c){return streams[c.id];}).length;
+
+      /* ===== ARRANGE MODE ===== */
+      if(_state.arrange){
+        var acards=ordered.map(function(c,idx){
+          var on=!!streams[c.id]; var loc=esc(c.location||c.name||c.id);
+          return '<div draggable="true" ondragstart="window.__itCctvGrid.dragStart(\''+c.id+'\')" ondragover="event.preventDefault()" ondrop="window.__itCctvGrid.drop(\''+c.id+'\')" '+
+            'style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;text-align:center;padding:10px;background:#0c1713;border:2px dashed '+(on?'#66bb6a':'#3a5446')+';border-radius:10px;cursor:move;aspect-ratio:16/9;">'+
+            '<div style="font-size:10px;color:#7aa99a;font-family:monospace;">#'+(idx+1)+'</div>'+
+            '<div style="font-size:13px;font-weight:800;color:#e8f5e9;line-height:1.2;">\u283F '+loc+'</div>'+
+            '<div style="font-size:9px;color:'+(on?'#9ccc65':'#5b7d70')+';font-family:monospace;">'+(on?'\uD83D\uDFE2 connected':'\u26AA not connected')+'</div>'+
+            '<div style="display:flex;gap:6px;margin-top:3px;">'+
+              '<button onclick="event.stopPropagation();window.__itCctvGrid.moveLeft(\''+c.id+'\')" style="width:32px;height:28px;border-radius:6px;border:1px solid #2a4438;background:#0a120d;color:#9fc7bb;font-size:12px;cursor:pointer;">\u25C0</button>'+
+              '<button onclick="event.stopPropagation();window.__itCctvGrid.moveRight(\''+c.id+'\')" style="width:32px;height:28px;border-radius:6px;border:1px solid #2a4438;background:#0a120d;color:#9fc7bb;font-size:12px;cursor:pointer;">\u25B6</button>'+
+            '</div>'+
+          '</div>';
+        }).join('');
+        body.innerHTML=
+          '<div style="padding:14px 18px 4px;">'+
+            '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'+
+              '<div style="font-size:18px;font-weight:800;color:#e8f5e9;">\uD83D\uDD00 Arrange cameras</div>'+
+              '<div style="flex:1;"></div>'+
+              '<button onclick="window.__itCctvGrid.toggleArrange()" style="padding:7px 16px;border:none;background:#1f6f43;color:#fff;border-radius:7px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">\u2713 Done</button>'+
+            '</div>'+
+            '<div style="font-size:11px;color:#9fc7bb;margin-top:8px;line-height:1.5;">Drag a camera to where you want it on the line (or use \u25C0 \u25B6 to nudge it). The order is saved and used on the live wall. Tap <b>Done</b> when finished.</div>'+
+          '</div>'+
+          '<div style="padding:14px 18px 28px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;">'+(acards||'<div style="grid-column:1/-1;text-align:center;color:#5b7d70;padding:30px;font-family:monospace;">No cameras.</div>')+'</div>';
+        return;
+      }
+
+      /* ===== NORMAL MODE ===== */
       var q=(_state.q||'').toLowerCase();
-      var shown=list.filter(function(c){
+      var shown=ordered.filter(function(c){
         var on=!!streams[c.id];
         if(_state.filter==='on'&&!on) return false;
         if(_state.filter==='off'&&on) return false;
@@ -134962,6 +135006,7 @@ body.hnx-mobile-locked { overflow: hidden; }
             '<div style="flex:1;"></div>'+
             '<button onclick="window.__itCctvGrid.autoConnect()" style="padding:6px 12px;border-radius:6px;border:none;background:linear-gradient(135deg,#66bb6a,#1f6f43);color:#fff;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">\u26A1 Auto-connect all</button>'+
             '<button onclick="window.__itCctvGrid.detect()" style="padding:6px 12px;border-radius:6px;border:1px solid #4dd0e1;background:rgba(77,208,225,.08);color:#4dd0e1;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">\uD83D\uDD0D Detect streams'+(_state.streams.length?(' ('+_state.streams.length+')'):'')+'</button>'+
+            '<button onclick="window.__itCctvGrid.toggleArrange()" style="padding:6px 12px;border-radius:6px;border:1px solid #ffca52;background:rgba(255,202,82,.08);color:#ffca52;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">\uD83D\uDD00 Arrange</button>'+
             '<button onclick="window.__itCctvGrid.render()" style="padding:6px 12px;border-radius:6px;border:1px solid rgba(120,160,140,.4);background:transparent;color:#9fc7bb;font-size:12px;cursor:pointer;font-family:inherit;">\u21BB Refresh</button>'+
           '</div>'+
           (canEdit()?(
@@ -134990,7 +135035,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     function _camTokens(camId){ var c=cams().filter(function(x){return x.id===camId;})[0]; var s=(((c&&c.location)||'')+' '+((c&&c.name)||'')).toLowerCase(); return s.replace(/[^a-z0-9]+/g,' ').trim().split(/\s+/).filter(Boolean); }
     function _scoreStream(name, tokens){ var n=String(name).toLowerCase(); var sc=0; tokens.forEach(function(t){ if(t.length>1 && n.indexOf(t)>=0) sc+=t.length; }); return sc; }
 
-    /* ── connect modal (pick a detected stream or type one) ── */
+    /* ── connect modal ── */
     function connect(camId){
       if(!canEdit()) return;
       _state.connectCam=camId;
@@ -135041,6 +135086,8 @@ body.hnx-mobile-locked { overflow: hidden; }
     }
     function manualAssign(){ var el=document.getElementById('itCctvManual'); assign(_state.connectCam, el?el.value:''); }
     function closeConnect(){ var o=document.getElementById('itCctvConnectModal'); if(o)o.remove(); }
+
+    /* ── detect + auto-connect ── */
     function _fetchStreams(){
       var base=getBase();
       _state.detectMsg='Checking the bridge\u2026';
@@ -135100,7 +135147,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     function _escClose(e){ if(e.key==='Escape'){ closeFull(); closeConnect(); } }
     function closeFull(){ var o=document.getElementById('itCctvFull'); if(o)o.remove(); document.removeEventListener('keydown',_escClose); }
 
-    return { render:render, setFilter:setFilter, search:search, saveBase:saveBase, connect:connect, detect:detect, autoConnect:autoConnect, assign:assign, manualAssign:manualAssign, closeConnect:closeConnect, full:full, closeFull:closeFull };
+    return { render:render, setFilter:setFilter, search:search, saveBase:saveBase, connect:connect, detect:detect, autoConnect:autoConnect, assign:assign, manualAssign:manualAssign, closeConnect:closeConnect, full:full, closeFull:closeFull, toggleArrange:toggleArrange, dragStart:dragStart, drop:drop, moveLeft:moveLeft, moveRight:moveRight };
   })();
 
   // ── Build-queue placeholders for views not yet built ──
