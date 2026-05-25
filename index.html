@@ -60113,15 +60113,43 @@ function renderCRM(){
   if(!el)return;
 
   if(_crmSelLead){
-    renderCRMLeadDetail(target);
+    try{ renderCRMLeadDetail(target); }
+    catch(err){ _crmRenderFallback(el,'Lead detail',err); }
     return;
   }
 
-  if(_crmTab==='dashboard')renderCRMDashboard(target);
-  else if(_crmTab==='leads')renderCRMLeadsList(target);
-  else if(_crmTab==='customers')renderCRMCustomersList(target);
-  else if(_crmTab==='marketing')renderCRMMarketingPage(target);
-  else if(_crmTab==='pipeline')renderCRMPipelinePage(target);
+  // v2.46.258 — render guard: a thrown error must never leave a blank black panel
+  try{
+    if(_crmTab==='dashboard')renderCRMDashboard(target);
+    else if(_crmTab==='leads')renderCRMLeadsList(target);
+    else if(_crmTab==='customers')renderCRMCustomersList(target);
+    else if(_crmTab==='marketing')renderCRMMarketingPage(target);
+    else if(_crmTab==='pipeline')renderCRMPipelinePage(target);
+  }catch(err){
+    _crmRenderFallback(el, _crmTab, err);
+  }
+}
+
+// v2.46.258 — CRM render fallback: replaces the old silent-blank behaviour with a
+// usable panel that shows the real error (also logged to console) + recovery actions.
+function _crmRenderFallback(el, tabName, err){
+  try{ console.error('[CRM render error]', tabName, err); }catch(_){}
+  var raw=(err&&(err.message||String(err)))||'Unknown error';
+  var safe=String(raw).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  var label=String(tabName||'view'); label=label.charAt(0).toUpperCase()+label.slice(1);
+  el.innerHTML=
+    '<div style="padding:24px;max-width:640px;margin:0 auto;">'+
+      '<div class="section-title">🤝 CRM — '+label+'</div>'+
+      '<div style="background:var(--surface2,#11201a);border:1px solid var(--border,#1f3a2e);border-left:4px solid var(--warn,#e0a800);border-radius:10px;padding:18px 20px;margin-top:14px;color:var(--text,#cfe);">'+
+        '<div style="font-weight:700;font-size:14px;margin-bottom:6px;">This view hit a snag while loading.</div>'+
+        '<div style="font-size:12.5px;color:var(--text2,#9fb8ad);line-height:1.5;">Your CRM records are safe — this is usually a one-off render error. Tap Retry. The new <b>🆕 Customer Master</b> view (further down this menu) runs independently and is unaffected.</div>'+
+        '<div style="font-family:var(--mono,monospace);font-size:11px;color:var(--text3,#6f897d);margin-top:10px;word-break:break-word;">'+safe+'</div>'+
+        '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">'+
+          '<button onclick="try{renderCRM()}catch(e){location.reload()}" style="padding:8px 14px;background:var(--accent,#2ea36b);color:#fff;border:none;border-radius:7px;font-size:13px;cursor:pointer;">↻ Retry</button>'+
+          '<button onclick="switchView(\'crm_master\')" style="padding:8px 14px;background:var(--surface,#0d1814);color:var(--text,#cfe);border:1px solid var(--border,#1f3a2e);border-radius:7px;font-size:13px;cursor:pointer;">Open Customer Master →</button>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
 }
 
 // ============================================================
@@ -71103,7 +71131,7 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.257-loop-fix';  // 🔧 v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
+const APP_VERSION='2.46.259-crm-nav';  // 🔧 v2.46.259 — CRM views now DISCOVERABLE: injected sub-tabs (🆕 Customer Master, 📁 Customer 360° Files, 📊 Customer Matrix, 📞 Open Issues) were created with class 'nav-tab' but the view-picker dropdown only lists '.module-sub-tab' — so they were loaded but invisible in the menu. Now created as 'module-sub-tab' with modTab- ids → they appear in the dropdown + are searchable. ▸ v2.46.258 — (1) CRM render guard: Overview/Leads/etc. can never blank to black again — any render error now shows a recovery panel with Retry + the real error message (logged to console). (2) CCTV live wall lazy-loads via IntersectionObserver: only on-screen cameras stream (300px preload margin; off-screen tiles unload to about:blank), eliminating the slow open + layout jump with ~60 cameras. ▸ prev v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
 const APP_BUILD=1779820000;
 const APP_BUILD_DATE='2026-05-15';
 
@@ -85148,12 +85176,13 @@ function injectExtraSubTabs(){
   const extras=EXTRA_SUBTABS[activeMod]||[];
   extras.forEach(t=>{
     const btn=document.createElement('button');
-    btn.className='nav-tab injected-subtab';
+    btn.className='module-sub-tab injected-subtab';   // v2.46.258 — match base class so the view-picker dropdown lists it
+    btn.id='modTab-'+t.id;                             // v2.46.258 — enables picker routing + active-state highlight
     btn.setAttribute('data-view',t.id);
     btn.textContent=t.label;
     btn.onclick=function(){
       if(typeof switchView==='function')switchView(t.id);
-      subTabs.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
+      subTabs.querySelectorAll('.module-sub-tab').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
     };
     subTabs.appendChild(btn);
@@ -85163,14 +85192,14 @@ function injectExtraSubTabs(){
   if(activeMod && activeMod!=='admin'){
     const openCalls=loadCalls().filter(c=>!isCallClosed(c)&&_callMatchesModule(c,activeMod));
     const btn=document.createElement('button');
-    btn.className='nav-tab injected-subtab';
+    btn.className='module-sub-tab injected-subtab';   // v2.46.258 — show in view-picker (routes via fallback click)
     btn.setAttribute('data-view','my_calls_'+activeMod);
     btn.innerHTML=`📞 Open Issues${openCalls.length?` <span style="font-family:var(--mono);font-size:9px;background:var(--warn);color:#000;padding:1px 6px;border-radius:8px;margin-left:4px;">${openCalls.length}</span>`:''}`;
     btn.title='Open calls + issues raised from this module';
     btn.onclick=function(){
       _myCallsModuleFilter=activeMod;  // remember which module's calls to show
       if(typeof switchView==='function')switchView('my_calls');
-      subTabs.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
+      subTabs.querySelectorAll('.module-sub-tab').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
     };
     subTabs.appendChild(btn);
@@ -103164,7 +103193,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p124-irrlive';
+        vEl.textContent = orig + ' · HNX v2.86-p126-crmnav';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -133898,7 +133927,7 @@ body.hnx-mobile-locked { overflow: hidden; }
       let bumped = 0;
       candidates.forEach(el => {
         if (el && el.textContent && /HNX v[\d.\w-]+/.test(el.textContent)) {
-          el.textContent = el.textContent.replace(/HNX v[\d.\w-]+/, 'HNX v2.86-p124-irrlive');
+          el.textContent = el.textContent.replace(/HNX v[\d.\w-]+/, 'HNX v2.86-p126-crmnav');
           bumped++;
         }
       });
@@ -135059,7 +135088,8 @@ body.hnx-mobile-locked { overflow: hidden; }
         var gear=canEdit()?'<button onclick="event.stopPropagation();window.__itCctvGrid.connect(\''+c.id+'\')" title="Set / change stream" style="position:absolute;top:6px;right:6px;z-index:4;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;width:26px;height:26px;font-size:13px;cursor:pointer;">\u2699</button>':'';
         if(url){
           return '<div style="position:relative;background:#000;border:1px solid #1f3a30;border-radius:10px;overflow:hidden;aspect-ratio:16/9;">'+
-            '<iframe src="'+esc(url)+'" loading="lazy" allow="autoplay; fullscreen" style="position:absolute;inset:0;width:100%;height:100%;border:none;"></iframe>'+
+            '<iframe data-cctv-src="'+esc(url)+'" allow="autoplay; fullscreen" style="position:absolute;inset:0;width:100%;height:100%;border:none;background:#000;"></iframe>'+
+            '<div class="hnx-cctv-ph" style="position:absolute;inset:0;z-index:1;display:flex;align-items:center;justify-content:center;background:#0c1713;color:#3a5446;font-size:24px;pointer-events:none;">\uD83D\uDCF7</div>'+
             '<div onclick="window.__itCctvGrid.full(\''+c.id+'\')" title="Tap for full screen" style="position:absolute;inset:0;z-index:3;cursor:pointer;background:transparent;"></div>'+
             gear+
             '<div style="position:absolute;left:0;right:0;bottom:0;z-index:2;background:linear-gradient(0deg,rgba(0,0,0,.78),transparent);padding:14px 8px 6px;pointer-events:none;">'+
@@ -135106,6 +135136,54 @@ body.hnx-mobile-locked { overflow: hidden; }
         '<div class="itcctv-wall-grid" style="padding:14px 18px 28px;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;">'+
           (tiles||'<div style="grid-column:1/-1;text-align:center;color:#5b7d70;font-size:12px;padding:30px;font-family:monospace;">No cameras match.</div>')+
         '</div>';
+      _cctvLazyInit(body);
+    }
+
+    /* v2.46.258 — CCTV lazy-load: only stream the cameras actually on screen.
+       Tiles render as 16:9 placeholders (no layout jump); the iframe src is
+       injected when a tile scrolls into view and unloaded when it leaves,
+       so ~60 cameras no longer all connect at once on open. */
+    function _cctvLazyInit(body){
+      try{
+        if(_state._io){ try{ _state._io.disconnect(); }catch(e){} _state._io=null; }
+        if(!body) body=document.getElementById(_state.mount||'hnx-it_cctv_wall-body');
+        if(!body) return;
+        var frames=body.querySelectorAll('iframe[data-cctv-src]');
+        if(!frames.length) return;
+        if(!('IntersectionObserver' in window)){
+          Array.prototype.forEach.call(frames,function(f){
+            if(f.getAttribute('data-loaded')!=='1'){ f.setAttribute('data-loaded','1'); f.src=f.getAttribute('data-cctv-src'); var ph=f.parentNode&&f.parentNode.querySelector('.hnx-cctv-ph'); if(ph)ph.style.display='none'; }
+          });
+          return;
+        }
+        var io=new IntersectionObserver(function(entries){
+          entries.forEach(function(en){
+            var f=en.target;
+            var ph=f.parentNode&&f.parentNode.querySelector('.hnx-cctv-ph');
+            if(en.isIntersecting){
+              if(f.getAttribute('data-loaded')!=='1'){
+                f.setAttribute('data-loaded','1');
+                f.src=f.getAttribute('data-cctv-src');
+                if(ph){ ph.innerHTML='<span style="opacity:.7;font-size:10px;font-family:monospace;color:#7aa99a;">\u2026</span>'; }
+                var hide=function(){ if(ph)ph.style.display='none'; };
+                f.addEventListener('load',hide,{once:true});
+                setTimeout(hide,900);
+              }
+            } else {
+              if(f.getAttribute('data-loaded')==='1'){
+                f.removeAttribute('data-loaded');
+                try{ f.src='about:blank'; }catch(e){}
+                if(ph){ ph.style.display='flex'; ph.innerHTML='\uD83D\uDCF7'; }
+              }
+            }
+          });
+        },{ root:null, rootMargin:'300px 0px', threshold:0.01 });
+        Array.prototype.forEach.call(frames,function(f){ io.observe(f); });
+        _state._io=io;
+      }catch(e){ try{ console.warn('[cctv lazy] init failed',e); }catch(_){}
+        // Safe fallback: load all so cameras are never permanently blank
+        try{ var fr=(body||document).querySelectorAll('iframe[data-cctv-src]'); Array.prototype.forEach.call(fr,function(f){ if(f.getAttribute('data-loaded')!=='1'){ f.setAttribute('data-loaded','1'); f.src=f.getAttribute('data-cctv-src'); } }); }catch(_){}
+      }
     }
 
     function setFilter(f){ _state.filter=f; render(); }
