@@ -60942,9 +60942,32 @@ function _qbDetailOverview(c, parts){
   const company   = c.CompanyName || '—';
   const isJob     = c.Job === true ? 'Yes (sub-customer)' : 'No';
   const parentRef = c.ParentRef && c.ParentRef.name ? c.ParentRef.name : (c.ParentRef && c.ParentRef.value ? c.ParentRef.value : '—');
+  // Price list assignment (segment default ⇄ supervisor override) — v2.46.267
+  const _plEff   = (typeof _custEffectivePL==='function') ? _custEffectivePL(c) : {pl:null,source:'base',segId:'retail'};
+  const _plLists = (typeof _pl_load==='function') ? _pl_load() : [];
+  const _plSegNm = (CRM_SEGMENTS.find(s=>s.id===_plEff.segId)||{name:_plEff.segId}).name;
+  const _plEffNm = _plEff.pl ? _plEff.pl.name : 'Base / default prices';
+  const _plSrc   = _plEff.source==='override' ? '⭐ Custom (set by CRM supervisor)' : _plEff.source==='segment' ? ('🏷️ '+_plSegNm+' default') : 'Base prices — no list assigned';
+  const _plCan   = (typeof _crmCanSetPricing==='function') && _crmCanSetPricing();
+  const _plOvId  = ((typeof _custPL_load==='function')?_custPL_load():{})[String(c.Id||'')]||'';
+  let _plCtrl;
+  if(_plCan){
+    const _plOpts = '<option value="">Use '+_plSegNm+' default</option>'+_plLists.map(p=>`<option value="${p.id}" ${p.id===_plOvId?'selected':''}>${(p.name||'(unnamed)')}</option>`).join('');
+    _plCtrl = `<select onchange="_custSetPLUI('${c.Id}',this.value)" style="width:100%;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text1);font-size:12px;margin-top:8px;">${_plOpts}</select>`+(_plEff.pl?`<button class="btn btn-outline" style="font-size:10px;padding:4px 8px;margin-top:8px;" onclick="pricelistOpen('${_plEff.pl.id}')">📋 Open this list</button>`:'');
+  } else {
+    _plCtrl = `<div style="font-size:10.5px;color:var(--text3);margin-top:8px;font-style:italic;">Only a CRM supervisor can change this customer's price list.</div>`+(_plEff.pl?`<button class="btn btn-outline" style="font-size:10px;padding:4px 8px;margin-top:8px;" onclick="pricelistOpen('${_plEff.pl.id}')">📋 View list</button>`:'');
+  }
+  const priceCard = `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--gold);border-radius:10px;padding:14px 16px;">
+    <div style="font-size:11px;color:var(--text3);letter-spacing:1.5px;margin-bottom:10px;font-family:var(--mono);">💰 PRICE LIST</div>
+    ${_qbKV('Customer type', _plSegNm)}
+    ${_qbKV('Effective list', '<strong>'+_plEffNm+'</strong>')}
+    ${_qbKV('Source', _plSrc)}
+    ${_plCtrl}
+  </div>`;
 
   return `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;">
+      ${priceCard}
       <!-- CONTACT -->
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
         <div style="font-size:11px;color:var(--text3);letter-spacing:1.5px;margin-bottom:10px;font-family:var(--mono);">📞 CONTACT</div>
@@ -62208,6 +62231,7 @@ const CRM_SEGMENTS=[
   {id:'hotels',     name:'Hotels',                multiplier:1.00, color:'#ab47bc'},
   {id:'restaurants',name:'Restaurants',           multiplier:1.00, color:'#ff7043'},
   {id:'supermarkets',name:'Supermarkets',         multiplier:0.90, color:'#26a69a'},
+  {id:'distributors',name:'Distributors / Wholesale', multiplier:0.85, color:'#5c6bc0'},
   {id:'retail',     name:'Retail / Walk-in',      multiplier:1.15, color:'#ffa726'}
 ];
 
@@ -62347,6 +62371,25 @@ function catalogReloadOfficialPhotos(){
 function _cat_save(arr){try{localStorage.setItem(CRM_CATALOG_KEY,JSON.stringify(arr));}catch(e){}}
 function _pl_load(){try{return JSON.parse(localStorage.getItem(CRM_PRICELISTS_KEY)||'[]');}catch(e){return [];}}
 function _pl_save(arr){try{localStorage.setItem(CRM_PRICELISTS_KEY,JSON.stringify(arr));}catch(e){}}
+/* ── Price list ⇄ segment / customer wiring (v2.46.267) ──
+   Segment default: each customer TYPE (hotels, restaurants, supermarkets,
+   online, distributors, retail) can have a default price list. Each customer
+   inherits their type's default UNLESS a CRM supervisor sets a per-customer
+   override. Operators cannot change pricing. */
+const CRM_SEG_DEFAULT_KEY='hydroPro_crm_seg_default_pl';
+const CRM_CUST_PL_KEY='hydroPro_crm_cust_pl';
+function _segDefault_load(){try{return JSON.parse(localStorage.getItem(CRM_SEG_DEFAULT_KEY)||'{}');}catch(e){return {};}}
+function _segDefault_save(o){try{localStorage.setItem(CRM_SEG_DEFAULT_KEY,JSON.stringify(o));}catch(e){}}
+function _custPL_load(){try{return JSON.parse(localStorage.getItem(CRM_CUST_PL_KEY)||'{}');}catch(e){return {};}}
+function _custPL_save(o){try{localStorage.setItem(CRM_CUST_PL_KEY,JSON.stringify(o));}catch(e){}}
+function _crmCanSetPricing(){try{var u=(typeof getCurrentUser==='function')?getCurrentUser():null;return !!(u&&(u.role==='admin'||u.role==='admin_secondary'||u.role==='supervisor'));}catch(e){return false;}}
+function _segKeyToPricing(key){switch(key){case 'hotels':case 'resorts':return 'hotels';case 'restaurants':case 'cafes':return 'restaurants';case 'supermarkets':return 'supermarkets';case 'online':return 'online';case 'distributors':return 'distributors';default:return 'retail';}}
+function _custPricingSeg(c){try{var n=((c.DisplayName||'')+' '+(c.CompanyName||'')+' '+(c.FullyQualifiedName||'')).toLowerCase();if(/super\s*market|grocer|hypermart|s&r|landers|robinsons|puregold|mart\b/.test(n))return 'supermarkets';if(/online|e-?commerce|shopee|lazada|\.com\b/.test(n))return 'online';if(/distrib|wholesale|trading|importer|reseller|supply/.test(n))return 'distributors';return _segKeyToPricing(_qbInferSegment(c).key);}catch(e){return 'retail';}}
+function _custEffectivePL(c){var lists=_pl_load();var ov=_custPL_load();var segd=_segDefault_load();var cid=String((c&&c.Id)||'');var p;if(ov[cid]){p=lists.find(function(x){return x.id===ov[cid];});if(p)return {pl:p,source:'override',segId:_custPricingSeg(c)};}var seg=_custPricingSeg(c);if(segd[seg]){p=lists.find(function(x){return x.id===segd[seg];});if(p)return {pl:p,source:'segment',segId:seg};}return {pl:null,source:'base',segId:seg};}
+function _custSetPL(cid,plId){if(!_crmCanSetPricing()){if(typeof showToast==='function')showToast('Only a CRM supervisor can change a customer\'s price list','warn');return false;}var ov=_custPL_load();if(plId){ov[String(cid)]=plId;}else{delete ov[String(cid)];}_custPL_save(ov);return true;}
+function _segSetDefault(segId,plId){if(!_crmCanSetPricing()){if(typeof showToast==='function')showToast('Only a CRM supervisor can set type default price lists','warn');return false;}var d=_segDefault_load();if(plId){d[segId]=plId;}else{delete d[segId];}_segDefault_save(d);return true;}
+function _plSetSegDefaultUI(segId,val){_segSetDefault(segId,val||'');if(typeof renderCRMCatalog==='function')renderCRMCatalog();}
+function _custSetPLUI(cid,val){if(_custSetPL(cid,val||'')&&typeof showToast==='function')showToast('Customer price list updated','ok');if(typeof _qbRenderInner==='function')_qbRenderInner({ok:true,data:_qbCache.lastList,cached:true});}
 
 let _catView='catalog';
 let _catFilter={variety:'all',availability:'all',search:''};
@@ -62480,6 +62523,23 @@ function _renderPricelistsTab(){
     <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.6;">
       <strong>📋 Custom price lists</strong> per customer or segment. Build a tailored list, attach to a customer, print a professional branded PDF.
     </div>
+    ${(function(){
+      var segd=_segDefault_load(); var canPx=_crmCanSetPricing();
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:14px;">'+
+        '<div style="font-size:12px;font-weight:700;color:var(--text1);margin-bottom:4px;">🏷️ Default price list per customer type</div>'+
+        '<div style="font-size:11px;color:var(--text3);margin-bottom:12px;">Each customer automatically gets their type\'s default list, unless a CRM supervisor sets a custom one on the customer. '+(canPx?'':'<span style="color:var(--warn);">View-only — only a CRM supervisor can change these.</span>')+'</div>'+
+        '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;">'+
+        CRM_SEGMENTS.map(function(s){
+          var cur=segd[s.id]||''; var curName=(lists.find(function(p){return p.id===cur;})||{}).name;
+          if(canPx){
+            var opts='<option value="">— base prices —</option>'+lists.map(function(p){return '<option value="'+p.id+'" '+(p.id===cur?'selected':'')+'>'+(p.name||'(unnamed)')+'</option>';}).join('');
+            return '<div style="border:1px solid var(--border);border-left:3px solid '+s.color+';border-radius:8px;padding:10px;"><div style="font-size:12px;font-weight:700;color:'+s.color+';margin-bottom:6px;">'+s.name+'</div><select onchange="_plSetSegDefaultUI(\''+s.id+'\',this.value)" style="width:100%;padding:7px 9px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text1);font-size:12px;">'+opts+'</select></div>';
+          } else {
+            return '<div style="border:1px solid var(--border);border-left:3px solid '+s.color+';border-radius:8px;padding:10px;"><div style="font-size:12px;font-weight:700;color:'+s.color+';margin-bottom:4px;">'+s.name+'</div><div style="font-size:12px;color:var(--text2);">'+(curName?('📋 '+curName):'<span style="color:var(--text3);">base prices</span>')+'</div></div>';
+          }
+        }).join('')+
+        '</div></div>';
+    })()}
     <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
       <button class="btn btn-primary" onclick="pricelistNew()">+ New Price List</button>
       <button class="btn btn-outline" onclick="pricelistFromSegment()">📑 Generate from Segment</button>
@@ -71168,7 +71228,7 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.266-crm-modes';  // 🎨 v2.46.266 — CRM customer MODES (visual framework): each customer's avatar ball is now colored by mode + a 🎨 Mode dropdown filters the directory + a colored-dot legend with live counts. Modes: 🆕 New (created <30d), ⚪ Not Active (QBO inactive), 🔘 Uncategorized (active, cadence unknown). 🟢 Fully Active / 🔵 Active / 😴 Sleepy are DEFINED + colored + in the dropdown but show 0 / 'needs orders' until a per-customer order-date feed is wired (TODO in _qbCustModeId). Lead-by-status already lives in the Leads/Pipeline tabs. ▸ v2.46.265-cctv-snapshots —   // 🔧 v2.46.265 — BIG PERF FIX: wall tiles are now lightweight auto-refreshing SNAPSHOTS (go2rtc /api/frame.jpeg, refreshed every 4s) instead of full WebRTC player iframes — so 22/81 cameras load near-instantly at almost no CPU. LIVE video only on tap: normal wall tap→full() live, fullscreen Spotlight big tile = live, Grid + Spotlight-small tiles = snapshots. Dead streams show a clean offline tile (no retry storm). Snapshots pause when tab hidden / scope to the visible wall. ▸ v2.46.264-cctv-mosaic —   // 🔧 v2.46.264 — full-screen '🎯 1 Big + around' is now a real MOSAIC: one big tile (spans 2x2) with the rest sized small AROUND it, filling the screen (no side strip). Tap ANY camera (in Grid or Mosaic) to make it the big one — the choice is remembered per area (hydroPro_cctv_spot_v1). '📐 Grid' = all equal size. Big choice resets sensibly when you switch area tabs. ▸ v2.46.263-arrange-area —   // 🔧 v2.46.263 — ARRANGE is now PER-AREA: it only shows the cameras in the area tab you're on (not all 81), the area tabs appear inside Arrange so you can switch which screen you're organizing, and ◀▶ nudge a camera within its own area. Adjust one screen at a time. ▸ v2.46.262-cctv-stagger —   // 🔧 v2.46.262 — NORMAL CCTV wall now THROTTLES stream loading: instead of connecting every visible camera on the same frame (which froze the 22-cam Greenhouses tab), it opens max 4 streams at a time and starts the next as each finishes/​times-out — so big area tabs ramp up smoothly. Off-screen tiles still unload. (Stagger already applied to the fullscreen wall in p128.) ▸ v2.46.261-cctv-wall —   // 🔧 v2.46.261 — CCTV FULL-SCREEN VIDEO WALL: new ⛶ Full Screen button opens an edge-to-edge fullscreen wall (browser fullscreen API, no app chrome) for the current area tab. Two layouts with a toggle — 📐 Grid (auto-fits cameras to fill the screen, best rows×cols, no scroll) and 🎯 Spotlight (one big live feed + thumbnail strip; tap a thumb to swap into the big slot). Area tabs + Esc/Exit inside. Streams stagger-load (3 at a time) so it never opens dozens at once; spotlight runs only the big feed live. Normal wall's streams are paused while fullscreen is open. ▸ v2.46.260-cctv-areas —   // 🔧 v2.46.260 — CCTV LIVE WALL split into 8 AREA TABS (🌱 Greenhouses · 🛡 GH Perimeter · 🛡 Perimeter & Gates · 💧 Fertigation · 📦 Packaging & Logistics · 🏗 Project 11 · 🏢 Office & Admin · 📍 Security & Other) per ES BA's corrected mapping (CAM_AREA). Wall opens on ONE tab (remembered in hydroPro_cctv_area_v1), so it never loads all 81 at once; lazy-load stays underneath. Tap 📺 All to load everything (heaviest). ▸ v2.46.259-crm-nav —   // 🔧 v2.46.259 — CRM views now DISCOVERABLE: injected sub-tabs (🆕 Customer Master, 📁 Customer 360° Files, 📊 Customer Matrix, 📞 Open Issues) were created with class 'nav-tab' but the view-picker dropdown only lists '.module-sub-tab' — so they were loaded but invisible in the menu. Now created as 'module-sub-tab' with modTab- ids → they appear in the dropdown + are searchable. ▸ v2.46.258 — (1) CRM render guard: Overview/Leads/etc. can never blank to black again — any render error now shows a recovery panel with Retry + the real error message (logged to console). (2) CCTV live wall lazy-loads via IntersectionObserver: only on-screen cameras stream (300px preload margin; off-screen tiles unload to about:blank), eliminating the slow open + layout jump with ~60 cameras. ▸ prev v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
+const APP_VERSION='2.46.267-pricelists';  // 💰 v2.46.267 — PRICE LISTS tied to customer types + per-customer default: added 'Distributors / Wholesale' segment; Custom Price Lists tab now has a '🏷️ Default price list per customer type' panel (hotels/restaurants/supermarkets/online/distributors/retail each pick a default list); each QBO customer's detail shows a 💰 PRICE LIST card with its effective list (override → type default → base prices). Changing a type default OR a customer's list is gated to CRM supervisors (admin/admin_secondary/supervisor) — operators see it read-only. Keys: hydroPro_crm_seg_default_pl, hydroPro_crm_cust_pl. '+ New Price List' & 'Generate from Segment' unchanged. ▸ v2.46.266-crm-modes —   // 🎨 v2.46.266 — CRM customer MODES (visual framework): each customer's avatar ball is now colored by mode + a 🎨 Mode dropdown filters the directory + a colored-dot legend with live counts. Modes: 🆕 New (created <30d), ⚪ Not Active (QBO inactive), 🔘 Uncategorized (active, cadence unknown). 🟢 Fully Active / 🔵 Active / 😴 Sleepy are DEFINED + colored + in the dropdown but show 0 / 'needs orders' until a per-customer order-date feed is wired (TODO in _qbCustModeId). Lead-by-status already lives in the Leads/Pipeline tabs. ▸ v2.46.265-cctv-snapshots —   // 🔧 v2.46.265 — BIG PERF FIX: wall tiles are now lightweight auto-refreshing SNAPSHOTS (go2rtc /api/frame.jpeg, refreshed every 4s) instead of full WebRTC player iframes — so 22/81 cameras load near-instantly at almost no CPU. LIVE video only on tap: normal wall tap→full() live, fullscreen Spotlight big tile = live, Grid + Spotlight-small tiles = snapshots. Dead streams show a clean offline tile (no retry storm). Snapshots pause when tab hidden / scope to the visible wall. ▸ v2.46.264-cctv-mosaic —   // 🔧 v2.46.264 — full-screen '🎯 1 Big + around' is now a real MOSAIC: one big tile (spans 2x2) with the rest sized small AROUND it, filling the screen (no side strip). Tap ANY camera (in Grid or Mosaic) to make it the big one — the choice is remembered per area (hydroPro_cctv_spot_v1). '📐 Grid' = all equal size. Big choice resets sensibly when you switch area tabs. ▸ v2.46.263-arrange-area —   // 🔧 v2.46.263 — ARRANGE is now PER-AREA: it only shows the cameras in the area tab you're on (not all 81), the area tabs appear inside Arrange so you can switch which screen you're organizing, and ◀▶ nudge a camera within its own area. Adjust one screen at a time. ▸ v2.46.262-cctv-stagger —   // 🔧 v2.46.262 — NORMAL CCTV wall now THROTTLES stream loading: instead of connecting every visible camera on the same frame (which froze the 22-cam Greenhouses tab), it opens max 4 streams at a time and starts the next as each finishes/​times-out — so big area tabs ramp up smoothly. Off-screen tiles still unload. (Stagger already applied to the fullscreen wall in p128.) ▸ v2.46.261-cctv-wall —   // 🔧 v2.46.261 — CCTV FULL-SCREEN VIDEO WALL: new ⛶ Full Screen button opens an edge-to-edge fullscreen wall (browser fullscreen API, no app chrome) for the current area tab. Two layouts with a toggle — 📐 Grid (auto-fits cameras to fill the screen, best rows×cols, no scroll) and 🎯 Spotlight (one big live feed + thumbnail strip; tap a thumb to swap into the big slot). Area tabs + Esc/Exit inside. Streams stagger-load (3 at a time) so it never opens dozens at once; spotlight runs only the big feed live. Normal wall's streams are paused while fullscreen is open. ▸ v2.46.260-cctv-areas —   // 🔧 v2.46.260 — CCTV LIVE WALL split into 8 AREA TABS (🌱 Greenhouses · 🛡 GH Perimeter · 🛡 Perimeter & Gates · 💧 Fertigation · 📦 Packaging & Logistics · 🏗 Project 11 · 🏢 Office & Admin · 📍 Security & Other) per ES BA's corrected mapping (CAM_AREA). Wall opens on ONE tab (remembered in hydroPro_cctv_area_v1), so it never loads all 81 at once; lazy-load stays underneath. Tap 📺 All to load everything (heaviest). ▸ v2.46.259-crm-nav —   // 🔧 v2.46.259 — CRM views now DISCOVERABLE: injected sub-tabs (🆕 Customer Master, 📁 Customer 360° Files, 📊 Customer Matrix, 📞 Open Issues) were created with class 'nav-tab' but the view-picker dropdown only lists '.module-sub-tab' — so they were loaded but invisible in the menu. Now created as 'module-sub-tab' with modTab- ids → they appear in the dropdown + are searchable. ▸ v2.46.258 — (1) CRM render guard: Overview/Leads/etc. can never blank to black again — any render error now shows a recovery panel with Retry + the real error message (logged to console). (2) CCTV live wall lazy-loads via IntersectionObserver: only on-screen cameras stream (300px preload margin; off-screen tiles unload to about:blank), eliminating the slow open + layout jump with ~60 cameras. ▸ prev v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
 const APP_BUILD=1779820000;
 const APP_BUILD_DATE='2026-05-15';
 
@@ -103230,7 +103290,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p133-crmmodes';
+        vEl.textContent = orig + ' · HNX v2.86-p134-pricelists';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -133964,7 +134024,7 @@ body.hnx-mobile-locked { overflow: hidden; }
       let bumped = 0;
       candidates.forEach(el => {
         if (el && el.textContent && /HNX v[\d.\w-]+/.test(el.textContent)) {
-          el.textContent = el.textContent.replace(/HNX v[\d.\w-]+/, 'HNX v2.86-p133-crmmodes');
+          el.textContent = el.textContent.replace(/HNX v[\d.\w-]+/, 'HNX v2.86-p134-pricelists');
           bumped++;
         }
       });
