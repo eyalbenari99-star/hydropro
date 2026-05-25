@@ -77310,6 +77310,7 @@ window.switchView=function(v){
     inv_files:{module:'inventory',renderer:'renderInvFiles'},
     inv_matrix:{module:'inventory',renderer:'renderInvMatrix'},
     inv_expiry:{module:'inventory',renderer:'renderInvExpiry'},
+    crm_master:{module:'crm',renderer:'renderCRMMaster'},
     crm_customer_files:{module:'crm',renderer:'renderCrmCustomerFiles'},
     crm_customer_matrix:{module:'crm',renderer:'renderCrmCustomerMatrix'},
     fleet_files:{module:'logistics',renderer:'renderFleetFiles'},
@@ -85107,6 +85108,7 @@ const EXTRA_SUBTABS={
     {id:'inv_expiry', label:'⏳ Expiry Tracker'}
   ],
   crm:[
+    {id:'crm_master', label:'🆕 Customer Master'},
     {id:'crm_customer_files', label:'📁 Customer 360° Files'},
     {id:'crm_customer_matrix', label:'📊 Customer Matrix'}
   ],
@@ -142218,5 +142220,291 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 
+<script id="hnx-crm-customer-master">
+(function(){
+  if(window.__HNX_CRM_MASTER__)return; window.__HNX_CRM_MASTER__=true;
+
+  var CM_KEY='hydroPro_crm_customer_master';
+  var CM_DOCS_KEY='hydroPro_crm_master_docs';
+  var CM_TYPES=['Restaurant','Hotel','Distributor','Retail','Catering','Manufacturer','Contractor','Supermarket','Corporate Office','Other'];
+  var CM_TERMS=['COD','7 Days','15 Days','30 Days','45 Days','60 Days','PDC','Consignment'];
+  var CM_STATUSES=['Pending','Under Review','Approved','Rejected','Expired'];
+  var CM_ROLES=['Purchasing','Accounts Payable','Warehouse / Receiving','Executive','Operations','Other'];
+  var CM_CURR=['PHP','USD','EUR','Other'];
+  var CM_DOC_TEMPLATES=[
+    {id:'business_permit',name:"Business / Mayor's Permit",critical:true},
+    {id:'bir_2303',name:'BIR Certificate of Registration (2303)',critical:true},
+    {id:'sec_dti',name:'SEC / DTI Registration',critical:true},
+    {id:'valid_id',name:'Valid Government ID (signatory)',critical:true},
+    {id:'audited_fs',name:'Audited Financial Statement',critical:false},
+    {id:'bank_cert',name:'Bank Certificate / Reference',critical:false},
+    {id:'supplier_agreement',name:'Supplier Agreement',critical:false},
+    {id:'nda',name:'Non-Disclosure Agreement',critical:false}
+  ];
+
+  function load(){try{var v=JSON.parse(localStorage.getItem(CM_KEY)||'[]');return Array.isArray(v)?v:[];}catch(e){return [];}}
+  function save(a){try{localStorage.setItem(CM_KEY,JSON.stringify(a));}catch(e){alert('Storage full.');}}
+  function loadDocs(){try{var v=JSON.parse(localStorage.getItem(CM_DOCS_KEY)||'{}');return (v&&typeof v==='object')?v:{};}catch(e){return {};}}
+  function saveDocs(d){try{localStorage.setItem(CM_DOCS_KEY,JSON.stringify(d));return true;}catch(e){alert('Storage full — remove an old document version and retry.');return false;}}
+  function who(){return ((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user';}
+  function esc(s){return (s==null?'':String(s)).replace(/[<>]/g,'');}
+  function today(){return new Date().toISOString().slice(0,10);}
+  function uid(){return 'cust_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+  function nextCode(){var arr=load(),max=0;arr.forEach(function(c){var m=/^CUST-(\d+)$/.exec(c.code||'');if(m){var n=parseInt(m[1],10);if(n>max)max=n;}});return 'CUST-'+String(max+1).padStart(4,'0');}
+  function statusColor(s){switch(s){case 'Approved':return 'var(--ok)';case 'Rejected':case 'Expired':return 'var(--danger)';case 'Under Review':return 'var(--info)';default:return 'var(--warn)';}}
+  function toast(m,t){if(typeof showToast==='function')showToast(m,t||'ok');}
+
+  var mode='list', selId=null, tab='profile', draft=null;
+
+  function fld(label,id,val,opts){opts=opts||{};var ph=opts.ph?' placeholder="'+esc(opts.ph)+'"':'';var type=opts.type||'text';
+    return '<div style="display:flex;flex-direction:column;gap:3px;"><label style="font-size:11px;color:var(--text3);font-weight:600;">'+label+(opts.req?' <span style="color:var(--danger);">*</span>':'')+'</label>'+
+      '<input id="'+id+'" type="'+type+'" value="'+esc(val||'')+'"'+ph+' style="padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;"></div>';}
+  function sel(label,id,val,options,opts){opts=opts||{};var o=options.map(function(x){return '<option value="'+esc(x)+'"'+(x===val?' selected':'')+'>'+esc(x)+'</option>';}).join('');
+    return '<div style="display:flex;flex-direction:column;gap:3px;"><label style="font-size:11px;color:var(--text3);font-weight:600;">'+label+(opts.req?' <span style="color:var(--danger);">*</span>':'')+'</label>'+
+      '<select id="'+id+'" class="users-select" style="padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;">'+(opts.blank?'<option value=""></option>':'')+o+'</select></div>';}
+  function chk(label,id,val){return '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding-top:18px;"><input id="'+id+'" type="checkbox" '+(val?'checked':'')+' style="width:16px;height:16px;"> '+label+'</label>';}
+  function grid(html){return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">'+html+'</div>';}
+  function sec(title,html){return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px;"><div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:10px;">'+title+'</div>'+html+'</div>';}
+
+  function _root(){var v=document.getElementById('view-crm_master');if(!v){v=document.createElement('div');v.className='view';v.id='view-crm_master';(document.getElementById('appMain')||document.body).appendChild(v);}return v;}
+
+  window.renderCRMMaster=function(){var v=_root();
+    if(mode==='new'||mode==='edit'){v.innerHTML=formHTML();return;}
+    if(mode==='detail'&&selId){var c=load().find(function(x){return x.id===selId;});if(c){v.innerHTML=detailHTML(c);return;}mode='list';}
+    v.innerHTML=listHTML();
+  };
+
+  function listHTML(){
+    var arr=load();var q=(window.__cmQ||'').toLowerCase();
+    var filtered=arr.filter(function(c){if(!q)return true;return ((c.legalName||'')+' '+(c.tradeName||'')+' '+(c.code||'')+' '+(c.tin||'')+' '+(c.industry||'')).toLowerCase().indexOf(q)>=0;});
+    var byStatus={};CM_STATUSES.forEach(function(s){byStatus[s]=0;});arr.forEach(function(c){byStatus[c.status]=(byStatus[c.status]||0)+1;});
+    var rows=filtered.map(function(c){return '<tr style="cursor:pointer;" onclick="cmOpen(\''+c.id+'\')">'+
+      '<td style="font-family:var(--mono);font-size:11px;">'+esc(c.code)+'</td>'+
+      '<td><strong>'+esc(c.legalName||c.tradeName||'—')+'</strong>'+(c.tradeName&&c.tradeName!==c.legalName?'<div style="font-size:11px;color:var(--text3);">'+esc(c.tradeName)+'</div>':'')+'</td>'+
+      '<td style="font-size:11px;">'+esc(c.type||'—')+'</td>'+
+      '<td style="font-size:11px;">'+esc(c.industry||'—')+'</td>'+
+      '<td style="font-size:11px;">'+esc(c.paymentTerms||'—')+'</td>'+
+      '<td style="text-align:center;"><span style="font-size:10px;font-weight:800;color:'+statusColor(c.status)+';border:1px solid '+statusColor(c.status)+';border-radius:10px;padding:2px 8px;white-space:nowrap;">'+esc((c.status||'Pending').toUpperCase())+'</span></td>'+
+    '</tr>';}).join('');
+    return '<div class="section-title">🆕 Customer Master</div>'+
+      '<div style="padding:12px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">Formal B2B customer onboarding — register a new customer, capture company info, contacts, financial &amp; credit terms, and upload accreditation documents (versioned, dated). Status flows Pending → Under Review → Approved.</div>'+
+      '<div class="fleet-stat-row">'+
+        '<div class="fleet-stat-card"><div class="fleet-stat-label">Total</div><div class="fleet-stat-val">'+arr.length+'</div></div>'+
+        '<div class="fleet-stat-card"><div class="fleet-stat-label">Pending</div><div class="fleet-stat-val warn">'+(byStatus['Pending']||0)+'</div></div>'+
+        '<div class="fleet-stat-card"><div class="fleet-stat-label">Under Review</div><div class="fleet-stat-val">'+(byStatus['Under Review']||0)+'</div></div>'+
+        '<div class="fleet-stat-card"><div class="fleet-stat-label">Approved</div><div class="fleet-stat-val green">'+(byStatus['Approved']||0)+'</div></div>'+
+      '</div>'+
+      '<div style="display:flex;gap:8px;align-items:center;margin:14px 0;flex-wrap:wrap;">'+
+        '<button class="btn btn-primary" onclick="cmNew()">➕ New Customer</button>'+
+        '<input placeholder="Search company / TIN / code…" value="'+esc(window.__cmQ||'')+'" oninput="window.__cmQ=this.value;clearTimeout(window.__cmQT);window.__cmQT=setTimeout(renderCRMMaster,250);" style="flex:1;min-width:180px;padding:8px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;">'+
+      '</div>'+
+      '<div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Code</th><th>Company</th><th>Type</th><th>Industry</th><th>Terms</th><th style="text-align:center;">Status</th></tr></thead><tbody>'+
+      (rows||'<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text3);">No customers yet. Tap ➕ New Customer to register one.</td></tr>')+
+      '</tbody></table></div>';
+  }
+
+  function formHTML(){
+    var d=draft||{};var contacts=Array.isArray(d.contacts)&&d.contacts.length?d.contacts:[{}];
+    var company=grid(
+      fld('Legal Registered Name','cm_legalName',d.legalName,{req:true,ph:'ABC Foods Inc.'})+
+      fld('Trade Name','cm_tradeName',d.tradeName)+
+      fld('Parent Company','cm_parent',d.parent)+
+      sel('Company Type','cm_type',d.type,CM_TYPES,{blank:true})+
+      fld('Industry','cm_industry',d.industry)+
+      fld('TIN','cm_tin',d.tin)+
+      fld('SEC / DTI No.','cm_sec',d.sec)+
+      fld('Business Permit No.','cm_permit',d.permit)+
+      fld('FDA License','cm_fda',d.fda)+
+      fld('Website','cm_website',d.website)+
+      fld('Company Email','cm_email',d.email,{type:'email'})+
+      fld('Main Phone','cm_phone',d.phone)
+    );
+    var address=grid(
+      fld('Head Office Address','cm_head',d.head)+
+      fld('Billing Address','cm_billing',d.billing)+
+      fld('Delivery Address','cm_delivery',d.delivery)+
+      fld('City','cm_city',d.city)+
+      fld('Province','cm_province',d.province)+
+      fld('Postal Code','cm_postal',d.postal)+
+      fld('Delivery Instructions','cm_delInstr',d.delInstr)
+    );
+    var contactRows=contacts.map(function(ct,i){return '<div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;background:var(--surface2);">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-size:11px;color:var(--text3);font-weight:700;">Contact '+(i+1)+'</span>'+(contacts.length>1?'<button class="btn btn-outline" style="font-size:11px;padding:2px 8px;color:var(--danger);" onclick="cmDelContact('+i+')">✕ remove</button>':'')+'</div>'+
+      grid(
+        sel('Role','cc_'+i+'_role',ct.role,CM_ROLES,{blank:true})+
+        fld('Name','cc_'+i+'_name',ct.name)+
+        fld('Position','cc_'+i+'_position',ct.position)+
+        fld('Email','cc_'+i+'_email',ct.email,{type:'email'})+
+        fld('Mobile','cc_'+i+'_mobile',ct.mobile)
+      )+'</div>';}).join('');
+    var contactsHtml=contactRows+'<button class="btn btn-outline" style="font-size:12px;" onclick="cmAddContact()">➕ Add contact</button>';
+    var financial=grid(
+      sel('Payment Terms','cm_terms',d.paymentTerms,CM_TERMS,{blank:true})+
+      fld('Credit Limit','cm_credit',d.credit,{type:'number'})+
+      sel('Currency','cm_currency',d.currency,CM_CURR,{blank:true})+
+      fld('Tax Type','cm_taxType',d.taxType)+
+      fld('Withholding Tax %','cm_wht',d.wht)+
+      fld('Bank Name','cm_bank',d.bank)+
+      fld('Bank Account','cm_bankAcct',d.bankAcct)+
+      fld('Swift Code','cm_swift',d.swift)+
+      chk('Credit hold','cm_hold',d.creditHold)
+    );
+    var commercial=grid(
+      fld('Price Tier','cm_priceTier',d.priceTier)+
+      fld('Assigned Salesperson','cm_salesperson',d.salesperson)+
+      fld('Territory','cm_territory',d.territory)+
+      sel('Status','cm_status',d.status||'Pending',CM_STATUSES)
+    );
+    return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap;">'+
+        '<button class="btn btn-outline" onclick="cmCancelForm()">← Cancel</button>'+
+        '<div style="font-size:17px;font-weight:700;">'+(mode==='edit'?'✏️ Edit Customer':'🆕 New Customer Registration')+' <span style="font-size:11px;color:var(--text3);font-family:var(--mono);">'+esc(d.code||'')+'</span></div>'+
+        '<button class="btn btn-primary" onclick="cmSaveForm()">💾 Save</button>'+
+      '</div>'+
+      sec('🏢 Company Information',company)+
+      sec('📍 Address',address)+
+      sec('👤 Contacts',contactsHtml)+
+      sec('💰 Financial &amp; Credit',financial)+
+      sec('🤝 Commercial &amp; Status',commercial)+
+      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:30px;"><button class="btn btn-outline" onclick="cmCancelForm()">Cancel</button><button class="btn btn-primary" onclick="cmSaveForm()">💾 Save Customer</button></div>';
+  }
+
+  function readForm(){
+    draft=draft||{};
+    var g=function(id){var el=document.getElementById(id);return el?el.value:'';};
+    var gc=function(id){var el=document.getElementById(id);return el?el.checked:false;};
+    draft.legalName=g('cm_legalName');draft.tradeName=g('cm_tradeName');draft.parent=g('cm_parent');draft.type=g('cm_type');
+    draft.industry=g('cm_industry');draft.tin=g('cm_tin');draft.sec=g('cm_sec');draft.permit=g('cm_permit');draft.fda=g('cm_fda');
+    draft.website=g('cm_website');draft.email=g('cm_email');draft.phone=g('cm_phone');
+    draft.head=g('cm_head');draft.billing=g('cm_billing');draft.delivery=g('cm_delivery');draft.city=g('cm_city');draft.province=g('cm_province');draft.postal=g('cm_postal');draft.delInstr=g('cm_delInstr');
+    draft.paymentTerms=g('cm_terms');draft.credit=g('cm_credit');draft.currency=g('cm_currency');draft.taxType=g('cm_taxType');draft.wht=g('cm_wht');draft.bank=g('cm_bank');draft.bankAcct=g('cm_bankAcct');draft.swift=g('cm_swift');draft.creditHold=gc('cm_hold');
+    draft.priceTier=g('cm_priceTier');draft.salesperson=g('cm_salesperson');draft.territory=g('cm_territory');
+    var st=g('cm_status');if(st)draft.status=st;
+    var contacts=[];var i=0;
+    while(document.getElementById('cc_'+i+'_name')||document.getElementById('cc_'+i+'_role')){
+      contacts.push({role:g('cc_'+i+'_role'),name:g('cc_'+i+'_name'),position:g('cc_'+i+'_position'),email:g('cc_'+i+'_email'),mobile:g('cc_'+i+'_mobile')});i++;
+    }
+    draft.contacts=contacts.length?contacts:[{}];
+  }
+
+  window.cmNew=function(){draft={code:nextCode(),status:'Pending',contacts:[{}]};mode='new';renderCRMMaster();};
+  window.cmEdit=function(id){var c=load().find(function(x){return x.id===id;});if(!c)return;draft=JSON.parse(JSON.stringify(c));if(!Array.isArray(draft.contacts)||!draft.contacts.length)draft.contacts=[{}];mode='edit';renderCRMMaster();};
+  window.cmCancelForm=function(){if(mode==='edit'&&selId){mode='detail';}else{mode='list';}draft=null;renderCRMMaster();};
+  window.cmAddContact=function(){readForm();draft.contacts.push({});renderCRMMaster();};
+  window.cmDelContact=function(i){readForm();draft.contacts.splice(i,1);if(!draft.contacts.length)draft.contacts=[{}];renderCRMMaster();};
+  window.cmSaveForm=function(){
+    readForm();
+    if(!draft.legalName||!draft.legalName.trim()){alert('Legal Registered Name is required.');return;}
+    var arr=load();var now=new Date().toISOString();
+    if(mode==='edit'&&selId){var idx=arr.findIndex(function(x){return x.id===selId;});if(idx>=0){draft.id=selId;draft.createdAt=arr[idx].createdAt||now;draft.modifiedAt=now;arr[idx]=draft;}}
+    else{draft.id=uid();draft.code=draft.code||nextCode();draft.createdAt=now;draft.modifiedAt=now;draft.createdBy=who();arr.push(draft);}
+    save(arr);
+    if(typeof audit==='function'){try{audit('crm_customer_'+(mode==='edit'?'edit':'new'),(draft.code||'')+' '+(draft.legalName||''));}catch(e){}}
+    selId=draft.id;mode='detail';draft=null;toast('Customer saved','ok');renderCRMMaster();
+  };
+  window.cmOpen=function(id){selId=id;mode='detail';tab='profile';renderCRMMaster();};
+  window.cmBackList=function(){mode='list';selId=null;renderCRMMaster();};
+  window.cmTab=function(t){tab=t;renderCRMMaster();};
+  window.cmSetStatus=function(id,val){var arr=load();var c=arr.find(function(x){return x.id===id;});if(!c)return;c.status=val;c.modifiedAt=new Date().toISOString();save(arr);if(typeof audit==='function'){try{audit('crm_customer_status',(c.code||'')+' → '+val);}catch(e){}}toast('Status → '+val,'ok');renderCRMMaster();};
+  window.cmDelete=function(id){if(!confirm('Delete this customer record? (documents are kept separately)'))return;var arr=load().filter(function(x){return x.id!==id;});save(arr);mode='list';selId=null;toast('Customer deleted','ok');renderCRMMaster();};
+
+  function row(label,val){return '<div><strong style="color:var(--text3);font-weight:600;">'+label+':</strong> '+esc(val||'—')+'</div>';}
+  function detailHTML(c){
+    var docsAll=loadDocs();var ds=docsAll[c.id]||{};
+    var tabs=[['profile','📋 Profile'],['addresses','📍 Addresses'],['contacts','👤 Contacts'],['financial','💰 Financial'],['documents','📎 Documents']];
+    var tabBar=tabs.map(function(t){return '<button class="btn '+(tab===t[0]?'btn-primary':'btn-outline')+'" style="font-size:12px;padding:6px 12px;" onclick="cmTab(\''+t[0]+'\')">'+t[1]+'</button>';}).join(' ');
+    var body='';
+    if(tab==='profile'){
+      body=grid(row('Code',c.code)+row('Legal Name',c.legalName)+row('Trade Name',c.tradeName)+row('Parent Company',c.parent)+row('Type',c.type)+row('Industry',c.industry)+row('TIN',c.tin)+row('SEC / DTI',c.sec)+row('Business Permit',c.permit)+row('FDA License',c.fda)+row('Website',c.website)+row('Email',c.email)+row('Phone',c.phone)+row('Created',c.createdAt?c.createdAt.slice(0,10):'—')+row('Modified',c.modifiedAt?c.modifiedAt.slice(0,10):'—'));
+    } else if(tab==='addresses'){
+      body=grid(row('Head Office',c.head)+row('Billing',c.billing)+row('Delivery',c.delivery)+row('City',c.city)+row('Province',c.province)+row('Postal',c.postal)+row('Delivery Instructions',c.delInstr));
+    } else if(tab==='contacts'){
+      var cts=Array.isArray(c.contacts)?c.contacts.filter(function(x){return x&&(x.name||x.role);}):[];
+      body=cts.length?('<table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Role</th><th>Name</th><th>Position</th><th>Email</th><th>Mobile</th></tr></thead><tbody>'+cts.map(function(x){return '<tr><td>'+esc(x.role)+'</td><td><strong>'+esc(x.name)+'</strong></td><td>'+esc(x.position)+'</td><td style="font-size:11px;">'+esc(x.email)+'</td><td style="font-family:var(--mono);font-size:11px;">'+esc(x.mobile)+'</td></tr>';}).join('')+'</tbody></table>'):'<div style="color:var(--text3);padding:14px;">No contacts recorded.</div>';
+    } else if(tab==='financial'){
+      body=grid(row('Payment Terms',c.paymentTerms)+row('Credit Limit',c.credit)+row('Currency',c.currency)+row('Tax Type',c.taxType)+row('Withholding Tax',c.wht)+row('Bank',c.bank)+row('Account',c.bankAcct)+row('Swift',c.swift)+('<div><strong style="color:var(--text3);font-weight:600;">Credit Hold:</strong> '+(c.creditHold?'<span style="color:var(--danger);font-weight:700;">● ON HOLD</span>':'<span style="color:var(--ok);">No</span>')+'</div>'));
+    } else if(tab==='documents'){
+      body=docsTabHTML(c,ds);
+    }
+    var statusOpts=CM_STATUSES.map(function(s){return '<option value="'+s+'"'+(s===(c.status||'Pending')?' selected':'')+'>'+s+'</option>';}).join('');
+    return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px;flex-wrap:wrap;">'+
+        '<button class="btn btn-outline" onclick="cmBackList()">← All customers</button>'+
+        '<div style="font-size:18px;font-weight:700;flex:1;min-width:200px;">'+esc(c.legalName||c.tradeName||'Customer')+' <span style="font-size:11px;color:var(--text3);font-family:var(--mono);">· '+esc(c.code)+'</span></div>'+
+        '<div style="display:flex;gap:6px;align-items:center;">'+
+          '<span style="font-size:10px;color:var(--text3);">Status</span>'+
+          '<select class="users-select" style="padding:5px 8px;font-size:12px;border-radius:6px;border:1px solid '+statusColor(c.status)+';background:var(--surface2);color:'+statusColor(c.status)+';font-weight:700;" onchange="cmSetStatus(\''+c.id+'\',this.value)">'+statusOpts+'</select>'+
+          '<button class="btn btn-outline" style="font-size:12px;" onclick="cmEdit(\''+c.id+'\')">✏️ Edit</button>'+
+          '<button class="btn btn-outline" style="font-size:12px;color:var(--danger);" onclick="cmDelete(\''+c.id+'\')">🗑</button>'+
+        '</div>'+
+      '</div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">'+tabBar+'</div>'+
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:30px;">'+body+'</div>';
+  }
+
+  function docsTabHTML(c,ds){
+    var mk=function(d){
+      var s=ds[d.id]||{};var present=s.present;
+      var stCol=present?'var(--ok)':d.critical?'var(--danger)':'var(--warn)';
+      var stLbl=present?'✓ ON FILE':d.critical?'✕ MISSING (KEY)':'⚠ MISSING';
+      var vcount=Array.isArray(s.versions)?s.versions.length:(present?1:0);
+      var viewBtn=present?'<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="cmDocView(\''+c.id+'\',\''+d.id+'\')">👁</button>':'';
+      var rmBtn=(present||d.custom)?'<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--danger);" onclick="cmDocRemove(\''+c.id+'\',\''+d.id+'\')">🗑</button>':'';
+      return '<tr><td>'+esc(d.name)+(d.critical?' <span style="color:var(--danger);font-size:10px;font-weight:700;">★ KEY</span>':'')+(d.custom?' <span style="color:var(--info);font-size:10px;font-weight:700;">+ CUSTOM</span>':'')+'</td>'+
+        '<td style="text-align:center;color:'+stCol+';font-weight:700;font-size:11px;">'+stLbl+'</td>'+
+        '<td style="font-family:var(--mono);font-size:11px;">'+(s.dateAdded||'—')+(present?' <span style="color:var(--text3);">v'+(s.ver||1)+'</span>':'')+'</td>'+
+        '<td style="font-size:11px;">'+(s.addedBy||'—')+'</td>'+
+        '<td style="text-align:center;font-family:var(--mono);font-size:11px;">'+(vcount>1?'<button class="btn btn-outline" style="font-size:10px;padding:3px 8px;" onclick="cmDocVersions(\''+c.id+'\',\''+d.id+'\')" title="Version history">🕘 '+vcount+'</button>':(vcount===1?'1':'—'))+'</td>'+
+        '<td style="text-align:right;white-space:nowrap;"><label class="btn '+(present?'btn-outline':'btn-primary')+'" style="font-size:11px;padding:4px 10px;cursor:pointer;" title="'+(present?'Upload new version (old kept)':'Upload')+'">'+(present?'⤴ New ver':'📷 Upload')+'<input type="file" accept="image/*,.pdf" style="display:none;" onchange="cmDocUpload(\''+c.id+'\',\''+d.id+'\',this)"></label>'+viewBtn+rmBtn+'<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="cmDocNote(\''+c.id+'\',\''+d.id+'\')">📝</button></td></tr>';
+    };
+    var customDocs=Object.keys(ds).filter(function(k){return ds[k]&&ds[k].custom;}).map(function(k){return {id:k,name:ds[k].name||k,critical:false,custom:true};});
+    var rows=CM_DOC_TEMPLATES.map(mk).join('')+customDocs.map(mk).join('');
+    return '<div style="font-size:11px;color:var(--text3);margin-bottom:10px;">★ KEY = required for accreditation · 🕘 = version history (every upload kept &amp; dated) · ➕ add any document</div>'+
+      '<div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Document</th><th style="text-align:center;">Status</th><th>Date Added</th><th>By</th><th style="text-align:center;">Versions</th><th style="text-align:right;">Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+      '<div style="margin-top:10px;"><button class="btn btn-primary" style="font-size:11px;padding:5px 12px;" onclick="cmAddCustomDoc(\''+c.id+'\')">➕ Add custom document</button></div>';
+  }
+
+  window.cmDocUpload=function(custId,docId,input){
+    var file=input.files&&input.files[0];if(!file)return;
+    if(file.size>3*1024*1024){alert('File too large (>3 MB).');input.value='';return;}
+    var reader=new FileReader();
+    reader.onload=function(e){
+      var all=loadDocs();if(!all[custId])all[custId]={};var prev=all[custId][docId]||{};
+      var versions=Array.isArray(prev.versions)?prev.versions.slice():[];
+      if(prev.scanUrl&&versions.length===0){versions.push({ver:1,scanUrl:prev.scanUrl,dateAdded:prev.dateAdded||today(),addedBy:prev.addedBy||'user',fileName:prev.fileName||'',size:prev.size||0});}
+      var newVer=(versions.length?versions[versions.length-1].ver:0)+1;
+      var entry={ver:newVer,scanUrl:e.target.result,dateAdded:today(),addedBy:who(),fileName:file.name||'',size:file.size||0};
+      versions.push(entry);
+      all[custId][docId]=Object.assign({},prev,{present:true,scanUrl:entry.scanUrl,dateAdded:entry.dateAdded,addedBy:entry.addedBy,fileName:entry.fileName,ver:newVer,versions:versions,custom:prev.custom||false,name:prev.name,notes:prev.notes||''});
+      if(!saveDocs(all))return;
+      toast(newVer>1?('New version v'+newVer+' saved (v'+(newVer-1)+' kept)'):'Document uploaded','ok');renderCRMMaster();
+    };
+    reader.readAsDataURL(file);input.value='';
+  };
+  window.cmAddCustomDoc=function(custId){
+    var name=prompt('Document name (e.g. "FDA License", "Insurance Certificate"):','');if(name===null)return;var nm=String(name).trim();if(!nm)return;
+    var all=loadDocs();if(!all[custId])all[custId]={};var docId='custom_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+    all[custId][docId]={present:false,custom:true,name:nm,notes:'',versions:[]};if(!saveDocs(all))return;toast('Added "'+nm+'" — now tap 📷 Upload','ok');renderCRMMaster();
+  };
+  window.cmDocVersions=function(custId,docId){
+    var all=loadDocs();var doc=all[custId]&&all[custId][docId];if(!doc)return;
+    var vers=(Array.isArray(doc.versions)&&doc.versions.length)?doc.versions.slice():(doc.scanUrl?[{ver:1,scanUrl:doc.scanUrl,dateAdded:doc.dateAdded,addedBy:doc.addedBy,fileName:doc.fileName||''}]:[]);
+    var tpl=CM_DOC_TEMPLATES.find(function(t){return t.id===docId;});var title=doc.custom?(doc.name||'Document'):((tpl||{}).name||docId);
+    var curVer=doc.ver||(vers.length?vers[vers.length-1].ver:1);
+    var rows=vers.slice().sort(function(a,b){return (b.ver||0)-(a.ver||0);}).map(function(v){var isCur=v.ver===curVer;
+      return '<tr style="'+(isCur?'background:rgba(102,187,106,0.10);':'')+'"><td style="font-family:var(--mono);font-weight:700;">v'+v.ver+(isCur?' <span style="color:var(--ok);font-size:10px;">● CURRENT</span>':'')+'</td><td style="font-family:var(--mono);font-size:11px;">'+(v.dateAdded||'—')+'</td><td style="font-size:11px;">'+(v.addedBy||'—')+'</td><td style="font-size:11px;color:var(--text3);">'+(((v.fileName||'')+'').replace(/[<>]/g,'').slice(0,40)||'—')+'</td><td style="text-align:right;"><button class="btn btn-outline" style="font-size:11px;padding:3px 9px;" onclick="cmDocViewVer(\''+custId+'\',\''+docId+'\','+v.ver+')">👁 View</button></td></tr>';}).join('');
+    var host=document.getElementById('cmVerModal');if(!host){host=document.createElement('div');host.id='cmVerModal';host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;';host.onclick=function(e){if(e.target===host)host.remove();};document.body.appendChild(host);}
+    host.innerHTML='<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:640px;width:100%;max-height:85vh;overflow:auto;padding:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px;"><div style="font-size:15px;font-weight:700;">🕘 Version history — '+esc(title)+'</div><button class="btn btn-outline" style="font-size:12px;" onclick="document.getElementById(\'cmVerModal\').remove();">✕ Close</button></div><div style="font-size:11px;color:var(--text3);margin-bottom:10px;">'+vers.length+' version'+(vers.length===1?'':'s')+' on file · newest is current · older versions stay viewable</div><table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Version</th><th>Date Uploaded</th><th>By</th><th>File</th><th style="text-align:right;">View</th></tr></thead><tbody>'+(rows||'<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3);">No versions yet.</td></tr>')+'</tbody></table></div>';
+  };
+  function _showDoc(url){var host=document.getElementById('cmDocViewModal');if(!host){host=document.createElement('div');host.id='cmDocViewModal';host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';host.onclick=function(){host.remove();};document.body.appendChild(host);}
+    var isPdf=(url+'').startsWith('data:application/pdf');
+    host.innerHTML=(isPdf?'<iframe src="'+url+'" style="width:90%;height:90%;border:none;border-radius:8px;background:#fff;"></iframe>':'<img src="'+url+'" style="max-width:95%;max-height:95%;border-radius:8px;">')+'<button style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%;cursor:pointer;" onclick="document.getElementById(\'cmDocViewModal\').remove();">✕</button>';
+  }
+  window.cmDocView=function(custId,docId){var all=loadDocs();var doc=all[custId]&&all[custId][docId];if(doc&&doc.scanUrl)_showDoc(doc.scanUrl);};
+  window.cmDocViewVer=function(custId,docId,ver){var all=loadDocs();var doc=all[custId]&&all[custId][docId];if(!doc)return;var url=null;if(Array.isArray(doc.versions)){var v=doc.versions.find(function(x){return x.ver===ver;});if(v)url=v.scanUrl;}if(!url&&doc.scanUrl)url=doc.scanUrl;if(url)_showDoc(url);};
+  window.cmDocRemove=function(custId,docId){if(!confirm('Remove this document (all versions)?'))return;var all=loadDocs();if(all[custId]&&all[custId][docId])delete all[custId][docId];saveDocs(all);renderCRMMaster();};
+  window.cmDocNote=function(custId,docId){var all=loadDocs();var cur=(all[custId]&&all[custId][docId]&&all[custId][docId].notes)||'';var note=prompt('Note:',cur);if(note===null)return;all[custId]=all[custId]||{};all[custId][docId]=all[custId][docId]||{};all[custId][docId].notes=note;saveDocs(all);renderCRMMaster();};
+
+})();
+
+</script>
 </body>
 </html>
