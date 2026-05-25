@@ -71131,7 +71131,7 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.259-crm-nav';  // 🔧 v2.46.259 — CRM views now DISCOVERABLE: injected sub-tabs (🆕 Customer Master, 📁 Customer 360° Files, 📊 Customer Matrix, 📞 Open Issues) were created with class 'nav-tab' but the view-picker dropdown only lists '.module-sub-tab' — so they were loaded but invisible in the menu. Now created as 'module-sub-tab' with modTab- ids → they appear in the dropdown + are searchable. ▸ v2.46.258 — (1) CRM render guard: Overview/Leads/etc. can never blank to black again — any render error now shows a recovery panel with Retry + the real error message (logged to console). (2) CCTV live wall lazy-loads via IntersectionObserver: only on-screen cameras stream (300px preload margin; off-screen tiles unload to about:blank), eliminating the slow open + layout jump with ~60 cameras. ▸ prev v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
+const APP_VERSION='2.46.260-cctv-areas';  // 🔧 v2.46.260 — CCTV LIVE WALL split into 8 AREA TABS (🌱 Greenhouses · 🛡 GH Perimeter · 🛡 Perimeter & Gates · 💧 Fertigation · 📦 Packaging & Logistics · 🏗 Project 11 · 🏢 Office & Admin · 📍 Security & Other) per ES BA's corrected mapping (CAM_AREA). Wall opens on ONE tab (remembered in hydroPro_cctv_area_v1), so it never loads all 81 at once; lazy-load stays underneath. Tap 📺 All to load everything (heaviest). ▸ v2.46.259-crm-nav —   // 🔧 v2.46.259 — CRM views now DISCOVERABLE: injected sub-tabs (🆕 Customer Master, 📁 Customer 360° Files, 📊 Customer Matrix, 📞 Open Issues) were created with class 'nav-tab' but the view-picker dropdown only lists '.module-sub-tab' — so they were loaded but invisible in the menu. Now created as 'module-sub-tab' with modTab- ids → they appear in the dropdown + are searchable. ▸ v2.46.258 — (1) CRM render guard: Overview/Leads/etc. can never blank to black again — any render error now shows a recovery panel with Retry + the real error message (logged to console). (2) CCTV live wall lazy-loads via IntersectionObserver: only on-screen cameras stream (300px preload margin; off-screen tiles unload to about:blank), eliminating the slow open + layout jump with ~60 cameras. ▸ prev v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
 const APP_BUILD=1779820000;
 const APP_BUILD_DATE='2026-05-15';
 
@@ -103193,7 +103193,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       // Check actual text content rather than dataset flag (master can overwrite text without clearing dataset)
       if(!vEl.textContent.includes('HNX v')){
         const orig = vEl.textContent;
-        vEl.textContent = orig + ' · HNX v2.86-p126-crmnav';
+        vEl.textContent = orig + ' · HNX v2.86-p127-cctvareas';
         vEl.style.color = '#80e885';
         vEl.dataset.hnxStamped = '1';
       }
@@ -133927,7 +133927,7 @@ body.hnx-mobile-locked { overflow: hidden; }
       let bumped = 0;
       candidates.forEach(el => {
         if (el && el.textContent && /HNX v[\d.\w-]+/.test(el.textContent)) {
-          el.textContent = el.textContent.replace(/HNX v[\d.\w-]+/, 'HNX v2.86-p126-crmnav');
+          el.textContent = el.textContent.replace(/HNX v[\d.\w-]+/, 'HNX v2.86-p127-cctvareas');
           bumped++;
         }
       });
@@ -135002,7 +135002,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     var STREAMS_KEY='hydroPro_camera_streams';
     var ORDER_KEY='hydroPro_cctv_order_v1';
     var DEFAULT_BASE='https://cctv.abapardes.com.ph';
-    var _state={ filter:'all', q:'', mount:'', streams:[], detectMsg:'', connectCam:'', arrange:false, dragId:null };
+    var _state={ filter:'all', q:'', mount:'', streams:[], detectMsg:'', connectCam:'', arrange:false, dragId:null, area:null, _areaList:[] };
 
     function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
     function getBase(){ try{ return localStorage.getItem(BASE_KEY)||DEFAULT_BASE; }catch(e){ return DEFAULT_BASE; } }
@@ -135020,6 +135020,35 @@ body.hnx-mobile-locked { overflow: hidden; }
       return getBase()+'/stream.html?src='+encodeURIComponent(v);
     }
     function nameFromUrl(u){ if(!u) return ''; var m=String(u).match(/[?&]src=([^&]+)/); if(m){ try{ return decodeURIComponent(m[1]); }catch(e){ return m[1]; } } return u; }
+    /* ── v2.46.260 area tabs (camera→area map from ES BA corrected sheet) ── */
+    var AREA_KEY='hydroPro_cctv_area_v1';
+    var CAM_AREA={'CAM-001':'🌱 Greenhouses','CAM-002':'🌱 Greenhouses','CAM-003':'🌱 Greenhouses','CAM-004':'🌱 Greenhouses','CAM-005':'🌱 Greenhouses','CAM-006':'🌱 Greenhouses','CAM-007':'🌱 Greenhouses','CAM-008':'🌱 Greenhouses','CAM-009':'🌱 Greenhouses','CAM-010':'🌱 Greenhouses','CAM-011':'🌱 Greenhouses','CAM-012':'🌱 Greenhouses','CAM-013':'🌱 Greenhouses','CAM-014':'🌱 Greenhouses','CAM-015':'🌱 Greenhouses','CAM-016':'🌱 Greenhouses','CAM-017':'🛡 GH Perimeter','CAM-018':'🛡 Perimeter & Gates','CAM-019':'🛡 Perimeter & Gates','CAM-020':'📦 Packaging & Logistics','CAM-021':'💧 Fertigation','CAM-022':'🛡 GH Perimeter','CAM-023':'🛡 GH Perimeter','CAM-024':'🛡 GH Perimeter','CAM-025':'💧 Fertigation','CAM-026':'🛡 GH Perimeter','CAM-027':'🛡 GH Perimeter','CAM-028':'💧 Fertigation','CAM-029':'💧 Fertigation','CAM-030':'💧 Fertigation','CAM-031':'🛡 GH Perimeter','CAM-032':'🛡 GH Perimeter','CAM-033':'🛡 GH Perimeter','CAM-034':'🏢 Office & Admin','CAM-035':'🛡 GH Perimeter','CAM-036':'🛡 Perimeter & Gates','CAM-037':'🛡 GH Perimeter','CAM-038':'🛡 Perimeter & Gates','CAM-039':'🏢 Office & Admin','CAM-040':'💧 Fertigation','CAM-041':'🛡 Perimeter & Gates','CAM-042':'🌱 Greenhouses','CAM-043':'🏢 Office & Admin','CAM-044':'🛡 Perimeter & Gates','CAM-045':'🛡 Perimeter & Gates','CAM-046':'🌱 Greenhouses','CAM-047':'🏢 Office & Admin','CAM-048':'🛡 Perimeter & Gates','CAM-049':'📍 Security & Other','CAM-050':'📍 Security & Other','CAM-051':'🏢 Office & Admin','CAM-052':'📍 Security & Other','CAM-053':'🏢 Office & Admin','CAM-054':'📦 Packaging & Logistics','CAM-055':'📦 Packaging & Logistics','CAM-056':'🏢 Office & Admin','CAM-057':'🏢 Office & Admin','CAM-058':'🏢 Office & Admin','CAM-059':'🏗 Project 11 (HIPC)','CAM-060':'🏗 Project 11 (HIPC)','CAM-061':'🏗 Project 11 (HIPC)','CAM-062':'🏗 Project 11 (HIPC)','CAM-063':'🏢 Office & Admin','CAM-064':'📦 Packaging & Logistics','CAM-065':'🛡 Perimeter & Gates','CAM-066':'🏢 Office & Admin','CAM-067':'🏢 Office & Admin','CAM-068':'📦 Packaging & Logistics','CAM-069':'🛡 Perimeter & Gates','CAM-070':'🏢 Office & Admin','CAM-071':'💧 Fertigation','CAM-072':'💧 Fertigation','CAM-073':'🌱 Greenhouses','CAM-074':'🌱 Greenhouses','CAM-075':'🌱 Greenhouses','CAM-076':'🌱 Greenhouses','CAM-077':'💧 Fertigation','CAM-078':'🛡 Perimeter & Gates','CAM-079':'📦 Packaging & Logistics','CAM-080':'📦 Packaging & Logistics','CAM-081':'📦 Packaging & Logistics'};
+    var AREA_ORDER=['🌱 Greenhouses','🛡 GH Perimeter','🛡 Perimeter & Gates','💧 Fertigation','📦 Packaging & Logistics','🏗 Project 11 (HIPC)','🏢 Office & Admin','📍 Security & Other'];
+    function _areaOf(c){ return (c&&(c.area||CAM_AREA[c.id]))||'🆕 Unsorted'; }
+    function loadArea(){ try{ return localStorage.getItem(AREA_KEY)||null; }catch(e){ return null; } }
+    function saveArea(v){ try{ localStorage.setItem(AREA_KEY,v); }catch(e){} }
+    function _buildAreaList(list){
+      var counts={};
+      list.forEach(function(c){ var a=_areaOf(c); counts[a]=(counts[a]||0)+1; });
+      var keys=Object.keys(counts);
+      keys.sort(function(a,b){ var ia=AREA_ORDER.indexOf(a),ib=AREA_ORDER.indexOf(b); if(ia<0)ia=999; if(ib<0)ib=999; if(ia!==ib)return ia-ib; return a<b?-1:1; });
+      return keys.map(function(k){ return {key:k,label:k,count:counts[k]}; });
+    }
+    function _renderAreaTabs(areaList){
+      var tabs=areaList.map(function(a,i){
+        var sel=_state.area===a.key;
+        return '<button onclick="window.__itCctvGrid.setAreaIdx('+i+')" style="padding:7px 13px;border-radius:8px;border:1px solid '+(sel?'#66bb6a':'rgba(120,160,140,.35)')+';background:'+(sel?'linear-gradient(135deg,#1f6f43,#2e7d32)':'#0a120d')+';color:'+(sel?'#fff':'#9fc7bb')+';font-size:12px;font-weight:'+(sel?'800':'600')+';cursor:pointer;font-family:inherit;white-space:nowrap;">'+a.label+' <span style="opacity:.65;font-size:10px;font-family:monospace;">'+a.count+'</span></button>';
+      });
+      var selAll=_state.area==='__ALL__';
+      tabs.push('<button onclick="window.__itCctvGrid.setAreaIdx(-1)" title="Loads ALL cameras at once — heaviest" style="padding:7px 13px;border-radius:8px;border:1px dashed '+(selAll?'#ffca52':'rgba(120,160,140,.35)')+';background:'+(selAll?'rgba(255,202,82,.15)':'#0a120d')+';color:'+(selAll?'#ffca52':'#7aa99a')+';font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;">📺 All</button>');
+      return '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px;padding-top:11px;border-top:1px solid rgba(120,160,140,.18);">'+tabs.join('')+'</div>';
+    }
+    function setAreaIdx(i){
+      if(i===-1){ _state.area='__ALL__'; saveArea('__ALL__'); render(); return; }
+      var k=(_state._areaList||[])[i];
+      if(k!=null){ _state.area=k; saveArea(k); render(); }
+    }
+
 
     /* ── ordering ── */
     function orderedIds(){ var list=cams(); var ids=list.map(function(c){return c.id;}); var saved=loadOrder(); var out=saved.filter(function(id){return ids.indexOf(id)>=0;}); ids.forEach(function(id){ if(out.indexOf(id)<0) out.push(id); }); return out; }
@@ -135067,8 +135096,16 @@ body.hnx-mobile-locked { overflow: hidden; }
       }
 
       /* ===== NORMAL MODE ===== */
+      /* v2.46.260 — area tabs: scope wall to one area so it never loads all 81 at once */
+      var areaList=_buildAreaList(list);
+      _state._areaList=areaList.map(function(a){return a.key;});
+      if(_state.area==null) _state.area=loadArea();
+      if(_state.area!=='__ALL__' && _state._areaList.indexOf(_state.area)<0){ _state.area=(areaList[0]&&areaList[0].key)||'__ALL__'; }
+      var areaCams=(_state.area==='__ALL__')?ordered:ordered.filter(function(c){return _areaOf(c)===_state.area;});
+      var areaConnected=areaCams.filter(function(c){return streams[c.id];}).length;
+      var areaTabsHtml=_renderAreaTabs(areaList);
       var q=(_state.q||'').toLowerCase();
-      var shown=ordered.filter(function(c){
+      var shown=areaCams.filter(function(c){
         var on=!!streams[c.id];
         if(_state.filter==='on'&&!on) return false;
         if(_state.filter==='off'&&on) return false;
@@ -135076,7 +135113,7 @@ body.hnx-mobile-locked { overflow: hidden; }
         return true;
       });
 
-      var pills=[['all','All ('+list.length+')'],['on','\uD83D\uDFE2 Connected ('+connected+')'],['off','\u26AA Not connected ('+(list.length-connected)+')']]
+      var pills=[['all','All ('+areaCams.length+')'],['on','\uD83D\uDFE2 Connected ('+areaConnected+')'],['off','\u26AA Not connected ('+(areaCams.length-areaConnected)+')']]
         .map(function(p){ var on=_state.filter===p[0];
           return '<button onclick="window.__itCctvGrid.setFilter(\''+p[0]+'\')" style="padding:6px 12px;border-radius:6px;border:1px solid '+(on?'#66bb6a':'rgba(120,160,140,.4)')+';background:'+(on?'rgba(102,187,106,.18)':'transparent')+';color:'+(on?'#9ccc65':'#9fc7bb')+';font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">'+p[1]+'</button>';
         }).join(' ');
@@ -135114,13 +135151,14 @@ body.hnx-mobile-locked { overflow: hidden; }
         '<div style="padding:14px 18px 4px;">'+
           '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'+
             '<div style="font-size:18px;font-weight:800;color:#e8f5e9;">\uD83D\uDCFA Live CCTV Wall</div>'+
-            '<div style="font-size:11px;color:#7aa99a;font-family:monospace;">'+connected+' of '+list.length+' connected \u00b7 tap a camera for full screen</div>'+
+            '<div style="font-size:11px;color:#7aa99a;font-family:monospace;">'+areaConnected+' of '+areaCams.length+' connected \u00b7 tap a camera for full screen</div>'+
             '<div style="flex:1;"></div>'+
             '<button onclick="window.__itCctvGrid.autoConnect()" style="padding:6px 12px;border-radius:6px;border:none;background:linear-gradient(135deg,#66bb6a,#1f6f43);color:#fff;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">\u26A1 Auto-connect all</button>'+
             '<button onclick="window.__itCctvGrid.detect()" style="padding:6px 12px;border-radius:6px;border:1px solid #4dd0e1;background:rgba(77,208,225,.08);color:#4dd0e1;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">\uD83D\uDD0D Detect streams'+(_state.streams.length?(' ('+_state.streams.length+')'):'')+'</button>'+
             '<button onclick="window.__itCctvGrid.toggleArrange()" style="padding:6px 12px;border-radius:6px;border:1px solid #ffca52;background:rgba(255,202,82,.08);color:#ffca52;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">\uD83D\uDD00 Arrange</button>'+
             '<button onclick="window.__itCctvGrid.render()" style="padding:6px 12px;border-radius:6px;border:1px solid rgba(120,160,140,.4);background:transparent;color:#9fc7bb;font-size:12px;cursor:pointer;font-family:inherit;">\u21BB Refresh</button>'+
           '</div>'+
+          areaTabsHtml+
           (canEdit()?(
           '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;">'+
             '<span style="font-size:11px;color:#7aa99a;font-family:monospace;">BRIDGE</span>'+
@@ -135307,7 +135345,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     function _escClose(e){ if(e.key==='Escape'){ closeFull(); closeConnect(); } }
     function closeFull(){ var o=document.getElementById('itCctvFull'); if(o)o.remove(); document.removeEventListener('keydown',_escClose); }
 
-    return { render:render, setFilter:setFilter, search:search, saveBase:saveBase, connect:connect, detect:detect, autoConnect:autoConnect, assign:assign, manualAssign:manualAssign, closeConnect:closeConnect, full:full, closeFull:closeFull, toggleArrange:toggleArrange, dragStart:dragStart, drop:drop, moveLeft:moveLeft, moveRight:moveRight };
+    return { render:render, setFilter:setFilter, search:search, saveBase:saveBase, connect:connect, detect:detect, autoConnect:autoConnect, assign:assign, manualAssign:manualAssign, closeConnect:closeConnect, full:full, closeFull:closeFull, toggleArrange:toggleArrange, dragStart:dragStart, drop:drop, moveLeft:moveLeft, moveRight:moveRight, setAreaIdx:setAreaIdx };
   })();
 
   // ── Build-queue placeholders for views not yet built ──
