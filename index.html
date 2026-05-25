@@ -134960,6 +134960,7 @@ body.hnx-mobile-locked { overflow: hidden; }
             '<div style="font-size:18px;font-weight:800;color:#e8f5e9;">\uD83D\uDCFA Live CCTV Wall</div>'+
             '<div style="font-size:11px;color:#7aa99a;font-family:monospace;">'+connected+' of '+list.length+' connected \u00b7 tap a camera for full screen</div>'+
             '<div style="flex:1;"></div>'+
+            '<button onclick="window.__itCctvGrid.autoConnect()" style="padding:6px 12px;border-radius:6px;border:none;background:linear-gradient(135deg,#66bb6a,#1f6f43);color:#fff;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">\u26A1 Auto-connect all</button>'+
             '<button onclick="window.__itCctvGrid.detect()" style="padding:6px 12px;border-radius:6px;border:1px solid #4dd0e1;background:rgba(77,208,225,.08);color:#4dd0e1;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">\uD83D\uDD0D Detect streams'+(_state.streams.length?(' ('+_state.streams.length+')'):'')+'</button>'+
             '<button onclick="window.__itCctvGrid.render()" style="padding:6px 12px;border-radius:6px;border:1px solid rgba(120,160,140,.4);background:transparent;color:#9fc7bb;font-size:12px;cursor:pointer;font-family:inherit;">\u21BB Refresh</button>'+
           '</div>'+
@@ -135040,20 +135041,38 @@ body.hnx-mobile-locked { overflow: hidden; }
     }
     function manualAssign(){ var el=document.getElementById('itCctvManual'); assign(_state.connectCam, el?el.value:''); }
     function closeConnect(){ var o=document.getElementById('itCctvConnectModal'); if(o)o.remove(); }
-    function detect(){
+    function _fetchStreams(){
       var base=getBase();
       _state.detectMsg='Checking the bridge\u2026';
+      return fetch(base+'/api/streams',{mode:'cors'})
+        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+        .then(function(j){ var names=Object.keys(j||{}); _state.streams=names; _state.detectMsg=names.length?('\u2713 Found '+names.length+' stream'+(names.length===1?'':'s')+' on the bridge'):'No streams found on the bridge yet'; return names; })
+        .catch(function(e){ _state.streams=[]; _state.detectMsg='Could not auto-list streams \u2014 type the name manually. (Bridge may need CORS enabled, or it\u2019s unreachable right now.)'; return []; });
+    }
+    function detect(){
       if(document.getElementById('itCctvConnectModal')) _renderConnectModal(); else render();
-      fetch(base+'/api/streams',{mode:'cors'}).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(j){
-        var names=Object.keys(j||{});
-        _state.streams=names;
-        _state.detectMsg=names.length?('\u2713 Found '+names.length+' stream'+(names.length===1?'':'s')+' on the bridge'):'No streams found on the bridge yet';
-      }).catch(function(e){
-        _state.streams=[];
-        _state.detectMsg='Could not auto-list streams \u2014 type the name manually. (Bridge may need CORS enabled, or it\u2019s unreachable right now.)';
-      }).then(function(){
-        if(document.getElementById('itCctvConnectModal')) _renderConnectModal(); else render();
+      _fetchStreams().then(function(){ if(document.getElementById('itCctvConnectModal')) _renderConnectModal(); else render(); });
+    }
+    function autoConnect(){
+      if(!canEdit()) return;
+      _state.detectMsg='Checking the bridge\u2026'; render();
+      _fetchStreams().then(function(names){ if(!names.length){ render(); return; } _autoMatch(names); });
+    }
+    function _autoMatch(names){
+      var list=cams(); var pairs=[];
+      list.forEach(function(c){
+        var tokens=_camTokens(c.id);
+        names.forEach(function(s){
+          var sc=_scoreStream(s,tokens);
+          if(sc>0){ if(/_sub$/.test(s)) sc+=0.5; pairs.push({cam:c.id, stream:s, sc:sc}); }
+        });
       });
+      pairs.sort(function(a,b){ return b.sc-a.sc; });
+      var map=loadStreams(), usedCam={}, usedStream={}, n=0;
+      pairs.forEach(function(p){ if(usedCam[p.cam]||usedStream[p.stream]) return; map[p.cam]=p.stream; usedCam[p.cam]=1; usedStream[p.stream]=1; n++; });
+      saveStreams(map);
+      _state.detectMsg = n ? ('\u26A1 Auto-connected '+n+' camera'+(n===1?'':'s')+' by name match \u00b7 tap \u2699 on any tile to adjust') : 'Found '+names.length+' streams but none matched a camera name \u2014 connect them manually with \u2699, or have Jomel name streams like the greenhouses.';
+      render();
     }
 
     /* ── full screen ── */
@@ -135081,7 +135100,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     function _escClose(e){ if(e.key==='Escape'){ closeFull(); closeConnect(); } }
     function closeFull(){ var o=document.getElementById('itCctvFull'); if(o)o.remove(); document.removeEventListener('keydown',_escClose); }
 
-    return { render:render, setFilter:setFilter, search:search, saveBase:saveBase, connect:connect, detect:detect, assign:assign, manualAssign:manualAssign, closeConnect:closeConnect, full:full, closeFull:closeFull };
+    return { render:render, setFilter:setFilter, search:search, saveBase:saveBase, connect:connect, detect:detect, autoConnect:autoConnect, assign:assign, manualAssign:manualAssign, closeConnect:closeConnect, full:full, closeFull:closeFull };
   })();
 
   // ── Build-queue placeholders for views not yet built ──
