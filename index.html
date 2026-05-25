@@ -33126,19 +33126,28 @@ function getDayChecks(date){
   return all[date];
 }
 
-let _cctvTab='daily';            // daily | inventory | nvrs
+let _cctvTab='live';             // live | daily | inventory | nvrs
 let _cctvDate=new Date().toISOString().slice(0,10);
 let _cctvNvrFilter='all';
 
 function renderItCctv(){
-  if(_cctvTab==='daily')renderItCctvDaily();
+  if(_cctvTab==='live')renderItCctvLive();
   else if(_cctvTab==='inventory')renderItCctvInventory();
   else if(_cctvTab==='nvrs')renderItCctvNvrs();
+  else renderItCctvDaily();
+}
+function renderItCctvLive(){
+  var body=document.getElementById('stubItCctvBody');
+  if(!body)return;
+  body.innerHTML=cctvTabsHTML('live')+'<div id="itCctvLiveMount"></div>';
+  if(window.__itCctvGrid&&window.__itCctvGrid.render){ window.__itCctvGrid.render('itCctvLiveMount'); }
+  else { var m=document.getElementById('itCctvLiveMount'); if(m)m.innerHTML='<div style="padding:24px;color:#9fc7bb;font-family:monospace;text-align:center;">Live camera grid is loading\u2026 reload the page if this stays.</div>'; }
 }
 function switchCctvTab(t){_cctvTab=t;renderItCctv();}
 
 function cctvTabsHTML(active){
   return `<div class="sensor-tabs">
+    <button class="sensor-tab ${active==='live'?'active':''}" onclick="switchCctvTab('live')">🎥 Live View</button>
     <button class="sensor-tab ${active==='daily'?'active':''}" onclick="switchCctvTab('daily')">✅ Daily Check</button>
     <button class="sensor-tab ${active==='inventory'?'active':''}" onclick="switchCctvTab('inventory')">📷 Camera Inventory</button>
     <button class="sensor-tab ${active==='nvrs'?'active':''}" onclick="switchCctvTab('nvrs')">📦 NVRs</button>
@@ -134861,6 +134870,7 @@ body.hnx-mobile-locked { overflow: hidden; }
   renderers.it_cctv_wall = function() {
     const body = document.getElementById('hnx-it_cctv_wall-body');
     if (!body) return;
+    if (window.__itCctvGrid && window.__itCctvGrid.render) { window.__itCctvGrid.render('hnx-it_cctv_wall-body'); return; }
     body.innerHTML = `
       ${viewHeader('📺 DVR & CCTV Wall', 'Master visual of all DVRs and CCTV cameras', null)}
       <div style="padding:8px 20px 0;"><button class="it-dash-btn" onclick="switchView('it_cctv')" style="font-size:12px;padding:6px 14px;">← 📹 Back to CCTV</button></div>
@@ -134874,6 +134884,141 @@ body.hnx-mobile-locked { overflow: hidden; }
       </div>
     `;
   };
+
+  /* IT LIVE CCTV GRID (all cameras, 3 per row, tap = full screen) */
+  window.__itCctvGrid = (function(){
+    var BASE_KEY='hydroPro_cctv_base_v1';
+    var STREAMS_KEY='hydroPro_camera_streams';
+    var DEFAULT_BASE='https://cctv.abapardes.com.ph';
+    var _state={ filter:'all', q:'', mount:'' };
+
+    function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function getBase(){ try{ return localStorage.getItem(BASE_KEY)||DEFAULT_BASE; }catch(e){ return DEFAULT_BASE; } }
+    function setBase(v){ try{ localStorage.setItem(BASE_KEY,((v||'').trim().replace(/\/+$/,''))||DEFAULT_BASE); push(); }catch(e){} }
+    function loadStreams(){ try{ return JSON.parse(localStorage.getItem(STREAMS_KEY)||'{}')||{}; }catch(e){ return {}; } }
+    function saveStreams(m){ try{ localStorage.setItem(STREAMS_KEY,JSON.stringify(m)); push(); }catch(e){} }
+    function push(){ try{ if(typeof window.hnxCloudPush==='function')window.hnxCloudPush(); }catch(e){} }
+    function canEdit(){ try{ return (typeof window.isAdmin!=='function')||window.isAdmin(); }catch(e){ return true; } }
+    function cams(){ try{ return (window.loadCameras?window.loadCameras():[]).filter(function(c){return (c.status||'active')==='active';}); }catch(e){ return []; } }
+    function streamUrl(nameOrUrl){
+      var v=(nameOrUrl||'').trim(); if(!v) return '';
+      if(/^https?:\/\//i.test(v)) return v;
+      return getBase()+'/stream.html?src='+encodeURIComponent(v);
+    }
+    function nameFromUrl(u){ if(!u) return ''; var m=String(u).match(/[?&]src=([^&]+)/); if(m){ try{ return decodeURIComponent(m[1]); }catch(e){ return m[1]; } } return u; }
+
+    function render(bodyId){
+      if(bodyId)_state.mount=bodyId;
+      var body=document.getElementById(_state.mount||'hnx-it_cctv_wall-body'); if(!body) return;
+      var list=cams(); var streams=loadStreams();
+      var connected=list.filter(function(c){return streams[c.id];}).length;
+      var q=(_state.q||'').toLowerCase();
+      var shown=list.filter(function(c){
+        var on=!!streams[c.id];
+        if(_state.filter==='on'&&!on) return false;
+        if(_state.filter==='off'&&on) return false;
+        if(q){ var hay=((c.location||'')+' '+(c.name||'')+' '+(c.id||'')+' '+(c.group||'')).toLowerCase(); if(hay.indexOf(q)<0) return false; }
+        return true;
+      });
+
+      var pills=[['all','All ('+list.length+')'],['on','\uD83D\uDFE2 Connected ('+connected+')'],['off','\u26AA Not connected ('+(list.length-connected)+')']]
+        .map(function(p){ var on=_state.filter===p[0];
+          return '<button onclick="window.__itCctvGrid.setFilter(\''+p[0]+'\')" style="padding:6px 12px;border-radius:6px;border:1px solid '+(on?'#66bb6a':'rgba(120,160,140,.4)')+';background:'+(on?'rgba(102,187,106,.18)':'transparent')+';color:'+(on?'#9ccc65':'#9fc7bb')+';font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">'+p[1]+'</button>';
+        }).join(' ');
+
+      var tiles=shown.map(function(c){
+        var url=streams[c.id]?streamUrl(streams[c.id]):'';
+        var loc=esc(c.location||c.name||c.id);
+        var sub=esc((c.group||'')+(c.nvrId?(' \u00b7 '+c.nvrId):''));
+        var gear=canEdit()?'<button onclick="event.stopPropagation();window.__itCctvGrid.connect(\''+c.id+'\')" title="Set / change stream" style="position:absolute;top:6px;right:6px;z-index:4;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;width:26px;height:26px;font-size:13px;cursor:pointer;">\u2699</button>':'';
+        if(url){
+          return '<div style="position:relative;background:#000;border:1px solid #1f3a30;border-radius:10px;overflow:hidden;aspect-ratio:16/9;">'+
+            '<iframe src="'+esc(url)+'" loading="lazy" allow="autoplay; fullscreen" style="position:absolute;inset:0;width:100%;height:100%;border:none;"></iframe>'+
+            '<div onclick="window.__itCctvGrid.full(\''+c.id+'\')" title="Tap for full screen" style="position:absolute;inset:0;z-index:3;cursor:pointer;background:transparent;"></div>'+
+            gear+
+            '<div style="position:absolute;left:0;right:0;bottom:0;z-index:2;background:linear-gradient(0deg,rgba(0,0,0,.78),transparent);padding:14px 8px 6px;pointer-events:none;">'+
+              '<div style="display:flex;align-items:center;gap:6px;"><span style="width:7px;height:7px;border-radius:50%;background:#ff5252;box-shadow:0 0 6px #ff5252;"></span><span style="font-size:11px;font-weight:800;color:#fff;letter-spacing:.5px;">'+loc+'</span></div>'+
+              (sub?'<div style="font-size:9px;color:#bfe;opacity:.8;font-family:monospace;">'+sub+'</div>':'')+
+            '</div>'+
+            '<div style="position:absolute;top:6px;left:6px;z-index:2;font-size:9px;font-weight:800;color:#9ccc65;background:rgba(0,0,0,.5);border-radius:4px;padding:2px 6px;font-family:monospace;pointer-events:none;">\u26F6 TAP</div>'+
+          '</div>';
+        }
+        return '<div style="position:relative;background:#0c1713;border:1px dashed #2a4438;border-radius:10px;overflow:hidden;aspect-ratio:16/9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;padding:8px;">'+
+          gear+
+          '<div style="font-size:24px;opacity:.5;">\uD83D\uDCF7</div>'+
+          '<div style="font-size:11px;font-weight:700;color:#9fc7bb;">'+loc+'</div>'+
+          (sub?'<div style="font-size:9px;color:#5b7d70;font-family:monospace;">'+sub+'</div>':'')+
+          (canEdit()
+            ?'<button onclick="window.__itCctvGrid.connect(\''+c.id+'\')" style="margin-top:4px;padding:5px 12px;border-radius:6px;border:1px solid #66bb6a;background:transparent;color:#9ccc65;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">\u2795 Connect</button>'
+            :'<div style="font-size:9px;color:#5b7d70;">not connected</div>')+
+        '</div>';
+      }).join('');
+
+      body.innerHTML=
+        '<div style="padding:14px 18px 4px;">'+
+          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'+
+            '<div style="font-size:18px;font-weight:800;color:#e8f5e9;">\uD83D\uDCFA Live CCTV Wall</div>'+
+            '<div style="font-size:11px;color:#7aa99a;font-family:monospace;">'+connected+' of '+list.length+' connected \u00b7 tap a camera for full screen</div>'+
+            '<div style="flex:1;"></div>'+
+            '<button onclick="window.__itCctvGrid.render()" style="padding:6px 12px;border-radius:6px;border:1px solid rgba(120,160,140,.4);background:transparent;color:#9fc7bb;font-size:12px;cursor:pointer;font-family:inherit;">\u21BB Refresh</button>'+
+          '</div>'+
+          (canEdit()?(
+          '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;">'+
+            '<span style="font-size:11px;color:#7aa99a;font-family:monospace;">BRIDGE</span>'+
+            '<input id="itCctvBase" value="'+esc(getBase())+'" style="flex:1;min-width:220px;padding:7px 10px;background:#0a120d;border:1px solid #2a4438;border-radius:7px;color:#e8f5e9;font-size:12px;font-family:monospace;">'+
+            '<button onclick="window.__itCctvGrid.saveBase()" style="padding:7px 12px;border:none;background:#1f6f43;color:#fff;border-radius:7px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Save</button>'+
+          '</div>'):'')+
+          '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;">'+
+            pills+
+            '<input id="itCctvSearch" placeholder="Search camera / location\u2026" value="'+esc(_state.q)+'" oninput="window.__itCctvGrid.search(this.value)" style="flex:1;min-width:160px;padding:7px 10px;background:#0a120d;border:1px solid #2a4438;border-radius:7px;color:#e8f5e9;font-size:12px;">'+
+          '</div>'+
+        '</div>'+
+        '<div style="padding:14px 18px 28px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;">'+
+          (tiles||'<div style="grid-column:1/-1;text-align:center;color:#5b7d70;font-size:12px;padding:30px;font-family:monospace;">No cameras match.</div>')+
+        '</div>';
+    }
+
+    function setFilter(f){ _state.filter=f; render(); }
+    function search(v){ _state.q=v||''; render(); var b=document.getElementById('itCctvSearch'); if(b){ b.focus(); var n=b.value.length; try{b.setSelectionRange(n,n);}catch(e){} } }
+    function saveBase(){ var el=document.getElementById('itCctvBase'); if(el){ setBase(el.value); render(); } }
+    function connect(camId){
+      if(!canEdit()) return;
+      var streams=loadStreams();
+      var cur=nameFromUrl(streams[camId]||'');
+      var c=cams().filter(function(x){return x.id===camId;})[0];
+      var label=(c&&(c.location||c.name))||camId;
+      var name=prompt('go2rtc stream name for "'+label+'"\n(e.g. irr_room1_cam1 \u2014 use the _sub name for clean H.264):', cur);
+      if(name===null) return;
+      name=name.trim();
+      if(!name){ delete streams[camId]; } else { streams[camId]=name; }
+      saveStreams(streams); render();
+    }
+    function full(camId){
+      var streams=loadStreams(); var raw=streams[camId]; if(!raw) return;
+      var url=streamUrl(raw);
+      var c=cams().filter(function(x){return x.id===camId;})[0];
+      var label=esc((c&&(c.location||c.name))||camId);
+      var o=document.createElement('div');
+      o.id='itCctvFull';
+      o.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.94);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px;';
+      o.innerHTML='<div style="width:100%;max-width:1100px;display:flex;align-items:center;gap:10px;margin-bottom:10px;">'+
+          '<span style="width:9px;height:9px;border-radius:50%;background:#ff5252;box-shadow:0 0 8px #ff5252;"></span>'+
+          '<span style="font-size:15px;font-weight:800;color:#fff;">'+label+'</span>'+
+          '<div style="flex:1;"></div>'+
+          '<button onclick="window.__itCctvGrid.closeFull()" style="background:transparent;border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:8px;font-size:20px;width:40px;height:40px;cursor:pointer;line-height:1;">\u2715</button>'+
+        '</div>'+
+        '<div style="width:100%;max-width:1100px;aspect-ratio:16/9;background:#000;border-radius:12px;overflow:hidden;border:1px solid #2a4438;">'+
+          '<iframe src="'+esc(url)+'" allow="autoplay; fullscreen" style="width:100%;height:100%;border:none;"></iframe>'+
+        '</div>';
+      o.addEventListener('click',function(e){ if(e.target===o) closeFull(); });
+      document.body.appendChild(o);
+      document.addEventListener('keydown',_escClose);
+    }
+    function _escClose(e){ if(e.key==='Escape') closeFull(); }
+    function closeFull(){ var o=document.getElementById('itCctvFull'); if(o)o.remove(); document.removeEventListener('keydown',_escClose); }
+
+    return { render:render, setFilter:setFilter, search:search, saveBase:saveBase, connect:connect, full:full, closeFull:closeFull };
+  })();
 
   // ── Build-queue placeholders for views not yet built ──
   renderers.it_tasks = function() {
