@@ -141123,7 +141123,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     return v;
   }
 
-  var TABS=[['diagnose','🔬 Diagnose'],['history','🗂 History'],['knowhow','📚 Know-How'],['report','📅 Daily Report']];
+  var TABS=[['diagnose','🔬 Diagnose'],['database','🗂 Database'],['history','🕘 History'],['knowhow','📚 Know-How'],['report','📅 Daily Report']];
   var _activeTab='diagnose';
 
   function renderShell(){
@@ -141145,6 +141145,7 @@ body.hnx-mobile-locked { overflow: hidden; }
         '</div>'+
         '<div id="agroTabBar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">'+tabBtns+'</div>'+
         '<div id="agroDiagnose" class="agro-pane"></div>'+
+        '<div id="agroDatabase" class="agro-pane" style="display:none;"></div>'+
         '<div id="agroHistory" class="agro-pane" style="display:none;"></div>'+
         '<div id="agroKnowHow" class="agro-pane" style="display:none;"></div>'+
         '<div id="agroReport" class="agro-pane" style="display:none;"></div>'+
@@ -141155,7 +141156,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 
   window.__agroTab=function(tab){
     _activeTab=tab;
-    var map={diagnose:'agroDiagnose',history:'agroHistory',knowhow:'agroKnowHow',report:'agroReport'};
+    var map={diagnose:'agroDiagnose',database:'agroDatabase',history:'agroHistory',knowhow:'agroKnowHow',report:'agroReport'};
     Object.keys(map).forEach(function(k){ var el=document.getElementById(map[k]); if(el)el.style.display=(k===tab?'':'none'); });
     var bar=document.getElementById('agroTabBar');
     if(bar)bar.querySelectorAll('.agro-tab').forEach(function(b){
@@ -141165,6 +141166,7 @@ body.hnx-mobile-locked { overflow: hidden; }
       b.style.borderColor=on?'var(--accent,#1f6f43)':'var(--border,#2a3b32)';
     });
     if(tab==='diagnose')renderDiagnose();
+    else if(tab==='database')renderDatabase();
     else if(tab==='history')renderHistory();
     else if(tab==='knowhow')renderKnowHow();
     else if(tab==='report')renderReport();
@@ -141180,6 +141182,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     var s=getSettings();
     var ghOpts=''; for(var i=1;i<=10;i++){ var g='GH'+i; ghOpts+='<option value="'+g+'" '+(s.lastGh===g?'selected':'')+'>'+g+'</option>'; }
     el.innerHTML=
+      connectBanner()+
       card(
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">'+
           '<div>'+fieldLabel('Greenhouse')+'<select id="agroGh" style="'+inputStyle()+'">'+ghOpts+'</select></div>'+
@@ -141251,7 +141254,8 @@ body.hnx-mobile-locked { overflow: hidden; }
         greenhouse:gh, crop:crop||'unknown leafy green', location:loc||'',
         markerDefinitions:MARKERS, vocabulary:VOCAB,
         recentDiagnoses:recent,
-        instructions:'Diagnose visible plant-health issues. Return issue, category (one of: chlorosis, necrosis, leaf spot, tip burn, curling, spotting, bolting, healthy, other), severity (mild/moderate/severe, or healthy), confidence 0-1, likely cause, recommended action. If you recommend a nutrient change, frame it as a recommendation requiring human approval — do NOT instruct auto-dosing.'
+        knowledgeBase:buildKBDigest(),
+        instructions:'Diagnose visible plant-health issues. First compare against knowledgeBase (the saved subject library and what was done in past similar cases) and let it inform your recommended action, referencing what worked before when relevant. Return issue, category (one of: chlorosis, necrosis, leaf spot, tip burn, curling, spotting, bolting, healthy, other), severity (mild/moderate/severe, or healthy), confidence 0-1, likely cause, recommended action. If you recommend a nutrient change, frame it as a recommendation requiring human approval — do NOT instruct auto-dosing.'
       };
       var payload={ image:stripPrefix(big), mediaType:'image/jpeg', context:ctx, knowHow:getKnowHow().join('\n'), question:q };
       return window.__hnxApi('/ai/vision',{method:'POST',body:JSON.stringify(payload)}).then(function(d){
@@ -141312,11 +141316,38 @@ body.hnx-mobile-locked { overflow: hidden; }
         '</div>'+
       '</div>';
     }
+    try{
+      var sim=similarCases(rec,3);
+      if(sim.subject){
+        html+='<div style="margin-top:14px;background:var(--bg,#0a120d);border:1px solid var(--border,#2a3b32);border-radius:9px;padding:11px;">'+
+          '<div style="font-size:11px;font-weight:800;color:var(--accent2,#4caf50);margin-bottom:6px;">📂 Filed under: '+esc(sim.subject.name)+(sim.subject.ref&&sim.subject.ref.fix?' <span style="color:var(--text3,#90a4ae);font-weight:600;">· reference fix on file</span>':'')+'</div>';
+        if(sim.cases.length){
+          html+='<div style="font-size:10px;color:var(--text3,#90a4ae);margin-bottom:4px;">Similar past cases'+(rec.crop?' (prioritising '+esc(rec.crop)+')':'')+':</div>';
+          sim.cases.forEach(function(c){
+            html+='<div style="display:flex;gap:8px;padding:6px 0;border-top:1px solid var(--border,#2a3b32);">'+
+              (c.thumb?'<img src="'+c.thumb+'" style="width:38px;height:38px;object-fit:cover;border-radius:6px;flex-shrink:0;">':'')+
+              '<div style="flex:1;min-width:0;font-size:11px;color:var(--text2,#b9d3c4);line-height:1.45;">'+
+                '<span style="color:var(--text3,#90a4ae);">'+esc(c.crop||'—')+(c.gh?' · '+esc(c.gh):'')+' · '+new Date(c.ts).toLocaleDateString()+'</span>'+
+                (c.whatDone?'<br><b style="color:var(--text3,#90a4ae);">Done:</b> '+esc(c.whatDone):'')+
+                (c.outcome?'<br><b style="color:var(--text3,#90a4ae);">Outcome:</b> '+esc(c.outcome):'')+
+              '</div>'+
+            '</div>';
+          });
+        } else {
+          html+='<div style="font-size:10px;color:var(--text3,#90a4ae);">No past cases yet — save this one to start building history.</div>';
+        }
+        html+='</div>';
+      }
+    }catch(e){}
     html+='<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">'+
       (rec.confirmed?'<span style="font-size:11px;color:var(--ok,#9ccc65);font-weight:700;align-self:center;">✓ Confirmed correct</span>'
         :'<button onclick="window.__agroConfirm(\''+rec.id+'\')" style="padding:8px 14px;border:1px solid var(--ok,#9ccc65);background:transparent;color:var(--ok,#9ccc65);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">Looks right ✓</button>')+
       '<button onclick="window.__agroOverride(\''+rec.id+'\')" style="padding:8px 14px;border:1px solid var(--info,#4dd0e1);background:transparent;color:var(--info,#4dd0e1);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">✏️ Override / correct</button>'+
+      '<button onclick="window.__agroSaveToDb(\''+rec.id+'\')" style="padding:8px 14px;border:1px solid var(--accent2,#4caf50);background:transparent;color:var(--accent2,#4caf50);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">🗂 Save to database</button>'+
+      '<button onclick="window.__agroRaiseCall(\''+rec.id+'\')" style="padding:8px 14px;border:none;background:var(--danger,#ef5350);color:#fff;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">🚨 Raise as Call</button>'+
     '</div>'+
+    '<div id="agroDbBox"></div>'+
+    '<div id="agroCallBox"></div>'+
     '<div id="agroOverrideBox"></div>';
     res.innerHTML=card(html, fresh?'border-color:'+sc+';':'');
   }
@@ -141325,6 +141356,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 
   window.__agroConfirm=function(id){
     var f=findRec(id); if(!f)return; f.rec.confirmed=true; f.rec.override=null; setLog(f.log);
+    try{ fileCaseFromRec(f.rec,{}); }catch(e){}
     toast('Logged as confirmed','ok'); renderResult(f.rec,false);
     try{ if(typeof window.hnxCloudPush==='function')window.hnxCloudPush(); }catch(e){}
   };
@@ -141464,6 +141496,336 @@ body.hnx-mobile-locked { overflow: hidden; }
       '</div>'
     );
   }
+
+  /* ====================================================================
+     ☁ CLOUD CONNECT helper — one-tap connect from the Diagnose screen
+     ==================================================================== */
+  function connectBanner(){
+    var rc=cloudReady(); if(rc.ok)return '';
+    return '<div style="margin-bottom:14px;background:rgba(255,167,38,0.08);border:1px solid var(--warn,#ffa726);border-radius:10px;padding:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'+
+      '<div style="flex:1;min-width:170px;font-size:12px;color:var(--text2,#b9d3c4);line-height:1.5;">\u26a0 '+esc(rc.msg)+'</div>'+
+      (location.protocol==='file:'?'' :
+        '<button onclick="window.__agroConnectCloud()" style="padding:8px 14px;border:none;background:var(--accent,#1f6f43);color:#fff;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;white-space:nowrap;">\u2601 Connect cloud AI</button>')+
+    '</div>';
+  }
+  window.__agroConnectCloud=function(){
+    try{
+      if(typeof window.connectCloud==='function'){ window.connectCloud(); }
+      else { var b=document.getElementById('hnx-cloud-badge'); if(b){ b.click(); } else { toast('Tap the cloud badge at the top-right to connect','info'); } }
+    }catch(e){ toast('Tap the cloud badge at the top-right to connect','info'); }
+    setTimeout(function(){ if(_activeTab==='diagnose')renderDiagnose(); },1600);
+  };
+
+  /* ====================================================================
+     \uD83D\uDDC2 AGRONOMICS DATABASE (v1) — self-improving case library
+     Folders = subjects (issue type). Each subject holds a reference entry
+     + a list of cases (crop, location, severity, what was done, outcome).
+     Light by design: only compact thumbnails are stored, capped per
+     subject, so cloud sync stays fast. Fed into every new diagnosis as
+     "past experience" so the AI compares & recommends from real history.
+     ==================================================================== */
+  var DB_KEY='hydroPro_agrodb_v1';
+  var DB_CASE_CAP=80;          // cases kept per subject (keeps sync fast)
+  var DB_DIGEST_SUBJECTS=24;   // subjects fed to the AI per diagnosis
+  var DB_DIGEST_CASES=3;       // recent cases per subject fed to the AI
+
+  var DB_SEED_SUBJECTS=[
+    {id:'tip_burn', name:'Tip burn', ref:{symptoms:'Browning / scorching of leaf tips.', cause:'Usually calcium uptake / transpiration / airflow related \u2014 check cooling pads & humidity before nutrients.', fix:'Verify airflow and transpiration; review Ca availability. Any nutrient change is a recommendation, never auto-dose.'}},
+    {id:'chlorosis', name:'Chlorosis (yellowing)', ref:{symptoms:'Yellowing of leaf tissue.', cause:'Often nitrogen / micronutrient related. Edge yellowing on older leaves can be normal senescence.', fix:'Only flag if newer / inner leaves affected; review N & micros with supervisor approval.'}},
+    {id:'necrosis', name:'Necrosis', ref:{symptoms:'Brown / black dead leaf areas.', cause:'Tissue death \u2014 disease, severe deficiency, or damage.', fix:'Isolate affected plants; inspect for disease spread.'}},
+    {id:'leaf_spot', name:'Leaf spot', ref:{symptoms:'Discrete lesions / spots on leaves.', cause:'Often fungal or bacterial.', fix:'Improve airflow, reduce leaf wetness; isolate & monitor spread.'}},
+    {id:'root_rot', name:'Root rot', ref:{symptoms:'Brown, slimy or smelly roots; wilting despite water.', cause:'Pythium / low dissolved oxygen / high water temp in NFT.', fix:'Check water temp & oxygenation; remove affected plants; sanitise channels.'}},
+    {id:'pests', name:'Pests', ref:{symptoms:'Visible insects, bite marks, webbing, sticky residue.', cause:'Aphids, thrips, whitefly, mites, etc.', fix:'Identify the pest; apply approved IPM measures; monitor.'}},
+    {id:'bolting', name:'Bolting', ref:{symptoms:'Premature flowering / vertical stem elongation.', cause:'Heat / day-length stress.', fix:'Review temperature; harvest timing; variety selection.'}},
+    {id:'curling', name:'Leaf curling', ref:{symptoms:'Leaf edges curling or cupping.', cause:'Heat, water stress, or chemical / airflow.', fix:'Check climate & irrigation; rule out spray damage.'}},
+    {id:'spotting', name:'Spotting', ref:{symptoms:'Yellow spots with darker centres.', cause:'Early disease or nutrient issue.', fix:'Monitor closely; isolate if spreading.'}},
+    {id:'healthy', name:'Healthy (baseline)', ref:{symptoms:'No visible stress \u2014 normal colour & form.', cause:'\u2014', fix:'No action \u2014 keep as a healthy baseline reference.'}},
+    {id:'other', name:'Other / uncategorised', ref:{symptoms:'Anything not matching a subject above.', cause:'\u2014', fix:'Describe, file, and review.'}}
+  ];
+
+  function nowUser(){ try{ var u=(typeof getCurrentUser==='function'?getCurrentUser():null); return (u&&(u.fullname||u.username))||'user'; }catch(e){ return 'user'; } }
+  function dbCanEdit(){ try{ return (typeof isAdmin!=='function') || isAdmin(); }catch(e){ return true; } }
+
+  function getDB(){
+    var db=load(DB_KEY,null);
+    if(!db||!Array.isArray(db.subjects)){
+      db={subjects:DB_SEED_SUBJECTS.map(function(s){ return {id:s.id,name:s.name,ref:{symptoms:s.ref.symptoms||'',cause:s.ref.cause||'',fix:s.ref.fix||'',note:'',updatedAt:nowISO(),updatedBy:'seed'},cases:[]}; })};
+      save(DB_KEY,db);
+    }
+    return db;
+  }
+  function setDB(db){ save(DB_KEY,db); try{ if(typeof window.hnxCloudPush==='function')window.hnxCloudPush(); }catch(e){} }
+  function dbSlug(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')||('subj_'+Date.now().toString(36)); }
+  function getSubject(db,id){ for(var i=0;i<db.subjects.length;i++){ if(db.subjects[i].id===id)return db.subjects[i]; } return null; }
+  function ensureSubject(db,id,name){
+    var s=getSubject(db,id);
+    if(!s){ s={id:id,name:name||id,ref:{symptoms:'',cause:'',fix:'',note:'',updatedAt:nowISO(),updatedBy:nowUser()},cases:[]}; db.subjects.push(s); }
+    return s;
+  }
+  function categoryToSubjectId(cat,issue){
+    cat=(cat||'').toLowerCase(); issue=(issue||'').toLowerCase(); var t=cat+' '+issue;
+    if(/tip\s*burn/.test(t)) return 'tip_burn';
+    if(/root\s*rot|pythium/.test(t)) return 'root_rot';
+    if(/chloros|yellow/.test(t)) return 'chlorosis';
+    if(/necros/.test(t)) return 'necrosis';
+    if(/leaf\s*spot/.test(t)) return 'leaf_spot';
+    if(/pest|aphid|thrip|whitefly|mite|insect|mildew/.test(t)) return 'pests';
+    if(/bolt/.test(t)) return 'bolting';
+    if(/curl/.test(t)) return 'curling';
+    if(/spot/.test(t)) return 'spotting';
+    if(/health/.test(t)) return 'healthy';
+    return 'other';
+  }
+
+  // Compact text digest of the whole DB for the AI (no images \u2014 stays light & fast)
+  function buildKBDigest(){
+    var db=getDB(); var out=[];
+    db.subjects.slice(0,DB_DIGEST_SUBJECTS).forEach(function(s){
+      var e={subject:s.name};
+      if(s.ref){ if(s.ref.cause)e.likelyCause=s.ref.cause; if(s.ref.fix)e.recommendedFix=s.ref.fix; }
+      var cs=(s.cases||[]).slice(0,DB_DIGEST_CASES).map(function(c){
+        return {crop:c.crop||'',gh:c.gh||'',severity:c.severity||'',whatDone:(c.whatDone||'').slice(0,160),outcome:(c.outcome||'').slice(0,120)};
+      }).filter(function(c){ return c.whatDone||c.outcome; });
+      if(cs.length)e.pastActions=cs;
+      out.push(e);
+    });
+    return out;
+  }
+
+  // File a diagnosis result under its matching subject (de-dupes by diagnosis id)
+  function fileCaseFromRec(rec, extra){
+    extra=extra||{};
+    var db=getDB();
+    var cat=rec.override?rec.override.category:rec.category;
+    var issue=rec.override?rec.override.issue:rec.issue;
+    var sid=categoryToSubjectId(cat,issue);
+    var seed=null; for(var i=0;i<DB_SEED_SUBJECTS.length;i++){ if(DB_SEED_SUBJECTS[i].id===sid){seed=DB_SEED_SUBJECTS[i];break;} }
+    var s=ensureSubject(db,sid,seed?seed.name:(cat||'Other'));
+    for(var j=0;j<s.cases.length;j++){ if(s.cases[j].fromId===rec.id){
+        if(extra.whatDone!=null)s.cases[j].whatDone=extra.whatDone;
+        if(extra.outcome!=null)s.cases[j].outcome=extra.outcome;
+        setDB(db); return {subject:s, updated:true};
+    } }
+    s.cases.unshift({
+      id:'dbc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+      fromId:rec.id, ts:nowISO(),
+      crop:rec.crop||'', gh:rec.gh||'', loc:rec.location||'',
+      severity:(rec.override?rec.override.severity:rec.severity)||'',
+      issue:issue||'', cause:rec.cause||'', action:rec.action||'',
+      whatDone:extra.whatDone||'', outcome:extra.outcome||'',
+      thumb:rec.thumb||'', by:nowUser()
+    });
+    if(s.cases.length>DB_CASE_CAP)s.cases=s.cases.slice(0,DB_CASE_CAP);
+    setDB(db);
+    return {subject:s, updated:false};
+  }
+
+  // Similar past cases for a fresh result (same subject, prefer same crop)
+  function similarCases(rec, max){
+    var db=getDB();
+    var sid=categoryToSubjectId(rec.override?rec.override.category:rec.category, rec.override?rec.override.issue:rec.issue);
+    var s=getSubject(db,sid); if(!s)return {subject:null,cases:[]};
+    var crop=(rec.crop||'').toLowerCase();
+    var cases=(s.cases||[]).filter(function(c){ return c.fromId!==rec.id; });
+    cases.sort(function(a,b){
+      var as=(crop&&(a.crop||'').toLowerCase()===crop?2:0)+((a.whatDone||a.outcome)?1:0);
+      var bs=(crop&&(b.crop||'').toLowerCase()===crop?2:0)+((b.whatDone||b.outcome)?1:0);
+      return bs-as;
+    });
+    return {subject:s, cases:cases.slice(0,max||3)};
+  }
+
+  /* ---------- DATABASE views (folders \u2192 subject \u2192 cases) ---------- */
+  var _dbView='list', _dbActiveSubject=null, _dbFilter={crop:'',gh:'',sev:'',q:''};
+
+  function renderDatabase(){
+    var el=document.getElementById('agroDatabase'); if(!el)return;
+    if(_dbView==='subject' && _dbActiveSubject) el.innerHTML=_dbSubjectHTML(_dbActiveSubject);
+    else el.innerHTML=_dbListHTML();
+  }
+  function _dbListHTML(){
+    var db=getDB();
+    var q=(_dbFilter.q||'').toLowerCase();
+    var subjects=db.subjects.slice().sort(function(a,b){ return (b.cases?b.cases.length:0)-(a.cases?a.cases.length:0); });
+    if(q)subjects=subjects.filter(function(s){ return s.name.toLowerCase().indexOf(q)>=0; });
+    var totalCases=db.subjects.reduce(function(n,s){ return n+(s.cases?s.cases.length:0); },0);
+    var cards=subjects.map(function(s){
+      var n=s.cases?s.cases.length:0;
+      var withAction=(s.cases||[]).filter(function(c){return c.whatDone;}).length;
+      return '<div onclick="window.__agroOpenSubject(\''+s.id+'\')" style="cursor:pointer;background:var(--surface,#0f1a14);border:1px solid var(--border,#2a3b32);border-left:3px solid var(--accent,#1f6f43);border-radius:10px;padding:13px 14px;">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">'+
+          '<div style="font-size:14px;font-weight:800;color:var(--text,#e8f5e9);">\uD83D\uDCC2 '+esc(s.name)+'</div>'+
+          '<div style="font-size:11px;color:var(--text3,#90a4ae);font-family:var(--mono,monospace);white-space:nowrap;">'+n+' case'+(n===1?'':'s')+'</div>'+
+        '</div>'+
+        (s.ref&&s.ref.fix?'<div style="font-size:11px;color:var(--text2,#b9d3c4);margin-top:5px;line-height:1.5;">'+esc((s.ref.fix||'').slice(0,140))+'</div>':'')+
+        (withAction?'<div style="font-size:10px;color:var(--ok,#9ccc65);margin-top:5px;">\u2713 '+withAction+' with recorded action / outcome</div>':'')+
+      '</div>';
+    }).join('');
+    return card(
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px;">'+
+        '<div style="font-size:14px;font-weight:800;color:var(--text,#e8f5e9);">\uD83D\uDDC2 Plant-health database</div>'+
+        '<div style="font-size:10px;color:var(--text3,#90a4ae);">'+db.subjects.length+' subjects \u00b7 '+totalCases+' cases</div>'+
+      '</div>'+
+      '<div style="font-size:11px;color:var(--text3,#90a4ae);margin-bottom:12px;line-height:1.5;">Organised by subject. Each new diagnosis is compared against this history, and you can record what was done so the AI recommends from real past cases.</div>'+
+      '<input id="agroDbSearch" placeholder="Search subjects\u2026" value="'+esc(_dbFilter.q||'')+'" oninput="window.__agroDbSearch(this.value)" style="'+inputStyle()+'margin-bottom:12px;">'+
+      '<div style="display:flex;flex-direction:column;gap:9px;">'+(cards||'<div style="font-size:12px;color:var(--text3,#90a4ae);">No subjects match.</div>')+'</div>'+
+      '<div style="margin-top:14px;">'+
+        '<button onclick="window.__agroAddSubject()" style="padding:8px 14px;border:1px dashed var(--accent,#1f6f43);background:transparent;color:var(--accent2,#4caf50);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">+ New subject folder</button>'+
+      '</div>'
+    );
+  }
+  function _dbSubjectHTML(sid){
+    var db=getDB(); var s=getSubject(db,sid);
+    if(!s)return _dbListHTML();
+    var canEdit=dbCanEdit(); var ref=s.ref||{};
+    var crops={}, ghs={};
+    (s.cases||[]).forEach(function(c){ if(c.crop)crops[c.crop]=1; if(c.gh)ghs[c.gh]=1; });
+    var cropOpts='<option value="">All crops</option>'+Object.keys(crops).map(function(c){return '<option '+(_dbFilter.crop===c?'selected':'')+'>'+esc(c)+'</option>';}).join('');
+    var ghOpts='<option value="">All GH</option>'+Object.keys(ghs).sort().map(function(g){return '<option '+(_dbFilter.gh===g?'selected':'')+'>'+esc(g)+'</option>';}).join('');
+    var sevOpts=['','mild','moderate','severe','healthy'].map(function(v){return '<option value="'+v+'" '+(_dbFilter.sev===v?'selected':'')+'>'+(v?v:'All severities')+'</option>';}).join('');
+    var cs=(s.cases||[]).filter(function(c){
+      if(_dbFilter.crop&&c.crop!==_dbFilter.crop)return false;
+      if(_dbFilter.gh&&c.gh!==_dbFilter.gh)return false;
+      if(_dbFilter.sev&&(c.severity||'').toLowerCase()!==_dbFilter.sev)return false;
+      return true;
+    });
+    var caseRows=cs.map(function(c){
+      var sc=sevColor(c.severity);
+      return '<div style="display:flex;gap:11px;padding:11px 0;border-bottom:1px solid var(--border,#2a3b32);">'+
+        (c.thumb?'<img src="'+c.thumb+'" style="width:54px;height:54px;object-fit:cover;border-radius:8px;border:1px solid '+sc+';flex-shrink:0;">':'<div style="width:54px;height:54px;border-radius:8px;background:var(--bg,#0a120d);flex-shrink:0;"></div>')+
+        '<div style="flex:1;min-width:0;">'+
+          '<div style="font-size:12px;color:var(--text3,#90a4ae);">'+esc(c.crop||'\u2014')+(c.gh?' \u00b7 '+esc(c.gh):'')+(c.loc?' \u00b7 '+esc(c.loc):'')+' \u00b7 '+new Date(c.ts).toLocaleDateString()+(c.severity?' \u00b7 <span style="color:'+sc+';font-weight:700;text-transform:uppercase;">'+esc(c.severity)+'</span>':'')+'</div>'+
+          (c.issue?'<div style="font-size:12px;color:var(--text,#e8f5e9);font-weight:700;margin-top:2px;">'+esc(c.issue)+'</div>':'')+
+          (c.whatDone?'<div style="font-size:12px;color:var(--text2,#b9d3c4);margin-top:3px;line-height:1.5;"><b style="color:var(--text3,#90a4ae);">Done:</b> '+esc(c.whatDone)+'</div>':'')+
+          (c.outcome?'<div style="font-size:12px;color:var(--ok,#9ccc65);margin-top:2px;line-height:1.5;"><b style="color:var(--text3,#90a4ae);">Outcome:</b> '+esc(c.outcome)+'</div>':'')+
+        '</div>'+
+        (canEdit?'<button onclick="window.__agroDelCase(\''+s.id+'\',\''+c.id+'\')" style="border:none;background:transparent;color:var(--danger,#ef5350);font-size:13px;cursor:pointer;flex-shrink:0;align-self:flex-start;">\u2715</button>':'')+
+      '</div>';
+    }).join('');
+    var refBlock = canEdit
+      ? '<div style="display:grid;gap:8px;">'+
+          fieldLabel('Symptoms')+'<textarea id="dbRefSym" rows="2" style="'+inputStyle()+'resize:vertical;">'+esc(ref.symptoms||'')+'</textarea>'+
+          fieldLabel('Likely cause')+'<textarea id="dbRefCause" rows="2" style="'+inputStyle()+'resize:vertical;">'+esc(ref.cause||'')+'</textarea>'+
+          fieldLabel('Recommended fix')+'<textarea id="dbRefFix" rows="2" style="'+inputStyle()+'resize:vertical;">'+esc(ref.fix||'')+'</textarea>'+
+          '<div><button onclick="window.__agroSaveRef(\''+s.id+'\')" style="padding:7px 13px;border:none;background:var(--accent,#1f6f43);color:#fff;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Save reference</button></div>'+
+        '</div>'
+      : '<div style="font-size:12px;color:var(--text2,#b9d3c4);line-height:1.6;">'+
+          (ref.symptoms?'<div><b style="color:var(--text3,#90a4ae);">Symptoms:</b> '+esc(ref.symptoms)+'</div>':'')+
+          (ref.cause?'<div><b style="color:var(--text3,#90a4ae);">Likely cause:</b> '+esc(ref.cause)+'</div>':'')+
+          (ref.fix?'<div><b style="color:var(--text3,#90a4ae);">Recommended fix:</b> '+esc(ref.fix)+'</div>':'')+
+        '</div>';
+    return card('<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">'+
+        '<button onclick="window.__agroDbBack()" style="border:1px solid var(--border,#2a3b32);background:transparent;color:var(--text2,#b9d3c4);border-radius:7px;font-size:12px;padding:5px 10px;cursor:pointer;font-family:inherit;">\u2190 Back</button>'+
+        '<div style="font-size:16px;font-weight:800;color:var(--text,#e8f5e9);">\uD83D\uDCC2 '+esc(s.name)+'</div>'+
+      '</div>'+
+      '<div style="font-size:11px;font-weight:800;color:var(--accent2,#4caf50);margin-bottom:6px;">REFERENCE'+(canEdit?'':' (admin-managed)')+'</div>'+
+      refBlock
+    )+
+    '<div style="height:14px;"></div>'+
+    card(
+      '<div style="font-size:13px;font-weight:800;color:var(--text,#e8f5e9);margin-bottom:10px;">Past cases ('+cs.length+')</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">'+
+        '<select onchange="window.__agroDbFilter(\'crop\',this.value)" style="'+inputStyle()+'">'+cropOpts+'</select>'+
+        '<select onchange="window.__agroDbFilter(\'gh\',this.value)" style="'+inputStyle()+'">'+ghOpts+'</select>'+
+        '<select onchange="window.__agroDbFilter(\'sev\',this.value)" style="'+inputStyle()+'">'+sevOpts+'</select>'+
+      '</div>'+
+      (caseRows||'<div style="font-size:12px;color:var(--text3,#90a4ae);">No cases match. Run a diagnosis and tap \u201cSave to database\u201d, or adjust the filters.</div>')
+    );
+  }
+  window.__agroOpenSubject=function(id){ _dbActiveSubject=id; _dbView='subject'; _dbFilter.crop='';_dbFilter.gh='';_dbFilter.sev=''; renderDatabase(); };
+  window.__agroDbBack=function(){ _dbView='list'; _dbActiveSubject=null; renderDatabase(); };
+  window.__agroDbSearch=function(v){ _dbFilter.q=v||''; var box=document.getElementById('agroDbSearch'); var pos=box?box.selectionStart:null; renderDatabase(); var nb=document.getElementById('agroDbSearch'); if(nb){ nb.focus(); try{nb.setSelectionRange(pos,pos);}catch(e){} } };
+  window.__agroDbFilter=function(k,v){ _dbFilter[k]=v; renderDatabase(); };
+  window.__agroSaveRef=function(id){ if(!dbCanEdit()){toast('Admins manage references','warn');return;} var db=getDB(); var s=getSubject(db,id); if(!s)return; s.ref=s.ref||{}; s.ref.symptoms=((document.getElementById('dbRefSym')||{}).value||''); s.ref.cause=((document.getElementById('dbRefCause')||{}).value||''); s.ref.fix=((document.getElementById('dbRefFix')||{}).value||''); s.ref.updatedAt=nowISO(); s.ref.updatedBy=nowUser(); setDB(db); toast('Reference saved','ok'); };
+  window.__agroAddSubject=function(){ var name=prompt('New subject folder name (e.g. Downy mildew):'); if(!name)return; name=name.trim(); if(!name)return; var db=getDB(); var id=dbSlug(name); if(getSubject(db,id)){toast('That subject already exists','info');} else { ensureSubject(db,id,name); setDB(db); } _dbActiveSubject=id;_dbView='subject';renderDatabase(); };
+  window.__agroDelCase=function(sid,cid){ if(!dbCanEdit()){toast('Admins can delete','warn');return;} var db=getDB(); var s=getSubject(db,sid); if(!s)return; s.cases=(s.cases||[]).filter(function(c){return c.id!==cid;}); setDB(db); renderDatabase(); };
+
+  /* ---------- SAVE TO DATABASE (from a diagnosis result) ---------- */
+  window.__agroSaveToDb=function(id){
+    var f=findRec(id); if(!f)return;
+    var box=document.getElementById('agroDbBox'); if(!box)return;
+    box.innerHTML='<div style="margin-top:12px;background:var(--bg,#0a120d);border:1px solid var(--accent2,#4caf50);border-radius:9px;padding:12px;">'+
+      '<div style="font-size:12px;font-weight:800;color:var(--accent2,#4caf50);margin-bottom:8px;">Save to database</div>'+
+      fieldLabel('What was done (action taken)')+'<textarea id="agroWhatDone" rows="2" placeholder="e.g. Increased airflow, checked Ca, flagged GH6 cooling pad" style="'+inputStyle()+'resize:vertical;margin-bottom:9px;"></textarea>'+
+      fieldLabel('Outcome (optional \u2014 you can fill this in later)')+'<input id="agroOutcome" placeholder="e.g. Recovered in 4 days" style="'+inputStyle()+'margin-bottom:10px;">'+
+      '<div style="display:flex;gap:8px;">'+
+        '<button onclick="window.__agroSaveToDbConfirm(\''+id+'\')" style="padding:8px 14px;border:none;background:var(--accent,#1f6f43);color:#fff;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Save to database</button>'+
+        '<button onclick="document.getElementById(\'agroDbBox\').innerHTML=\'\'" style="padding:8px 14px;border:1px solid var(--border,#2a3b32);background:transparent;color:var(--text2,#b9d3c4);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">Cancel</button>'+
+      '</div>'+
+      '<div style="font-size:10px;color:var(--text3,#90a4ae);margin-top:8px;">Filed by subject. Future diagnoses compare against this and recommend from it.</div>'+
+    '</div>';
+  };
+  window.__agroSaveToDbConfirm=function(id){
+    var f=findRec(id); if(!f)return;
+    var wd=((document.getElementById('agroWhatDone')||{}).value||'').trim();
+    var oc=((document.getElementById('agroOutcome')||{}).value||'').trim();
+    var r=fileCaseFromRec(f.rec,{whatDone:wd,outcome:oc});
+    var box=document.getElementById('agroDbBox'); if(box)box.innerHTML='<div style="margin-top:10px;font-size:11px;color:var(--ok,#9ccc65);font-weight:700;">\u2713 Saved to \u201c'+esc(r.subject.name)+'\u201d'+(r.updated?' (updated)':'')+'</div>';
+    toast('Saved to database','ok');
+  };
+
+  /* ---------- RAISE AS CALL (turn a diagnosis into a tracked production call) ---------- */
+  function sevToPriority(sev){ sev=(sev||'').toLowerCase(); if(sev==='severe'||sev==='critical')return 'critical'; if(sev==='moderate')return 'need'; if(sev==='mild')return 'info'; return 'need'; }
+  window.__agroRaiseCall=function(id){
+    var f=findRec(id); if(!f)return; var rec=f.rec;
+    var box=document.getElementById('agroCallBox'); if(!box)return;
+    var issue=rec.override?rec.override.issue:rec.issue;
+    var sev=(rec.override?rec.override.severity:rec.severity)||'';
+    box.innerHTML='<div style="margin-top:12px;background:var(--bg,#0a120d);border:1px solid var(--danger,#ef5350);border-radius:9px;padding:12px;">'+
+      '<div style="font-size:12px;font-weight:800;color:var(--danger,#ef5350);margin-bottom:8px;">Raise as production call</div>'+
+      '<div style="font-size:11px;color:var(--text2,#b9d3c4);line-height:1.6;margin-bottom:10px;">'+
+        '<b style="color:var(--text3,#90a4ae);">Issue:</b> '+esc(issue||'\u2014')+'<br>'+
+        '<b style="color:var(--text3,#90a4ae);">Where:</b> '+esc(rec.gh||'\u2014')+(rec.location?' \u00b7 '+esc(rec.location):'')+(rec.crop?' \u00b7 '+esc(rec.crop):'')+'<br>'+
+        (sev?'<b style="color:var(--text3,#90a4ae);">Severity:</b> '+esc(sev)+' \u2192 priority '+esc(sevToPriority(sev))+'<br>':'')+
+        (rec.action?'<b style="color:var(--text3,#90a4ae);">Recommended:</b> '+esc(rec.action):'')+
+      '</div>'+
+      fieldLabel('Add a note for the team (optional)')+'<textarea id="agroCallNote" rows="2" placeholder="anything the team should know" style="'+inputStyle()+'resize:vertical;margin-bottom:10px;"></textarea>'+
+      '<div style="display:flex;gap:8px;">'+
+        '<button onclick="window.__agroRaiseCallConfirm(\''+id+'\')" style="padding:8px 14px;border:none;background:var(--danger,#ef5350);color:#fff;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">\uD83D\uDEA8 Create call</button>'+
+        '<button onclick="document.getElementById(\'agroCallBox\').innerHTML=\'\'" style="padding:8px 14px;border:1px solid var(--border,#2a3b32);background:transparent;color:var(--text2,#b9d3c4);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">Cancel</button>'+
+      '</div>'+
+    '</div>';
+  };
+  window.__agroRaiseCallConfirm=function(id){
+    var f=findRec(id); if(!f)return; var rec=f.rec;
+    var note=((document.getElementById('agroCallNote')||{}).value||'').trim();
+    var issue=rec.override?rec.override.issue:rec.issue;
+    var sev=(rec.override?rec.override.severity:rec.severity)||'';
+    var loadC=window.loadCalls, saveC=window.saveCalls, addC=window._addPairedCall;
+    var box=document.getElementById('agroCallBox');
+    if(typeof loadC!=='function'||typeof saveC!=='function'||typeof addC!=='function'){
+      toast('Calls system not reachable here','warn');
+      if(box)box.innerHTML='<div style="margin-top:10px;font-size:11px;color:var(--warn,#ffa726);">Couldn\u2019t reach the calls system. Open the app on your live site and try again.</div>';
+      return;
+    }
+    try{
+      var calls=loadC()||[]; if(!Array.isArray(calls))calls=[];
+      var desc='AI plant diagnosis from Agronomics.\n'+
+        'Crop: '+(rec.crop||'\u2014')+'\nGreenhouse: '+(rec.gh||'\u2014')+(rec.location?'\nLocation: '+rec.location:'')+
+        '\nIssue: '+(issue||'\u2014')+(sev?'\nSeverity: '+sev:'')+
+        (rec.cause?'\nLikely cause: '+rec.cause:'')+
+        (rec.action?'\nRecommended action: '+rec.action:'')+
+        (note?'\n\nNote: '+note:'');
+      var callId=addC(calls,{
+        subject:'\uD83C\uDF3F '+(rec.gh||'GH')+' \u2014 '+(issue||'Plant issue'),
+        description:desc, priority:sevToPriority(sev),
+        group:'operations', department:'production',
+        area:rec.gh||'', subsystem:'Agronomics',
+        sourceModule:'production', sourceLabel:'Agronomics \u00b7 '+(rec.gh||'')+(rec.crop?' \u00b7 '+rec.crop:''),
+        raisedBy:nowUser(),
+        autoNote:'\uD83C\uDF3F Raised from Agronomics AI diagnosis.'+(note?' Note: '+note:'')
+      });
+      try{ var c=calls.filter(function(x){return x.id===callId;})[0]; if(c){ c.attachments=c.attachments||[]; if(rec.thumb)c.attachments.push({type:'image',data:rec.thumb}); } }catch(e){}
+      saveC(calls);
+      try{ if(typeof window.hnxCloudPush==='function')window.hnxCloudPush(); }catch(e){}
+      rec.raisedCall=true; setLog(f.log);
+      toast('\uD83D\uDEA8 Call raised \u2192 Production','danger');
+      if(box)box.innerHTML='<div style="margin-top:10px;font-size:11px;color:var(--ok,#9ccc65);font-weight:700;">\u2713 Call created and routed to Production (with the photo attached).</div>';
+    }catch(e){
+      toast('Could not raise call','warn');
+      if(box)box.innerHTML='<div style="margin-top:10px;font-size:11px;color:var(--danger,#ef5350);">Error creating call: '+esc(e&&e.message||'unknown')+'</div>';
+    }
+  };
 
   /* ---------- registration ---------- */
   function registerView(){
