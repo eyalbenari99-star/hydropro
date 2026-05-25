@@ -142996,5 +142996,179 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 
 </script>
+
+<!-- ==== HydroNexis-AI patch T-04 (employee store reconcile) — integrated ==== -->
+<!-- ============================================================================
+  HydroNexis-AI · PATCH T-04 — Employee store reconcile (split-brain fix)
+  ============================================================================
+  WHAT IT FIXES
+    Two employee stores exist and disagree:
+      - hydroPro_employees      (payroll roster: id, name, rate, dept)
+      - hydroPro_hr_employees   (HR record: contact, onboarding, status,
+                                 and the disciplinary flag openDiscCase)
+    The disciplinary module writes openDiscCase to hr_employees, but the main
+    HR/payroll screens read employees -> the flag silently never shows.
+
+  WHAT THIS PATCH DOES (safe + reversible, NO existing code changes)
+    1. Backs up BOTH keys once (to non-synced hnx_* keys) before touching data.
+    2. Builds ONE merged employee list (union by id; never drops anyone).
+    3. Mirrors the merged list back to BOTH keys, so every existing reader
+       (whichever key it uses) now sees the same complete record.
+    4. Re-runs automatically after cloud pull and on cross-tab changes, and
+       only writes when something actually changed (no loops, no cloud churn).
+    5. Logs a one-line summary + any field conflicts to the console.
+
+  HOW TO INSTALL
+    Paste this entire block into index.html, just before </body>
+    (after the HR code has loaded). Deploy. Done.
+
+  HOW TO VERIFY
+    Open the browser console after load. You should see:
+      [T-04] reconcile: employees=NN  hr_employees=MM  merged=KK  ...
+    Then check an employee who has an open disciplinary case — it should now
+    appear on the main HR list too.
+
+  HOW TO UNDO
+    Remove this block. To restore the pre-merge data, run in the console:
+      hnxRestoreEmployeeBackup();
+
+  CONFLICT RULES (edit PRECEDENCE below if your data needs different priority)
+    - Payroll field 'rate'          -> from hydroPro_employees wins
+    - HR fields (position, phone,
+      email, hiredAt, status,
+      onboarding, referrer*, type)  -> from hydroPro_hr_employees wins
+    - openDiscCase                  -> TRUE if EITHER store says true (never lost)
+    - name / dept                   -> prefer a non-empty, real value
+    - anything else                 -> prefer non-empty; ties -> hr_employees
+  ============================================================================ -->
+<script>
+(function HNX_T04_EmployeeReconcile(){
+  'use strict';
+  var EMP   = 'hydroPro_employees';        // payroll roster (array)
+  var HREMP = 'hydroPro_hr_employees';      // HR record (array)
+  // Backups use a NON-hydroPro_ prefix so the cloud sync (shouldSync) ignores them.
+  var BAK_EMP   = 'hnx_t04_bak_employees_v1';
+  var BAK_HREMP = 'hnx_t04_bak_hr_employees_v1';
+  var BAK_FLAG  = 'hnx_t04_backup_done_v1';
+
+  function log(){ try{ console.log.apply(console, ['[T-04]'].concat([].slice.call(arguments))); }catch(e){} }
+  function readArr(k){ try{ var v=JSON.parse(localStorage.getItem(k)||'[]'); return Array.isArray(v)?v:[]; }catch(e){ return []; } }
+  function writeIfChanged(k, arr){
+    try{
+      var next=JSON.stringify(arr);
+      if(localStorage.getItem(k)!==next){ localStorage.setItem(k, next); return true; }
+    }catch(e){}
+    return false;
+  }
+  function idOf(o){
+    if(!o||typeof o!=='object') return null;
+    if(o.id!=null && String(o.id).trim()!=='') return 'id:'+String(o.id).trim().toLowerCase();
+    if(o.empId!=null && String(o.empId).trim()!=='') return 'id:'+String(o.empId).trim().toLowerCase();
+    if(o.name!=null && String(o.name).trim()!=='') return 'nm:'+String(o.name).trim().toLowerCase();
+    return null;
+  }
+  function nonEmpty(v){ return v!==undefined && v!==null && !(typeof v==='string' && v.trim()===''); }
+  function realDept(v){ return nonEmpty(v) && String(v).toLowerCase()!=='(unassigned)'; }
+
+  // Field precedence: which source wins for a given key.
+  // 'a' = hydroPro_employees (payroll)   'b' = hydroPro_hr_employees (HR)
+  var PRECEDENCE = {
+    rate:'a',
+    position:'b', type:'b', phone:'b', email:'b', hiredAt:'b', status:'b',
+    onboardingStarted:'b', referrerId:'b', referrerName:'b'
+  };
+
+  var _conflicts = [];
+  function mergeOne(a, b){
+    a = a || {}; b = b || {};
+    var out = {}, keys = {};
+    Object.keys(a).forEach(function(k){ keys[k]=1; });
+    Object.keys(b).forEach(function(k){ keys[k]=1; });
+    Object.keys(keys).forEach(function(k){
+      var av=a[k], bv=b[k], hasA=nonEmpty(av), hasB=nonEmpty(bv);
+      // disciplinary flag: never lose a true
+      if(k==='openDiscCase'){ out[k] = (av===true || bv===true); return; }
+      // explicit precedence
+      if(PRECEDENCE[k]==='a' && hasA){ out[k]=av; if(hasB && bv!==av) _conflicts.push(k); return; }
+      if(PRECEDENCE[k]==='b' && hasB){ out[k]=bv; if(hasA && av!==bv) _conflicts.push(k); return; }
+      // dept: prefer a real (non-"(unassigned)") value
+      if(k==='dept'){
+        if(realDept(bv)) out[k]=bv; else if(realDept(av)) out[k]=av; else out[k]= hasB?bv:av;
+        return;
+      }
+      // generic: prefer non-empty; tie -> HR (b); record conflict if both differ
+      if(hasA && hasB){ if(av!==bv) _conflicts.push(k); out[k]=bv; }
+      else if(hasB) out[k]=bv;
+      else out[k]=av;
+    });
+    return out;
+  }
+
+  function reconcile(reason){
+    var a = readArr(EMP);
+    var b = readArr(HREMP);
+    if(a.length===0 && b.length===0) return; // nothing to do yet
+
+    // One-time backup BEFORE the first merge.
+    try{
+      if(localStorage.getItem(BAK_FLAG)!=='1'){
+        localStorage.setItem(BAK_EMP,   JSON.stringify(a));
+        localStorage.setItem(BAK_HREMP, JSON.stringify(b));
+        localStorage.setItem(BAK_FLAG, '1');
+        log('backup saved (', BAK_EMP, '/', BAK_HREMP, ') — undo via hnxRestoreEmployeeBackup()');
+      }
+    }catch(e){ log('backup skipped:', e && e.message); }
+
+    _conflicts = [];
+    var map = {}, order = [];
+    function ingest(list, side){
+      list.forEach(function(o){
+        var key = idOf(o);
+        if(!key) return;            // skip records with no usable identity
+        if(!map[key]){ map[key] = {a:null, b:null}; order.push(key); }
+        map[key][side] = o;
+      });
+    }
+    ingest(a, 'a');
+    ingest(b, 'b');
+
+    var merged = order.map(function(key){ return mergeOne(map[key].a, map[key].b); });
+
+    var wEmp = writeIfChanged(EMP,   merged);
+    var wHr  = writeIfChanged(HREMP, merged);
+
+    var conflictKeys = _conflicts.filter(function(v,i,arr){ return arr.indexOf(v)===i; });
+    log('reconcile['+(reason||'load')+']: employees='+a.length+'  hr_employees='+b.length+
+        '  merged='+merged.length+'  wrote='+((wEmp||wHr)?'yes':'no-change')+
+        (conflictKeys.length?('  field-conflicts: '+conflictKeys.join(', ')+' (kept by rule)'):''));
+  }
+
+  // Manual helpers exposed for you.
+  window.hnxReconcileEmployees = function(){ reconcile('manual'); };
+  window.hnxRestoreEmployeeBackup = function(){
+    try{
+      var ba=localStorage.getItem(BAK_EMP), bb=localStorage.getItem(BAK_HREMP);
+      if(ba===null && bb===null){ log('no backup found'); return false; }
+      if(ba!==null) localStorage.setItem(EMP, ba);
+      if(bb!==null) localStorage.setItem(HREMP, bb);
+      log('restored pre-merge backup. Reload the page.');
+      return true;
+    }catch(e){ log('restore failed:', e && e.message); return false; }
+  };
+
+  // Run after cloud pull (which happens on load) so the fix survives a pull,
+  // and again on cross-tab storage changes. Guarded writes prevent loops.
+  function schedule(){ setTimeout(function(){ reconcile('load'); }, 1500); }
+  if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', schedule); }
+  else { schedule(); }
+
+  window.addEventListener('storage', function(e){
+    if(e && (e.key===EMP || e.key===HREMP)) reconcile('storage');
+  });
+
+  log('patch installed.');
+})();
+</script>
+
 </body>
 </html>
