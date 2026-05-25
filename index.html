@@ -92169,23 +92169,29 @@ function _crmCustomerDetail(c){
   try{quotes=JSON.parse(localStorage.getItem('hydroPro_crm_quotes')||'[]').filter(q=>q.leadId===c.id||q.customerId===c.id);}catch(e){}
   try{orders=JSON.parse(localStorage.getItem('hydroPro_crm_orders')||'[]').filter(o=>o.leadId===c.id||o.customerId===c.id);}catch(e){}
 
-  const docRows=docs.map(d=>{
+  const _mkDocRow=(d)=>{
     const s=ds[d.id]||{};const present=s.present;
     const stCol=present?'var(--ok)':d.critical?'var(--danger)':'var(--warn)';
     const stLbl=present?'✓ ON FILE':d.critical?'✕ MISSING (CRITICAL)':'⚠ MISSING';
+    const vcount=Array.isArray(s.versions)?s.versions.length:(present?1:0);
+    const viewBtn=present?`<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="_crmCustDocView('${c.id}','${d.id}')">👁</button>`:'';
+    const rmBtn=(present||d.custom)?`<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--danger);" onclick="_crmCustDocRemove('${c.id}','${d.id}')">🗑</button>`:'';
     return `<tr>
-      <td>${d.name}${d.critical?' <span style="color:var(--danger);font-size:10px;font-weight:700;">★ KEY</span>':''}</td>
+      <td>${(d.name||'').replace(/[<>]/g,'')}${d.critical?' <span style="color:var(--danger);font-size:10px;font-weight:700;">★ KEY</span>':''}${d.custom?' <span style="color:var(--info);font-size:10px;font-weight:700;">+ CUSTOM</span>':''}</td>
       <td style="text-align:center;color:${stCol};font-weight:700;font-size:11px;">${stLbl}</td>
-      <td style="font-family:var(--mono);font-size:11px;">${s.dateAdded||'—'}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${s.dateAdded||'—'}${present?` <span style="color:var(--text3);">v${s.ver||1}</span>`:''}</td>
       <td style="font-size:11px;">${s.addedBy||'—'}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:11px;">${vcount>1?`<button class="btn btn-outline" style="font-size:10px;padding:3px 8px;" onclick="_crmCustDocVersions('${c.id}','${d.id}')" title="View version history">🕘 ${vcount}</button>`:(vcount===1?'1':'—')}</td>
       <td style="font-size:11px;color:var(--text3);">${(s.notes||'').replace(/[<>]/g,'').slice(0,60)}</td>
       <td style="text-align:right;white-space:nowrap;">
-        ${present?'':`<label class="btn btn-primary" style="font-size:11px;padding:4px 10px;cursor:pointer;">📷 Upload<input type="file" accept="image/*,.pdf" style="display:none;" onchange="_crmCustDocUpload('${c.id}','${d.id}',this)"></label>`}
-        ${present?`<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="_crmCustDocView('${c.id}','${d.id}')">👁</button><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--danger);" onclick="_crmCustDocRemove('${c.id}','${d.id}')">🗑</button>`:''}
+        <label class="btn ${present?'btn-outline':'btn-primary'}" style="font-size:11px;padding:4px 10px;cursor:pointer;" title="${present?'Upload a new version (old one is kept)':'Upload'}">${present?'⤴ New ver':'📷 Upload'}<input type="file" accept="image/*,.pdf" style="display:none;" onchange="_crmCustDocUpload('${c.id}','${d.id}',this)"></label>
+        ${viewBtn}${rmBtn}
         <button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="_crmCustDocNote('${c.id}','${d.id}')">📝</button>
       </td>
     </tr>`;
-  }).join('');
+  };
+  const _customDocs=Object.keys(ds).filter(k=>ds[k]&&ds[k].custom).map(k=>({id:k,name:ds[k].name||k,critical:false,custom:true}));
+  const docRows=docs.map(_mkDocRow).join('')+_customDocs.map(_mkDocRow).join('');
 
   // Build summary tabs for related data
   const tpRows=touchpoints.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,10).map(t=>`<tr><td style="font-family:var(--mono);font-size:11px;">${t.date||''}</td><td style="font-size:11px;">${(t.type||'').replace(/[<>]/g,'')}</td><td>${(t.subject||'').replace(/[<>]/g,'')}</td><td style="font-size:11px;color:var(--text3);">${(t.summary||'').replace(/[<>]/g,'').slice(0,80)}</td></tr>`).join('');
@@ -92224,11 +92230,12 @@ function _crmCustomerDetail(c){
 
   <div class="section-title" style="margin-top:14px;">📋 Document Checklist</div>
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
-    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">★ KEY = critical document required for compliance</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">★ KEY = critical document required for compliance · 🕘 = version history (every upload is kept) · ➕ add any document you need</div>
     <div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;">
-      <thead><tr><th>Document</th><th style="text-align:center;">Status</th><th>Date Added</th><th>By</th><th>Notes</th><th style="text-align:right;">Actions</th></tr></thead>
+      <thead><tr><th>Document</th><th style="text-align:center;">Status</th><th>Date Added</th><th>By</th><th style="text-align:center;">Versions</th><th>Notes</th><th style="text-align:right;">Actions</th></tr></thead>
       <tbody>${docRows}</tbody>
     </table></div>
+    <div style="margin-top:10px;"><button class="btn btn-primary" style="font-size:11px;padding:5px 12px;" onclick="_crmCustAddCustomDoc('${c.id}')">➕ Add custom document</button></div>
   </div>
 
   ${quotes.length?`<div class="section-title" style="margin-top:14px;">📄 Recent Quotes (${quotes.length})</div>
@@ -92254,12 +92261,78 @@ window._crmCustDocUpload=function(custId,docId,input){
   reader.onload=function(e){
     const all=_crmLoadCustomerFiles();
     if(!all[custId])all[custId]={};
-    all[custId][docId]={present:true,scanUrl:e.target.result,dateAdded:new Date().toISOString().slice(0,10),addedBy:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user',notes:(all[custId][docId]&&all[custId][docId].notes)||''};
-    try{_crmSaveCustomerFiles(all);}catch(err){alert('Storage full.');return;}
-    if(typeof showToast==='function')showToast('Document uploaded','ok');
+    const prev=all[custId][docId]||{};
+    let versions=Array.isArray(prev.versions)?prev.versions.slice():[];
+    // migrate a pre-versioning upload into v1 so its history isn't lost
+    if(prev.scanUrl&&versions.length===0){
+      versions.push({ver:1,scanUrl:prev.scanUrl,dateAdded:prev.dateAdded||new Date().toISOString().slice(0,10),addedBy:prev.addedBy||'user',fileName:prev.fileName||'',size:prev.size||0});
+    }
+    const newVer=(versions.length?versions[versions.length-1].ver:0)+1;
+    const today=new Date().toISOString().slice(0,10);
+    const by=((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user';
+    const entry={ver:newVer,scanUrl:e.target.result,dateAdded:today,addedBy:by,fileName:file.name||'',size:file.size||0};
+    versions.push(entry);
+    all[custId][docId]=Object.assign({},prev,{
+      present:true,scanUrl:entry.scanUrl,dateAdded:today,addedBy:by,fileName:entry.fileName,
+      ver:newVer,versions:versions,custom:prev.custom||false,name:prev.name,notes:prev.notes||''
+    });
+    try{_crmSaveCustomerFiles(all);}catch(err){alert('Storage full — old document versions take space. Remove an unneeded document or version and retry.');return;}
+    if(typeof showToast==='function')showToast(newVer>1?('New version v'+newVer+' saved (v'+(newVer-1)+' kept in history)'):'Document uploaded','ok');
     renderCrmCustomerFiles();
   };
   reader.readAsDataURL(file);input.value='';
+};
+window._crmCustAddCustomDoc=function(custId){
+  const name=prompt('Document name (e.g. "FDA License", "Insurance Certificate", "Photo of warehouse"):','');
+  if(name===null)return;
+  const nm=String(name).trim();if(!nm)return;
+  const all=_crmLoadCustomerFiles();
+  if(!all[custId])all[custId]={};
+  const docId='custom_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  all[custId][docId]={present:false,custom:true,name:nm,notes:'',versions:[]};
+  try{_crmSaveCustomerFiles(all);}catch(err){alert('Storage full.');return;}
+  if(typeof showToast==='function')showToast('Added "'+nm+'" — now tap 📷 Upload on its row','ok');
+  renderCrmCustomerFiles();
+};
+window._crmCustDocVersions=function(custId,docId){
+  const all=_crmLoadCustomerFiles();const doc=all[custId]&&all[custId][docId];
+  if(!doc)return;
+  let vers=(Array.isArray(doc.versions)&&doc.versions.length)?doc.versions.slice():(doc.scanUrl?[{ver:1,scanUrl:doc.scanUrl,dateAdded:doc.dateAdded,addedBy:doc.addedBy,fileName:doc.fileName||''}]:[]);
+  const tpl=(typeof CRM_CUSTOMER_DOC_TEMPLATES!=='undefined')?CRM_CUSTOMER_DOC_TEMPLATES.find(t=>t.id===docId):null;
+  const title=doc.custom?(doc.name||'Document'):((tpl||{}).name||docId);
+  const curVer=doc.ver||(vers.length?vers[vers.length-1].ver:1);
+  const rows=vers.slice().sort((a,b)=>(b.ver||0)-(a.ver||0)).map(v=>{
+    const isCur=v.ver===curVer;
+    return `<tr style="${isCur?'background:rgba(102,187,106,0.10);':''}">
+      <td style="font-family:var(--mono);font-weight:700;">v${v.ver}${isCur?' <span style="color:var(--ok);font-size:10px;">● CURRENT</span>':''}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${v.dateAdded||'—'}</td>
+      <td style="font-size:11px;">${(v.addedBy||'—')}</td>
+      <td style="font-size:11px;color:var(--text3);">${(((v.fileName||'')+'').replace(/[<>]/g,'').slice(0,40))||'—'}</td>
+      <td style="text-align:right;"><button class="btn btn-outline" style="font-size:11px;padding:3px 9px;" onclick="_crmCustDocViewVer('${custId}','${docId}',${v.ver})">👁 View</button></td>
+    </tr>`;
+  }).join('');
+  let host=document.getElementById('crmCustVerModal');
+  if(!host){host=document.createElement('div');host.id='crmCustVerModal';host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;';host.onclick=function(e){if(e.target===host)host.remove();};document.body.appendChild(host);}
+  host.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:640px;width:100%;max-height:85vh;overflow:auto;padding:18px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px;">
+      <div style="font-size:15px;font-weight:700;">🕘 Version history — ${(title+'').replace(/[<>]/g,'')}</div>
+      <button class="btn btn-outline" style="font-size:12px;" onclick="document.getElementById('crmCustVerModal').remove();">✕ Close</button>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">${vers.length} version${vers.length===1?'':'s'} on file · newest is current · older versions stay viewable</div>
+    <table class="fleet-table" style="width:100%;font-size:12px;"><thead><tr><th>Version</th><th>Date Uploaded</th><th>By</th><th>File</th><th style="text-align:right;">View</th></tr></thead><tbody>${rows||'<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3);">No versions yet.</td></tr>'}</tbody></table>
+  </div>`;
+};
+window._crmCustDocViewVer=function(custId,docId,ver){
+  const all=_crmLoadCustomerFiles();const doc=all[custId]&&all[custId][docId];
+  if(!doc)return;
+  let url=null;
+  if(Array.isArray(doc.versions)){const v=doc.versions.find(x=>x.ver===ver);if(v)url=v.scanUrl;}
+  if(!url&&doc.scanUrl)url=doc.scanUrl;
+  if(!url)return;
+  let host=document.getElementById('crmCustDocViewModal');
+  if(!host){host=document.createElement('div');host.id='crmCustDocViewModal';host.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';host.onclick=()=>host.remove();document.body.appendChild(host);}
+  const isPdf=(url+'').startsWith('data:application/pdf');
+  host.innerHTML=isPdf?`<iframe src="${url}" style="width:90%;height:90%;border:none;border-radius:8px;background:#fff;"></iframe><button style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%;cursor:pointer;" onclick="document.getElementById('crmCustDocViewModal').remove();">✕</button>`:`<img src="${url}" style="max-width:95%;max-height:95%;border-radius:8px;"><button style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%;cursor:pointer;" onclick="document.getElementById('crmCustDocViewModal').remove();">✕</button>`;
 };
 window._crmCustDocView=function(custId,docId){
   const all=_crmLoadCustomerFiles();const doc=all[custId]&&all[custId][docId];
