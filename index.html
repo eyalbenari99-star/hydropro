@@ -20726,6 +20726,7 @@ const MODULES={
       {id:'security_center',label:'🔐 Security Center',perm:'manageSecurity',title:'Access control, device management'},
       {id:'cloud_sync',label:'☁️ Cloud Sync',perm:'manageCloud',title:'Google Drive backup & sync'},
       {id:'audit',label:'📜 Audit Log',perm:'viewAuditLog'},
+      {id:'approval_matrix',label:'✅ Approvals',perm:'manageUsers',title:'Approval Matrix — set who can approve & note every gated action; position-level registry; per-user levels; approvals ledger. Engine drives electronic signatures across all modules.'},
       {id:'backups',label:'📂 Backups',perm:'manageUsers',title:'Admin-only: backup & restore. Auto-backups daily + before risky actions. Manual create/restore/download.'},
       {id:'demo_seeder',label:'🎬 Demo Seeder',perm:'manageUsers',title:'One-click demo data populator: 14 days of realistic pool readings, drum levels, calls, etc. Lets you walk stakeholders through the live system with predictions firing, AI Insights populated, and the Brain alive.'},
       {id:'perf_monitor',label:'⚡ Performance',perm:'manageUsers',title:'Performance monitor — render-time profiling, cache hit rates, localStorage size, dashboard timings. Use to identify and verify hotspots.'},
@@ -21287,6 +21288,7 @@ function switchView(v,skipModuleCheck){
   if(/_cmd$/.test(v))renderModuleCommandCenter(v);
   if(v==='prod_seeds')renderSeedStudy();
   if(v==='users')renderUsers();
+  if(v==='approval_matrix'&&typeof renderApprovalMatrix==='function')renderApprovalMatrix();
   if(v==='audit')renderAuditLog();
   if(v==='backups')renderBackupPage();
   if(v==='danger_zone')renderDangerZone();
@@ -70811,7 +70813,12 @@ const ACTION_LABELS={
   mgr_summary:'📊 Generated manager summary',
   past_report_del:'🗑 Deleted past report',
   autosave_on:'🔗 Enabled auto-save',
-  autosave_off:'🔗 Disabled auto-save'
+  autosave_off:'🔗 Disabled auto-save',
+  approval_signed:'✅ Approved (signature)',
+  approval_noted:'✎ Noted (signature)',
+  approval_matrix_edit:'⚙ Edited approval matrix',
+  poslevel_edit:'↕ Edited position level',
+  user_level_set:'👤 Set user position level'
 };
 
 function loadAuditLog(){try{return JSON.parse(localStorage.getItem(AUDIT_KEY)||'[]');}catch(e){return[];}}
@@ -71323,9 +71330,9 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.279-t11partial';window.HNX_BUILD='v2.86-p139-t11partial';  // ☁️ v2.46.276 — cloud sync auto-reconnect (connect once per device → stays synced) + secure masked login modal with eye toggle (replaces plain prompt) + loud 'not connected' banner so no one works local-only by accident. Fixes cross-device data sharing. ▸ v2.46.275 — T-10 call routing canonical. ▸ v2.46.274 — camera sync guard. ▸ v2.46.269 — module COMMAND CENTER  // 🧭 v2.46.275 — T-10: call routing re-pointed to the canonical 14 departments. Raise-Call picker, MODULE_ROUTE_MAP (IT calls now route to IT, not Admin), keyword classifier, office-calls view, both P14 module configs and MODULE_DEPTS all use canonical ids. Existing calls migrated (backed up; undo via window.hnxRestoreT10()). ▸ v2.46.274 — camera-streams sync guard. ▸ v2.46.273 — T-09 canonical dept registry. ▸ v2.46.269 — module COMMAND CENTER middle column is now an animated 'HYDRONEXIS-AI · ANALYSING' centerpiece (_mccAnalysisStage): pulsing brain core + rotating radar rings + conic sweep, cycling analysis ticker (pulls live aiRows), live equalizer bars, flowing SVG waveform, 4 live KPI chips (from cfg.kpis), scanning bar — all CSS-animated (no JS intervals), accent = module color. QC daily checklist moved to a footer link. Applies to all MCC_CONFIGS modules; Production's own command center (separate render) unaffected. ▸ v2.46.268-custtype —   // 🏷️ v2.46.268 — explicit CUSTOMER TYPE selector on the customer detail 💰 PRICE LIST card: supervisors can set a customer's type (Online/Hotels/Restaurants/Supermarkets/Distributors/Retail) or leave it on 🔎 Auto-detect (name-based). Manual type overrides name detection and drives the type-default price list. Operators see it read-only. New key hydroPro_crm_cust_seg; _custPricingSeg now checks manual override → _custDetectSeg(name). ▸ v2.46.267-pricelists —   // 💰 v2.46.267 — PRICE LISTS tied to customer types + per-customer default: added 'Distributors / Wholesale' segment; Custom Price Lists tab now has a '🏷️ Default price list per customer type' panel (hotels/restaurants/supermarkets/online/distributors/retail each pick a default list); each QBO customer's detail shows a 💰 PRICE LIST card with its effective list (override → type default → base prices). Changing a type default OR a customer's list is gated to CRM supervisors (admin/admin_secondary/supervisor) — operators see it read-only. Keys: hydroPro_crm_seg_default_pl, hydroPro_crm_cust_pl. '+ New Price List' & 'Generate from Segment' unchanged. ▸ v2.46.266-crm-modes —   // 🎨 v2.46.266 — CRM customer MODES (visual framework): each customer's avatar ball is now colored by mode + a 🎨 Mode dropdown filters the directory + a colored-dot legend with live counts. Modes: 🆕 New (created <30d), ⚪ Not Active (QBO inactive), 🔘 Uncategorized (active, cadence unknown). 🟢 Fully Active / 🔵 Active / 😴 Sleepy are DEFINED + colored + in the dropdown but show 0 / 'needs orders' until a per-customer order-date feed is wired (TODO in _qbCustModeId). Lead-by-status already lives in the Leads/Pipeline tabs. ▸ v2.46.265-cctv-snapshots —   // 🔧 v2.46.265 — BIG PERF FIX: wall tiles are now lightweight auto-refreshing SNAPSHOTS (go2rtc /api/frame.jpeg, refreshed every 4s) instead of full WebRTC player iframes — so 22/81 cameras load near-instantly at almost no CPU. LIVE video only on tap: normal wall tap→full() live, fullscreen Spotlight big tile = live, Grid + Spotlight-small tiles = snapshots. Dead streams show a clean offline tile (no retry storm). Snapshots pause when tab hidden / scope to the visible wall. ▸ v2.46.264-cctv-mosaic —   // 🔧 v2.46.264 — full-screen '🎯 1 Big + around' is now a real MOSAIC: one big tile (spans 2x2) with the rest sized small AROUND it, filling the screen (no side strip). Tap ANY camera (in Grid or Mosaic) to make it the big one — the choice is remembered per area (hydroPro_cctv_spot_v1). '📐 Grid' = all equal size. Big choice resets sensibly when you switch area tabs. ▸ v2.46.263-arrange-area —   // 🔧 v2.46.263 — ARRANGE is now PER-AREA: it only shows the cameras in the area tab you're on (not all 81), the area tabs appear inside Arrange so you can switch which screen you're organizing, and ◀▶ nudge a camera within its own area. Adjust one screen at a time. ▸ v2.46.262-cctv-stagger —   // 🔧 v2.46.262 — NORMAL CCTV wall now THROTTLES stream loading: instead of connecting every visible camera on the same frame (which froze the 22-cam Greenhouses tab), it opens max 4 streams at a time and starts the next as each finishes/​times-out — so big area tabs ramp up smoothly. Off-screen tiles still unload. (Stagger already applied to the fullscreen wall in p128.) ▸ v2.46.261-cctv-wall —   // 🔧 v2.46.261 — CCTV FULL-SCREEN VIDEO WALL: new ⛶ Full Screen button opens an edge-to-edge fullscreen wall (browser fullscreen API, no app chrome) for the current area tab. Two layouts with a toggle — 📐 Grid (auto-fits cameras to fill the screen, best rows×cols, no scroll) and 🎯 Spotlight (one big live feed + thumbnail strip; tap a thumb to swap into the big slot). Area tabs + Esc/Exit inside. Streams stagger-load (3 at a time) so it never opens dozens at once; spotlight runs only the big feed live. Normal wall's streams are paused while fullscreen is open. ▸ v2.46.260-cctv-areas —   // 🔧 v2.46.260 — CCTV LIVE WALL split into 8 AREA TABS (🌱 Greenhouses · 🛡 GH Perimeter · 🛡 Perimeter & Gates · 💧 Fertigation · 📦 Packaging & Logistics · 🏗 Project 11 · 🏢 Office & Admin · 📍 Security & Other) per ES BA's corrected mapping (CAM_AREA). Wall opens on ONE tab (remembered in hydroPro_cctv_area_v1), so it never loads all 81 at once; lazy-load stays underneath. Tap 📺 All to load everything (heaviest). ▸ v2.46.259-crm-nav —   // 🔧 v2.46.259 — CRM views now DISCOVERABLE: injected sub-tabs (🆕 Customer Master, 📁 Customer 360° Files, 📊 Customer Matrix, 📞 Open Issues) were created with class 'nav-tab' but the view-picker dropdown only lists '.module-sub-tab' — so they were loaded but invisible in the menu. Now created as 'module-sub-tab' with modTab- ids → they appear in the dropdown + are searchable. ▸ v2.46.258 — (1) CRM render guard: Overview/Leads/etc. can never blank to black again — any render error now shows a recovery panel with Retry + the real error message (logged to console). (2) CCTV live wall lazy-loads via IntersectionObserver: only on-screen cameras stream (300px preload margin; off-screen tiles unload to about:blank), eliminating the slow open + layout jump with ~60 cameras. ▸ prev v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
-const APP_BUILD=1779820000;
-const APP_BUILD_DATE='2026-05-15';
+const APP_VERSION='2.46.281-approvals';window.HNX_BUILD='v2.86-p141-approvals';  // ✅ v2.46.281 — Approvals Engine Build 1: position-level registry (10 levels), Approval Matrix admin UI (31 task types), window.HNX_Approval helper API, approvals ledger. Retrofit lands Builds 2-5. toggle (replaces plain prompt) + loud 'not connected' banner so no one works local-only by accident. Fixes cross-device data sharing. ▸ v2.46.275 — T-10 call routing canonical. ▸ v2.46.274 — camera sync guard. ▸ v2.46.269 — module COMMAND CENTER  // 🧭 v2.46.275 — T-10: call routing re-pointed to the canonical 14 departments. Raise-Call picker, MODULE_ROUTE_MAP (IT calls now route to IT, not Admin), keyword classifier, office-calls view, both P14 module configs and MODULE_DEPTS all use canonical ids. Existing calls migrated (backed up; undo via window.hnxRestoreT10()). ▸ v2.46.274 — camera-streams sync guard. ▸ v2.46.273 — T-09 canonical dept registry. ▸ v2.46.269 — module COMMAND CENTER middle column is now an animated 'HYDRONEXIS-AI · ANALYSING' centerpiece (_mccAnalysisStage): pulsing brain core + rotating radar rings + conic sweep, cycling analysis ticker (pulls live aiRows), live equalizer bars, flowing SVG waveform, 4 live KPI chips (from cfg.kpis), scanning bar — all CSS-animated (no JS intervals), accent = module color. QC daily checklist moved to a footer link. Applies to all MCC_CONFIGS modules; Production's own command center (separate render) unaffected. ▸ v2.46.268-custtype —   // 🏷️ v2.46.268 — explicit CUSTOMER TYPE selector on the customer detail 💰 PRICE LIST card: supervisors can set a customer's type (Online/Hotels/Restaurants/Supermarkets/Distributors/Retail) or leave it on 🔎 Auto-detect (name-based). Manual type overrides name detection and drives the type-default price list. Operators see it read-only. New key hydroPro_crm_cust_seg; _custPricingSeg now checks manual override → _custDetectSeg(name). ▸ v2.46.267-pricelists —   // 💰 v2.46.267 — PRICE LISTS tied to customer types + per-customer default: added 'Distributors / Wholesale' segment; Custom Price Lists tab now has a '🏷️ Default price list per customer type' panel (hotels/restaurants/supermarkets/online/distributors/retail each pick a default list); each QBO customer's detail shows a 💰 PRICE LIST card with its effective list (override → type default → base prices). Changing a type default OR a customer's list is gated to CRM supervisors (admin/admin_secondary/supervisor) — operators see it read-only. Keys: hydroPro_crm_seg_default_pl, hydroPro_crm_cust_pl. '+ New Price List' & 'Generate from Segment' unchanged. ▸ v2.46.266-crm-modes —   // 🎨 v2.46.266 — CRM customer MODES (visual framework): each customer's avatar ball is now colored by mode + a 🎨 Mode dropdown filters the directory + a colored-dot legend with live counts. Modes: 🆕 New (created <30d), ⚪ Not Active (QBO inactive), 🔘 Uncategorized (active, cadence unknown). 🟢 Fully Active / 🔵 Active / 😴 Sleepy are DEFINED + colored + in the dropdown but show 0 / 'needs orders' until a per-customer order-date feed is wired (TODO in _qbCustModeId). Lead-by-status already lives in the Leads/Pipeline tabs. ▸ v2.46.265-cctv-snapshots —   // 🔧 v2.46.265 — BIG PERF FIX: wall tiles are now lightweight auto-refreshing SNAPSHOTS (go2rtc /api/frame.jpeg, refreshed every 4s) instead of full WebRTC player iframes — so 22/81 cameras load near-instantly at almost no CPU. LIVE video only on tap: normal wall tap→full() live, fullscreen Spotlight big tile = live, Grid + Spotlight-small tiles = snapshots. Dead streams show a clean offline tile (no retry storm). Snapshots pause when tab hidden / scope to the visible wall. ▸ v2.46.264-cctv-mosaic —   // 🔧 v2.46.264 — full-screen '🎯 1 Big + around' is now a real MOSAIC: one big tile (spans 2x2) with the rest sized small AROUND it, filling the screen (no side strip). Tap ANY camera (in Grid or Mosaic) to make it the big one — the choice is remembered per area (hydroPro_cctv_spot_v1). '📐 Grid' = all equal size. Big choice resets sensibly when you switch area tabs. ▸ v2.46.263-arrange-area —   // 🔧 v2.46.263 — ARRANGE is now PER-AREA: it only shows the cameras in the area tab you're on (not all 81), the area tabs appear inside Arrange so you can switch which screen you're organizing, and ◀▶ nudge a camera within its own area. Adjust one screen at a time. ▸ v2.46.262-cctv-stagger —   // 🔧 v2.46.262 — NORMAL CCTV wall now THROTTLES stream loading: instead of connecting every visible camera on the same frame (which froze the 22-cam Greenhouses tab), it opens max 4 streams at a time and starts the next as each finishes/​times-out — so big area tabs ramp up smoothly. Off-screen tiles still unload. (Stagger already applied to the fullscreen wall in p128.) ▸ v2.46.261-cctv-wall —   // 🔧 v2.46.261 — CCTV FULL-SCREEN VIDEO WALL: new ⛶ Full Screen button opens an edge-to-edge fullscreen wall (browser fullscreen API, no app chrome) for the current area tab. Two layouts with a toggle — 📐 Grid (auto-fits cameras to fill the screen, best rows×cols, no scroll) and 🎯 Spotlight (one big live feed + thumbnail strip; tap a thumb to swap into the big slot). Area tabs + Esc/Exit inside. Streams stagger-load (3 at a time) so it never opens dozens at once; spotlight runs only the big feed live. Normal wall's streams are paused while fullscreen is open. ▸ v2.46.260-cctv-areas —   // 🔧 v2.46.260 — CCTV LIVE WALL split into 8 AREA TABS (🌱 Greenhouses · 🛡 GH Perimeter · 🛡 Perimeter & Gates · 💧 Fertigation · 📦 Packaging & Logistics · 🏗 Project 11 · 🏢 Office & Admin · 📍 Security & Other) per ES BA's corrected mapping (CAM_AREA). Wall opens on ONE tab (remembered in hydroPro_cctv_area_v1), so it never loads all 81 at once; lazy-load stays underneath. Tap 📺 All to load everything (heaviest). ▸ v2.46.259-crm-nav —   // 🔧 v2.46.259 — CRM views now DISCOVERABLE: injected sub-tabs (🆕 Customer Master, 📁 Customer 360° Files, 📊 Customer Matrix, 📞 Open Issues) were created with class 'nav-tab' but the view-picker dropdown only lists '.module-sub-tab' — so they were loaded but invisible in the menu. Now created as 'module-sub-tab' with modTab- ids → they appear in the dropdown + are searchable. ▸ v2.46.258 — (1) CRM render guard: Overview/Leads/etc. can never blank to black again — any render error now shows a recovery panel with Retry + the real error message (logged to console). (2) CCTV live wall lazy-loads via IntersectionObserver: only on-screen cameras stream (300px preload margin; off-screen tiles unload to about:blank), eliminating the slow open + layout jump with ~60 cameras. ▸ prev v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
+const APP_BUILD=1780943200;
+const APP_BUILD_DATE='2026-05-28';
 
 // Store version in localStorage on first run
 (function initVersionTracking(){
@@ -144068,6 +144075,639 @@ body.hnx-mobile-locked { overflow: hidden; }
 </script>
 <!-- ================= END HNX T-11 PARTIAL COVERAGE ================= -->
 
+<!-- ================= HNX CLOUD SYNC DIAGNOSTIC (v2.46.280) =================
+     Floating ☁ button (bottom-left) opens a panel showing per-device sync
+     state: connected y/n, cloud user, last push/pull, last error, sync size.
+     Includes a "Pull cloud now (incl. non-op keys)" workaround that resets
+     window.__hnxPulledOk so the next pull re-applies sensor/checklist/settings
+     keys that the engine otherwise only pulls once per session (the underlying
+     bug behind 'I can't see what they did on the other computer').
+     Additive only — never touches the sync engine itself.                    -->
+<script>
+(function(){
+  'use strict';
+  if(window.__hnxSyncDiagInstalled) return;
+  window.__hnxSyncDiagInstalled = true;
+
+  var TOK_KEY  = 'hnx_cloud_token';
+  var LAST_KEY = 'hnx_cloud_last';
+  var CRED_KEY = 'hnx_cloud_cred_v1';
+  var LOG_KEY  = 'hnx_syncdiag_log_v1';
+
+  function logEvent(kind, msg){
+    try{
+      var arr = JSON.parse(localStorage.getItem(LOG_KEY)||'[]')||[];
+      arr.push({t:Date.now(), kind:kind, msg:String(msg||'')});
+      while(arr.length > 30) arr.shift();
+      localStorage.setItem(LOG_KEY, JSON.stringify(arr));
+    }catch(e){}
+  }
+  function getLog(){ try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]')||[];}catch(e){return [];} }
+
+  function decodeUser(){
+    try{
+      var raw = localStorage.getItem(CRED_KEY); if(!raw) return null;
+      var decoded = atob(raw);
+      var i = decoded.indexOf(':');
+      return i > 0 ? decoded.slice(0, i) : decoded;
+    }catch(e){ return null; }
+  }
+  function relTime(ms){
+    if(!ms) return 'never';
+    var d = Date.now() - ms;
+    if(d < 0) return 'in the future';
+    if(d < 5000) return 'just now';
+    if(d < 60000) return Math.floor(d/1000)+'s ago';
+    if(d < 3600000) return Math.floor(d/60000)+'m ago';
+    if(d < 86400000) return Math.floor(d/3600000)+'h ago';
+    return Math.floor(d/86400000)+'d ago';
+  }
+  function lastSyncMs(){
+    try{ var iso = localStorage.getItem(LAST_KEY); if(!iso) return null; var p = Date.parse(iso); return isNaN(p)?null:p; }catch(e){ return null; }
+  }
+  function localBytes(){
+    var n = 0;
+    try{
+      for(var i=0;i<localStorage.length;i++){
+        var k = localStorage.key(i);
+        if(!k || k.indexOf('hydroPro_')!==0) continue;
+        var v = localStorage.getItem(k) || '';
+        n += k.length + v.length;
+      }
+    }catch(e){}
+    return n;
+  }
+  function syncedKeyCounts(){
+    var op = 0, nonop = 0;
+    try{
+      for(var i=0;i<localStorage.length;i++){
+        var k = localStorage.key(i);
+        if(!k || k.indexOf('hydroPro_')!==0) continue;
+        if(['hydroPro_users','hydroPro_user_perms','hydroPro_role_defaults_v1','hydroPro_calls','hydroPro_issues_v2','hydroPro_optomb'].indexOf(k)>=0) op++;
+        else nonop++;
+      }
+    }catch(e){}
+    return {op:op, nonop:nonop};
+  }
+
+  // -------- floating button --------
+  function ensureButton(){
+    if(document.getElementById('hnx-syncdiag-btn')) return;
+    var b = document.createElement('button');
+    b.id = 'hnx-syncdiag-btn';
+    b.title = 'Cloud Sync diagnostics';
+    b.style.cssText = 'position:fixed;left:10px;bottom:10px;z-index:2147483640;background:#1565c0;color:#fff;border:0;border-radius:24px;padding:10px 14px;font-weight:700;cursor:pointer;font-family:system-ui,sans-serif;font-size:12.5px;box-shadow:0 4px 12px rgba(0,0,0,.25);display:flex;align-items:center;gap:8px';
+    refreshButton(b);
+    b.onclick = openPanel;
+    document.body.appendChild(b);
+    setInterval(function(){ refreshButton(document.getElementById('hnx-syncdiag-btn')); }, 4000);
+  }
+  function refreshButton(b){
+    if(!b) return;
+    var hasTok = !!localStorage.getItem(TOK_KEY);
+    var state = (window.HNX_Cloud && window.HNX_Cloud.state) || {};
+    var ok = hasTok && state.online !== false && !state.error;
+    var ls = lastSyncMs();
+    var lsAge = ls ? (Date.now() - ls) : null;
+    var stale = lsAge != null && lsAge > 60000; // >1m since last sync = warn
+    var dot = ok && !stale ? '🟢' : ok && stale ? '🟡' : '🔴';
+    b.innerHTML = '<span style="font-size:14px;line-height:1">'+dot+'</span><span>Sync</span>';
+    b.style.background = (ok && !stale) ? '#2e7d32' : (ok && stale) ? '#ef6c00' : '#c62828';
+  }
+
+  // -------- panel --------
+  function openPanel(){
+    if(document.getElementById('hnx-syncdiag-panel')) return;
+    var hasTok = !!localStorage.getItem(TOK_KEY);
+    var user = decodeUser();
+    var state = (window.HNX_Cloud && window.HNX_Cloud.state) || {};
+    var ls = lastSyncMs();
+    var bytes = localBytes();
+    var counts = syncedKeyCounts();
+    var bytesStr = bytes >= 1024*1024 ? (bytes/1048576).toFixed(1)+' MB' : (bytes/1024).toFixed(1)+' KB';
+
+    var overlay = document.createElement('div');
+    overlay.id = 'hnx-syncdiag-panel';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483641;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:14px;font-family:system-ui,sans-serif';
+    overlay.onclick = function(e){ if(e.target === overlay) overlay.remove(); };
+
+    var panel = document.createElement('div');
+    panel.style.cssText = 'background:#fff;color:#222;border-radius:14px;max-width:560px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.4)';
+    panel.innerHTML = ''
+      + '<div style="background:#1565c0;color:#fff;padding:16px 20px;display:flex;align-items:center;gap:12px;border-radius:14px 14px 0 0">'
+      +   '<div style="font-size:22px">☁️</div>'
+      +   '<div style="flex:1"><div style="font-weight:700;font-size:16px">Cloud Sync Diagnostic</div>'
+      +   '<div style="font-size:11.5px;opacity:.9">This computer · '+(navigator.userAgent.indexOf('Mac')>=0?'Mac':navigator.userAgent.indexOf('Win')>=0?'Windows':'Browser')+'</div></div>'
+      +   '<button id="hnx-sd-close" style="background:rgba(255,255,255,.2);border:0;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:18px;font-weight:700">✕</button>'
+      + '</div>'
+      + '<div style="padding:18px 20px">'
+      +   '<div style="display:grid;grid-template-columns:140px 1fr;gap:8px 14px;font-size:13.5px;margin-bottom:18px">'
+      +     row('Connected', hasTok ? '<b style="color:#2e7d32">YES</b>' : '<b style="color:#c62828">NO — connect via the red banner</b>')
+      +     row('Cloud user', user ? '<code style="background:#f1f1f1;padding:2px 6px;border-radius:4px">'+escapeHtml(user)+'</code>' : '<span style="color:#999">unknown (no saved credential)</span>')
+      +     row('Last sync', ls ? relTime(ls)+' <span style="color:#999;font-size:11px">('+new Date(ls).toLocaleString()+')</span>' : '<span style="color:#c62828">never</span>')
+      +     row('Current state', state.syncing ? '⏳ Syncing now…' : state.error ? '<span style="color:#c62828">error</span>' : 'idle')
+      +     row('Last error', state.error ? '<code style="color:#c62828;background:#fdecea;padding:2px 6px;border-radius:4px">'+escapeHtml(state.error)+'</code>' : '<span style="color:#999">none</span>')
+      +     row('Online (browser)', (state.online !== false) ? '🟢 yes' : '🔴 no')
+      +     row('Local data', bytesStr + ' · ' + (counts.op+counts.nonop) + ' keys ('+counts.op+' op + '+counts.nonop+' non-op)')
+      +   '</div>'
+      +   '<div style="background:#fff8e1;border-left:4px solid #f57f17;padding:10px 14px;border-radius:6px;font-size:12.5px;line-height:1.5;margin-bottom:16px">'
+      +     '<b>Heads up:</b> the sync engine MERGES op-keys (calls, users, perms, issues) on every pull, but <b>non-op keys (checklist state, settings, recurring task ticks, etc.) only pull on the first load per session</b>. If teammates ticked checklists on their computer after you opened the app, click <b>"Pull cloud now (incl. non-op)"</b> below to refresh them. The structural fix (per-key timestamps) is queued for the next build.'
+      +   '</div>'
+      +   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">'
+      +     btn('hnx-sd-push',  '🔄 Push my changes',     '#1565c0')
+      +     btn('hnx-sd-pull',  '⬇ Pull from cloud',      '#1565c0')
+      +     btn('hnx-sd-pullnon','⬇⬇ Pull cloud now (incl. non-op)', '#2e7d32')
+      +     btn('hnx-sd-full',  '↕ Full re-sync (push then pull)', '#2e7d32')
+      +   '</div>'
+      +   '<div style="display:flex;gap:8px;margin-bottom:14px">'
+      +     btn('hnx-sd-test',  '🧪 Test connection',      '#666', true)
+      +     btn('hnx-sd-disco', '🚪 Disconnect',            '#c62828', true)
+      +   '</div>'
+      +   '<div style="font-size:11.5px;color:#666;margin:14px 0 6px;font-weight:700">RECENT SYNC EVENTS (this device)</div>'
+      +   '<div id="hnx-sd-log" style="background:#fafafa;border-radius:8px;padding:8px 10px;max-height:160px;overflow:auto;font-family:ui-monospace,monospace;font-size:11px;line-height:1.55"></div>'
+      + '</div>';
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    renderLog();
+    panel.querySelector('#hnx-sd-close').onclick = function(){ overlay.remove(); };
+    panel.querySelector('#hnx-sd-push').onclick     = doPush;
+    panel.querySelector('#hnx-sd-pull').onclick     = doPull;
+    panel.querySelector('#hnx-sd-pullnon').onclick  = doPullNonOp;
+    panel.querySelector('#hnx-sd-full').onclick     = doFullSync;
+    panel.querySelector('#hnx-sd-test').onclick     = doTest;
+    panel.querySelector('#hnx-sd-disco').onclick    = doDisconnect;
+  }
+
+  function row(label, value){
+    return '<div style="color:#666;font-weight:600;font-size:12.5px">'+label+'</div><div style="font-size:13px">'+value+'</div>';
+  }
+  function btn(id, label, color, small){
+    var pad = small ? '7px 10px' : '11px 12px';
+    var fs  = small ? '12px' : '13px';
+    return '<button id="'+id+'" style="background:'+color+';color:#fff;border:0;border-radius:8px;padding:'+pad+';font-weight:700;font-size:'+fs+';cursor:pointer;line-height:1.3">'+label+'</button>';
+  }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; });
+  }
+  function renderLog(){
+    var box = document.getElementById('hnx-sd-log');
+    if(!box) return;
+    var log = getLog().slice().reverse();
+    if(!log.length){ box.innerHTML = '<span style="color:#999">no events yet</span>'; return; }
+    box.innerHTML = log.map(function(e){
+      var t = new Date(e.t).toLocaleTimeString();
+      var col = e.kind === 'ERR' ? '#c62828' : e.kind === 'OK' ? '#2e7d32' : '#666';
+      return '<div><span style="color:#999">'+t+'</span> <b style="color:'+col+'">'+e.kind+'</b> '+escapeHtml(e.msg)+'</div>';
+    }).join('');
+  }
+
+  // -------- actions --------
+  function ensureCloud(){
+    if(!window.HNX_Cloud){ logEvent('ERR','Cloud engine not loaded yet'); renderLog(); return false; }
+    if(!localStorage.getItem(TOK_KEY)){ logEvent('ERR','Not connected — click red banner to connect'); renderLog(); return false; }
+    return true;
+  }
+  function doPush(){
+    if(!ensureCloud()) return;
+    logEvent('…','Push starting…'); renderLog();
+    try{
+      var p = window.HNX_Cloud.push();
+      if(p && p.then) p.then(function(){ logEvent('OK','Push completed'); renderLog(); }).catch(function(e){ logEvent('ERR','Push failed: '+e.message); renderLog(); });
+      else { logEvent('OK','Push triggered (no promise)'); renderLog(); }
+    }catch(e){ logEvent('ERR','Push threw: '+e.message); renderLog(); }
+  }
+  function doPull(){
+    if(!ensureCloud()) return;
+    logEvent('…','Pull starting…'); renderLog();
+    try{
+      var p = window.HNX_Cloud.pull();
+      if(p && p.then) p.then(function(){ logEvent('OK','Pull completed'); renderLog(); }).catch(function(e){ logEvent('ERR','Pull failed: '+e.message); renderLog(); });
+      else { logEvent('OK','Pull triggered (no promise)'); renderLog(); }
+    }catch(e){ logEvent('ERR','Pull threw: '+e.message); renderLog(); }
+  }
+  function doPullNonOp(){
+    if(!ensureCloud()) return;
+    if(!confirm('This will refresh non-op keys (checklist state, settings, recurring ticks, etc.) from the cloud. Your unsaved local changes to these may be overwritten by cloud values. Continue?')) return;
+    logEvent('…','Push-then-pull-non-op starting…'); renderLog();
+    var doPullPhase = function(){
+      window.__hnxPulledOk = false;
+      try{
+        var p = window.HNX_Cloud.pull();
+        if(p && p.then) p.then(function(){ logEvent('OK','Non-op pull completed. Checklists/settings now reflect cloud.'); renderLog(); refreshButton(document.getElementById('hnx-syncdiag-btn')); }).catch(function(e){ logEvent('ERR','Pull failed: '+e.message); renderLog(); });
+      }catch(e){ logEvent('ERR','Pull threw: '+e.message); renderLog(); }
+    };
+    try{
+      var p = window.HNX_Cloud.push();
+      if(p && p.then) p.then(function(){ logEvent('OK','Push done, now pulling non-op…'); renderLog(); setTimeout(doPullPhase, 300); }).catch(function(e){ logEvent('ERR','Push failed: '+e.message+' — pulling anyway'); renderLog(); setTimeout(doPullPhase, 300); });
+      else { setTimeout(doPullPhase, 300); }
+    }catch(e){ logEvent('ERR','Push threw: '+e.message); renderLog(); setTimeout(doPullPhase, 300); }
+  }
+  function doFullSync(){
+    if(!ensureCloud()) return;
+    logEvent('…','Full re-sync starting…'); renderLog();
+    try{
+      var p = window.HNX_Cloud.push();
+      if(p && p.then){
+        p.then(function(){
+          logEvent('OK','Push done, pulling…'); renderLog();
+          setTimeout(function(){
+            try{ var q = window.HNX_Cloud.pull(); if(q && q.then) q.then(function(){ logEvent('OK','Full re-sync complete'); renderLog(); }).catch(function(e){ logEvent('ERR','Pull failed: '+e.message); renderLog(); }); }catch(e){}
+          }, 300);
+        }).catch(function(e){ logEvent('ERR','Push failed: '+e.message); renderLog(); });
+      }
+    }catch(e){ logEvent('ERR','Full sync threw: '+e.message); renderLog(); }
+  }
+  function doTest(){
+    if(!window.HNX_Cloud || !window.HNX_Cloud.api){ logEvent('ERR','No api() on HNX_Cloud'); renderLog(); return; }
+    logEvent('…','Test starting…'); renderLog();
+    try{
+      var t0 = Date.now();
+      var p = window.HNX_Cloud.api('/sync/pull');
+      if(p && p.then) p.then(function(){ logEvent('OK','Test OK — server reachable, auth valid ('+(Date.now()-t0)+'ms)'); renderLog(); }).catch(function(e){ logEvent('ERR','Test failed: '+e.message); renderLog(); });
+    }catch(e){ logEvent('ERR','Test threw: '+e.message); renderLog(); }
+  }
+  function doDisconnect(){
+    if(!confirm('Disconnect this computer from cloud sync? You can reconnect later via the red banner. Your local data stays.')) return;
+    try{
+      if(window.HNX_Cloud && window.HNX_Cloud.disconnect) window.HNX_Cloud.disconnect();
+      else { localStorage.removeItem(TOK_KEY); localStorage.removeItem(CRED_KEY); }
+      logEvent('OK','Disconnected'); renderLog();
+      refreshButton(document.getElementById('hnx-syncdiag-btn'));
+    }catch(e){ logEvent('ERR','Disconnect threw: '+e.message); renderLog(); }
+  }
+
+  // Install the button when DOM is ready
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', ensureButton);
+  } else {
+    setTimeout(ensureButton, 800);
+  }
+  // re-ensure periodically in case some other code wipes the button
+  setInterval(ensureButton, 8000);
+
+  window.__hnxSyncDiagOpen = openPanel;
+  if(window.console) console.log('[HNX-SYNCDIAG] cloud sync diagnostic ready — bottom-left ☁ Sync button');
+})();
+</script>
+<!-- ================= END HNX CLOUD SYNC DIAGNOSTIC ================= -->
+
+
+<!-- ================= HNX APPROVALS ENGINE — Build 1 (v2.86-p141-approvals) ================= -->
+<!-- Position-level registry + Approval Matrix + window.HNX_Approval helper API + approvals ledger.
+     Self-contained. Registers view-approval_matrix dynamically. No setTimeout/polling hooks (T-06 safe). -->
+<script>
+(function(){
+  'use strict';
+  if (window.HNX_Approval) return; // idempotent
+
+  // ---------- storage keys (all hydroPro_ => auto cloud-synced via shouldSync) ----------
+  var LV_KEY  = 'hydroPro_position_levels_v1';
+  var MX_KEY  = 'hydroPro_approval_matrix_v1';
+  var LOG_KEY = 'hydroPro_approval_log_v1';
+
+  // ---------- default 10-level position registry (editable) ----------
+  var DEFAULT_LEVELS = [
+    {id:'temp',         rank:1,  label:'Temporary',     active:true},
+    {id:'regular',      rank:2,  label:'Regular',       active:true},
+    {id:'team_leader',  rank:3,  label:'Team Leader',   active:true},
+    {id:'supervisor',   rank:4,  label:'Supervisor',    active:true},
+    {id:'manager',      rank:5,  label:'Manager',       active:true},
+    {id:'dept_manager', rank:6,  label:'Dept Manager',  active:true},
+    {id:'vp',           rank:7,  label:'VP',            active:true},
+    {id:'svp',          rank:8,  label:'Senior VP',     active:true},
+    {id:'coo',          rank:9,  label:'COO',           active:true},
+    {id:'ceo',          rank:10, label:'CEO',           active:true}
+  ];
+
+  // ---------- 31 approval-gated task types (audit-derived), grouped by module ----------
+  // defA = default min rank to APPROVE, defN = default min rank to NOTE
+  var TASK_TYPES = [
+    // Production / HR
+    {id:'train_signoff',        module:'Production/HR', label:'Sign-off task mastery (cert)',        defA:4, defN:3},
+    {id:'train_promote',        module:'Production/HR', label:'Promote employee to next level',      defA:4, defN:3},
+    {id:'train_revoke',         module:'Production/HR', label:'Revoke certification',                defA:5, defN:4},
+    {id:'attend_late_approve',  module:'Production/HR', label:'Approve late attendance entry',        defA:4, defN:3},
+    {id:'leave_request',        module:'Production/HR', label:'Approve leave request',                defA:5, defN:4},
+    {id:'emp_active_inactive',  module:'Production/HR', label:'Mark employee active/inactive (manual)',defA:4, defN:3},
+    // Irrigation
+    {id:'irr_cal_approve',      module:'Irrigation',    label:'Approve dosing calibration',           defA:5, defN:4},
+    {id:'irr_room_sign',        module:'Irrigation',    label:'Supervisor sign — room',               defA:4, defN:2},
+    {id:'irr_pool_cal_sign',    module:'Irrigation',    label:'Supervisor sign — pool calibration',   defA:4, defN:2},
+    {id:'irr_drum_sign',        module:'Irrigation',    label:'Supervisor sign — drum report',        defA:4, defN:2},
+    // Inventory / Tools
+    {id:'kit_countersign',      module:'Inventory',     label:'Kit countersign (supervisor+security)',defA:4, defN:2},
+    {id:'tool_assign',          module:'Inventory',     label:'Assign tool to employee kit',          defA:3, defN:2},
+    // Production / Pool
+    {id:'pool_session_finalize',module:'Production',    label:'Finalize pool cleaning session',       defA:4, defN:2},
+    // Accounting
+    {id:'payroll_approve',      module:'Accounting',    label:'Approve & lock payroll run',           defA:5, defN:4},
+    {id:'final_pay_release',    module:'Accounting',    label:'Compute & release Final Pay',          defA:7, defN:5},
+    // HR / Admin
+    {id:'memo_sign',            module:'HR/Admin',      label:'Sign memo (multi-party)',              defA:5, defN:4},
+    {id:'hr_clearance',         module:'HR/Admin',      label:'HR clearance step (turnover/COE/exit)',defA:5, defN:4},
+    {id:'offboarding_item',     module:'HR/Admin',      label:'Complete offboarding checklist item',  defA:4, defN:3},
+    {id:'asset_clearance_override',module:'HR/Admin',   label:'Override asset clearance / waive',      defA:7, defN:5},
+    {id:'contract_verify',      module:'HR/Admin',      label:'Verify uploaded contract terms',        defA:5, defN:4},
+    // QC / CRM
+    {id:'qc_rejection',         module:'QC/CRM',        label:'Log / approve QC rejection',            defA:4, defN:3},
+    {id:'quote_reject',         module:'QC/CRM',        label:'Reject sales quote',                    defA:5, defN:4},
+    {id:'customer_onboard',     module:'QC/CRM',        label:'Customer onboarding (Pending→Approved)',defA:5, defN:4},
+    {id:'customer_accredit',    module:'QC/CRM',        label:'Approve customer accreditation',        defA:5, defN:4},
+    // Calls / IT / Maintenance
+    {id:'call_assign',          module:'Calls/IT/Maint',label:'Assign call / ticket',                  defA:3, defN:2},
+    {id:'issue_approve',        module:'Calls/IT/Maint',label:'Approve resolved issue (Kanban)',       defA:4, defN:3},
+    {id:'item_request_approve', module:'Calls/IT/Maint',label:'Approve item request',                  defA:5, defN:4},
+    {id:'caller_approve_close', module:'Calls/IT/Maint',label:'Caller-approval close-out',             defA:3, defN:2},
+    // User Admin
+    {id:'user_level_change',    module:'User Admin',    label:'Change a user position level',          defA:7, defN:5},
+    {id:'user_role_change',     module:'User Admin',    label:'Change a user role',                    defA:7, defN:5}
+  ];
+
+  // ---------- safe utils ----------
+  function J(raw, fb){ try{ var v=JSON.parse(raw); return (v==null)?fb:v; }catch(e){ return fb; } }
+  function curUser(){ try{ return (typeof getCurrentUser==='function')?getCurrentUser():null; }catch(e){ return null; } }
+  function doAudit(a,d){ try{ if(typeof audit==='function') audit(a,d); }catch(e){} }
+  function esc(s){ s=(s==null?'':String(s)); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function toast(m,t){ try{ if(typeof showToast==='function') showToast(m,t||'ok'); }catch(e){} }
+
+  // ---------- storage ----------
+  function loadLevels(){
+    var v=J(localStorage.getItem(LV_KEY),null);
+    if(!Array.isArray(v)||!v.length){ v=DEFAULT_LEVELS.map(function(x){return Object.assign({},x);}); localStorage.setItem(LV_KEY,JSON.stringify(v)); }
+    return v;
+  }
+  function saveLevels(a){ localStorage.setItem(LV_KEY,JSON.stringify(a)); }
+  function loadMatrix(){ return J(localStorage.getItem(MX_KEY),{}) || {}; }
+  function saveMatrix(m){ localStorage.setItem(MX_KEY,JSON.stringify(m)); }
+  function loadLog(){ var v=J(localStorage.getItem(LOG_KEY),[]); return Array.isArray(v)?v:[]; }
+  function saveLog(a){ try{ if(a.length>5000) a=a.slice(a.length-5000); localStorage.setItem(LOG_KEY,JSON.stringify(a)); }catch(e){} }
+
+  // ---------- level lookups ----------
+  function levelsSorted(){ return loadLevels().slice().sort(function(a,b){return a.rank-b.rank;}); }
+  function levelById(id){ var L=loadLevels(); for(var i=0;i<L.length;i++) if(L[i].id===id) return L[i]; return null; }
+  function rankOf(id){ var l=levelById(id); return l?l.rank:0; }
+
+  // Default position level for a user when none is set — mapped from their role, conservatively.
+  function defaultLevelIdForRole(role){
+    switch(role){
+      case 'admin': return 'ceo';
+      case 'admin_secondary': return 'manager';
+      case 'accounting': return 'manager';
+      case 'manager': return 'manager';
+      case 'supervisor': return 'supervisor';
+      case 'operator': return 'regular';
+      default: return 'regular';
+    }
+  }
+
+  // ---------- one-time migration: ensure every user has positionLevel ----------
+  function migrateUsers(){
+    try{
+      if(typeof loadUsers!=='function'||typeof saveUsers!=='function') return;
+      var users=loadUsers(); if(!Array.isArray(users)||!users.length) return;
+      var changed=false;
+      users.forEach(function(u){
+        if(u && !u.positionLevel){ u.positionLevel=defaultLevelIdForRole(u.role); changed=true; }
+      });
+      if(changed){ saveUsers(users); }
+    }catch(e){}
+  }
+
+  // ---------- rule resolution ----------
+  function rule(taskId){
+    var mx=loadMatrix(); var t=null;
+    for(var i=0;i<TASK_TYPES.length;i++){ if(TASK_TYPES[i].id===taskId){ t=TASK_TYPES[i]; break; } }
+    var defA = t?t.defA:4, defN = t?t.defN:2;
+    var r = mx[taskId] || {};
+    return { approveMin: (typeof r.approveMin==='number')?r.approveMin:defA,
+             noteMin:    (typeof r.noteMin==='number')?r.noteMin:defN };
+  }
+
+  function userLevelId(user){ user=user||curUser(); if(!user) return null; return user.positionLevel || defaultLevelIdForRole(user.role); }
+  function userRank(user){ var id=userLevelId(user); return id?rankOf(id):0; }
+  function userLevelLabel(user){ var id=userLevelId(user); var l=id?levelById(id):null; return l?l.label:'—'; }
+
+  function canApprove(taskId,user){ user=user||curUser(); if(!user||!user.active) return false; if(user.role==='admin') return true; return userRank(user) >= rule(taskId).approveMin; }
+  function canNote(taskId,user){ user=user||curUser(); if(!user||!user.active) return false; if(user.role==='admin') return true; return userRank(user) >= rule(taskId).noteMin; }
+
+  function taskLabel(taskId){ for(var i=0;i<TASK_TYPES.length;i++) if(TASK_TYPES[i].id===taskId) return TASK_TYPES[i].label; return taskId; }
+
+  // ---------- record approval / note ----------
+  function _record(action, taskId, targetId, opts){
+    opts=opts||{}; var u=opts.user||curUser();
+    if(!u){ return null; }
+    var allowed = (action==='approve') ? canApprove(taskId,u) : canNote(taskId,u);
+    if(!allowed && !opts.force){ toast('Your position level is not high enough to '+(action==='approve'?'approve':'note')+' this','warn'); return null; }
+    var entry={
+      ts:new Date().toISOString(),
+      taskType:taskId,
+      taskLabel:taskLabel(taskId),
+      targetId:(targetId==null?'':String(targetId)),
+      action:action,
+      user:u.username||'(unknown)',
+      fullname:u.fullname||u.username||'',
+      role:u.role||'',
+      level:userLevelId(u)||'',
+      levelLabel:userLevelLabel(u),
+      note:opts.note||''
+    };
+    var log=loadLog(); log.push(entry); saveLog(log);
+    doAudit(action==='approve'?'approval_signed':'approval_noted',
+            (action==='approve'?'Approved':'Noted')+' '+taskLabel(taskId)+(targetId!=null&&targetId!==''?(' #'+targetId):'')+' — '+(u.fullname||u.username)+' ('+entry.levelLabel+')');
+    return entry;
+  }
+  function recordApproval(taskId,targetId,opts){ return _record('approve',taskId,targetId,opts); }
+  function recordNote(taskId,targetId,opts){ return _record('note',taskId,targetId,opts); }
+
+  function getSignatures(taskId,targetId){
+    var tid=(targetId==null?'':String(targetId));
+    var out={approvals:[],notes:[]};
+    loadLog().forEach(function(e){
+      if(e.taskType!==taskId) return;
+      if(tid!=='' && e.targetId!==tid) return;
+      if(e.action==='approve') out.approvals.push(e); else out.notes.push(e);
+    });
+    return out;
+  }
+
+  // Renders an "Approved by / Noted by" signature block for a given target.
+  function signatureHTML(taskId,targetId){
+    var s=getSignatures(taskId,targetId);
+    function line(e){ return '<div style="font-family:var(--mono,monospace);font-size:11px;color:var(--text3,#8aa);">'
+        + esc(e.fullname||e.user) + ' <span style="opacity:.7;">('+esc(e.levelLabel)+')</span> · '
+        + esc(new Date(e.ts).toLocaleString()) + (e.note?(' · '+esc(e.note)):'') + '</div>'; }
+    var html='<div class="hnx-sig-block" style="margin-top:6px;display:flex;flex-direction:column;gap:6px;">';
+    html+='<div><span style="font-size:11px;font-weight:700;color:var(--ok,#4caf50);">✓ Approved by</span>'
+        + (s.approvals.length? s.approvals.map(line).join('') : '<div style="font-size:11px;color:var(--text3,#8aa);opacity:.6;">— pending —</div>') + '</div>';
+    html+='<div><span style="font-size:11px;font-weight:700;color:var(--accent,#79f);">✎ Noted by</span>'
+        + (s.notes.length? s.notes.map(line).join('') : '<div style="font-size:11px;color:var(--text3,#8aa);opacity:.6;">— none —</div>') + '</div>';
+    html+='</div>';
+    return html;
+  }
+
+  // ---------- public API ----------
+  var API = window.HNX_Approval = {
+    LV_KEY:LV_KEY, MX_KEY:MX_KEY, LOG_KEY:LOG_KEY,
+    DEFAULT_LEVELS:DEFAULT_LEVELS, TASK_TYPES:TASK_TYPES,
+    levels:levelsSorted, levelById:levelById, rankOf:rankOf,
+    rule:rule, taskLabel:taskLabel,
+    userLevelId:userLevelId, userRank:userRank, userLevelLabel:userLevelLabel,
+    canApprove:canApprove, canNote:canNote,
+    recordApproval:recordApproval, recordNote:recordNote,
+    getSignatures:getSignatures, signatureHTML:signatureHTML,
+    loadLog:loadLog, loadMatrix:loadMatrix, loadLevels:loadLevels,
+    _migrate:migrateUsers
+  };
+
+  // ============================ ADMIN VIEW: Approval Matrix ============================
+  var _amTab = 'matrix';
+
+  function ensureContainer(){
+    var el=document.getElementById('view-approval_matrix');
+    if(el) return el;
+    var anchor=document.getElementById('view-users')||document.querySelector('.view');
+    el=document.createElement('div'); el.className='view'; el.id='view-approval_matrix';
+    if(anchor&&anchor.parentNode){ anchor.parentNode.appendChild(el); } else { document.body.appendChild(el); }
+    return el;
+  }
+
+  function levelSelect(curRank, onAttr){
+    var L=levelsSorted();
+    var opts=L.map(function(l){ return '<option value="'+l.rank+'"'+(l.rank===curRank?' selected':'')+'>'+esc(l.label)+' (L'+l.rank+')</option>'; }).join('');
+    return '<select '+onAttr+' style="background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:4px 8px;font-size:12px;font-family:var(--mono,monospace);">'+opts+'</select>';
+  }
+
+  function renderMatrixTab(){
+    var mods={}; TASK_TYPES.forEach(function(t){ (mods[t.module]=mods[t.module]||[]).push(t); });
+    var html='<div style="color:var(--text3,#8aa);font-size:12px;margin-bottom:12px;">Set the minimum position level required to <b style="color:var(--ok,#4caf50);">Approve</b> and to <b style="color:var(--accent,#79f);">Note</b> each action. Primary Admin always overrides. Changes save instantly and sync.</div>';
+    Object.keys(mods).forEach(function(m){
+      html+='<div style="margin:14px 0 6px;font-weight:800;font-size:13px;color:var(--accent,#79f);text-transform:uppercase;letter-spacing:.5px;">'+esc(m)+'</div>';
+      html+='<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+      html+='<tr style="color:var(--text3,#8aa);text-align:left;"><th style="padding:6px 8px;font-weight:600;">Action</th><th style="padding:6px 8px;font-weight:600;width:160px;">Approve ≥</th><th style="padding:6px 8px;font-weight:600;width:160px;">Note ≥</th></tr>';
+      mods[m].forEach(function(t){
+        var r=rule(t.id);
+        html+='<tr style="border-top:1px solid #1c3a2a;">'
+          +'<td style="padding:7px 8px;color:#e8f5e9;">'+esc(t.label)+'<div style="font-size:10px;color:var(--text3,#8aa);font-family:var(--mono,monospace);opacity:.6;">'+esc(t.id)+'</div></td>'
+          +'<td style="padding:7px 8px;">'+levelSelect(r.approveMin,'onchange="HNX_Approval._setRule(\''+t.id+'\',\'approveMin\',this.value)"')+'</td>'
+          +'<td style="padding:7px 8px;">'+levelSelect(r.noteMin,'onchange="HNX_Approval._setRule(\''+t.id+'\',\'noteMin\',this.value)"')+'</td>'
+          +'</tr>';
+      });
+      html+='</table>';
+    });
+    return html;
+  }
+
+  function renderLevelsTab(){
+    var L=levelsSorted();
+    var html='<div style="color:var(--text3,#8aa);font-size:12px;margin-bottom:12px;">Rename levels or toggle active. Rank sets seniority (higher = more authority). These 10 are the ABA Pardes defaults; edit freely.</div>';
+    html+='<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    html+='<tr style="color:var(--text3,#8aa);text-align:left;"><th style="padding:6px 8px;">Rank</th><th style="padding:6px 8px;">Label</th><th style="padding:6px 8px;">ID</th><th style="padding:6px 8px;">Active</th></tr>';
+    L.forEach(function(l){
+      html+='<tr style="border-top:1px solid #1c3a2a;">'
+        +'<td style="padding:7px 8px;font-family:var(--mono,monospace);color:var(--accent,#79f);">L'+l.rank+'</td>'
+        +'<td style="padding:7px 8px;"><input value="'+esc(l.label)+'" onchange="HNX_Approval._setLevelLabel(\''+l.id+'\',this.value)" style="background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:4px 8px;font-size:12px;width:90%;"></td>'
+        +'<td style="padding:7px 8px;font-family:var(--mono,monospace);color:var(--text3,#8aa);">'+esc(l.id)+'</td>'
+        +'<td style="padding:7px 8px;"><input type="checkbox" '+(l.active?'checked':'')+' onchange="HNX_Approval._setLevelActive(\''+l.id+'\',this.checked)"></td>'
+        +'</tr>';
+    });
+    html+='</table>';
+    return html;
+  }
+
+  function renderUserLevelsTab(){
+    var users=[]; try{ users=(typeof loadUsers==='function')?loadUsers():[]; }catch(e){}
+    if(!Array.isArray(users)) users=[];
+    var html='<div style="color:var(--text3,#8aa);font-size:12px;margin-bottom:12px;">Assign each user a position level. This drives who can approve/note across the whole app.</div>';
+    if(!users.length){ return html+'<div style="color:var(--text3,#8aa);">No users found.</div>'; }
+    html+='<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    html+='<tr style="color:var(--text3,#8aa);text-align:left;"><th style="padding:6px 8px;">User</th><th style="padding:6px 8px;">Role</th><th style="padding:6px 8px;width:200px;">Position Level</th></tr>';
+    users.forEach(function(u){
+      var rk=rankOf(userLevelId(u));
+      html+='<tr style="border-top:1px solid #1c3a2a;">'
+        +'<td style="padding:7px 8px;color:#e8f5e9;">'+esc(u.fullname||u.username)+'<div style="font-size:10px;color:var(--text3,#8aa);font-family:var(--mono,monospace);opacity:.6;">@'+esc(u.username)+(u.active?'':' · blocked')+'</div></td>'
+        +'<td style="padding:7px 8px;color:var(--text3,#8aa);font-family:var(--mono,monospace);">'+esc(u.role||'')+'</td>'
+        +'<td style="padding:7px 8px;">'+levelSelect(rk,'onchange="HNX_Approval._setUserLevel(\''+esc(u.username)+'\',this.value)"')+'</td>'
+        +'</tr>';
+    });
+    html+='</table>';
+    return html;
+  }
+
+  function renderLedgerTab(){
+    var log=loadLog().slice().reverse().slice(0,300);
+    var html='<div style="color:var(--text3,#8aa);font-size:12px;margin-bottom:12px;">Newest 300 recorded approvals & notes. Full history also appears in the Audit Log.</div>';
+    if(!log.length){ return html+'<div style="color:var(--text3,#8aa);">No approvals recorded yet — they will appear here as the retrofit lands in Builds 2–5.</div>'; }
+    html+='<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+    html+='<tr style="color:var(--text3,#8aa);text-align:left;"><th style="padding:6px 8px;">When</th><th style="padding:6px 8px;">Action</th><th style="padding:6px 8px;">Task</th><th style="padding:6px 8px;">By</th><th style="padding:6px 8px;">Level</th></tr>';
+    log.forEach(function(e){
+      html+='<tr style="border-top:1px solid #1c3a2a;">'
+        +'<td style="padding:6px 8px;font-family:var(--mono,monospace);color:var(--text3,#8aa);">'+esc(new Date(e.ts).toLocaleString())+'</td>'
+        +'<td style="padding:6px 8px;">'+(e.action==='approve'?'<span style="color:var(--ok,#4caf50);">✓ Approved</span>':'<span style="color:var(--accent,#79f);">✎ Noted</span>')+'</td>'
+        +'<td style="padding:6px 8px;color:#e8f5e9;">'+esc(e.taskLabel||e.taskType)+(e.targetId?(' <span style="opacity:.6;">#'+esc(e.targetId)+'</span>'):'')+'</td>'
+        +'<td style="padding:6px 8px;color:#e8f5e9;">'+esc(e.fullname||e.user)+'</td>'
+        +'<td style="padding:6px 8px;color:var(--text3,#8aa);">'+esc(e.levelLabel||e.level)+'</td>'
+        +'</tr>';
+    });
+    html+='</table>';
+    return html;
+  }
+
+  function tabBtn(id,label){
+    var on=(_amTab===id);
+    return '<button onclick="HNX_Approval._tab(\''+id+'\')" style="padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid '+(on?'var(--ok,#4caf50)':'#2c5a3f')+';background:'+(on?'rgba(76,175,80,0.15)':'transparent')+';color:'+(on?'var(--ok,#4caf50)':'#9fc')+';">'+esc(label)+'</button>';
+  }
+
+  window.renderApprovalMatrix = function(){
+    var el=ensureContainer();
+    var body = _amTab==='matrix'?renderMatrixTab()
+             : _amTab==='levels'?renderLevelsTab()
+             : _amTab==='users'?renderUserLevelsTab()
+             : renderLedgerTab();
+    el.innerHTML =
+      '<div style="padding:18px 20px;max-width:1100px;">'
+      +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;"><div style="font-size:20px;font-weight:900;color:#e8f5e9;">✅ Approvals &amp; Signatures</div>'
+      +'<span style="font-size:10px;font-family:var(--mono,monospace);color:var(--text3,#8aa);border:1px solid #2c5a3f;border-radius:20px;padding:2px 8px;">Engine v1 · p141</span></div>'
+      +'<div style="color:var(--text3,#8aa);font-size:12px;margin-bottom:14px;">One matrix governs who can <b>approve</b> and <b>note</b> every gated action. Retrofit lands across Builds 2–5.</div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">'+tabBtn('matrix','Approval Matrix')+tabBtn('levels','Position Levels')+tabBtn('users','User Levels')+tabBtn('ledger','Ledger')+'</div>'
+      +'<div>'+body+'</div>'
+      +'</div>';
+  };
+
+  // ---------- mutators wired to the UI ----------
+  API._tab=function(t){ _amTab=t; window.renderApprovalMatrix(); };
+  API._setRule=function(taskId,field,val){
+    var mx=loadMatrix(); mx[taskId]=mx[taskId]||{}; mx[taskId][field]=parseInt(val,10); saveMatrix(mx);
+    doAudit('approval_matrix_edit', taskLabel(taskId)+' · '+field+'=L'+val);
+    toast('Saved');
+  };
+  API._setLevelLabel=function(id,label){
+    var L=loadLevels(); for(var i=0;i<L.length;i++) if(L[i].id===id) L[i].label=label; saveLevels(L);
+    doAudit('poslevel_edit','Renamed level '+id+' → '+label);
+  };
+  API._setLevelActive=function(id,active){
+    var L=loadLevels(); for(var i=0;i<L.length;i++) if(L[i].id===id) L[i].active=!!active; saveLevels(L);
+    doAudit('poslevel_edit','Level '+id+' active='+(!!active));
+    window.renderApprovalMatrix();
+  };
+  API._setUserLevel=function(username,rankVal){
+    try{
+      if(typeof loadUsers!=='function'||typeof saveUsers!=='function'){ toast('User store unavailable','warn'); return; }
+      var rank=parseInt(rankVal,10); var L=levelsSorted(); var lvl=null;
+      for(var i=0;i<L.length;i++) if(L[i].rank===rank){ lvl=L[i]; break; }
+      if(!lvl){ toast('Invalid level','warn'); return; }
+      var users=loadUsers(); var done=false;
+      users.forEach(function(u){ if(u.username===username){ u.positionLevel=lvl.id; done=true; } });
+      if(done){ saveUsers(users); doAudit('user_level_set','Set '+username+' → '+lvl.label); toast('Set '+username+' → '+lvl.label); }
+    }catch(e){ toast('Error setting level','warn'); }
+  };
+
+  // ---------- boot ----------
+  try{ migrateUsers(); }catch(e){}
+  try{ ensureContainer(); }catch(e){}
+})();
+</script>
+<!-- ================= END HNX APPROVALS ENGINE — Build 1 ================= -->
 
 </body>
 </html>
