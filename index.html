@@ -5465,7 +5465,9 @@ td.critical-blink,div.critical-blink,span.critical-blink,
       <option value="5">L5 — Supervisor</option>
     </select>
     <select id="hrFilterStatus" class="hr-filter" onchange="renderHR()">
-      <option value="Active">Active Only</option>
+      <option value="auto_active">🟢 Active (auto · last 30d)</option>
+      <option value="auto_inactive">🔴 Inactive (auto · 30d+)</option>
+      <option value="Active">Active Only (manual status)</option>
       <option value="On Leave">On Leave</option>
       <option value="inactive">Departed (all inactive)</option>
       <option value="Resigned">Resigned</option>
@@ -21737,7 +21739,12 @@ function renderHR(){
   const fLevelEl=document.getElementById('hrFilterLevel');
   const fLevel=fLevelEl?fLevelEl.value:'';
   let list=employees.slice();
-  if(fStat==='inactive'){
+  if(fStat==='auto_active'){
+    // T-43: filter to employees the auto rule (or override) considers Active.
+    list=list.filter(e=>{ try{ return window.hnxEmpEffectiveStatus && window.hnxEmpEffectiveStatus(e).active; }catch(_){ return e.status==='Active'; } });
+  } else if(fStat==='auto_inactive'){
+    list=list.filter(e=>{ try{ return window.hnxEmpEffectiveStatus && !window.hnxEmpEffectiveStatus(e).active; }catch(_){ return e.status!=='Active'; } });
+  } else if(fStat==='inactive'){
     // v2.83 — show all non-active statuses
     list=list.filter(e=>e.status&&e.status!=='Active');
   } else if(fStat!=='all'){
@@ -21907,6 +21914,7 @@ function _buildEmpRow(emp,showSalary,typeColors){
         <div style="min-width:0;">
           <div style="font-size:12px;font-weight:700;color:var(--text);line-height:1.2;">${escapeHtml(emp.name||'(unnamed)')}</div>
           <div style="font-size:10px;color:var(--text3);font-family:var(--mono);">${(emp.id||'').replace(/</g,'&lt;')}${emp.nickname?' · '+escapeHtml(emp.nickname):''}${isInactive?' · '+status:''}</div>
+          <div style="margin-top:4px;">${(typeof window.hnxEmpActivityBadge==='function')?window.hnxEmpActivityBadge(emp):''}</div>
         </div>
       </div>
     </td>
@@ -21964,6 +21972,7 @@ function buildEmpCard(emp){
       </div>
     </div>
     <div class="emp-card-meta">
+      ${(typeof window.hnxEmpActivityBadge==='function')?window.hnxEmpActivityBadge(emp):''}
       ${emp.role?`<span class="emp-chip role-${emp.role.replace(' ','\\ ')}">${emp.role}</span>`:''}
       ${emp.type?`<span class="emp-chip type-${emp.type}">${emp.type}</span>`:''}
       ${(()=>{
@@ -70821,7 +70830,8 @@ const ACTION_LABELS={
   approval_matrix_edit:'⚙ Edited approval matrix',
   poslevel_edit:'↕ Edited position level',
   user_level_set:'👤 Set user position level',
-  user_dept_set:'🏢 Set user department'
+  user_dept_set:'🏢 Set user department',
+  emp_activity_override_clear:'🔄 Cleared employee activity override'
 };
 
 function loadAuditLog(){try{return JSON.parse(localStorage.getItem(AUDIT_KEY)||'[]');}catch(e){return[];}}
@@ -71333,8 +71343,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.285-deptall';window.HNX_BUILD='v2.86-p145-deptall';  // 🏢 v2.46.285 — Department field now editable for ALL users incl. admin_secondary (was locked); picker has an "All departments" master toggle; allDepts flag on user; canDept honors it; only the primary owner stays fixed all-depts. Builds on p144. toggle (replaces plain prompt) + loud 'not connected' banner so no one works local-only by accident. Fixes cross-device data sharing. ▸ v2.46.275 — T-10 call routing canonical. ▸ v2.46.274 — camera sync guard. ▸ v2.46.269 — module COMMAND CENTER  // 🧭 v2.46.275 — T-10: call routing re-pointed to the canonical 14 departments. Raise-Call picker, MODULE_ROUTE_MAP (IT calls now route to IT, not Admin), keyword classifier, office-calls view, both P14 module configs and MODULE_DEPTS all use canonical ids. Existing calls migrated (backed up; undo via window.hnxRestoreT10()). ▸ v2.46.274 — camera-streams sync guard. ▸ v2.46.273 — T-09 canonical dept registry. ▸ v2.46.269 — module COMMAND CENTER middle column is now an animated 'HYDRONEXIS-AI · ANALYSING' centerpiece (_mccAnalysisStage): pulsing brain core + rotating radar rings + conic sweep, cycling analysis ticker (pulls live aiRows), live equalizer bars, flowing SVG waveform, 4 live KPI chips (from cfg.kpis), scanning bar — all CSS-animated (no JS intervals), accent = module color. QC daily checklist moved to a footer link. Applies to all MCC_CONFIGS modules; Production's own command center (separate render) unaffected. ▸ v2.46.268-custtype —   // 🏷️ v2.46.268 — explicit CUSTOMER TYPE selector on the customer detail 💰 PRICE LIST card: supervisors can set a customer's type (Online/Hotels/Restaurants/Supermarkets/Distributors/Retail) or leave it on 🔎 Auto-detect (name-based). Manual type overrides name detection and drives the type-default price list. Operators see it read-only. New key hydroPro_crm_cust_seg; _custPricingSeg now checks manual override → _custDetectSeg(name). ▸ v2.46.267-pricelists —   // 💰 v2.46.267 — PRICE LISTS tied to customer types + per-customer default: added 'Distributors / Wholesale' segment; Custom Price Lists tab now has a '🏷️ Default price list per customer type' panel (hotels/restaurants/supermarkets/online/distributors/retail each pick a default list); each QBO customer's detail shows a 💰 PRICE LIST card with its effective list (override → type default → base prices). Changing a type default OR a customer's list is gated to CRM supervisors (admin/admin_secondary/supervisor) — operators see it read-only. Keys: hydroPro_crm_seg_default_pl, hydroPro_crm_cust_pl. '+ New Price List' & 'Generate from Segment' unchanged. ▸ v2.46.266-crm-modes —   // 🎨 v2.46.266 — CRM customer MODES (visual framework): each customer's avatar ball is now colored by mode + a 🎨 Mode dropdown filters the directory + a colored-dot legend with live counts. Modes: 🆕 New (created <30d), ⚪ Not Active (QBO inactive), 🔘 Uncategorized (active, cadence unknown). 🟢 Fully Active / 🔵 Active / 😴 Sleepy are DEFINED + colored + in the dropdown but show 0 / 'needs orders' until a per-customer order-date feed is wired (TODO in _qbCustModeId). Lead-by-status already lives in the Leads/Pipeline tabs. ▸ v2.46.265-cctv-snapshots —   // 🔧 v2.46.265 — BIG PERF FIX: wall tiles are now lightweight auto-refreshing SNAPSHOTS (go2rtc /api/frame.jpeg, refreshed every 4s) instead of full WebRTC player iframes — so 22/81 cameras load near-instantly at almost no CPU. LIVE video only on tap: normal wall tap→full() live, fullscreen Spotlight big tile = live, Grid + Spotlight-small tiles = snapshots. Dead streams show a clean offline tile (no retry storm). Snapshots pause when tab hidden / scope to the visible wall. ▸ v2.46.264-cctv-mosaic —   // 🔧 v2.46.264 — full-screen '🎯 1 Big + around' is now a real MOSAIC: one big tile (spans 2x2) with the rest sized small AROUND it, filling the screen (no side strip). Tap ANY camera (in Grid or Mosaic) to make it the big one — the choice is remembered per area (hydroPro_cctv_spot_v1). '📐 Grid' = all equal size. Big choice resets sensibly when you switch area tabs. ▸ v2.46.263-arrange-area —   // 🔧 v2.46.263 — ARRANGE is now PER-AREA: it only shows the cameras in the area tab you're on (not all 81), the area tabs appear inside Arrange so you can switch which screen you're organizing, and ◀▶ nudge a camera within its own area. Adjust one screen at a time. ▸ v2.46.262-cctv-stagger —   // 🔧 v2.46.262 — NORMAL CCTV wall now THROTTLES stream loading: instead of connecting every visible camera on the same frame (which froze the 22-cam Greenhouses tab), it opens max 4 streams at a time and starts the next as each finishes/​times-out — so big area tabs ramp up smoothly. Off-screen tiles still unload. (Stagger already applied to the fullscreen wall in p128.) ▸ v2.46.261-cctv-wall —   // 🔧 v2.46.261 — CCTV FULL-SCREEN VIDEO WALL: new ⛶ Full Screen button opens an edge-to-edge fullscreen wall (browser fullscreen API, no app chrome) for the current area tab. Two layouts with a toggle — 📐 Grid (auto-fits cameras to fill the screen, best rows×cols, no scroll) and 🎯 Spotlight (one big live feed + thumbnail strip; tap a thumb to swap into the big slot). Area tabs + Esc/Exit inside. Streams stagger-load (3 at a time) so it never opens dozens at once; spotlight runs only the big feed live. Normal wall's streams are paused while fullscreen is open. ▸ v2.46.260-cctv-areas —   // 🔧 v2.46.260 — CCTV LIVE WALL split into 8 AREA TABS (🌱 Greenhouses · 🛡 GH Perimeter · 🛡 Perimeter & Gates · 💧 Fertigation · 📦 Packaging & Logistics · 🏗 Project 11 · 🏢 Office & Admin · 📍 Security & Other) per ES BA's corrected mapping (CAM_AREA). Wall opens on ONE tab (remembered in hydroPro_cctv_area_v1), so it never loads all 81 at once; lazy-load stays underneath. Tap 📺 All to load everything (heaviest). ▸ v2.46.259-crm-nav —   // 🔧 v2.46.259 — CRM views now DISCOVERABLE: injected sub-tabs (🆕 Customer Master, 📁 Customer 360° Files, 📊 Customer Matrix, 📞 Open Issues) were created with class 'nav-tab' but the view-picker dropdown only lists '.module-sub-tab' — so they were loaded but invisible in the menu. Now created as 'module-sub-tab' with modTab- ids → they appear in the dropdown + are searchable. ▸ v2.46.258 — (1) CRM render guard: Overview/Leads/etc. can never blank to black again — any render error now shows a recovery panel with Retry + the real error message (logged to console). (2) CCTV live wall lazy-loads via IntersectionObserver: only on-screen cameras stream (300px preload margin; off-screen tiles unload to about:blank), eliminating the slow open + layout jump with ~60 cameras. ▸ prev v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
-const APP_BUILD=1780968000;
+const APP_VERSION='2.46.286-hract';window.HNX_BUILD='v2.86-p146-hract';  // 🟢 v2.46.286 — T-43 HR Lifecycle 2/5: auto Active/Inactive from attendance (30-day rule); live activity badge on every employee row; two new HR filter options (Active auto / Inactive auto); manual override gated by Approval Matrix (emp_active_inactive default rank 7 = VP). ▸ v2.46.285 — Department field editable for all incl. admin_secondary; toggle (replaces plain prompt) + loud 'not connected' banner so no one works local-only by accident. Fixes cross-device data sharing. ▸ v2.46.275 — T-10 call routing canonical. ▸ v2.46.274 — camera sync guard. ▸ v2.46.269 — module COMMAND CENTER  // 🧭 v2.46.275 — T-10: call routing re-pointed to the canonical 14 departments. Raise-Call picker, MODULE_ROUTE_MAP (IT calls now route to IT, not Admin), keyword classifier, office-calls view, both P14 module configs and MODULE_DEPTS all use canonical ids. Existing calls migrated (backed up; undo via window.hnxRestoreT10()). ▸ v2.46.274 — camera-streams sync guard. ▸ v2.46.273 — T-09 canonical dept registry. ▸ v2.46.269 — module COMMAND CENTER middle column is now an animated 'HYDRONEXIS-AI · ANALYSING' centerpiece (_mccAnalysisStage): pulsing brain core + rotating radar rings + conic sweep, cycling analysis ticker (pulls live aiRows), live equalizer bars, flowing SVG waveform, 4 live KPI chips (from cfg.kpis), scanning bar — all CSS-animated (no JS intervals), accent = module color. QC daily checklist moved to a footer link. Applies to all MCC_CONFIGS modules; Production's own command center (separate render) unaffected. ▸ v2.46.268-custtype —   // 🏷️ v2.46.268 — explicit CUSTOMER TYPE selector on the customer detail 💰 PRICE LIST card: supervisors can set a customer's type (Online/Hotels/Restaurants/Supermarkets/Distributors/Retail) or leave it on 🔎 Auto-detect (name-based). Manual type overrides name detection and drives the type-default price list. Operators see it read-only. New key hydroPro_crm_cust_seg; _custPricingSeg now checks manual override → _custDetectSeg(name). ▸ v2.46.267-pricelists —   // 💰 v2.46.267 — PRICE LISTS tied to customer types + per-customer default: added 'Distributors / Wholesale' segment; Custom Price Lists tab now has a '🏷️ Default price list per customer type' panel (hotels/restaurants/supermarkets/online/distributors/retail each pick a default list); each QBO customer's detail shows a 💰 PRICE LIST card with its effective list (override → type default → base prices). Changing a type default OR a customer's list is gated to CRM supervisors (admin/admin_secondary/supervisor) — operators see it read-only. Keys: hydroPro_crm_seg_default_pl, hydroPro_crm_cust_pl. '+ New Price List' & 'Generate from Segment' unchanged. ▸ v2.46.266-crm-modes —   // 🎨 v2.46.266 — CRM customer MODES (visual framework): each customer's avatar ball is now colored by mode + a 🎨 Mode dropdown filters the directory + a colored-dot legend with live counts. Modes: 🆕 New (created <30d), ⚪ Not Active (QBO inactive), 🔘 Uncategorized (active, cadence unknown). 🟢 Fully Active / 🔵 Active / 😴 Sleepy are DEFINED + colored + in the dropdown but show 0 / 'needs orders' until a per-customer order-date feed is wired (TODO in _qbCustModeId). Lead-by-status already lives in the Leads/Pipeline tabs. ▸ v2.46.265-cctv-snapshots —   // 🔧 v2.46.265 — BIG PERF FIX: wall tiles are now lightweight auto-refreshing SNAPSHOTS (go2rtc /api/frame.jpeg, refreshed every 4s) instead of full WebRTC player iframes — so 22/81 cameras load near-instantly at almost no CPU. LIVE video only on tap: normal wall tap→full() live, fullscreen Spotlight big tile = live, Grid + Spotlight-small tiles = snapshots. Dead streams show a clean offline tile (no retry storm). Snapshots pause when tab hidden / scope to the visible wall. ▸ v2.46.264-cctv-mosaic —   // 🔧 v2.46.264 — full-screen '🎯 1 Big + around' is now a real MOSAIC: one big tile (spans 2x2) with the rest sized small AROUND it, filling the screen (no side strip). Tap ANY camera (in Grid or Mosaic) to make it the big one — the choice is remembered per area (hydroPro_cctv_spot_v1). '📐 Grid' = all equal size. Big choice resets sensibly when you switch area tabs. ▸ v2.46.263-arrange-area —   // 🔧 v2.46.263 — ARRANGE is now PER-AREA: it only shows the cameras in the area tab you're on (not all 81), the area tabs appear inside Arrange so you can switch which screen you're organizing, and ◀▶ nudge a camera within its own area. Adjust one screen at a time. ▸ v2.46.262-cctv-stagger —   // 🔧 v2.46.262 — NORMAL CCTV wall now THROTTLES stream loading: instead of connecting every visible camera on the same frame (which froze the 22-cam Greenhouses tab), it opens max 4 streams at a time and starts the next as each finishes/​times-out — so big area tabs ramp up smoothly. Off-screen tiles still unload. (Stagger already applied to the fullscreen wall in p128.) ▸ v2.46.261-cctv-wall —   // 🔧 v2.46.261 — CCTV FULL-SCREEN VIDEO WALL: new ⛶ Full Screen button opens an edge-to-edge fullscreen wall (browser fullscreen API, no app chrome) for the current area tab. Two layouts with a toggle — 📐 Grid (auto-fits cameras to fill the screen, best rows×cols, no scroll) and 🎯 Spotlight (one big live feed + thumbnail strip; tap a thumb to swap into the big slot). Area tabs + Esc/Exit inside. Streams stagger-load (3 at a time) so it never opens dozens at once; spotlight runs only the big feed live. Normal wall's streams are paused while fullscreen is open. ▸ v2.46.260-cctv-areas —   // 🔧 v2.46.260 — CCTV LIVE WALL split into 8 AREA TABS (🌱 Greenhouses · 🛡 GH Perimeter · 🛡 Perimeter & Gates · 💧 Fertigation · 📦 Packaging & Logistics · 🏗 Project 11 · 🏢 Office & Admin · 📍 Security & Other) per ES BA's corrected mapping (CAM_AREA). Wall opens on ONE tab (remembered in hydroPro_cctv_area_v1), so it never loads all 81 at once; lazy-load stays underneath. Tap 📺 All to load everything (heaviest). ▸ v2.46.259-crm-nav —   // 🔧 v2.46.259 — CRM views now DISCOVERABLE: injected sub-tabs (🆕 Customer Master, 📁 Customer 360° Files, 📊 Customer Matrix, 📞 Open Issues) were created with class 'nav-tab' but the view-picker dropdown only lists '.module-sub-tab' — so they were loaded but invisible in the menu. Now created as 'module-sub-tab' with modTab- ids → they appear in the dropdown + are searchable. ▸ v2.46.258 — (1) CRM render guard: Overview/Leads/etc. can never blank to black again — any render error now shows a recovery panel with Retry + the real error message (logged to console). (2) CCTV live wall lazy-loads via IntersectionObserver: only on-screen cameras stream (300px preload margin; off-screen tiles unload to about:blank), eliminating the slow open + layout jump with ~60 cameras. ▸ prev v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
+const APP_BUILD=1780974000;
 const APP_BUILD_DATE='2026-05-28';
 
 // Store version in localStorage on first run
@@ -144421,7 +144431,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     {id:'train_revoke',         module:'Production/HR', label:'Revoke certification',                defA:5, defN:4},
     {id:'attend_late_approve',  module:'Production/HR', label:'Approve late attendance entry',        defA:4, defN:3},
     {id:'leave_request',        module:'Production/HR', label:'Approve leave request',                defA:5, defN:4},
-    {id:'emp_active_inactive',  module:'Production/HR', label:'Mark employee active/inactive (manual)',defA:4, defN:3},
+    {id:'emp_active_inactive',  module:'Production/HR', label:'Mark employee active/inactive (manual)',defA:7, defN:5},
     // Irrigation
     {id:'irr_cal_approve',      module:'Irrigation',    label:'Approve dosing calibration',           defA:5, defN:4},
     {id:'irr_room_sign',        module:'Irrigation',    label:'Supervisor sign — room',               defA:4, defN:2},
@@ -144878,6 +144888,123 @@ body.hnx-mobile-locked { overflow: hidden; }
   };
 
   // ============================ USERS TAB — department helpers + multi-picker ============================
+
+  // ============================ T-43 HR LIFECYCLE 2/5 — Auto Active/Inactive ============================
+  // Per-employee activity is auto-computed from attendance (Active = seen within 30 days), with optional
+  // manual override (emp.activeOverride: 'active' | 'inactive' | '') gated by the T-42 approval matrix.
+  window.hnxEmpLastAttendance = function(empId){
+    try{
+      if(!empId) return null;
+      var data = (typeof loadAttendance==='function') ? loadAttendance() : {};
+      var dates = Object.keys(data).sort().reverse(); // newest first (YYYY-MM-DD strings)
+      for(var i=0;i<dates.length;i++){
+        var d = data[dates[i]];
+        if(d && d[empId]) return dates[i];
+      }
+      return null;
+    }catch(e){ return null; }
+  };
+  window.hnxEmpDaysSinceLastSeen = function(empId){
+    var last = window.hnxEmpLastAttendance(empId);
+    if(!last) return null;
+    try{
+      var d = new Date(last+'T00:00:00');
+      var now = new Date();
+      return Math.floor((now - d) / 86400000);
+    }catch(e){ return null; }
+  };
+  window.hnxEmpIsAutoActive = function(empId){
+    var days = window.hnxEmpDaysSinceLastSeen(empId);
+    if(days === null) return false; // never recorded
+    return days <= 30;
+  };
+  // Effective activity status considers manual override first, else falls back to the 30-day auto rule.
+  window.hnxEmpEffectiveStatus = function(emp){
+    if(!emp) return { active:false, source:'auto', days:null, last:null };
+    var last = window.hnxEmpLastAttendance(emp.id);
+    var days = window.hnxEmpDaysSinceLastSeen(emp.id);
+    if(emp.activeOverride==='active')   return { active:true,  source:'override', days:days, last:last };
+    if(emp.activeOverride==='inactive') return { active:false, source:'override', days:days, last:last };
+    return { active:(days!==null && days<=30), source:'auto', days:days, last:last };
+  };
+  // Small inline badge shown on each employee row / card.
+  window.hnxEmpActivityBadge = function(emp){
+    if(!emp) return '';
+    var s = window.hnxEmpEffectiveStatus(emp);
+    var icon, color, text, tip;
+    if(s.source==='override'){
+      icon  = s.active ? '✅' : '🚫';
+      color = s.active ? '#26c281' : '#ef5350';
+      text  = (s.active?'Active':'Inactive')+' · override';
+      tip   = 'Manual override set'+(emp.activeOverrideAt?(' on '+emp.activeOverrideAt.substring(0,10)):'')+(s.last?(' · last seen '+s.last+' ('+s.days+'d ago)'):' · never seen');
+    } else {
+      if(s.last===null){ icon='⚪'; color='#888'; text='Never seen'; tip='No attendance recorded for this employee yet'; }
+      else if(s.active){ icon='🟢'; color='#26c281'; text=(s.days===0?'Active today':'Active · '+s.days+'d ago'); tip='Last seen '+s.last+' ('+s.days+' day'+(s.days===1?'':'s')+' ago). Auto-rule: ≤ 30 days = Active.'; }
+      else { icon='🔴'; color='#ef5350'; text='Inactive · '+s.days+'d'; tip='Last seen '+s.last+' ('+s.days+' days ago). Auto-rule: > 30 days = Inactive.'; }
+    }
+    var canOverride = false;
+    try{ canOverride = !!(window.HNX_Approval && API.canApprove && API.canApprove('emp_active_inactive')); }catch(_){}
+    var clickStyle = canOverride ? 'cursor:pointer;text-decoration:underline dotted;' : 'cursor:default;';
+    var clickAttr  = canOverride ? 'onclick="event.stopPropagation();hnxOpenActivityOverride(\''+esc(emp.id||'')+'\')"' : '';
+    var fullTip = tip + (canOverride ? ' · tap to override' : '');
+    return '<span '+clickAttr+' title="'+esc(fullTip)+'" style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:11px;background:'+color+'22;color:'+color+';border:1px solid '+color+'55;font-size:10.5px;font-weight:600;font-family:var(--mono,monospace);white-space:nowrap;'+clickStyle+'">'+icon+' '+esc(text)+'</span>';
+  };
+  // Open the manual override modal — only callable if approval matrix allows.
+  window.hnxOpenActivityOverride = function(empId){
+    try{
+      if(!(window.HNX_Approval && API.canApprove('emp_active_inactive'))){
+        toast('Your position level is too low to override employee activity (gated by the Approval Matrix)','warn'); return;
+      }
+      var emp = null;
+      try{ if(typeof employees!=='undefined' && Array.isArray(employees)) for(var i=0;i<employees.length;i++) if(employees[i].id===empId){ emp=employees[i]; break; } }catch(_){}
+      if(!emp){ var arr=(typeof loadEmployees==='function')?loadEmployees():[]; for(var j=0;j<arr.length;j++) if(arr[j].id===empId){ emp=arr[j]; break; } }
+      if(!emp){ toast('Employee not found','warn'); return; }
+      var s = window.hnxEmpEffectiveStatus(emp);
+      var old = document.getElementById('hnxActivityOverride'); if(old) old.remove();
+      var ov = document.createElement('div'); ov.id='hnxActivityOverride';
+      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+      var statusLine = (s.source==='override'?'<b>Manual override</b>':'<b>Auto</b>') + ' · ' + (s.active?'Active':'Inactive') + (s.last?(' · last seen '+esc(s.last)+' ('+s.days+'d ago)'):' · never seen');
+      ov.innerHTML = '<div style="background:#0a1612;border:1px solid #2c5a3f;border-radius:14px;max-width:460px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.55);">'
+        +'<div style="padding:16px 18px;border-bottom:1px solid #1c3a2a;">'
+          +'<div style="font-weight:800;font-size:15px;color:#e8f5e9;">Activity Override — '+esc(emp.name||emp.id)+'</div>'
+          +'<div style="font-size:11.5px;color:#a5d6e6;margin-top:5px;line-height:1.45;">Current: '+statusLine+'</div>'
+        +'</div>'
+        +'<div style="padding:16px 18px;display:flex;flex-direction:column;gap:8px;">'
+          +'<div style="font-size:12px;color:#8aa;margin-bottom:4px;line-height:1.5;">By default, activity is auto-computed from attendance (Active = seen ≤ 30 days). A manual override sticks until cleared. This action is logged as a signed approval.</div>'
+          +'<button onclick="hnxApplyActivityOverride(\''+esc(empId)+'\',\'active\')" style="text-align:left;padding:11px 14px;border-radius:8px;border:1px solid #26c281;background:rgba(38,194,129,.10);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">✅ Force <b>Active</b></button>'
+          +'<button onclick="hnxApplyActivityOverride(\''+esc(empId)+'\',\'inactive\')" style="text-align:left;padding:11px 14px;border-radius:8px;border:1px solid #ef5350;background:rgba(239,83,80,.10);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">🚫 Force <b>Inactive</b></button>'
+          +'<button onclick="hnxApplyActivityOverride(\''+esc(empId)+'\',\'\')" style="text-align:left;padding:11px 14px;border-radius:8px;border:1px solid #2c5a3f;background:rgba(255,255,255,.04);color:#9fc;font-size:13px;cursor:pointer;">🔄 Clear override (use the auto rule)</button>'
+        +'</div>'
+        +'<div style="padding:14px 18px;border-top:1px solid #1c3a2a;display:flex;gap:10px;justify-content:flex-end;">'
+          +'<button onclick="document.getElementById(\'hnxActivityOverride\').remove()" style="background:transparent;border:1px solid #2c5a3f;color:#9fc;border-radius:8px;padding:9px 16px;font-weight:700;font-size:13px;cursor:pointer;">Cancel</button>'
+        +'</div></div>';
+      ov.addEventListener('click', function(e){ if(e.target===ov) ov.remove(); });
+      document.body.appendChild(ov);
+    }catch(e){ toast('Error opening override','warn'); }
+  };
+  // Apply an override value: 'active' / 'inactive' / '' (clear). Logged through the approval matrix.
+  window.hnxApplyActivityOverride = function(empId, value){
+    try{
+      if(!(window.HNX_Approval && API.canApprove('emp_active_inactive'))){ toast('Not authorized','warn'); return; }
+      var emp = null;
+      try{ if(typeof employees!=='undefined' && Array.isArray(employees)) for(var i=0;i<employees.length;i++) if(employees[i].id===empId){ emp=employees[i]; break; } }catch(_){}
+      if(!emp){ var arr=(typeof loadEmployees==='function')?loadEmployees():[]; for(var j=0;j<arr.length;j++) if(arr[j].id===empId){ emp=arr[j]; break; } }
+      if(!emp){ toast('Employee not found','warn'); return; }
+      if(value==='active' || value==='inactive'){
+        emp.activeOverride = value;
+        emp.activeOverrideAt = new Date().toISOString();
+        API.recordApproval('emp_active_inactive', empId, { note: 'Forced '+value+' for '+(emp.name||empId) });
+      } else {
+        emp.activeOverride = '';
+        emp.activeOverrideAt = '';
+        doAudit('emp_activity_override_clear', 'Cleared activity override for '+(emp.name||empId));
+      }
+      if(typeof saveEmployees==='function') saveEmployees();
+      toast('✓ '+(emp.name||empId)+' → '+(value||'auto'));
+      var ov = document.getElementById('hnxActivityOverride'); if(ov) ov.remove();
+      if(typeof renderHR==='function') renderHR();
+    }catch(e){ toast('Error setting override','warn'); }
+  };
 
   // ---------- boot ----------
   try{ migrateUsers(); }catch(e){}
