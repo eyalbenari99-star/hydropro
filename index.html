@@ -17387,7 +17387,8 @@ function renderModuleCommandCenter(viewId){
   const brain=(typeof _renderBrainSVG==='function')?_renderBrainSVG(96):'🧠';
   const kpis=cfg.kpis.map(k=>`<div class="mcc-kpi mcc-kpi--${k.tone||'ok'}"><div class="mcc-kpi-l">${k.l}</div><div class="mcc-kpi-v">${k.v}</div><div class="mcc-kpi-s">${k.s||''}</div></div>`).join('');
   const ai=cfg.aiRows.map(r=>`<div class="mcc-ai-row"><span class="mcc-ai-l">${r.l}</span><span class="mcc-ai-v ${r.c||''}">${r.v}</span></div>`).join('');
-  const cams=cfg.cams.map((n,i)=>`<div class="mcc-cam" title="Tap to open ${n} in Hik-Connect · long-press to configure URL" style="cursor:pointer;" onclick="window._hnxOpenHikConnect&&window._hnxOpenHikConnect(${JSON.stringify(n)})" oncontextmenu="event.preventDefault();window._hnxConfigHikConnect&&window._hnxConfigHikConnect(${JSON.stringify(n)});return false;"><div class="mcc-cam-rec">● LIVE</div><div class="mcc-cam-time">${tm}</div><div class="mcc-cam-ic">📷</div><div class="mcc-cam-n">${n}</div></div>`).join('');
+  // p154 — cams array left in MCC_CONFIGS as historical data but no longer rendered.
+  // CCTV is now exclusively IT (full) + Security perimeter (sec_cmd renders separately).
   const boxes=cfg.boxes.map(b=>`<div class="mcc-box mcc-box--${b.c||''}"><div class="mcc-box-h"><span class="mcc-box-i">${b.i}</span><span class="mcc-box-t">${b.t}</span></div><div class="mcc-box-v ${b.c||''}">${b.v}</div><div class="mcc-box-s">${b.s}</div></div>`).join('');
   const _mccEsc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const alertsHtml=(cfg.alerts&&cfg.alerts.length)
@@ -21369,6 +21370,7 @@ function switchView(v,skipModuleCheck){
   if(v==='inv_calls')renderInvCalls();
   if(v==='pack_washtrim'){renderWashTrim();return;}
   if(v==='pack_dash'){renderPackagingDash();return;}
+  if(v==='log_dash'){ if(typeof window.renderLogisticsDash==='function') window.renderLogisticsDash(); return; }
   if(v==='pack_materials'){renderPackagingMaterials();return;}
   if(v==='pack_calls'){renderPackCalls();return;}
   if(v==='pack_checklist'){if(typeof renderModuleChecklist==='function')renderModuleChecklist('packaging','pack_checklist','✅ Packaging Monitoring Checklist');return;}
@@ -44351,8 +44353,9 @@ function renderMaintMatrix(){
       const ct=items.length;
       const icon=kindIcon(kind);
       try{ hnxRegisterCell('maint', sub.id+'::'+d.id, {moduleLabel:'Maintenance', row:sub.name, col:d.label, items:items}); }catch(e){}
-      return `<td style="text-align:center;padding:6px 0;${cellStyle(kind)};cursor:${ct?'pointer':'default'};" ${ct?`onclick="hnxOpenCellBox('maint','${sub.id}','${d.id}')"`:''} title="${sub.name} × ${d.label}: ${ct} call${ct===1?'':'s'}${ct?' · '+kind:''}">
-        ${ct?hnxInlineSplit(items):'<div style="font-family:var(--mono);font-weight:700;font-size:13px;">·</div>'}
+      // p156 — always render half/half (operator-call + AI-shield), always clickable so AI analysis is reachable even for empty cells.
+      return `<td style="text-align:center;padding:6px 0;${cellStyle(kind)};cursor:pointer;" onclick="hnxOpenCellBox('maint','${sub.id}','${d.id}')" title="${sub.name} × ${d.label}: ${ct} call${ct===1?'':'s'}${ct?' · '+kind:' · AI monitoring'}">
+        ${hnxInlineSplit(items)}
       </td>`;
     }).join('');
     // Row total color = highest priority present in this row
@@ -71364,8 +71367,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.293-sos';window.HNX_BUILD='v2.86-p153-sos';  // 📦 v2.46.293 — SOS Inventory integration (app-side). Admin → 📦 SOS Inventory Sync new view. OAuth2 flow opens popup → worker handles callback → stores token in KV. Pulls items+locations+lots+shipments via worker proxy (/sos/items, /sos/locations, /sos/lots, /sos/shipments). Auto-sync every 15 min when connected (pauses when tab hidden). Public API: window.__hnxSos.{connect,disconnect,sync,getItems,getLocations,getLots,getShipments,getMeta,isConnected}. Storage keys: hydroPro_sos_items_v1, hydroPro_sos_locations_v1, hydroPro_sos_lots_v1, hydroPro_sos_shipments_v1, hydroPro_sos_meta_v1 (all cloud-synced). Dashboard shows ITEMS/LOCATIONS/LOTS/SHIPMENTS counts + LOW STOCK + EXPIRING 30d + EXPIRED counts. Errors logged and shown in UI. Worker code shipped as separate file hnx-sync-worker-v3.1-sos.js. ▸ v2.46.292 — Final Pay dashboard. ▸ v2.46.291 — Stream Health. ▸ v2.46.290 — CCTV fix. toggle (replaces plain prompt) + loud 'not connected' banner so no one works local-only by accident. Fixes cross-device data sharing. ▸ v2.46.275 — T-10 call routing canonical. ▸ v2.46.274 — camera sync guard. ▸ v2.46.269 — module COMMAND CENTER  // 🧭 v2.46.275 — T-10: call routing re-pointed to the canonical 14 departments. Raise-Call picker, MODULE_ROUTE_MAP (IT calls now route to IT, not Admin), keyword classifier, office-calls view, both P14 module configs and MODULE_DEPTS all use canonical ids. Existing calls migrated (backed up; undo via window.hnxRestoreT10()). ▸ v2.46.274 — camera-streams sync guard. ▸ v2.46.273 — T-09 canonical dept registry. ▸ v2.46.269 — module COMMAND CENTER middle column is now an animated 'HYDRONEXIS-AI · ANALYSING' centerpiece (_mccAnalysisStage): pulsing brain core + rotating radar rings + conic sweep, cycling analysis ticker (pulls live aiRows), live equalizer bars, flowing SVG waveform, 4 live KPI chips (from cfg.kpis), scanning bar — all CSS-animated (no JS intervals), accent = module color. QC daily checklist moved to a footer link. Applies to all MCC_CONFIGS modules; Production's own command center (separate render) unaffected. ▸ v2.46.268-custtype —   // 🏷️ v2.46.268 — explicit CUSTOMER TYPE selector on the customer detail 💰 PRICE LIST card: supervisors can set a customer's type (Online/Hotels/Restaurants/Supermarkets/Distributors/Retail) or leave it on 🔎 Auto-detect (name-based). Manual type overrides name detection and drives the type-default price list. Operators see it read-only. New key hydroPro_crm_cust_seg; _custPricingSeg now checks manual override → _custDetectSeg(name). ▸ v2.46.267-pricelists —   // 💰 v2.46.267 — PRICE LISTS tied to customer types + per-customer default: added 'Distributors / Wholesale' segment; Custom Price Lists tab now has a '🏷️ Default price list per customer type' panel (hotels/restaurants/supermarkets/online/distributors/retail each pick a default list); each QBO customer's detail shows a 💰 PRICE LIST card with its effective list (override → type default → base prices). Changing a type default OR a customer's list is gated to CRM supervisors (admin/admin_secondary/supervisor) — operators see it read-only. Keys: hydroPro_crm_seg_default_pl, hydroPro_crm_cust_pl. '+ New Price List' & 'Generate from Segment' unchanged. ▸ v2.46.266-crm-modes —   // 🎨 v2.46.266 — CRM customer MODES (visual framework): each customer's avatar ball is now colored by mode + a 🎨 Mode dropdown filters the directory + a colored-dot legend with live counts. Modes: 🆕 New (created <30d), ⚪ Not Active (QBO inactive), 🔘 Uncategorized (active, cadence unknown). 🟢 Fully Active / 🔵 Active / 😴 Sleepy are DEFINED + colored + in the dropdown but show 0 / 'needs orders' until a per-customer order-date feed is wired (TODO in _qbCustModeId). Lead-by-status already lives in the Leads/Pipeline tabs. ▸ v2.46.265-cctv-snapshots —   // 🔧 v2.46.265 — BIG PERF FIX: wall tiles are now lightweight auto-refreshing SNAPSHOTS (go2rtc /api/frame.jpeg, refreshed every 4s) instead of full WebRTC player iframes — so 22/81 cameras load near-instantly at almost no CPU. LIVE video only on tap: normal wall tap→full() live, fullscreen Spotlight big tile = live, Grid + Spotlight-small tiles = snapshots. Dead streams show a clean offline tile (no retry storm). Snapshots pause when tab hidden / scope to the visible wall. ▸ v2.46.264-cctv-mosaic —   // 🔧 v2.46.264 — full-screen '🎯 1 Big + around' is now a real MOSAIC: one big tile (spans 2x2) with the rest sized small AROUND it, filling the screen (no side strip). Tap ANY camera (in Grid or Mosaic) to make it the big one — the choice is remembered per area (hydroPro_cctv_spot_v1). '📐 Grid' = all equal size. Big choice resets sensibly when you switch area tabs. ▸ v2.46.263-arrange-area —   // 🔧 v2.46.263 — ARRANGE is now PER-AREA: it only shows the cameras in the area tab you're on (not all 81), the area tabs appear inside Arrange so you can switch which screen you're organizing, and ◀▶ nudge a camera within its own area. Adjust one screen at a time. ▸ v2.46.262-cctv-stagger —   // 🔧 v2.46.262 — NORMAL CCTV wall now THROTTLES stream loading: instead of connecting every visible camera on the same frame (which froze the 22-cam Greenhouses tab), it opens max 4 streams at a time and starts the next as each finishes/​times-out — so big area tabs ramp up smoothly. Off-screen tiles still unload. (Stagger already applied to the fullscreen wall in p128.) ▸ v2.46.261-cctv-wall —   // 🔧 v2.46.261 — CCTV FULL-SCREEN VIDEO WALL: new ⛶ Full Screen button opens an edge-to-edge fullscreen wall (browser fullscreen API, no app chrome) for the current area tab. Two layouts with a toggle — 📐 Grid (auto-fits cameras to fill the screen, best rows×cols, no scroll) and 🎯 Spotlight (one big live feed + thumbnail strip; tap a thumb to swap into the big slot). Area tabs + Esc/Exit inside. Streams stagger-load (3 at a time) so it never opens dozens at once; spotlight runs only the big feed live. Normal wall's streams are paused while fullscreen is open. ▸ v2.46.260-cctv-areas —   // 🔧 v2.46.260 — CCTV LIVE WALL split into 8 AREA TABS (🌱 Greenhouses · 🛡 GH Perimeter · 🛡 Perimeter & Gates · 💧 Fertigation · 📦 Packaging & Logistics · 🏗 Project 11 · 🏢 Office & Admin · 📍 Security & Other) per ES BA's corrected mapping (CAM_AREA). Wall opens on ONE tab (remembered in hydroPro_cctv_area_v1), so it never loads all 81 at once; lazy-load stays underneath. Tap 📺 All to load everything (heaviest). ▸ v2.46.259-crm-nav —   // 🔧 v2.46.259 — CRM views now DISCOVERABLE: injected sub-tabs (🆕 Customer Master, 📁 Customer 360° Files, 📊 Customer Matrix, 📞 Open Issues) were created with class 'nav-tab' but the view-picker dropdown only lists '.module-sub-tab' — so they were loaded but invisible in the menu. Now created as 'module-sub-tab' with modTab- ids → they appear in the dropdown + are searchable. ▸ v2.46.258 — (1) CRM render guard: Overview/Leads/etc. can never blank to black again — any render error now shows a recovery panel with Retry + the real error message (logged to console). (2) CCTV live wall lazy-loads via IntersectionObserver: only on-screen cameras stream (300px preload margin; off-screen tiles unload to about:blank), eliminating the slow open + layout jump with ~60 cameras. ▸ prev v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
-const APP_BUILD=1781010000;
+const APP_VERSION='2.46.296-matrixai';window.HNX_BUILD='v2.86-p156-matrixai';  // 🧠 v2.46.296 — Matrix AI consistency fix per ES BA's report (2026-05-29). Problem: matrices like Maintenance Calls Matrix showed only "·" dots when cells were empty, killing the visual presence of AI on the dashboard. Fix: hnxInlineSplit() now ALWAYS renders the half/half (operator-call left, AI-shield right) pattern — including empty cells which show "—" / "MON" in calm muted colors with a slow 4.5s pulse on the MON label, signaling AI is monitoring. Click handlers attached unconditionally so AI analysis is reachable for every cell, even ones with zero calls (hnxLocalAnalyze already handled empty cells with proper "no activity recorded · confirm whether check is due" output). Updated matrices: Maintenance (maint_matrix L44356-58), IT (it matrix L75788-99), Production (prod matrix L76134-47). New CSS: .hnx-cl--none (muted operator side), .hnx-ai--mon (calm blue AI side w/ slow pulse). Visual identity: every cell now communicates dual presence — operator state + AI watching. Same pattern as Production GH matrix used to have; now consistent across all 3 matrices. ▸ v2.46.295 — Dashboard hero. ▸ v2.46.294 — CCTV cleanup. toggle (replaces plain prompt) + loud 'not connected' banner so no one works local-only by accident. Fixes cross-device data sharing. ▸ v2.46.275 — T-10 call routing canonical. ▸ v2.46.274 — camera sync guard. ▸ v2.46.269 — module COMMAND CENTER  // 🧭 v2.46.275 — T-10: call routing re-pointed to the canonical 14 departments. Raise-Call picker, MODULE_ROUTE_MAP (IT calls now route to IT, not Admin), keyword classifier, office-calls view, both P14 module configs and MODULE_DEPTS all use canonical ids. Existing calls migrated (backed up; undo via window.hnxRestoreT10()). ▸ v2.46.274 — camera-streams sync guard. ▸ v2.46.273 — T-09 canonical dept registry. ▸ v2.46.269 — module COMMAND CENTER middle column is now an animated 'HYDRONEXIS-AI · ANALYSING' centerpiece (_mccAnalysisStage): pulsing brain core + rotating radar rings + conic sweep, cycling analysis ticker (pulls live aiRows), live equalizer bars, flowing SVG waveform, 4 live KPI chips (from cfg.kpis), scanning bar — all CSS-animated (no JS intervals), accent = module color. QC daily checklist moved to a footer link. Applies to all MCC_CONFIGS modules; Production's own command center (separate render) unaffected. ▸ v2.46.268-custtype —   // 🏷️ v2.46.268 — explicit CUSTOMER TYPE selector on the customer detail 💰 PRICE LIST card: supervisors can set a customer's type (Online/Hotels/Restaurants/Supermarkets/Distributors/Retail) or leave it on 🔎 Auto-detect (name-based). Manual type overrides name detection and drives the type-default price list. Operators see it read-only. New key hydroPro_crm_cust_seg; _custPricingSeg now checks manual override → _custDetectSeg(name). ▸ v2.46.267-pricelists —   // 💰 v2.46.267 — PRICE LISTS tied to customer types + per-customer default: added 'Distributors / Wholesale' segment; Custom Price Lists tab now has a '🏷️ Default price list per customer type' panel (hotels/restaurants/supermarkets/online/distributors/retail each pick a default list); each QBO customer's detail shows a 💰 PRICE LIST card with its effective list (override → type default → base prices). Changing a type default OR a customer's list is gated to CRM supervisors (admin/admin_secondary/supervisor) — operators see it read-only. Keys: hydroPro_crm_seg_default_pl, hydroPro_crm_cust_pl. '+ New Price List' & 'Generate from Segment' unchanged. ▸ v2.46.266-crm-modes —   // 🎨 v2.46.266 — CRM customer MODES (visual framework): each customer's avatar ball is now colored by mode + a 🎨 Mode dropdown filters the directory + a colored-dot legend with live counts. Modes: 🆕 New (created <30d), ⚪ Not Active (QBO inactive), 🔘 Uncategorized (active, cadence unknown). 🟢 Fully Active / 🔵 Active / 😴 Sleepy are DEFINED + colored + in the dropdown but show 0 / 'needs orders' until a per-customer order-date feed is wired (TODO in _qbCustModeId). Lead-by-status already lives in the Leads/Pipeline tabs. ▸ v2.46.265-cctv-snapshots —   // 🔧 v2.46.265 — BIG PERF FIX: wall tiles are now lightweight auto-refreshing SNAPSHOTS (go2rtc /api/frame.jpeg, refreshed every 4s) instead of full WebRTC player iframes — so 22/81 cameras load near-instantly at almost no CPU. LIVE video only on tap: normal wall tap→full() live, fullscreen Spotlight big tile = live, Grid + Spotlight-small tiles = snapshots. Dead streams show a clean offline tile (no retry storm). Snapshots pause when tab hidden / scope to the visible wall. ▸ v2.46.264-cctv-mosaic —   // 🔧 v2.46.264 — full-screen '🎯 1 Big + around' is now a real MOSAIC: one big tile (spans 2x2) with the rest sized small AROUND it, filling the screen (no side strip). Tap ANY camera (in Grid or Mosaic) to make it the big one — the choice is remembered per area (hydroPro_cctv_spot_v1). '📐 Grid' = all equal size. Big choice resets sensibly when you switch area tabs. ▸ v2.46.263-arrange-area —   // 🔧 v2.46.263 — ARRANGE is now PER-AREA: it only shows the cameras in the area tab you're on (not all 81), the area tabs appear inside Arrange so you can switch which screen you're organizing, and ◀▶ nudge a camera within its own area. Adjust one screen at a time. ▸ v2.46.262-cctv-stagger —   // 🔧 v2.46.262 — NORMAL CCTV wall now THROTTLES stream loading: instead of connecting every visible camera on the same frame (which froze the 22-cam Greenhouses tab), it opens max 4 streams at a time and starts the next as each finishes/​times-out — so big area tabs ramp up smoothly. Off-screen tiles still unload. (Stagger already applied to the fullscreen wall in p128.) ▸ v2.46.261-cctv-wall —   // 🔧 v2.46.261 — CCTV FULL-SCREEN VIDEO WALL: new ⛶ Full Screen button opens an edge-to-edge fullscreen wall (browser fullscreen API, no app chrome) for the current area tab. Two layouts with a toggle — 📐 Grid (auto-fits cameras to fill the screen, best rows×cols, no scroll) and 🎯 Spotlight (one big live feed + thumbnail strip; tap a thumb to swap into the big slot). Area tabs + Esc/Exit inside. Streams stagger-load (3 at a time) so it never opens dozens at once; spotlight runs only the big feed live. Normal wall's streams are paused while fullscreen is open. ▸ v2.46.260-cctv-areas —   // 🔧 v2.46.260 — CCTV LIVE WALL split into 8 AREA TABS (🌱 Greenhouses · 🛡 GH Perimeter · 🛡 Perimeter & Gates · 💧 Fertigation · 📦 Packaging & Logistics · 🏗 Project 11 · 🏢 Office & Admin · 📍 Security & Other) per ES BA's corrected mapping (CAM_AREA). Wall opens on ONE tab (remembered in hydroPro_cctv_area_v1), so it never loads all 81 at once; lazy-load stays underneath. Tap 📺 All to load everything (heaviest). ▸ v2.46.259-crm-nav —   // 🔧 v2.46.259 — CRM views now DISCOVERABLE: injected sub-tabs (🆕 Customer Master, 📁 Customer 360° Files, 📊 Customer Matrix, 📞 Open Issues) were created with class 'nav-tab' but the view-picker dropdown only lists '.module-sub-tab' — so they were loaded but invisible in the menu. Now created as 'module-sub-tab' with modTab- ids → they appear in the dropdown + are searchable. ▸ v2.46.258 — (1) CRM render guard: Overview/Leads/etc. can never blank to black again — any render error now shows a recovery panel with Retry + the real error message (logged to console). (2) CCTV live wall lazy-loads via IntersectionObserver: only on-screen cameras stream (300px preload margin; off-screen tiles unload to about:blank), eliminating the slow open + layout jump with ~60 cameras. ▸ prev v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
+const APP_BUILD=1781020800;
 const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
@@ -75785,14 +75788,14 @@ function renderItEquipmentMatrix(){
       const style=_itCellStyle(agg.kind);
       const taskCt=items.filter(x=>x.kind==='task').length;
       const equipCt=items.length-taskCt;
-      const tip=items.length?`${items.length} items (${equipCt} equipment, ${taskCt} tasks) · ${agg.ok} OK · ${agg.warn} warn · ${agg.danger} critical`:'No items';
-      const clickable=items.length>0;
+      const tip=items.length?`${items.length} items (${equipCt} equipment, ${taskCt} tasks) · ${agg.ok} OK · ${agg.warn} warn · ${agg.danger} critical`:'No items · AI monitoring';
+      // p156 — always clickable; AI analysis available even on empty cells.
       try{ hnxRegisterCell('it', cat.id+'::'+c.id, {moduleLabel:'IT', row:(cat.icon?cat.icon+' ':'')+cat.label, col:c.label, items:items}); }catch(e){}
-      html+=`<td onclick="${clickable?`hnxOpenCellBox('it','${cat.id}','${c.id}')`:''}"
+      html+=`<td onclick="hnxOpenCellBox('it','${cat.id}','${c.id}')"
         title="${_esc(tip)}"
-        style="border:1px solid ${style.border};text-align:center;padding:8px 4px;cursor:${clickable?'pointer':'default'};background:${style.bg};min-width:60px;transition:filter .1s;"
-        ${clickable?'onmouseover="this.style.filter=\'brightness(1.3)\'" onmouseout="this.style.filter=\'\'"':''}>
-        ${items.length?hnxInlineSplit(items):''}
+        style="border:1px solid ${style.border};text-align:center;padding:8px 4px;cursor:pointer;background:${style.bg};min-width:60px;transition:filter .1s;"
+        onmouseover="this.style.filter='brightness(1.3)'" onmouseout="this.style.filter=''">
+        ${hnxInlineSplit(items)}
       </td>`;
     });
     const rowKind=rowAgg.danger>0?'danger':rowAgg.warn>0?'warn':rowTotal===0?'none':rowAgg.ok===rowTotal?'ok':'unchecked';
@@ -76137,11 +76140,10 @@ function renderProdMatrix(){
       const kind=cellKind(items);
       if(kind==='danger')rowDanger++;
       if(kind==='warn')rowWarn++;
-      const icon=kind==='danger'?'✕':kind==='warn'?'⚠':items.length?'·':'';
       const ct=items.length;
-      return `<td style="text-align:center;padding:6px 0;${cellStyle(kind)};cursor:${ct?'pointer':'default'};" ${ct?`onclick="hnxOpenCellBox('prod','${cat.id}','${gh}')"`:''} title="${cat.name} × ${gh}: ${ct} flagged item${ct===1?'':'s'}">
-        <div style="font-family:var(--mono);font-weight:700;font-size:14px;">${icon}</div>
-        ${ct?`<div style="font-family:var(--mono);font-size:9px;opacity:0.8;">${ct}</div>`:''}
+      // p156 — half/half pattern (operator left, AI right) always, always clickable for AI analysis.
+      return `<td style="text-align:center;padding:6px 0;${cellStyle(kind)};cursor:pointer;" onclick="hnxOpenCellBox('prod','${cat.id}','${gh}')" title="${cat.name} × ${gh}: ${ct} flagged item${ct===1?'':'s'}${ct?'':' · AI monitoring'}">
+        ${hnxInlineSplit(items)}
       </td>`;
     }).join('');
     const totalCount=rowDanger+rowWarn;
@@ -81572,7 +81574,21 @@ window.renderPackagingDash=function(){
     </div>`;
   }).join(''):'<div style="padding:14px;text-align:center;color:var(--ok);background:rgba(102,187,106,.06);border:1px solid rgba(102,187,106,.25);border-radius:7px;font-size:11px;">✓ All materials above reorder point.</div>';
 
-  body.innerHTML=`<div class="section-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">📦 Packaging Operations
+  // p155 — photoreal hero banner with Ken Burns + orbital particles + pulsing brain
+  const heroHtml = (typeof window._hnxRenderDashHero === 'function') ? window._hnxRenderDashHero({
+    module: 'packaging',
+    icon: '📦',
+    title: 'PACKAGING OPERATIONS',
+    tagline: 'AI watches every line · every weight · every pack — auto-tracks variance vs target, flags off-spec runs, integrates QC pass rate in real time.',
+    chips: [
+      {label:'Today',      value: todayKg.toFixed(1)+'kg',                                   tone: todayKg===0 ? '' : 'ok'},
+      {label:'7-day',      value: totalKg7.toFixed(0)+'kg',                                  tone: 'info'},
+      {label:'QC pass',    value: qcPassRate==null ? '—' : qcPassRate+'%',                   tone: qcPassRate==null ? '' : (qcPassRate>=90 ? 'ok' : qcPassRate>=70 ? 'warn' : 'crit')},
+      {label:'Low stock',  value: String(lowStock.length),                                   tone: lowStock.length===0 ? 'ok' : (lowStock.length>3 ? 'crit' : 'warn')}
+    ]
+  }) : '';
+
+  body.innerHTML=`${heroHtml}<div class="section-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">📦 Packaging Operations
     <span style="font-size:11px;color:var(--text3);font-weight:400;">— Daily output · standardization · materials inventory · QC integration</span>
     <div style="margin-left:auto;display:flex;gap:6px;">
       <button class="btn btn-outline" style="padding:6px 12px;font-size:11px;" onclick="switchView('pack_washtrim')">🥬 Wash & Trim</button>
@@ -103758,7 +103774,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       id: 'gh_command',
       label: '🏭 Command Center',
       perm: null,
-      title: 'Unified Command Center · pick a GH and see its production data + paired fertigation room (FR) data · drums, pool, sensors · 9-camera CCTV wall · use 🌱/💧 toggle inside to switch camera focus between GH and FR'
+      title: 'Unified Command Center · pick a GH and see its production data + paired fertigation room (FR) data · drums, pool, sensors · 9-KPI cockpit (variety, harvest, capacity, pool EC/pH, checklist, issues, activity, AI insight) · CCTV moved to IT · use 🌱/💧 toggle inside to switch between GH and FR focus'
     });
 
     // v2.38 · FR Command Center MERGED into unified Command Center · registration commented out
@@ -113842,7 +113858,7 @@ streams:
               <div class="hnx-tbmark hnx-tbmark-cy">🏭</div>
               <div>
                 <div class="hnx-tbtitle">Command Center <span>· <span id="hnxGhcSel">GH1</span></span> <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#80e885;letter-spacing:.10em;margin-left:8px">· 🌱 GH FOCUS</span></div>
-                <div class="hnx-tbsub">9-Camera Wall · Production · Tech · Irrigation · AI Brain</div>
+                <div class="hnx-tbsub">9 Live KPIs · Crop · Pool · Tasks · AI Brain</div>
               </div>
             </div>
             <div class="hnx-tcenter" id="hnxGhcKpis"></div>
@@ -114523,67 +114539,148 @@ streams:
     }
   
     function drawCctv(){
+      // p154 — T-61 CCTV cleanup: 3×3 CCTV grid replaced with per-GH KPI cluster.
+      // CCTV cameras now live ONLY in IT (it_cctv) and Security (sec_cmd perimeter).
+      // Function name kept for backwards compatibility with the 3 call sites.
       const grid = document.getElementById('hnxGhcCctv');
-      // Pull real cameras from the master app's CCTV registry, filtered to selected GH
-      let cams = hnxCamerasForGh(state.selected);
-      // Pad to a 3×3 grid for visual consistency when fewer than 9 cameras exist
-      const padded = cams.slice(0, 9);
-      while(padded.length < 9){
-        padded.push({ id:'__empty_'+padded.length, label:'(no camera assigned)', location:'', zone:'gh', url:'', empty:true });
-      }
-      // Cache for the configure/fullscreen modals
-      window._hnxGhcCurrentCams = padded;
+      if(!grid) return;
+      const gh = state.selected || 'GH1';
+      const isFr = (state.mode === 'fr');
+      const prof = (typeof HNX_GHC_PROFILES !== 'undefined' && HNX_GHC_PROFILES[gh]) || {};
 
-      // v2.34 · Cleanup old HLS instances before re-rendering
+      // Pull live data — fall back gracefully when missing
+      const issues = (typeof ghFilteredIssues === 'function') ? (ghFilteredIssues(gh) || []) : [];
+      const calls  = (typeof ghFilteredCalls  === 'function') ? (ghFilteredCalls(gh)  || []) : [];
+      const critIss   = issues.filter(i => (i.priority||'').toLowerCase() === 'critical').length;
+      const urgCalls  = calls.filter(c => (c.priority||'').toLowerCase() === 'urgent').length;
+      const openTotal = issues.length + calls.length;
+
+      // Pool readings (best-effort from localStorage)
+      let poolEc = '—', poolPh = '—', poolHealth = 'unk';
       try{
-        Object.keys(window._hnxHlsInstances||{}).forEach(k => {
-          if(k.startsWith('hnxCctvVid_')){
-            try{ window._hnxHlsInstances[k].destroy(); }catch(e){}
-            delete window._hnxHlsInstances[k];
-          }
-        });
-      }catch(e){}
-      grid.innerHTML = padded.map((c,i) => {
-        const camId = c.id;
-        const url = c.url || '';
-        const hasUrl = !!url && !c.empty;
-        const isVid = /\.(mp4|webm|m3u8)/i.test(url) || url.includes('blob:');
-        const isImg = /\.(jpg|jpeg|png|gif)/i.test(url) || /mjpg|mjpeg|snapshot|cgi-bin/i.test(url);
-        let mediaHtml = '';
-        if(c.empty){
-          mediaHtml = (typeof _hnxRenderSmartTile === 'function') ? _hnxRenderSmartTile(i+1, state.selected) : `<div style="display:flex;align-items:center;justify-content:center;height:100%;background:linear-gradient(135deg,#04111d,#020812);font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.18em;color:#3b5d72;text-transform:uppercase;text-align:center;padding:8px">NO CAMERA<br>ASSIGNED</div>`;
-        } else if(hasUrl){
-          // v2.34 · Use proper player based on stream type (HLS/MSE/MJPEG/MP4/img)
-          mediaHtml = (typeof _hnxRenderStreamHtml === 'function')
-            ? _hnxRenderStreamHtml(url, 'hnxCctvVid_' + i)
-            : `<video class="hnx-cctv-media" src="${escHtml(url)}" autoplay muted playsinline loop></video>`;
-        } else {
-          mediaHtml = renderCctvPlaceholder(camId, c, state.selected);
+        const pools = JSON.parse(localStorage.getItem('hydroPro_irr_pools')||'{}') || {};
+        const single = JSON.parse(localStorage.getItem('hydroPro_irr_pool')||'{}') || {};
+        const poolKey = (prof.irrPool||'').replace('Pool-','');
+        const p = pools[poolKey] || single[gh] || single[poolKey] || {};
+        if(p.ec) poolEc = Number(p.ec).toFixed(2);
+        if(p.ph) poolPh = Number(p.ph).toFixed(2);
+        const ecN = Number(p.ec)||0, phN = Number(p.ph)||0;
+        if(ecN>1.4 && ecN<2.4 && phN>5.5 && phN<6.5) poolHealth='ok';
+        else if(ecN && phN) poolHealth='warn';
+      }catch(_){}
+
+      // Today's checklist completion for production module
+      let chkPct = '—', chkSub = 'no data today';
+      try{
+        const snap = JSON.parse(localStorage.getItem('hydroPro_cl_daily_snapshot_v1')||'{}') || {};
+        const today = new Date().toISOString().substring(0,10);
+        const todaySnap = snap[today] || snap[gh] || null;
+        if(todaySnap && typeof todaySnap.ok === 'number' && typeof todaySnap.total === 'number'){
+          chkPct = Math.round(100*todaySnap.ok/(todaySnap.total||1))+'%';
+          chkSub = todaySnap.ok+' of '+todaySnap.total;
         }
-        const labelTxt = c.empty ? '—' : (c.zone==='irr' ? '🟦 IRR · ' : '🟩 GH · ') + c.label;
-        const idTxt = c.empty ? 'SLOT '+(i+1) : (c.camNo ? c.camNo + ' · ' + c.id : c.id);
-        return `<div class="hnx-cctv-cell hnx-cctv-motion ${c.zone} ${c.empty?'empty':''}" data-cam="${escHtml(camId)}" data-pos="${i+1}">
-          ${mediaHtml}
-          ${c.empty?'':'<div class="hnx-cctv-scanline"></div>'}
-          ${c.empty?'':'<div class="hnx-cctv-scanline-2"></div>'}
-          ${c.empty?'':`<div class="hnx-cctv-bracket br-tl"></div><div class="hnx-cctv-bracket br-tr"></div><div class="hnx-cctv-bracket br-bl"></div><div class="hnx-cctv-bracket br-br"></div>`}
-          ${c.empty?'':'<div class="hnx-cctv-target"><div class="hnx-cctv-target-x"></div><div class="hnx-cctv-target-y"></div></div>'}
-          <div class="hnx-cctv-overlay">
-            <div class="hnx-cctv-top">
-              <span class="hnx-cctv-rec">${c.empty?'':'REC'}</span>
-              <span class="hnx-cctv-time">${c.empty?'':new Date().toLocaleTimeString()}</span>
-            </div>
-            <div class="hnx-cctv-mid">
-              ${c.empty?'':`<button class="hnx-cctv-btn" onclick="event.stopPropagation();window._hnxCctvCfg('${escHtml(camId)}')" title="Configure stream URL">⚙</button>
-              <button class="hnx-cctv-btn" onclick="event.stopPropagation();window._hnxCctvFs('${escHtml(camId)}')" title="Fullscreen">⛶</button>`}
-            </div>
-            <div class="hnx-cctv-bot">
-              <span class="hnx-cctv-label">${escHtml(labelTxt)}</span>
-              <span class="hnx-cctv-id">${escHtml(idTxt)}</span>
-            </div>
-          </div>
-        </div>`;
-      }).join('');
+      }catch(_){}
+
+      // Activity this week from agro log
+      let transplantsWk = 0, harvestsWk = 0;
+      try{
+        const log = JSON.parse(localStorage.getItem('hydroPro_agro_log_v1')||'[]') || [];
+        const weekAgo = Date.now() - 7*86400000;
+        log.forEach(e => {
+          if(!e || (e.gh && e.gh !== gh)) return;
+          const t = e.at || e.date || e.timestamp;
+          if(!t || new Date(t).getTime() < weekAgo) return;
+          if(/transplant/i.test(e.type||e.action||'')) transplantsWk++;
+          if(/harvest/i.test(e.type||e.action||'')) harvestsWk++;
+        });
+      }catch(_){}
+
+      // AI insight — pick the most actionable signal we have
+      let aiInsight = '';
+      if(prof.alert)                    aiInsight = '⚠ '+prof.alert.toUpperCase().replace(/-/g,' ');
+      else if(critIss>0)                aiInsight = '🚨 '+critIss+' critical issue'+(critIss>1?'s':'');
+      else if(prof.daysHarvest===1)     aiInsight = '🌾 Harvest tomorrow';
+      else if(prof.daysHarvest && prof.daysHarvest<=3) aiInsight = '🌾 Harvest in '+prof.daysHarvest+'d';
+      else if(poolHealth==='warn')      aiInsight = '💧 Pool drift — review dose';
+      else                              aiInsight = '✅ All systems nominal';
+
+      // Stage-based color
+      const stageColor = (s=>{ s=(s||'').toLowerCase();
+        if(s==='mature')  return '#ffa726';
+        if(s==='mid')     return '#26c281';
+        if(s==='seedling')return '#42a5f5';
+        return '#9aa';
+      })(prof.stage);
+
+      // Generic cell builder
+      function cell(icon, title, value, sub, color, extraStyle){
+        color = color || '#80e885';
+        extraStyle = extraStyle || '';
+        return ''
+          +'<div class="hnx-cctv-cell hnx-ghc-kpicell" style="background:linear-gradient(135deg,rgba(8,18,16,.95),rgba(4,12,10,.98));border:1px solid '+color+'44;border-radius:6px;padding:11px 13px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden;'+extraStyle+'">'
+            +'<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">'
+              +'<span style="font-size:13px;line-height:1;">'+icon+'</span>'
+              +'<span style="font-size:8.5px;color:#a5d6e6;text-transform:uppercase;letter-spacing:.12em;font-weight:700;opacity:.85;text-align:right;">'+title+'</span>'
+            +'</div>'
+            +'<div style="font-size:24px;font-weight:800;color:'+color+';font-family:\'JetBrains Mono\',monospace;line-height:1.05;margin:6px 0 3px;letter-spacing:-.5px;">'+value+'</div>'
+            +'<div style="font-size:10px;color:#7aa99a;line-height:1.3;">'+sub+'</div>'
+            +'<div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,'+color+',transparent);opacity:.6;"></div>'
+          +'</div>';
+      }
+
+      // Build the 9 cells — same 3×3 layout, all rich KPI data
+      const cells = [
+        // Row 1: Crop status
+        cell('🌱', 'Current Variety',
+             (prof.variety||'—'),
+             (prof.crop||'unknown') + ' · ' + (prof.stage||'').toUpperCase(),
+             stageColor),
+
+        cell('🌾', 'Days to Harvest',
+             (prof.daysHarvest!=null ? String(prof.daysHarvest)+'d' : '—'),
+             (prof.daysHarvest===1 ? 'tomorrow' : prof.daysHarvest===0 ? 'TODAY' : (prof.stage==='seedling' ? 'seedling phase' : 'on schedule')),
+             prof.daysHarvest<=3 ? '#ffa726' : '#80e885'),
+
+        cell('🏭', 'Plant Capacity',
+             (prof.plantCap!=null ? prof.plantCap.toLocaleString() : '—'),
+             'beds + NFT channels',
+             '#42a5f5'),
+
+        // Row 2: Live operations
+        cell('💧', 'Pool EC',
+             poolEc,
+             'target 1.8 ±0.2',
+             poolHealth==='ok' ? '#80e885' : poolHealth==='warn' ? '#ffa726' : '#9aa'),
+
+        cell('🧪', 'Pool pH',
+             poolPh,
+             'target 6.0 ±0.4',
+             poolHealth==='ok' ? '#80e885' : poolHealth==='warn' ? '#ffa726' : '#9aa'),
+
+        cell('✅', 'Checklist Today',
+             chkPct,
+             chkSub,
+             chkPct==='—' ? '#9aa' : (parseInt(chkPct)>=90 ? '#80e885' : parseInt(chkPct)>=70 ? '#ffa726' : '#ef5350')),
+
+        // Row 3: Activity + AI
+        cell('📞', 'Open Issues',
+             String(openTotal),
+             (critIss+urgCalls)>0 ? (critIss+urgCalls)+' urgent' : (openTotal>0 ? 'all routine' : 'none'),
+             openTotal===0 ? '#80e885' : (critIss+urgCalls)>0 ? '#ef5350' : '#ffa726'),
+
+        cell('🔥', 'Activity (7d)',
+             (transplantsWk+harvestsWk).toString(),
+             transplantsWk+' transplants · '+harvestsWk+' harvests',
+             '#42a5f5'),
+
+        cell('🧠', 'AI Insight',
+             aiInsight.length>14 ? aiInsight.substring(0,14)+'…' : aiInsight,
+             prof.daysHarvest<=3 ? 'plan logistics' : (prof.alert ? 'maintenance attn' : 'monitoring'),
+             aiInsight.startsWith('🚨')||aiInsight.startsWith('⚠') ? '#ef5350' : '#80e885',
+             'background:linear-gradient(135deg,rgba(102,187,106,.10),rgba(4,12,10,.98));')
+      ];
+
+      grid.innerHTML = cells.join('');
     }
   
     function drawLeft(){
@@ -141899,6 +141996,10 @@ body.hnx-mobile-locked { overflow: hidden; }
   };
 
   window.hnxInlineSplit=function(items){
+    // p156 — always renders half/half (operator-call left, AI-shield right) for every cell,
+    // including empty ones. Empty cells show "—" + "MON" in calm muted colors, signaling
+    // that AI is actively monitoring even when nothing's flagged. Click still opens the cell
+    // box with full AI analysis (handled by the matrix renderer's onclick).
     items=items||[];
     var crit=0,warn=0;
     items.forEach(function(it){
@@ -141906,13 +142007,18 @@ body.hnx-mobile-locked { overflow: hidden; }
       if(/crit|urgent|danger|alert/.test(p)) crit++;
       else if(/high|warn|medium/.test(p)) warn++;
     });
-    var clSt = crit>0?'crit':(warn>0?'warn':'ok');
-    var aiSt = crit>0?'crit':(warn>=2?'predict':(warn>0?'warn':'ok'));
-    var aiLbl = {crit:'CRIT',warn:'WARN',predict:'TREND',ok:'OK'}[aiSt];
     var n=items.length;
+    // Left half = operator/calls state
+    var clSt, clLbl;
+    if(n===0){ clSt='none'; clLbl='—'; }
+    else { clSt = crit>0?'crit':(warn>0?'warn':'ok'); clLbl = String(n); }
+    // Right half = AI state. "mon" = monitoring/all-clear when no calls; otherwise mirrors items.
+    var aiSt, aiLbl;
+    if(n===0){ aiSt='mon'; aiLbl='MON'; }
+    else { aiSt = crit>0?'crit':(warn>=2?'predict':(warn>0?'warn':'ok')); aiLbl = {crit:'CRIT',warn:'WARN',predict:'TREND',ok:'OK'}[aiSt]; }
     return '<div style="position:relative;height:30px;width:100%;">'+
       '<div class="hnx-split-wrap">'+
-        '<div class="hnx-split-half hnx-split-half--left hnx-cl--'+clSt+'"><span class="hh-icon"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/></svg></span><span class="hh-lbl">'+n+'</span></div>'+
+        '<div class="hnx-split-half hnx-split-half--left hnx-cl--'+clSt+'"><span class="hh-icon"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/></svg></span><span class="hh-lbl">'+clLbl+'</span></div>'+
         '<div class="hnx-split-half hnx-ai--'+aiSt+'"><span class="hh-icon"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M12 3l7 4v8l-7 4-7-4V7z"/><circle cx="12" cy="11" r="2.3" fill="currentColor" stroke="none"/></svg></span><span class="hh-lbl">'+aiLbl+'</span></div>'+
       '</div>'+
     '</div>';
@@ -141969,6 +142075,32 @@ body.hnx-mobile-locked { overflow: hidden; }
 /* operator vs AI icon identity colors (severity stays in tint + label) */
 .hnx-split-half--left .hh-icon{ color:#ffb74d !important; }
 [class*="hnx-ai--"] .hh-icon{ color:#5aa9ff !important; }
+
+/* p156 — empty-cell calm states: muted, no animation, but always present so
+   AI's monitoring presence is felt across the matrix even with zero calls. */
+.hnx-cl--none{
+  background: rgba(255,255,255,.022);
+  color: rgba(255,255,255,.22);
+  border-color: rgba(255,255,255,.05);
+}
+.hnx-cl--none .hh-icon{ opacity:.35; }
+.hnx-ai--mon{
+  background: rgba(90,169,255,.05);
+  color: rgba(90,169,255,.55);
+  border-color: rgba(90,169,255,.18);
+}
+.hnx-ai--mon .hh-icon{ opacity:.55; }
+/* Gentle "AI watching" pulse on the empty AI half — much slower & subtler than CRIT/WARN */
+@keyframes hnxMonPulse{
+  0%,100%{ opacity:.55; }
+  50%   { opacity:.85; }
+}
+.hnx-ai--mon .hh-lbl{ animation: hnxMonPulse 4.5s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce){
+  .hnx-ai--mon .hh-lbl{ animation:none !important; }
+}
+.hnx-cl--ok{ background: rgba(76,175,80,.10); color:#66bb6a; border-color:rgba(76,175,80,.30); }
+.hnx-ai--ok{ background: rgba(76,175,80,.10); color:#66bb6a; border-color:rgba(76,175,80,.30); }
 </style>
 
 
@@ -145142,6 +145274,482 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ================= END HNX SOS INVENTORY SYNC ================= -->
+
+<!-- ================= HNX DASHBOARD HERO PATTERN (v2.46.295) =================
+     Reusable dashboard hero with Ken Burns photoreal background, pulsing brain
+     orb with aura, orbital particles, live KPI chips, and module-accent color.
+     Used by pack_dash (upgraded) and log_dash (built fresh). geo_dash deferred
+     until Mapbox integration in a later phase.
+
+     Public API:
+       window._hnxRenderDashHero({
+         module: 'packaging',                  // module id, drives accent color
+         title:  'PACKAGING OPERATIONS',       // big headline
+         tagline: 'AI watches every line...',  // small line under title
+         icon:   '📦',                          // headline emoji
+         accent: '#ffa726',                     // hex accent color
+         chips:  [{label:'Today', value:'142kg', tone:'ok'}, ...]
+       }) → HTML string ready to inject into a dashboard
+     ================================================================ -->
+<style id="hnx-dash-hero-style">
+@keyframes hnxKenBurns {
+  0%   { transform: scale(1.00) translate(0%, 0%); }
+  50%  { transform: scale(1.08) translate(-1%, -1%); }
+  100% { transform: scale(1.00) translate(0%, 0%); }
+}
+@keyframes hnxOrbit1 {
+  0% { transform: rotate(0deg)   translateX(54px) rotate(0deg); }
+ 100% { transform: rotate(360deg) translateX(54px) rotate(-360deg); }
+}
+@keyframes hnxOrbit2 {
+  0% { transform: rotate(120deg) translateX(64px) rotate(-120deg); }
+ 100% { transform: rotate(480deg) translateX(64px) rotate(-480deg); }
+}
+@keyframes hnxOrbit3 {
+  0% { transform: rotate(240deg) translateX(48px) rotate(-240deg); }
+ 100% { transform: rotate(600deg) translateX(48px) rotate(-600deg); }
+}
+@keyframes hnxAuraPulse {
+  0%,100% { opacity: 0.45; transform: scale(1); }
+  50%     { opacity: 0.85; transform: scale(1.08); }
+}
+@keyframes hnxBrainPulse {
+  0%,100% { transform: scale(1); }
+  50%     { transform: scale(1.05); }
+}
+@keyframes hnxScanline {
+  0%   { transform: translateX(-100%); opacity: 0; }
+  20%  { opacity: 0.7; }
+  80%  { opacity: 0.7; }
+  100% { transform: translateX(100%); opacity: 0; }
+}
+@keyframes hnxChipFade {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.hnx-dh {
+  position: relative; overflow: hidden;
+  border-radius: 14px;
+  background: #0a1612;
+  border: 1px solid rgba(255,255,255,.05);
+  margin-bottom: 20px;
+  box-shadow: 0 12px 36px rgba(0,0,0,.45);
+}
+.hnx-dh-bg {
+  position: absolute; inset: 0;
+  z-index: 0;
+  animation: hnxKenBurns 24s ease-in-out infinite;
+  transform-origin: center;
+}
+.hnx-dh-bg::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(135deg, rgba(8,18,16,.5) 0%, rgba(4,12,10,.85) 60%, rgba(4,12,10,.95) 100%);
+}
+.hnx-dh-particles {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+}
+.hnx-dh-scanline {
+  position: absolute; left: 0; right: 0; top: 50%;
+  height: 1px; z-index: 1; pointer-events: none;
+  background: linear-gradient(90deg, transparent 0%, var(--dh-accent,#80e885) 50%, transparent 100%);
+  animation: hnxScanline 8s linear infinite;
+  opacity: 0.5;
+}
+.hnx-dh-inner {
+  position: relative; z-index: 2;
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 28px;
+  padding: 28px 32px;
+  align-items: center;
+}
+@media (max-width: 720px){
+  .hnx-dh-inner { grid-template-columns: 1fr; padding: 22px; gap: 18px; text-align: center; }
+  .hnx-dh-orb-wrap { justify-self: center; }
+}
+.hnx-dh-orb-wrap {
+  position: relative;
+  width: 160px; height: 160px;
+}
+.hnx-dh-aura {
+  position: absolute; inset: -10px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--dh-accent,#80e885) 0%, transparent 70%);
+  filter: blur(18px);
+  animation: hnxAuraPulse 3.2s ease-in-out infinite;
+}
+.hnx-dh-orb-core {
+  position: absolute; inset: 22px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, rgba(255,255,255,.15), rgba(0,0,0,.2));
+  border: 2px solid var(--dh-accent,#80e885);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 48px;
+  animation: hnxBrainPulse 2.6s ease-in-out infinite;
+  box-shadow: inset 0 0 24px rgba(0,0,0,.4), 0 0 28px var(--dh-accent-glow, rgba(128,232,133,.4));
+}
+.hnx-dh-particle {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--dh-accent,#80e885);
+  margin-left: -4px; margin-top: -4px;
+  box-shadow: 0 0 12px var(--dh-accent,#80e885);
+  opacity: 0.85;
+}
+.hnx-dh-particle.p1 { animation: hnxOrbit1  9s linear infinite; }
+.hnx-dh-particle.p2 { animation: hnxOrbit2 12s linear infinite; }
+.hnx-dh-particle.p3 { animation: hnxOrbit3  7s linear infinite; opacity: 0.6; }
+.hnx-dh-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px; letter-spacing: .22em;
+  color: var(--dh-accent,#80e885);
+  font-weight: 700; text-transform: uppercase;
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 7px;
+}
+.hnx-dh-eyebrow .dot {
+  display: inline-block; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--dh-accent,#80e885);
+  box-shadow: 0 0 8px var(--dh-accent,#80e885);
+  animation: hnxBrainPulse 1.6s ease-in-out infinite;
+}
+.hnx-dh-title {
+  font-size: 26px; font-weight: 900;
+  color: #fff; line-height: 1.05;
+  letter-spacing: -.5px;
+  margin-bottom: 8px;
+  text-shadow: 0 2px 12px rgba(0,0,0,.6);
+}
+.hnx-dh-tag {
+  font-size: 12.5px; color: #a5d6e6;
+  line-height: 1.45;
+  margin-bottom: 16px;
+  max-width: 580px;
+}
+.hnx-dh-chips {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.hnx-dh-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 13px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 9px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px; color: #d9eaf3;
+  animation: hnxChipFade 0.5s ease-out backwards;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.hnx-dh-chip:nth-child(1) { animation-delay: 0.05s; }
+.hnx-dh-chip:nth-child(2) { animation-delay: 0.15s; }
+.hnx-dh-chip:nth-child(3) { animation-delay: 0.25s; }
+.hnx-dh-chip:nth-child(4) { animation-delay: 0.35s; }
+.hnx-dh-chip:nth-child(5) { animation-delay: 0.45s; }
+.hnx-dh-chip-l { font-size: 9.5px; color: #7aa99a; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; }
+.hnx-dh-chip-v { font-size: 14px; font-weight: 800; letter-spacing: -.3px; }
+.hnx-dh-chip.ok   { border-color: rgba(38,194,129,.5);  background: rgba(38,194,129,.08); }
+.hnx-dh-chip.ok   .hnx-dh-chip-v { color: #26c281; }
+.hnx-dh-chip.warn { border-color: rgba(255,152,0,.5);   background: rgba(255,152,0,.08); }
+.hnx-dh-chip.warn .hnx-dh-chip-v { color: #ff9800; }
+.hnx-dh-chip.crit { border-color: rgba(239,83,80,.5);   background: rgba(239,83,80,.08); }
+.hnx-dh-chip.crit .hnx-dh-chip-v { color: #ef5350; }
+.hnx-dh-chip.info { border-color: rgba(66,165,245,.5);  background: rgba(66,165,245,.08); }
+.hnx-dh-chip.info .hnx-dh-chip-v { color: #42a5f5; }
+</style>
+<script>
+(function(){
+  'use strict';
+  if(window._hnxRenderDashHero) return;
+
+  // Module-specific photoreal-style backgrounds (CSS gradients tuned to evoke real environments)
+  // Each is a layered radial-gradient pattern that gives depth/texture without real images.
+  // Picked to give each module a distinctive visual identity.
+  var MODULE_BGS = {
+    packaging:  'radial-gradient(ellipse at 20% 30%, #2d1810 0%, transparent 40%), radial-gradient(ellipse at 80% 60%, #4a2c1a 0%, transparent 50%), linear-gradient(135deg, #1a0e0a 0%, #2c1810 50%, #1a0e0a 100%)',
+    logistics:  'radial-gradient(ellipse at 25% 25%, #1e3a5f 0%, transparent 45%), radial-gradient(ellipse at 75% 75%, #2c5282 0%, transparent 50%), linear-gradient(135deg, #0f1c2e 0%, #1e3a5f 50%, #0f1c2e 100%)',
+    irrigation: 'radial-gradient(ellipse at 30% 40%, #0c3d3d 0%, transparent 50%), radial-gradient(ellipse at 70% 60%, #145252 0%, transparent 50%), linear-gradient(135deg, #061d1d 0%, #0c3d3d 50%, #061d1d 100%)',
+    production: 'radial-gradient(ellipse at 25% 30%, #1a3d1a 0%, transparent 45%), radial-gradient(ellipse at 75% 70%, #2d5a2d 0%, transparent 50%), linear-gradient(135deg, #0a1f0a 0%, #1a3d1a 50%, #0a1f0a 100%)',
+    maintenance:'radial-gradient(ellipse at 20% 30%, #2a2d3d 0%, transparent 45%), radial-gradient(ellipse at 80% 70%, #1a3d5a 0%, transparent 50%), linear-gradient(135deg, #0a1018 0%, #1a2030 50%, #0a1018 100%)',
+    inventory:  'radial-gradient(ellipse at 30% 25%, #3d2a4a 0%, transparent 45%), radial-gradient(ellipse at 70% 75%, #4a2a5a 0%, transparent 50%), linear-gradient(135deg, #1a0f24 0%, #3d2a4a 50%, #1a0f24 100%)',
+    hr:         'radial-gradient(ellipse at 25% 30%, #1a3d2a 0%, transparent 45%), radial-gradient(ellipse at 75% 70%, #2d5a4a 0%, transparent 50%), linear-gradient(135deg, #0a1f14 0%, #1a3d2a 50%, #0a1f14 100%)',
+    crm:        'radial-gradient(ellipse at 30% 30%, #2a3d5a 0%, transparent 45%), radial-gradient(ellipse at 70% 70%, #1a4a5a 0%, transparent 50%), linear-gradient(135deg, #0a1f2a 0%, #2a3d5a 50%, #0a1f2a 100%)',
+    qc:         'radial-gradient(ellipse at 25% 25%, #4a1a3d 0%, transparent 45%), radial-gradient(ellipse at 75% 75%, #5a2a4a 0%, transparent 50%), linear-gradient(135deg, #2a0a1f 0%, #4a1a3d 50%, #2a0a1f 100%)',
+    security:   'radial-gradient(ellipse at 30% 30%, #3d2a1a 0%, transparent 45%), radial-gradient(ellipse at 70% 70%, #5a3d1a 0%, transparent 50%), linear-gradient(135deg, #1f140a 0%, #3d2a1a 50%, #1f140a 100%)',
+    it:         'radial-gradient(ellipse at 25% 30%, #1a3d5a 0%, transparent 45%), radial-gradient(ellipse at 75% 70%, #2a5a8a 0%, transparent 50%), linear-gradient(135deg, #0a1f2e 0%, #1a3d5a 50%, #0a1f2e 100%)',
+    accounting: 'radial-gradient(ellipse at 30% 30%, #3d2a1a 0%, transparent 45%), radial-gradient(ellipse at 70% 70%, #5a3d2a 0%, transparent 50%), linear-gradient(135deg, #1f140a 0%, #3d2a1a 50%, #1f140a 100%)',
+    admin:      'radial-gradient(ellipse at 25% 30%, #2a2a3d 0%, transparent 45%), radial-gradient(ellipse at 75% 70%, #3d3d5a 0%, transparent 50%), linear-gradient(135deg, #14141f 0%, #2a2a3d 50%, #14141f 100%)'
+  };
+  var MODULE_ACCENTS = {
+    packaging:'#ffa726', logistics:'#42a5f5', irrigation:'#4dd0e1', production:'#80e885',
+    maintenance:'#42a5f5', inventory:'#ab47bc', hr:'#9ccc65', crm:'#26c6da',
+    qc:'#ec407a', security:'#ffa726', it:'#42a5f5', accounting:'#ffd54f', admin:'#9aa'
+  };
+
+  function esc(s){ s=(s==null)?'':String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  window._hnxRenderDashHero = function(cfg){
+    cfg = cfg || {};
+    var mod = cfg.module || 'production';
+    var accent = cfg.accent || MODULE_ACCENTS[mod] || '#80e885';
+    var bg = cfg.background || MODULE_BGS[mod] || MODULE_BGS.production;
+    var icon = cfg.icon || '🧠';
+    var title = cfg.title || 'DASHBOARD';
+    var tagline = cfg.tagline || '';
+    var chips = cfg.chips || [];
+
+    var chipsHtml = chips.map(function(c){
+      var tone = c.tone || '';
+      return '<div class="hnx-dh-chip '+esc(tone)+'">'
+        +'<div>'
+          +'<div class="hnx-dh-chip-l">'+esc(c.label||'')+'</div>'
+          +'<div class="hnx-dh-chip-v">'+esc(c.value||'—')+'</div>'
+        +'</div>'
+      +'</div>';
+    }).join('');
+
+    // Convert accent hex to rgba for glow shadow (assume #rrggbb)
+    var glow = accent;
+    try{
+      if(/^#[0-9a-f]{6}$/i.test(accent)){
+        var r = parseInt(accent.substring(1,3),16);
+        var g = parseInt(accent.substring(3,5),16);
+        var b = parseInt(accent.substring(5,7),16);
+        glow = 'rgba('+r+','+g+','+b+',.5)';
+      }
+    }catch(_){}
+
+    return ''
+      +'<div class="hnx-dh" style="--dh-accent:'+esc(accent)+'; --dh-accent-glow:'+esc(glow)+';">'
+        +'<div class="hnx-dh-bg" style="background:'+esc(bg)+';"></div>'
+        +'<div class="hnx-dh-scanline"></div>'
+        +'<div class="hnx-dh-inner">'
+          +'<div class="hnx-dh-orb-wrap">'
+            +'<div class="hnx-dh-aura"></div>'
+            +'<div class="hnx-dh-orb-core">'+esc(icon)+'</div>'
+            +'<div class="hnx-dh-particle p1"></div>'
+            +'<div class="hnx-dh-particle p2"></div>'
+            +'<div class="hnx-dh-particle p3"></div>'
+          +'</div>'
+          +'<div>'
+            +'<div class="hnx-dh-eyebrow"><span class="dot"></span><span>HYDRONEXIS-AI · LIVE</span></div>'
+            +'<div class="hnx-dh-title">'+esc(title)+'</div>'
+            + (tagline ? '<div class="hnx-dh-tag">'+esc(tagline)+'</div>' : '')
+            + (chipsHtml ? '<div class="hnx-dh-chips">'+chipsHtml+'</div>' : '')
+          +'</div>'
+        +'</div>'
+      +'</div>';
+  };
+
+  console.log('[HNX-DASH] Hero pattern ready — window._hnxRenderDashHero(cfg)');
+})();
+</script>
+<!-- ================= END HNX DASHBOARD HERO PATTERN ================= -->
+
+<!-- ================= HNX LOGISTICS DASHBOARD (v2.46.295) =================
+     Builds log_dash from scratch — was a stub <div id="stubLogDashBody"> with no
+     renderer. Uses the new hero pattern + 6 KPI cards + recent deliveries panel
+     + vehicle status grid. Reads from hydroPro_deliveries_v1, hydroPro_fleet_vehicles,
+     hydroPro_calls (logistics-routed).
+     ================================================================ -->
+<script>
+(function(){
+  'use strict';
+  if(window.renderLogisticsDash) return;
+
+  function esc(s){ s=(s==null)?'':String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function load(key, fb){ try{ return JSON.parse(localStorage.getItem(key)||'null')||fb; }catch(_){ return fb; } }
+  function fmtAgo(ts){
+    if(!ts) return '—';
+    var ms = Date.now() - (typeof ts==='number' ? ts : new Date(ts).getTime());
+    if(isNaN(ms)) return '—';
+    var min = Math.floor(ms/60000);
+    if(min < 1) return 'just now';
+    if(min < 60) return min+'m ago';
+    var h = Math.floor(min/60);
+    if(h < 24) return h+'h ago';
+    return Math.floor(h/24)+'d ago';
+  }
+
+  window.renderLogisticsDash = function(){
+    var view = document.getElementById('view-log_dash');
+    if(!view){
+      view = document.createElement('div');
+      view.className = 'view';
+      view.id = 'view-log_dash';
+      (document.getElementById('appMain')||document.body).appendChild(view);
+    }
+    var body = document.getElementById('stubLogDashBody');
+    if(!body){
+      body = document.createElement('div');
+      body.id = 'stubLogDashBody';
+      view.appendChild(body);
+    }
+
+    // Data sources
+    var deliveries = load('hydroPro_deliveries_v1', []) || [];
+    var vehicles   = load('hydroPro_fleet_vehicles', []) || [];
+    var drivers    = load('hydroPro_fleet_drivers', []) || [];
+    var fuelLog    = load('hydroPro_fleet_fuel', []) || [];
+    var allCalls   = load('hydroPro_calls', []) || [];
+    var openCalls  = allCalls.filter(function(c){ return c && c.department==='logistics' && c.status!=='closed' && c.status!=='resolved'; });
+
+    var today = new Date().toISOString().substring(0,10);
+    var week  = Date.now() - 7*86400000;
+
+    // Today
+    var todayDeliveries = deliveries.filter(function(d){
+      var dt = (d.date||d.scheduledAt||d.createdAt||'').toString().substring(0,10);
+      return dt === today;
+    });
+    var doneToday = todayDeliveries.filter(function(d){ return d.status==='delivered' || d.status==='completed'; }).length;
+    var pendingToday = todayDeliveries.length - doneToday;
+    var lateToday = todayDeliveries.filter(function(d){ return d.status==='late' || (d.eta && new Date(d.eta).getTime() < Date.now() && d.status!=='delivered'); }).length;
+
+    // Week
+    var weekDeliveries = deliveries.filter(function(d){
+      var t = new Date(d.date||d.scheduledAt||d.createdAt||0).getTime();
+      return t >= week;
+    });
+    var onTimeWeek = weekDeliveries.filter(function(d){ return d.status==='delivered' && !d.late; }).length;
+    var onTimeRate = weekDeliveries.length ? Math.round(100*onTimeWeek/weekDeliveries.length) : null;
+
+    // Vehicles
+    var activeVeh = vehicles.filter(function(v){ return v.status==='active' || v.status==='available'; }).length;
+    var maintVeh  = vehicles.filter(function(v){ return v.status==='maintenance' || v.status==='in_service'; }).length;
+    var totalVeh  = vehicles.length;
+
+    // Fuel cost MoM
+    var monthAgo = Date.now() - 30*86400000;
+    var twoMonths = Date.now() - 60*86400000;
+    var thisMonth = fuelLog.filter(function(f){ var t=new Date(f.date||0).getTime(); return t>=monthAgo; }).reduce(function(s,f){ return s+(Number(f.cost)||0); }, 0);
+    var lastMonth = fuelLog.filter(function(f){ var t=new Date(f.date||0).getTime(); return t>=twoMonths && t<monthAgo; }).reduce(function(s,f){ return s+(Number(f.cost)||0); }, 0);
+    var fuelMoM = lastMonth ? Math.round(100*(thisMonth-lastMonth)/lastMonth) : null;
+
+    // Build the hero
+    var hero = window._hnxRenderDashHero({
+      module: 'logistics',
+      icon: '🚛',
+      title: 'LOGISTICS OPERATIONS',
+      tagline: 'AI watches every delivery, every route, every vehicle · auto-optimizes routes daily · auto-alerts customers on delay.',
+      chips: [
+        {label:'Today',     value: doneToday+'/'+todayDeliveries.length, tone: todayDeliveries.length===0?'':(doneToday===todayDeliveries.length?'ok':'warn')},
+        {label:'On-time 7d',value: onTimeRate==null?'—':onTimeRate+'%', tone: onTimeRate==null?'':(onTimeRate>=90?'ok':onTimeRate>=75?'warn':'crit')},
+        {label:'Fleet',     value: activeVeh+'/'+totalVeh, tone: 'info'},
+        {label:'Open calls',value: String(openCalls.length), tone: openCalls.length===0?'ok':(openCalls.length>5?'crit':'warn')},
+        {label:'Fuel MoM',  value: fuelMoM==null?'—':(fuelMoM>0?'+':'')+fuelMoM+'%', tone: fuelMoM==null?'':(fuelMoM<=5?'ok':fuelMoM<=15?'warn':'crit')}
+      ]
+    });
+
+    // Six KPI cards
+    function kpiCard(icon, label, value, sub, color){
+      color = color || '#42a5f5';
+      return '<div style="background:linear-gradient(135deg,rgba(8,18,16,.6),rgba(4,12,10,.4));border:1px solid '+color+'33;border-left:3px solid '+color+';border-radius:10px;padding:14px 16px;flex:1;min-width:165px;">'
+        +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
+          +'<span style="font-size:18px;">'+icon+'</span>'
+          +'<span style="font-size:10.5px;color:#7aa99a;text-transform:uppercase;letter-spacing:.08em;font-weight:700;">'+esc(label)+'</span>'
+        +'</div>'
+        +'<div style="font-size:24px;font-weight:800;color:'+color+';font-family:var(--mono,monospace);line-height:1.1;letter-spacing:-.5px;">'+esc(value)+'</div>'
+        +'<div style="font-size:10.5px;color:#7aa99a;margin-top:4px;">'+esc(sub||'')+'</div>'
+      +'</div>';
+    }
+
+    var kpis = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;">'
+      + kpiCard('📦', 'Deliveries today', String(todayDeliveries.length), doneToday+' done · '+pendingToday+' pending', todayDeliveries.length===0?'#7a9a8e':'#42a5f5')
+      + kpiCard('✅', 'On-time rate 7d', onTimeRate==null?'—':onTimeRate+'%', weekDeliveries.length+' deliveries this week', onTimeRate==null?'#7a9a8e':onTimeRate>=90?'#26c281':onTimeRate>=75?'#ff9800':'#ef5350')
+      + kpiCard('🚛', 'Fleet active', activeVeh+'/'+totalVeh, maintVeh+' in maintenance', totalVeh===0?'#7a9a8e':'#42a5f5')
+      + kpiCard('⛽', 'Fuel cost (30d)', '₱'+thisMonth.toLocaleString(undefined,{maximumFractionDigits:0}), fuelMoM==null?'no prior month':(fuelMoM>0?'+':'')+fuelMoM+'% vs prev', fuelMoM==null?'#7a9a8e':fuelMoM<=5?'#26c281':fuelMoM<=15?'#ff9800':'#ef5350')
+      + kpiCard('⚠️', 'Late today', String(lateToday), lateToday===0?'all on track':'customers notified', lateToday===0?'#26c281':'#ef5350')
+      + kpiCard('📞', 'Open logistics calls', String(openCalls.length), openCalls.length===0?'all clear':'tap for list', openCalls.length===0?'#26c281':openCalls.length>5?'#ef5350':'#ff9800')
+      +'</div>';
+
+    // Recent deliveries panel
+    var recent = deliveries.slice().sort(function(a,b){
+      var ta = new Date(a.date||a.scheduledAt||0).getTime();
+      var tb = new Date(b.date||b.scheduledAt||0).getTime();
+      return tb-ta;
+    }).slice(0, 8);
+
+    function deliveryStatusBadge(d){
+      var s = (d.status||'pending').toLowerCase();
+      var color = '#7a9a8e', label = s;
+      if(s==='delivered' || s==='completed'){ color='#26c281'; label='✓ delivered'; }
+      else if(s==='in_transit' || s==='out')  { color='#42a5f5'; label='🚛 in transit'; }
+      else if(s==='late')                     { color='#ef5350'; label='⚠ late'; }
+      else if(s==='pending' || s==='scheduled'){ color='#ff9800'; label='⏱ pending'; }
+      return '<span style="display:inline-block;padding:3px 9px;border-radius:11px;background:'+color+'22;color:'+color+';border:1px solid '+color+'66;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;">'+esc(label)+'</span>';
+    }
+
+    var recentHtml = recent.length
+      ? recent.map(function(d){
+          var customer = d.customer || d.customerName || d.dest || '(unknown)';
+          var addr = d.address || d.destination || '';
+          var driver = d.driver || d.driverName || '—';
+          var dt = d.date || d.scheduledAt || d.createdAt || '';
+          return '<div style="padding:12px 14px;background:rgba(255,255,255,.02);border-left:3px solid rgba(66,165,245,.5);border-radius:6px;margin-bottom:7px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">'
+            +'<div style="flex:1;min-width:200px;">'
+              +'<div style="font-size:13px;font-weight:700;color:#e8f5e9;">'+esc(customer)+'</div>'
+              +'<div style="font-size:10.5px;color:#7aa99a;font-family:var(--mono,monospace);margin-top:2px;">'+esc(addr)+' · driver '+esc(driver)+'</div>'
+            +'</div>'
+            +'<div style="text-align:right;">'
+              + deliveryStatusBadge(d)
+              +'<div style="font-size:10.5px;color:#7aa99a;margin-top:4px;">'+esc(fmtAgo(dt))+'</div>'
+            +'</div>'
+          +'</div>';
+        }).join('')
+      : '<div style="padding:24px;text-align:center;color:#7a9a8e;background:rgba(255,255,255,.02);border:1px dashed rgba(255,255,255,.08);border-radius:8px;font-size:12px;">No deliveries logged yet. Add deliveries under Logistics → Deliveries.</div>';
+
+    // Vehicle status grid
+    var vehHtml = vehicles.length
+      ? vehicles.slice(0, 12).map(function(v){
+          var s = (v.status||'active').toLowerCase();
+          var color = s==='active'||s==='available' ? '#26c281' : s==='maintenance'||s==='in_service' ? '#ff9800' : '#7a9a8e';
+          return '<div style="padding:10px 12px;background:rgba(255,255,255,.025);border:1px solid '+color+'44;border-radius:8px;flex:1;min-width:140px;">'
+            +'<div style="display:flex;align-items:center;gap:7px;">'
+              +'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+color+';box-shadow:0 0 8px '+color+';"></span>'
+              +'<span style="font-size:12px;font-weight:700;color:#e8f5e9;">'+esc(v.plate||v.name||v.id||'?')+'</span>'
+            +'</div>'
+            +'<div style="font-size:10px;color:#7aa99a;margin-top:3px;font-family:var(--mono,monospace);">'+esc(v.model||v.type||'')+'</div>'
+            +'<div style="font-size:10px;color:'+color+';margin-top:3px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;">'+esc(s)+'</div>'
+          +'</div>';
+        }).join('')
+      : '<div style="padding:24px;text-align:center;color:#7a9a8e;background:rgba(255,255,255,.02);border:1px dashed rgba(255,255,255,.08);border-radius:8px;font-size:12px;">No vehicles registered. Add under Logistics → 🚗 Vehicles.</div>';
+
+    body.innerHTML = hero
+      + kpis
+      +'<div style="display:grid;grid-template-columns:1.5fr 1fr;gap:16px;margin-bottom:20px;">'
+        // Recent deliveries
+        +'<div style="background:rgba(8,18,16,.6);border:1px solid rgba(66,165,245,.2);border-radius:12px;padding:18px 20px;">'
+          +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">'
+            +'<div style="font-size:14px;font-weight:800;color:#e8f5e9;">🚛 Recent Deliveries</div>'
+            +'<button class="btn btn-outline" style="padding:5px 11px;font-size:11px;" onclick="switchView(\'log_deliveries\')">→ All deliveries</button>'
+          +'</div>'
+          + recentHtml
+        +'</div>'
+        // Vehicle grid
+        +'<div style="background:rgba(8,18,16,.6);border:1px solid rgba(66,165,245,.2);border-radius:12px;padding:18px 20px;">'
+          +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">'
+            +'<div style="font-size:14px;font-weight:800;color:#e8f5e9;">🚗 Fleet status</div>'
+            +'<button class="btn btn-outline" style="padding:5px 11px;font-size:11px;" onclick="switchView(\'fleet_vehicles\')">→ Manage</button>'
+          +'</div>'
+          +'<div style="display:flex;gap:8px;flex-wrap:wrap;">'+vehHtml+'</div>'
+        +'</div>'
+      +'</div>'
+      // Footer help
+      +'<div style="padding:13px 16px;background:rgba(66,165,245,.06);border:1px solid rgba(66,165,245,.4);border-radius:9px;font-size:11.5px;color:#a5d6e6;line-height:1.55;">'
+        +'<b style="color:#42a5f5;">Logistics Domain — Stage 1 → Stage 2</b><br>'
+        +'Tracks deliveries · vehicles · drivers · fuel cost. AI route optimization (T-106) and live ETA + customer SMS on delay (T-107) are next on the autonomy roadmap. Open calls auto-routed via T-10 canonical 14-dept registry.'
+      +'</div>';
+  };
+
+  // p155: log_dash is registered via a proper dispatcher entry alongside pack_dash
+  // (see the if(v==='log_dash') block in the view switcher). No click-listener hack needed.
+  console.log('[HNX-LOG] Logistics dashboard renderer ready — renderLogisticsDash()');
+})();
+</script>
+<!-- ================= END HNX LOGISTICS DASHBOARD ================= -->
 
 
 
