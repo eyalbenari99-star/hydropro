@@ -71543,8 +71543,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.47.0-invvelocity';window.HNX_BUILD='v2.86-p160-invvelocity';  // p160: real SOS data flowing into Inventory dashboard + new Item Velocity view (Active/Slow/Dead classification). Auto-clears stale sync errors at start of each new sync. Worker v3.1.2-throttle adds retry on SOS throttle 400.
-const APP_BUILD=1781035200;
+const APP_VERSION='2.47.1-paginate';window.HNX_BUILD='v2.86-p161-paginate';  // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry (wait+retry on worker 400+throttle). Items capped at 10k/sync, lots/shipments at 4k each, locations at 1k.
+const APP_BUILD=1781036800;
 const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
@@ -145382,24 +145382,72 @@ body.hnx-mobile-locked { overflow: hidden; }
     });
   }
 
-  // ---------- data fetching ----------
+  // ---------- data fetching (p161 · app-side pagination) ----------
+  // SOS API caps at 200 items per page. We loop through pages with ?start=1,
+  // ?start=201, ?start=401, etc. until a page returns fewer than 200 items.
+  // Also handles throttle retry (worker v3.1.1 doesn't have its own retry).
+  var _SOS_PAGE_SIZE = 200;
+  var _SOS_INTER_PAGE_DELAY_MS = 250;        // polite pause between pages
+  var _SOS_MAX_THROTTLE_RETRIES = 3;
+  var _SOS_THROTTLE_BASE_DELAY_MS = 1000;
+
+  function _sosFetchPageWithRetry(url){
+    var retries = 0;
+    function attempt(){
+      return workerFetch(url).catch(function(err){
+        var msg = String(err && err.message || '');
+        // Worker 400 with "throttle" OR HTTP 429 → wait and retry
+        if((/throttle/i.test(msg) || /\b429\b/.test(msg)) && retries < _SOS_MAX_THROTTLE_RETRIES){
+          retries++;
+          var waitMs = _SOS_THROTTLE_BASE_DELAY_MS * Math.pow(2, retries - 1);
+          return new Promise(function(r){ setTimeout(r, waitMs); }).then(attempt);
+        }
+        throw err;
+      });
+    }
+    return attempt();
+  }
+
+  function _sosFetchAllPages(path, keyName, extraQuery, maxPages){
+    maxPages = maxPages || 50;
+    extraQuery = extraQuery || '';
+    var all = [];
+    var page = 0;
+    var start = 1;
+
+    function nextPage(){
+      var url = path + '?start=' + start + '&limit=' + _SOS_PAGE_SIZE + (extraQuery ? '&'+extraQuery : '');
+      return _sosFetchPageWithRetry(url).then(function(res){
+        var arr = (res && res[keyName]) || (res && res.data) || (Array.isArray(res) ? res : []);
+        if(!Array.isArray(arr)) arr = [];
+        all = all.concat(arr);
+        page++;
+        // Stop conditions:
+        if(arr.length < _SOS_PAGE_SIZE) return all;   // last page (incomplete)
+        if(page >= maxPages) return all;              // safety cap
+        // Advance and continue after a polite delay
+        start += _SOS_PAGE_SIZE;
+        return new Promise(function(r){ setTimeout(r, _SOS_INTER_PAGE_DELAY_MS); }).then(nextPage);
+      });
+    }
+    return nextPage();
+  }
+
   function fetchItems(){
-    return workerFetch('/sos/items?limit=1000').then(function(res){
-      var arr = (res && res.items) || res || [];
+    // Cap at 50 pages = 10,000 items (Cloudflare Worker subrequest budget consideration)
+    return _sosFetchAllPages('/sos/items', 'items', '', 50).then(function(arr){
       save(KEY.items, arr);
       return arr.length;
     });
   }
   function fetchLocations(){
-    return workerFetch('/sos/locations').then(function(res){
-      var arr = (res && res.locations) || res || [];
+    return _sosFetchAllPages('/sos/locations', 'locations', '', 5).then(function(arr){
       save(KEY.locations, arr);
       return arr.length;
     });
   }
   function fetchLots(){
-    return workerFetch('/sos/lots?archived=false&limit=1000').then(function(res){
-      var arr = (res && res.lots) || res || [];
+    return _sosFetchAllPages('/sos/lots', 'lots', 'archived=false', 20).then(function(arr){
       save(KEY.lots, arr);
       return arr.length;
     });
@@ -145407,8 +145455,7 @@ body.hnx-mobile-locked { overflow: hidden; }
   function fetchShipments(){
     // Last 30 days only — shipments grow unbounded
     var from = new Date(Date.now() - 30*86400000).toISOString().substring(0,10);
-    return workerFetch('/sos/shipments?from='+from+'&limit=500').then(function(res){
-      var arr = (res && res.shipments) || res || [];
+    return _sosFetchAllPages('/sos/shipments', 'shipments', 'from='+from, 20).then(function(arr){
       save(KEY.shipments, arr);
       return arr.length;
     });
