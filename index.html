@@ -20547,6 +20547,7 @@ const MODULES={
       {id:'it_calls',          label:'📞 IT Open Calls',      perm:'viewIT',title:'IT-module open calls · Pending Approvals · Approve/Reject'},
       {id:'it_gh_fer_matrix',  label:'🗺 GH & Fer Equipment',    perm:'viewIT',title:'IT equipment by GH × Fertigation rooms · cameras, devices, radios'},
       {id:'it_cctv',           label:'📹 CCTV',               perm:'viewIT',title:'CCTV cameras live view'},
+      {id:'it_stream_health',  label:'🩺 Stream Health',      perm:'viewIT',title:'Probe every camera and report which streams are healthy, broken, or missing on the bridge. Export CSV for the bridge owner.'},
       {id:'it_cctv_wall',      label:'📺 DVR & CCTV Wall',    perm:'viewIT',hidden:true,title:'Visual of all DVRs and CCTV cameras · master CCTV wall (reached via CCTV → 📺 DVR Wall)'},
       {id:'it_radios',         label:'📻 Radios',             perm:'viewIT',title:'Radios and communication devices'},
       {id:'it_prj11',          label:'🏭 PRJ11 Devices',      perm:'viewMaintenance',hidden:true,title:'PRJ11-specific IT devices (reached via IT Devices → 🏭 PRJ11)'},
@@ -20734,6 +20735,7 @@ const MODULES={
       {id:'perf_monitor',label:'⚡ Performance',perm:'manageUsers',title:'Performance monitor — render-time profiling, cache hit rates, localStorage size, dashboard timings. Use to identify and verify hotspots.'},
       {id:'live_sensors',label:'🔌 Live Sensors',perm:'manageUsers',title:'Live sensor mode — connect HydroNexis-AI to real-time sensor data via API endpoint. Reads pool readings, drum levels, climate data from your hardware gateway every N seconds.'},
       {id:'integration_spec',label:'📡 Integration Spec',perm:'manageUsers',title:'Integration documentation — API contract for sensor + control hardware integrators. JSON formats, auth, polling intervals, per-sensor field mappings.'},
+      {id:'admin_sos_sync',label:'📦 SOS Inventory Sync',perm:'manageUsers',title:'Connect HydroNexis-AI to SOS Inventory (sosinventory.com) — pulls items, locations, lots, shipments via OAuth2 through the hnx-sync Cloudflare worker. Auto-syncs every 15 min when connected.'},
       {id:'control_audit',label:'🛡️ Control Audit',perm:'manageUsers',title:'Control Action Audit — log of every automated or manual control action across all greenhouses. Builds the compliance trail for hardware integration. Works today as manual audit log; auto-populates from the predictive engine and hardware acknowledgements once connected.'},
       {id:'device_registry',label:'🖥 Device Registry',perm:'manageUsers',title:'Master inventory of every networked device — computers, phones, printers, cameras, network gear, HVAC, door readers, sensors. CSV import/export. Foundation for company-wide visibility.'},
       {id:'danger_zone',label:'🚨 Danger Zone',perm:'manageUsers',title:'Destructive admin-only actions: reset day, wipe data, factory reset. Cannot be undone.'}
@@ -21341,6 +21343,9 @@ function switchView(v,skipModuleCheck){
   if(v==='irr_rooms_matrix')renderIrrigationRoomsMatrix();
   if(v==='irr_matrix')renderIrrMatrix();
   if(v==='it_cctv')renderItCctv();
+  if(v==='it_stream_health'){ if(typeof window.renderItStreamHealth==='function') window.renderItStreamHealth(); return; }
+  if(v==='hr_final_pay'){ if(typeof window.renderHrFinalPayDashboard==='function') window.renderHrFinalPayDashboard(); return; }
+  if(v==='admin_sos_sync'){ if(typeof window.renderSosInventorySync==='function') window.renderSosInventorySync(); return; }
   if(v==='it_radios')renderItRadios();
   if(v==='it_devices')renderItDevices();
   if(v==='it_prj11')renderPrj11Devices();
@@ -21914,7 +21919,7 @@ function _buildEmpRow(emp,showSalary,typeColors){
         <div style="min-width:0;">
           <div style="font-size:12px;font-weight:700;color:var(--text);line-height:1.2;">${escapeHtml(emp.name||'(unnamed)')}</div>
           <div style="font-size:10px;color:var(--text3);font-family:var(--mono);">${(emp.id||'').replace(/</g,'&lt;')}${emp.nickname?' · '+escapeHtml(emp.nickname):''}${isInactive?' · '+status:''}</div>
-          <div style="margin-top:4px;">${(typeof window.hnxEmpActivityBadge==='function')?window.hnxEmpActivityBadge(emp):''}${(typeof window.hnxOffboardingChip==='function')?window.hnxOffboardingChip(emp):''}${(typeof window.hnxContractChip==='function')?window.hnxContractChip(emp):''}</div>
+          <div style="margin-top:4px;">${(typeof window.hnxEmpActivityBadge==='function')?window.hnxEmpActivityBadge(emp):''}${(typeof window.hnxOffboardingChip==='function')?window.hnxOffboardingChip(emp):''}${(typeof window.hnxContractChip==='function')?window.hnxContractChip(emp):''}${(typeof window.hnxFinalPayChip==='function')?window.hnxFinalPayChip(emp):''}</div>
         </div>
       </div>
     </td>
@@ -21975,6 +21980,7 @@ function buildEmpCard(emp){
       ${(typeof window.hnxEmpActivityBadge==='function')?window.hnxEmpActivityBadge(emp):''}
       ${(typeof window.hnxOffboardingChip==='function')?window.hnxOffboardingChip(emp):''}
       ${(typeof window.hnxContractChip==='function')?window.hnxContractChip(emp):''}
+      ${(typeof window.hnxFinalPayChip==='function')?window.hnxFinalPayChip(emp):''}
       ${emp.role?`<span class="emp-chip role-${emp.role.replace(' ','\\ ')}">${emp.role}</span>`:''}
       ${emp.type?`<span class="emp-chip type-${emp.type}">${emp.type}</span>`:''}
       ${(()=>{
@@ -70842,7 +70848,11 @@ const ACTION_LABELS={
   emp_offboarding_cancel:'⛔ Cancelled offboarding',
   emp_contract_upload:'📄 Uploaded employee contract',
   emp_contract_terms_set:'📋 Set/updated contract terms',
-  emp_contract_delete:'🗑 Deleted employee contract file'
+  emp_contract_delete:'🗑 Deleted employee contract file',
+  final_pay_prepare:'💼 Prepared final pay',
+  final_pay_approve:'👔 Manager approved final pay',
+  final_pay_release:'💰 Released final pay for payment',
+  final_pay_recompute:'🔄 Recomputed final pay'
 };
 
 function loadAuditLog(){try{return JSON.parse(localStorage.getItem(AUDIT_KEY)||'[]');}catch(e){return[];}}
@@ -71354,8 +71364,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.288-contract';window.HNX_BUILD='v2.86-p148-contract';  // 📄 v2.46.288 — T-45 HR Lifecycle 4/5: per-employee Contract file upload (PDF/JPG/PNG ≤ 4MB) + structured terms (notice period, probation, base salary, deductions, custom notes). Stored per-empId in dedicated hydroPro_emp_contract_<id> keys (each <5MB cloud-sync limit). Notice-period auto-feeds the T-44 offboarding hint. Contract chip on every employee row. AI auto-extract is a preview placeholder (full /ai/analyze extraction in T-45 phase 2). ALSO T-24 preview: 🤖 Open AI Co-Pilot now opens a reliable module-aware fallback panel wired to the live Cloud AI worker (/ai/analyze). ▸ v2.46.287 — T-44 Offboarding clearance workflow. ▸ v2.46.286 — T-43 auto Active/Inactive. toggle (replaces plain prompt) + loud 'not connected' banner so no one works local-only by accident. Fixes cross-device data sharing. ▸ v2.46.275 — T-10 call routing canonical. ▸ v2.46.274 — camera sync guard. ▸ v2.46.269 — module COMMAND CENTER  // 🧭 v2.46.275 — T-10: call routing re-pointed to the canonical 14 departments. Raise-Call picker, MODULE_ROUTE_MAP (IT calls now route to IT, not Admin), keyword classifier, office-calls view, both P14 module configs and MODULE_DEPTS all use canonical ids. Existing calls migrated (backed up; undo via window.hnxRestoreT10()). ▸ v2.46.274 — camera-streams sync guard. ▸ v2.46.273 — T-09 canonical dept registry. ▸ v2.46.269 — module COMMAND CENTER middle column is now an animated 'HYDRONEXIS-AI · ANALYSING' centerpiece (_mccAnalysisStage): pulsing brain core + rotating radar rings + conic sweep, cycling analysis ticker (pulls live aiRows), live equalizer bars, flowing SVG waveform, 4 live KPI chips (from cfg.kpis), scanning bar — all CSS-animated (no JS intervals), accent = module color. QC daily checklist moved to a footer link. Applies to all MCC_CONFIGS modules; Production's own command center (separate render) unaffected. ▸ v2.46.268-custtype —   // 🏷️ v2.46.268 — explicit CUSTOMER TYPE selector on the customer detail 💰 PRICE LIST card: supervisors can set a customer's type (Online/Hotels/Restaurants/Supermarkets/Distributors/Retail) or leave it on 🔎 Auto-detect (name-based). Manual type overrides name detection and drives the type-default price list. Operators see it read-only. New key hydroPro_crm_cust_seg; _custPricingSeg now checks manual override → _custDetectSeg(name). ▸ v2.46.267-pricelists —   // 💰 v2.46.267 — PRICE LISTS tied to customer types + per-customer default: added 'Distributors / Wholesale' segment; Custom Price Lists tab now has a '🏷️ Default price list per customer type' panel (hotels/restaurants/supermarkets/online/distributors/retail each pick a default list); each QBO customer's detail shows a 💰 PRICE LIST card with its effective list (override → type default → base prices). Changing a type default OR a customer's list is gated to CRM supervisors (admin/admin_secondary/supervisor) — operators see it read-only. Keys: hydroPro_crm_seg_default_pl, hydroPro_crm_cust_pl. '+ New Price List' & 'Generate from Segment' unchanged. ▸ v2.46.266-crm-modes —   // 🎨 v2.46.266 — CRM customer MODES (visual framework): each customer's avatar ball is now colored by mode + a 🎨 Mode dropdown filters the directory + a colored-dot legend with live counts. Modes: 🆕 New (created <30d), ⚪ Not Active (QBO inactive), 🔘 Uncategorized (active, cadence unknown). 🟢 Fully Active / 🔵 Active / 😴 Sleepy are DEFINED + colored + in the dropdown but show 0 / 'needs orders' until a per-customer order-date feed is wired (TODO in _qbCustModeId). Lead-by-status already lives in the Leads/Pipeline tabs. ▸ v2.46.265-cctv-snapshots —   // 🔧 v2.46.265 — BIG PERF FIX: wall tiles are now lightweight auto-refreshing SNAPSHOTS (go2rtc /api/frame.jpeg, refreshed every 4s) instead of full WebRTC player iframes — so 22/81 cameras load near-instantly at almost no CPU. LIVE video only on tap: normal wall tap→full() live, fullscreen Spotlight big tile = live, Grid + Spotlight-small tiles = snapshots. Dead streams show a clean offline tile (no retry storm). Snapshots pause when tab hidden / scope to the visible wall. ▸ v2.46.264-cctv-mosaic —   // 🔧 v2.46.264 — full-screen '🎯 1 Big + around' is now a real MOSAIC: one big tile (spans 2x2) with the rest sized small AROUND it, filling the screen (no side strip). Tap ANY camera (in Grid or Mosaic) to make it the big one — the choice is remembered per area (hydroPro_cctv_spot_v1). '📐 Grid' = all equal size. Big choice resets sensibly when you switch area tabs. ▸ v2.46.263-arrange-area —   // 🔧 v2.46.263 — ARRANGE is now PER-AREA: it only shows the cameras in the area tab you're on (not all 81), the area tabs appear inside Arrange so you can switch which screen you're organizing, and ◀▶ nudge a camera within its own area. Adjust one screen at a time. ▸ v2.46.262-cctv-stagger —   // 🔧 v2.46.262 — NORMAL CCTV wall now THROTTLES stream loading: instead of connecting every visible camera on the same frame (which froze the 22-cam Greenhouses tab), it opens max 4 streams at a time and starts the next as each finishes/​times-out — so big area tabs ramp up smoothly. Off-screen tiles still unload. (Stagger already applied to the fullscreen wall in p128.) ▸ v2.46.261-cctv-wall —   // 🔧 v2.46.261 — CCTV FULL-SCREEN VIDEO WALL: new ⛶ Full Screen button opens an edge-to-edge fullscreen wall (browser fullscreen API, no app chrome) for the current area tab. Two layouts with a toggle — 📐 Grid (auto-fits cameras to fill the screen, best rows×cols, no scroll) and 🎯 Spotlight (one big live feed + thumbnail strip; tap a thumb to swap into the big slot). Area tabs + Esc/Exit inside. Streams stagger-load (3 at a time) so it never opens dozens at once; spotlight runs only the big feed live. Normal wall's streams are paused while fullscreen is open. ▸ v2.46.260-cctv-areas —   // 🔧 v2.46.260 — CCTV LIVE WALL split into 8 AREA TABS (🌱 Greenhouses · 🛡 GH Perimeter · 🛡 Perimeter & Gates · 💧 Fertigation · 📦 Packaging & Logistics · 🏗 Project 11 · 🏢 Office & Admin · 📍 Security & Other) per ES BA's corrected mapping (CAM_AREA). Wall opens on ONE tab (remembered in hydroPro_cctv_area_v1), so it never loads all 81 at once; lazy-load stays underneath. Tap 📺 All to load everything (heaviest). ▸ v2.46.259-crm-nav —   // 🔧 v2.46.259 — CRM views now DISCOVERABLE: injected sub-tabs (🆕 Customer Master, 📁 Customer 360° Files, 📊 Customer Matrix, 📞 Open Issues) were created with class 'nav-tab' but the view-picker dropdown only lists '.module-sub-tab' — so they were loaded but invisible in the menu. Now created as 'module-sub-tab' with modTab- ids → they appear in the dropdown + are searchable. ▸ v2.46.258 — (1) CRM render guard: Overview/Leads/etc. can never blank to black again — any render error now shows a recovery panel with Retry + the real error message (logged to console). (2) CCTV live wall lazy-loads via IntersectionObserver: only on-screen cameras stream (300px preload margin; off-screen tiles unload to about:blank), eliminating the slow open + layout jump with ~60 cameras. ▸ prev v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
-const APP_BUILD=1780986000;
+const APP_VERSION='2.46.293-sos';window.HNX_BUILD='v2.86-p153-sos';  // 📦 v2.46.293 — SOS Inventory integration (app-side). Admin → 📦 SOS Inventory Sync new view. OAuth2 flow opens popup → worker handles callback → stores token in KV. Pulls items+locations+lots+shipments via worker proxy (/sos/items, /sos/locations, /sos/lots, /sos/shipments). Auto-sync every 15 min when connected (pauses when tab hidden). Public API: window.__hnxSos.{connect,disconnect,sync,getItems,getLocations,getLots,getShipments,getMeta,isConnected}. Storage keys: hydroPro_sos_items_v1, hydroPro_sos_locations_v1, hydroPro_sos_lots_v1, hydroPro_sos_shipments_v1, hydroPro_sos_meta_v1 (all cloud-synced). Dashboard shows ITEMS/LOCATIONS/LOTS/SHIPMENTS counts + LOW STOCK + EXPIRING 30d + EXPIRED counts. Errors logged and shown in UI. Worker code shipped as separate file hnx-sync-worker-v3.1-sos.js. ▸ v2.46.292 — Final Pay dashboard. ▸ v2.46.291 — Stream Health. ▸ v2.46.290 — CCTV fix. toggle (replaces plain prompt) + loud 'not connected' banner so no one works local-only by accident. Fixes cross-device data sharing. ▸ v2.46.275 — T-10 call routing canonical. ▸ v2.46.274 — camera sync guard. ▸ v2.46.269 — module COMMAND CENTER  // 🧭 v2.46.275 — T-10: call routing re-pointed to the canonical 14 departments. Raise-Call picker, MODULE_ROUTE_MAP (IT calls now route to IT, not Admin), keyword classifier, office-calls view, both P14 module configs and MODULE_DEPTS all use canonical ids. Existing calls migrated (backed up; undo via window.hnxRestoreT10()). ▸ v2.46.274 — camera-streams sync guard. ▸ v2.46.273 — T-09 canonical dept registry. ▸ v2.46.269 — module COMMAND CENTER middle column is now an animated 'HYDRONEXIS-AI · ANALYSING' centerpiece (_mccAnalysisStage): pulsing brain core + rotating radar rings + conic sweep, cycling analysis ticker (pulls live aiRows), live equalizer bars, flowing SVG waveform, 4 live KPI chips (from cfg.kpis), scanning bar — all CSS-animated (no JS intervals), accent = module color. QC daily checklist moved to a footer link. Applies to all MCC_CONFIGS modules; Production's own command center (separate render) unaffected. ▸ v2.46.268-custtype —   // 🏷️ v2.46.268 — explicit CUSTOMER TYPE selector on the customer detail 💰 PRICE LIST card: supervisors can set a customer's type (Online/Hotels/Restaurants/Supermarkets/Distributors/Retail) or leave it on 🔎 Auto-detect (name-based). Manual type overrides name detection and drives the type-default price list. Operators see it read-only. New key hydroPro_crm_cust_seg; _custPricingSeg now checks manual override → _custDetectSeg(name). ▸ v2.46.267-pricelists —   // 💰 v2.46.267 — PRICE LISTS tied to customer types + per-customer default: added 'Distributors / Wholesale' segment; Custom Price Lists tab now has a '🏷️ Default price list per customer type' panel (hotels/restaurants/supermarkets/online/distributors/retail each pick a default list); each QBO customer's detail shows a 💰 PRICE LIST card with its effective list (override → type default → base prices). Changing a type default OR a customer's list is gated to CRM supervisors (admin/admin_secondary/supervisor) — operators see it read-only. Keys: hydroPro_crm_seg_default_pl, hydroPro_crm_cust_pl. '+ New Price List' & 'Generate from Segment' unchanged. ▸ v2.46.266-crm-modes —   // 🎨 v2.46.266 — CRM customer MODES (visual framework): each customer's avatar ball is now colored by mode + a 🎨 Mode dropdown filters the directory + a colored-dot legend with live counts. Modes: 🆕 New (created <30d), ⚪ Not Active (QBO inactive), 🔘 Uncategorized (active, cadence unknown). 🟢 Fully Active / 🔵 Active / 😴 Sleepy are DEFINED + colored + in the dropdown but show 0 / 'needs orders' until a per-customer order-date feed is wired (TODO in _qbCustModeId). Lead-by-status already lives in the Leads/Pipeline tabs. ▸ v2.46.265-cctv-snapshots —   // 🔧 v2.46.265 — BIG PERF FIX: wall tiles are now lightweight auto-refreshing SNAPSHOTS (go2rtc /api/frame.jpeg, refreshed every 4s) instead of full WebRTC player iframes — so 22/81 cameras load near-instantly at almost no CPU. LIVE video only on tap: normal wall tap→full() live, fullscreen Spotlight big tile = live, Grid + Spotlight-small tiles = snapshots. Dead streams show a clean offline tile (no retry storm). Snapshots pause when tab hidden / scope to the visible wall. ▸ v2.46.264-cctv-mosaic —   // 🔧 v2.46.264 — full-screen '🎯 1 Big + around' is now a real MOSAIC: one big tile (spans 2x2) with the rest sized small AROUND it, filling the screen (no side strip). Tap ANY camera (in Grid or Mosaic) to make it the big one — the choice is remembered per area (hydroPro_cctv_spot_v1). '📐 Grid' = all equal size. Big choice resets sensibly when you switch area tabs. ▸ v2.46.263-arrange-area —   // 🔧 v2.46.263 — ARRANGE is now PER-AREA: it only shows the cameras in the area tab you're on (not all 81), the area tabs appear inside Arrange so you can switch which screen you're organizing, and ◀▶ nudge a camera within its own area. Adjust one screen at a time. ▸ v2.46.262-cctv-stagger —   // 🔧 v2.46.262 — NORMAL CCTV wall now THROTTLES stream loading: instead of connecting every visible camera on the same frame (which froze the 22-cam Greenhouses tab), it opens max 4 streams at a time and starts the next as each finishes/​times-out — so big area tabs ramp up smoothly. Off-screen tiles still unload. (Stagger already applied to the fullscreen wall in p128.) ▸ v2.46.261-cctv-wall —   // 🔧 v2.46.261 — CCTV FULL-SCREEN VIDEO WALL: new ⛶ Full Screen button opens an edge-to-edge fullscreen wall (browser fullscreen API, no app chrome) for the current area tab. Two layouts with a toggle — 📐 Grid (auto-fits cameras to fill the screen, best rows×cols, no scroll) and 🎯 Spotlight (one big live feed + thumbnail strip; tap a thumb to swap into the big slot). Area tabs + Esc/Exit inside. Streams stagger-load (3 at a time) so it never opens dozens at once; spotlight runs only the big feed live. Normal wall's streams are paused while fullscreen is open. ▸ v2.46.260-cctv-areas —   // 🔧 v2.46.260 — CCTV LIVE WALL split into 8 AREA TABS (🌱 Greenhouses · 🛡 GH Perimeter · 🛡 Perimeter & Gates · 💧 Fertigation · 📦 Packaging & Logistics · 🏗 Project 11 · 🏢 Office & Admin · 📍 Security & Other) per ES BA's corrected mapping (CAM_AREA). Wall opens on ONE tab (remembered in hydroPro_cctv_area_v1), so it never loads all 81 at once; lazy-load stays underneath. Tap 📺 All to load everything (heaviest). ▸ v2.46.259-crm-nav —   // 🔧 v2.46.259 — CRM views now DISCOVERABLE: injected sub-tabs (🆕 Customer Master, 📁 Customer 360° Files, 📊 Customer Matrix, 📞 Open Issues) were created with class 'nav-tab' but the view-picker dropdown only lists '.module-sub-tab' — so they were loaded but invisible in the menu. Now created as 'module-sub-tab' with modTab- ids → they appear in the dropdown + are searchable. ▸ v2.46.258 — (1) CRM render guard: Overview/Leads/etc. can never blank to black again — any render error now shows a recovery panel with Retry + the real error message (logged to console). (2) CCTV live wall lazy-loads via IntersectionObserver: only on-screen cameras stream (300px preload margin; off-screen tiles unload to about:blank), eliminating the slow open + layout jump with ~60 cameras. ▸ prev v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
+const APP_BUILD=1781010000;
 const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
@@ -85364,7 +85374,8 @@ const EXTRA_SUBTABS={
     {id:'hr_referrals', label:'🎁 Referral Bonuses'},
     {id:'hr_disciplinary', label:'⚠️ Disciplinary'},
     {id:'hr_leaves', label:'🏖️ Leave Management'},
-    {id:'hr_clearance', label:'📋 Clearance / Turnover'}
+    {id:'hr_clearance', label:'📋 Clearance / Turnover'},
+    {id:'hr_final_pay', label:'💰 Final Pay (Separating)'}
   ],
   inventory:[
     {id:'inv_files', label:'📁 Item Files'},
@@ -135301,7 +135312,25 @@ body.hnx-mobile-locked { overflow: hidden; }
     var AREA_KEY='hydroPro_cctv_area_v1';
     var CAM_AREA={'CAM-001':'🌱 Greenhouses','CAM-002':'🌱 Greenhouses','CAM-003':'🌱 Greenhouses','CAM-004':'🌱 Greenhouses','CAM-005':'🌱 Greenhouses','CAM-006':'🌱 Greenhouses','CAM-007':'🌱 Greenhouses','CAM-008':'🌱 Greenhouses','CAM-009':'🌱 Greenhouses','CAM-010':'🌱 Greenhouses','CAM-011':'🌱 Greenhouses','CAM-012':'🌱 Greenhouses','CAM-013':'🌱 Greenhouses','CAM-014':'🌱 Greenhouses','CAM-015':'🌱 Greenhouses','CAM-016':'🌱 Greenhouses','CAM-017':'🛡 GH Perimeter','CAM-018':'🛡 Perimeter & Gates','CAM-019':'🛡 Perimeter & Gates','CAM-020':'📦 Packaging & Logistics','CAM-021':'💧 Fertigation','CAM-022':'🛡 GH Perimeter','CAM-023':'🛡 GH Perimeter','CAM-024':'🛡 GH Perimeter','CAM-025':'💧 Fertigation','CAM-026':'🛡 GH Perimeter','CAM-027':'🛡 GH Perimeter','CAM-028':'💧 Fertigation','CAM-029':'💧 Fertigation','CAM-030':'💧 Fertigation','CAM-031':'🛡 GH Perimeter','CAM-032':'🛡 GH Perimeter','CAM-033':'🛡 GH Perimeter','CAM-034':'🏢 Office & Admin','CAM-035':'🛡 GH Perimeter','CAM-036':'🛡 Perimeter & Gates','CAM-037':'🛡 GH Perimeter','CAM-038':'🛡 Perimeter & Gates','CAM-039':'🏢 Office & Admin','CAM-040':'💧 Fertigation','CAM-041':'🛡 Perimeter & Gates','CAM-042':'🌱 Greenhouses','CAM-043':'🏢 Office & Admin','CAM-044':'🛡 Perimeter & Gates','CAM-045':'🛡 Perimeter & Gates','CAM-046':'🌱 Greenhouses','CAM-047':'🏢 Office & Admin','CAM-048':'🛡 Perimeter & Gates','CAM-049':'📍 Security & Other','CAM-050':'📍 Security & Other','CAM-051':'🏢 Office & Admin','CAM-052':'📍 Security & Other','CAM-053':'🏢 Office & Admin','CAM-054':'📦 Packaging & Logistics','CAM-055':'📦 Packaging & Logistics','CAM-056':'🏢 Office & Admin','CAM-057':'🏢 Office & Admin','CAM-058':'🏢 Office & Admin','CAM-059':'🏗 Project 11 (HIPC)','CAM-060':'🏗 Project 11 (HIPC)','CAM-061':'🏗 Project 11 (HIPC)','CAM-062':'🏗 Project 11 (HIPC)','CAM-063':'🏢 Office & Admin','CAM-064':'📦 Packaging & Logistics','CAM-065':'🛡 Perimeter & Gates','CAM-066':'🏢 Office & Admin','CAM-067':'🏢 Office & Admin','CAM-068':'📦 Packaging & Logistics','CAM-069':'🛡 Perimeter & Gates','CAM-070':'🏢 Office & Admin','CAM-071':'💧 Fertigation','CAM-072':'💧 Fertigation','CAM-073':'🌱 Greenhouses','CAM-074':'🌱 Greenhouses','CAM-075':'🌱 Greenhouses','CAM-076':'🌱 Greenhouses','CAM-077':'💧 Fertigation','CAM-078':'🛡 Perimeter & Gates','CAM-079':'📦 Packaging & Logistics','CAM-080':'📦 Packaging & Logistics','CAM-081':'📦 Packaging & Logistics'};
     var AREA_ORDER=['🌱 Greenhouses','🛡 GH Perimeter','🛡 Perimeter & Gates','💧 Fertigation','📦 Packaging & Logistics','🏗 Project 11 (HIPC)','🏢 Office & Admin','📍 Security & Other'];
-    function _areaOf(c){ return (c&&(c.area||CAM_AREA[c.id]))||'🆕 Unsorted'; }
+    function _areaOf(c){
+      if(!c) return '🆕 Unsorted';
+      // 1) explicit manual override — wins everything
+      if(c.area) return c.area;
+      // 2) smart rules on the camera's authoritative group (from NVR/TV wiring)
+      //    catches mis-located cameras that hand-mapped CAM_AREA missed
+      try{
+        var g = String(c.group||'').toUpperCase();
+        if(g){
+          // TV2 = GH PERIMETER ring around the greenhouses (NVR-2)
+          if(g.indexOf('TV2')===0 || g.indexOf('GH PERIMETER')>=0) return '🛡 GH Perimeter';
+          // TV1 = GREENHOUSES interior (NVR-1)
+          if(g.indexOf('TV1')===0 || g.indexOf('GREENHOUSE')>=0)   return '🌱 Greenhouses';
+        }
+      }catch(_){}
+      // 3) hand-maintained per-id map (legacy fallback)
+      if(CAM_AREA[c.id]) return CAM_AREA[c.id];
+      return '🆕 Unsorted';
+    }
     function loadArea(){ try{ return localStorage.getItem(AREA_KEY)||null; }catch(e){ return null; } }
     function saveArea(v){ try{ localStorage.setItem(AREA_KEY,v); }catch(e){} }
     function _buildAreaList(list){
@@ -143353,6 +143382,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     var live = snapToLive(snap);
     if(!live){ tile.setAttribute('data-hnxlive','snap'); return; }
     tile.setAttribute('data-hnxlive','live');
+    tile.setAttribute('data-snap-orig', snap);   // preserved for the verification probe
     img.removeAttribute('data-snap');      // stop the 4s snapshot polling for this dead endpoint
     inflight++;
 
@@ -143368,11 +143398,76 @@ body.hnx-mobile-locked { overflow: hidden; }
       var off = tile.querySelector('.hnx-snap-off'); if(off) off.style.display = 'none';
       try{ img.style.display = 'none'; }catch(e){}
       freeSlot();
+      // p150 — verify the upstream stream actually works. The iframe load fires
+      // as soon as go2rtc's player page is served, regardless of whether the
+      // underlying RTSP DESCRIBE / stream lookup succeeded — so go2rtc's own
+      // "mse: stream not found" / "mse: streams: wrong response DESCRIBE" text
+      // leaks into the tile. Probe the snapshot endpoint to confirm reality.
+      setTimeout(function(){ verifyAfterUpgrade(tile, snap); }, 3000);
     }, { once:true });
     setTimeout(freeSlot, SLOT_MS);         // never deadlock a slot
 
     // sit behind the existing label (z2) and tap-to-fullscreen overlay (z3)
     tile.insertBefore(ifr, tile.firstChild);
+  }
+
+  // p150 — post-upgrade health check. If the snapshot endpoint comes back broken
+  // twice in a row, the stream is genuinely offline → replace any go2rtc error
+  // text with a clean "📡 Stream offline · tap to refresh" overlay.
+  function verifyAfterUpgrade(tile, snapUrl){
+    if(!tile || !document.body.contains(tile)) return;
+    if(tile.getAttribute('data-hnx-verified')) return;
+    if(!snapUrl) return;
+    var fails = 0;
+    function tick(){
+      if(!document.body.contains(tile)) return;
+      var p = new Image();
+      var settled = false;
+      function ok(){ if(settled) return; settled = true;
+        tile.setAttribute('data-hnx-verified','ok');
+      }
+      function bad(){
+        if(settled) return; settled = true;
+        fails++;
+        if(fails >= 2){
+          tile.setAttribute('data-hnx-verified','offline');
+          showStreamOffline(tile);
+        } else {
+          setTimeout(tick, 2200);
+        }
+      }
+      p.onload = function(){ (p.naturalWidth>2) ? ok() : bad(); };
+      p.onerror = bad;
+      // bust cache aggressively — go2rtc's frame.jpeg likes a fresh URL
+      var sep = snapUrl.indexOf('?')>=0 ? '&' : '?';
+      p.src = snapUrl + sep + 'v=' + Date.now();
+      setTimeout(function(){ if(!settled) bad(); }, 4000);  // timeout failure too
+    }
+    tick();
+  }
+
+  function showStreamOffline(tile){
+    var off = tile.querySelector('.hnx-snap-off');
+    if(!off) return;
+    off.innerHTML =
+      '<div style="font-size:30px;opacity:.55;line-height:1;">📡</div>'+
+      '<div style="font-size:11px;font-weight:700;color:#9cc;font-family:monospace;margin-top:6px;letter-spacing:.5px;">STREAM OFFLINE</div>'+
+      '<div style="font-size:9.5px;color:#5b7d70;margin-top:3px;">tap to refresh</div>';
+    off.style.cssText = 'position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0c1713;color:#9cc;pointer-events:auto;cursor:pointer;';
+    off.onclick = function(e){
+      e.stopPropagation(); e.preventDefault();
+      var ifr = tile.querySelector('iframe');
+      if(ifr){
+        var s = ifr.src;
+        ifr.src = 'about:blank';
+        setTimeout(function(){ ifr.src = s; }, 80);
+      }
+      off.style.display = 'none';
+      tile.removeAttribute('data-hnx-verified');
+      // re-verify after a few seconds
+      var orig = tile.getAttribute('data-snap-orig')||'';
+      if(orig) setTimeout(function(){ verifyAfterUpgrade(tile, orig); }, 3500);
+    };
   }
 
   // Force every connected tile to the live player right now (skip grace)
@@ -143897,6 +143992,1158 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ================= END HNX CCTV BRIDGE-OFFLINE BANNER ================= -->
+
+<!-- ================= HNX STREAM HEALTH DIAGNOSTIC (v2.46.291) =================
+     IT module view that probes every camera's snapshot endpoint in parallel
+     (rate-limited to 6 concurrent) and reports per-camera status:
+       ✅ Healthy  — snapshot loads and has real pixel content
+       ❌ Broken   — snapshot endpoint errors (stream missing or RTSP fails)
+       ⏱ Timeout  — bridge is reachable but the stream took >4s
+       ⏸ Unknown  — never probed yet
+     Groups results by Area (uses the same smart _areaOf from p150) or by NVR.
+     Export CSV for the bridge owner to fix go2rtc.yaml.
+     Storage: hydroPro_cctv_health_v1 (cloud-synced).
+     ================================================================ -->
+<script>
+(function(){
+  'use strict';
+  if(window.renderItStreamHealth) return;
+
+  var HEALTH_KEY = 'hydroPro_cctv_health_v1';
+  var STREAMS_KEY = 'hydroPro_camera_streams';
+  var BASE_KEY = 'hydroPro_cctv_base_v1';
+  var DEFAULT_BASE = 'https://cctv.abapardes.com.ph';
+  var PROBE_TIMEOUT = 4000;
+  var PROBE_CONCURRENCY = 6;
+
+  // --- helpers ---
+  function getBridgeBase(){
+    try{ return (localStorage.getItem(BASE_KEY)||DEFAULT_BASE).replace(/\/+$/,''); }
+    catch(_){ return DEFAULT_BASE; }
+  }
+  function loadStreams(){
+    try{ return JSON.parse(localStorage.getItem(STREAMS_KEY)||'{}')||{}; }
+    catch(_){ return {}; }
+  }
+  function loadHealth(){
+    try{ return JSON.parse(localStorage.getItem(HEALTH_KEY)||'null')||{lastScan:null, results:{}}; }
+    catch(_){ return {lastScan:null, results:{}}; }
+  }
+  function saveHealth(h){
+    try{ localStorage.setItem(HEALTH_KEY, JSON.stringify(h)); }catch(_){}
+  }
+  function getCameras(){
+    try{
+      if(typeof window.loadCameras==='function') return window.loadCameras()||[];
+      if(typeof window.REAL_CAMERAS!=='undefined' && Array.isArray(window.REAL_CAMERAS)) return window.REAL_CAMERAS;
+    }catch(_){}
+    return [];
+  }
+  function snapUrlFor(streamName){
+    if(!streamName) return '';
+    return getBridgeBase()+'/api/frame.jpeg?src='+encodeURIComponent(streamName);
+  }
+  // Group resolver mirrors p150's smart _areaOf — kept in sync deliberately
+  function areaOfCam(c){
+    if(!c) return '🆕 Unsorted';
+    if(c.area) return c.area;
+    var g = String(c.group||'').toUpperCase();
+    if(g.indexOf('TV2')===0 || g.indexOf('GH PERIMETER')>=0) return '🛡 GH Perimeter';
+    if(g.indexOf('TV1')===0 || g.indexOf('GREENHOUSE')>=0)   return '🌱 Greenhouses';
+    try{
+      // probe the live CAM_AREA via DOM globals if available
+      var ca = window.__hnxCamAreaMap || null;
+      if(ca && ca[c.id]) return ca[c.id];
+    }catch(_){}
+    return '🆕 Unsorted';
+  }
+  function esc(s){ s=(s==null)?'':String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function fmtAgo(iso){
+    if(!iso) return 'never';
+    try{
+      var d = new Date(iso);
+      var ms = Date.now() - d.getTime();
+      var min = Math.floor(ms/60000);
+      if(min < 1) return 'just now';
+      if(min < 60) return min+' min ago';
+      var h = Math.floor(min/60);
+      if(h < 24) return h+'h ago';
+      return Math.floor(h/24)+'d ago';
+    }catch(_){ return '?'; }
+  }
+
+  // --- probe engine ---
+  var _state = {
+    running: false,
+    queue: [],
+    inflight: 0,
+    done: 0,
+    total: 0,
+    filter: 'all',          // 'all' | 'ok' | 'broken'
+    groupBy: 'area',        // 'area' | 'nvr'
+    abort: false
+  };
+
+  function probeOne(cam, streams, onDone){
+    var stream = streams[cam.id]||'';
+    var url = stream ? snapUrlFor(stream) : '';
+    if(!url){
+      onDone({ status:'no_stream', latencyMs:0, snapUrl:'', streamName:'' });
+      return;
+    }
+    var img = new Image();
+    var settled = false;
+    var t0 = Date.now();
+    function finish(status, lat){
+      if(settled) return; settled = true;
+      onDone({ status:status, latencyMs:lat, snapUrl:url, streamName:stream });
+    }
+    img.onload = function(){ finish((img.naturalWidth>2 ? 'ok' : 'broken'), Date.now()-t0); };
+    img.onerror = function(){ finish('broken', Date.now()-t0); };
+    setTimeout(function(){ finish('timeout', PROBE_TIMEOUT); }, PROBE_TIMEOUT);
+    img.src = url + (url.indexOf('?')>=0 ? '&' : '?') + '_hnxhc=' + Date.now();
+  }
+
+  function startScan(){
+    if(_state.running) return;
+    var cams = getCameras();
+    if(!cams.length){
+      try{ if(typeof toast==='function') toast('No cameras loaded — check CCTV Setup','warn'); }catch(_){}
+      return;
+    }
+    _state.running = true;
+    _state.abort = false;
+    _state.queue = cams.slice();
+    _state.inflight = 0;
+    _state.done = 0;
+    _state.total = cams.length;
+    var health = loadHealth();
+    health.results = health.results || {};
+    var streams = loadStreams();
+
+    function tick(){
+      if(_state.abort){ _state.running = false; render(); return; }
+      while(_state.inflight < PROBE_CONCURRENCY && _state.queue.length){
+        var cam = _state.queue.shift();
+        _state.inflight++;
+        (function(c){
+          probeOne(c, streams, function(res){
+            _state.inflight--;
+            _state.done++;
+            health.results[c.id] = Object.assign({}, res, { probedAt: new Date().toISOString() });
+            // throttle UI updates — render every few completions
+            if(_state.done % 5 === 0 || _state.done === _state.total){
+              render(health);
+            }
+            if(_state.queue.length === 0 && _state.inflight === 0){
+              health.lastScan = new Date().toISOString();
+              saveHealth(health);
+              _state.running = false;
+              render(health);
+              try{ if(typeof toast==='function') toast('✓ Stream health scan complete — '+countBy(health,'ok')+'/'+_state.total+' healthy'); }catch(_){}
+            } else {
+              tick();
+            }
+          });
+        })(cam);
+      }
+    }
+    render(health);
+    tick();
+  }
+
+  function stopScan(){ _state.abort = true; _state.running = false; render(); }
+
+  function reprobeOne(camId){
+    var cams = getCameras();
+    var cam = null;
+    for(var i=0;i<cams.length;i++){ if(cams[i].id===camId){ cam = cams[i]; break; } }
+    if(!cam) return;
+    var streams = loadStreams();
+    var health = loadHealth();
+    health.results = health.results || {};
+    health.results[camId] = Object.assign({}, health.results[camId]||{}, { status:'probing', probedAt:new Date().toISOString() });
+    saveHealth(health);
+    render(health);
+    probeOne(cam, streams, function(res){
+      var h2 = loadHealth();
+      h2.results = h2.results || {};
+      h2.results[camId] = Object.assign({}, res, { probedAt:new Date().toISOString() });
+      saveHealth(h2);
+      render(h2);
+    });
+  }
+  window.__hnxReprobeStream = reprobeOne;
+
+  // --- helpers ---
+  function countBy(health, status){
+    var n = 0, r = (health&&health.results)||{};
+    for(var k in r) if(r[k] && r[k].status===status) n++;
+    return n;
+  }
+  function csvEscape(s){
+    s = (s==null)?'':String(s);
+    if(s.indexOf(',')>=0 || s.indexOf('"')>=0 || s.indexOf('\n')>=0) return '"'+s.replace(/"/g,'""')+'"';
+    return s;
+  }
+  function exportCsv(){
+    var health = loadHealth();
+    var cams = getCameras();
+    var streams = loadStreams();
+    var rows = [['camera_id','name','location','nvr','channel','group','area','ip','stream_name','status','latency_ms','probed_at','snap_url']];
+    cams.forEach(function(c){
+      var r = (health.results||{})[c.id] || {};
+      rows.push([
+        c.id, c.name||'', c.location||'', c.nvrId||'', c.channel||'',
+        c.group||'', areaOfCam(c), c.ip||'',
+        streams[c.id]||'',
+        r.status||'never_probed', r.latencyMs||'',
+        r.probedAt||'', r.snapUrl||''
+      ]);
+    });
+    var csv = rows.map(function(row){ return row.map(csvEscape).join(','); }).join('\n');
+    var blob = new Blob([csv], {type:'text/csv'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'cctv-stream-health-'+ new Date().toISOString().substring(0,10)+'.csv';
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+    try{ if(typeof toast==='function') toast('💾 Exported stream health CSV ('+(rows.length-1)+' cameras)'); }catch(_){}
+  }
+
+  function statusMeta(s){
+    switch(s){
+      case 'ok':       return { icon:'✅', label:'Healthy',   color:'#26c281', bg:'rgba(38,194,129,.10)' };
+      case 'broken':   return { icon:'❌', label:'Broken',    color:'#ef5350', bg:'rgba(239,83,80,.10)' };
+      case 'timeout':  return { icon:'⏱', label:'Timeout',   color:'#ff9800', bg:'rgba(255,152,0,.10)' };
+      case 'no_stream':return { icon:'⚙', label:'Unmapped',  color:'#9aa', bg:'rgba(154,170,170,.08)' };
+      case 'probing':  return { icon:'🔄', label:'Probing…',  color:'#42a5f5', bg:'rgba(66,165,245,.10)' };
+      default:         return { icon:'⏸', label:'Not probed',color:'#7a9a8e', bg:'rgba(122,154,142,.06)' };
+    }
+  }
+
+  // --- renderer ---
+  function setFilter(f){ _state.filter = f; var h = loadHealth(); render(h); }
+  function setGroup(g){ _state.groupBy = g; var h = loadHealth(); render(h); }
+  window.__hnxStreamHealthFilter = setFilter;
+  window.__hnxStreamHealthGroup = setGroup;
+  window.__hnxStreamHealthScan = startScan;
+  window.__hnxStreamHealthStop = stopScan;
+  window.__hnxStreamHealthExport = exportCsv;
+
+  function render(health){
+    var host = document.getElementById('itStreamHealthHost');
+    if(!host) return;
+    health = health || loadHealth();
+    var results = (health && health.results) || {};
+    var cams = getCameras();
+    var streams = loadStreams();
+    var base = getBridgeBase();
+
+    var nOk = 0, nBroken = 0, nTimeout = 0, nUnmapped = 0, nNotProbed = 0;
+    cams.forEach(function(c){
+      var s = (results[c.id]||{}).status;
+      if(s==='ok') nOk++;
+      else if(s==='broken') nBroken++;
+      else if(s==='timeout') nTimeout++;
+      else if(s==='no_stream') nUnmapped++;
+      else nNotProbed++;
+    });
+
+    // Apply filter
+    function passesFilter(c){
+      var s = (results[c.id]||{}).status;
+      if(_state.filter==='all') return true;
+      if(_state.filter==='ok') return s==='ok';
+      if(_state.filter==='broken') return s==='broken' || s==='timeout' || s==='no_stream';
+      return true;
+    }
+    var visible = cams.filter(passesFilter);
+
+    // Group
+    function groupKey(c){
+      if(_state.groupBy==='nvr') return (c.nvrId||'(no NVR)')+' · '+(c.group||'no TV');
+      return areaOfCam(c);
+    }
+    var groups = {};
+    visible.forEach(function(c){
+      var k = groupKey(c);
+      (groups[k] = groups[k] || []).push(c);
+    });
+    var groupKeys = Object.keys(groups).sort();
+
+    var scanProgress = _state.running
+      ? '<span style="color:#42a5f5;font-size:11px;font-weight:600;margin-left:8px;">⚡ Scanning… '+_state.done+'/'+_state.total+'</span>'
+      : '';
+
+    var card = function(icon, n, label, color){
+      return '<div style="background:'+color+'22;border:1px solid '+color+'44;border-radius:9px;padding:10px 12px;min-width:96px;text-align:center;">'
+        +'<div style="font-size:18px;line-height:1;">'+icon+'</div>'
+        +'<div style="font-size:20px;font-weight:800;color:'+color+';font-family:var(--mono,monospace);margin-top:2px;">'+n+'</div>'
+        +'<div style="font-size:10px;color:#8aa;text-transform:uppercase;letter-spacing:.5px;margin-top:1px;">'+label+'</div>'
+      +'</div>';
+    };
+
+    function filterBtn(id, label, active){
+      return '<button onclick="__hnxStreamHealthFilter(\''+id+'\')" style="padding:6px 12px;border-radius:7px;border:1px solid '+(active?'#26c281':'#2c5a3f')+';background:'+(active?'rgba(38,194,129,.15)':'transparent')+';color:'+(active?'#26c281':'#9fc')+';font-size:12px;font-weight:600;cursor:pointer;">'+label+'</button>';
+    }
+    function groupBtn(id, label, active){
+      return '<button onclick="__hnxStreamHealthGroup(\''+id+'\')" style="padding:6px 12px;border-radius:7px;border:1px solid '+(active?'#42a5f5':'#2c5a3f')+';background:'+(active?'rgba(66,165,245,.15)':'transparent')+';color:'+(active?'#42a5f5':'#9fc')+';font-size:12px;font-weight:600;cursor:pointer;">'+label+'</button>';
+    }
+
+    function row(c){
+      var r = results[c.id]||{};
+      var meta = statusMeta(r.status);
+      var stream = streams[c.id]||'';
+      var lat = (r.status==='ok'||r.status==='broken') ? (r.latencyMs+'ms') : (r.status==='timeout' ? '>'+PROBE_TIMEOUT+'ms' : '—');
+      return '<div style="display:grid;grid-template-columns:32px 1fr 1.5fr 70px 60px 65px 80px;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid #1c3a2a;background:'+meta.bg+';font-size:12px;">'
+        +'<div title="'+esc(meta.label)+'" style="font-size:16px;text-align:center;">'+meta.icon+'</div>'
+        +'<div><div style="color:#e8f5e9;font-weight:600;">'+esc(c.name||c.id)+'</div><div style="font-size:10.5px;color:#7aa99a;font-family:var(--mono,monospace);">'+esc(c.id)+' · '+esc(c.location||'')+'</div></div>'
+        +'<div style="font-size:10.5px;color:#9fc;font-family:var(--mono,monospace);">'+esc(stream||'(unmapped)')+'<br><span style="color:#5b7670;">'+esc(c.ip||'')+'</span></div>'
+        +'<div style="font-family:var(--mono,monospace);color:#a5d6e6;">'+esc(c.nvrId||'—')+'</div>'
+        +'<div style="font-family:var(--mono,monospace);color:#7aa99a;text-align:center;">ch'+esc(c.channel||'?')+'</div>'
+        +'<div style="font-family:var(--mono,monospace);color:'+meta.color+';text-align:right;">'+esc(lat)+'</div>'
+        +'<div style="text-align:right;"><button onclick="__hnxReprobeStream(\''+esc(c.id)+'\')" style="padding:4px 8px;background:transparent;border:1px solid #2c5a3f;color:#9fc;border-radius:5px;cursor:pointer;font-size:11px;">↻ probe</button></div>'
+      +'</div>';
+    }
+
+    var html = ''
+      +'<div style="padding:20px;max-width:1200px;margin:0 auto;">'
+        // Header
+        +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:16px;">'
+          +'<div>'
+            +'<div style="font-size:20px;font-weight:800;color:#e8f5e9;letter-spacing:.5px;">🩺 Stream Health Diagnostic</div>'
+            +'<div style="font-size:11.5px;color:#7aa99a;margin-top:4px;font-family:var(--mono,monospace);">Bridge: '+esc(base.replace(/^https?:\/\//,''))+' · Last scan: '+esc(fmtAgo(health.lastScan))+scanProgress+'</div>'
+          +'</div>'
+          +'<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+            + (_state.running
+                ? '<button onclick="__hnxStreamHealthStop()" style="padding:9px 16px;border-radius:8px;border:1px solid #ef5350;background:rgba(239,83,80,.12);color:#ef5350;font-size:13px;font-weight:700;cursor:pointer;">⏸ Stop</button>'
+                : '<button onclick="__hnxStreamHealthScan()" style="padding:9px 16px;border-radius:8px;border:1px solid #26c281;background:rgba(38,194,129,.15);color:#26c281;font-size:13px;font-weight:700;cursor:pointer;">▶ Scan all</button>'
+              )
+            +'<button onclick="__hnxStreamHealthExport()" style="padding:9px 16px;border-radius:8px;border:1px solid #ff9800;background:rgba(255,152,0,.10);color:#ff9800;font-size:13px;font-weight:700;cursor:pointer;">💾 Export CSV</button>'
+          +'</div>'
+        +'</div>'
+        // Summary cards
+        +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">'
+          + card('✅', nOk,        'HEALTHY',  '#26c281')
+          + card('❌', nBroken,    'BROKEN',   '#ef5350')
+          + card('⏱', nTimeout,   'TIMEOUT',  '#ff9800')
+          + card('⚙', nUnmapped,  'UNMAPPED', '#9aa')
+          + card('⏸', nNotProbed, 'NOT PROBED','#7a9a8e')
+          + card('📷', cams.length,'TOTAL',    '#42a5f5')
+        +'</div>'
+        // Controls
+        +'<div style="display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px;">'
+          +'<div style="display:flex;gap:6px;align-items:center;">'
+            +'<span style="font-size:11px;color:#7aa99a;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-right:4px;">Filter</span>'
+            + filterBtn('all',    'All ('+cams.length+')',    _state.filter==='all')
+            + filterBtn('ok',     '✅ Healthy ('+nOk+')',      _state.filter==='ok')
+            + filterBtn('broken', '❌ Needs attention ('+(nBroken+nTimeout+nUnmapped)+')',  _state.filter==='broken')
+          +'</div>'
+          +'<div style="display:flex;gap:6px;align-items:center;">'
+            +'<span style="font-size:11px;color:#7aa99a;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-right:4px;">Group by</span>'
+            + groupBtn('area', 'Area',  _state.groupBy==='area')
+            + groupBtn('nvr',  'NVR/TV',_state.groupBy==='nvr')
+          +'</div>'
+        +'</div>'
+        // Headers + groups
+        +'<div style="border:1px solid #2c5a3f;border-radius:11px;overflow:hidden;background:#0a1612;">'
+          +'<div style="display:grid;grid-template-columns:32px 1fr 1.5fr 70px 60px 65px 80px;gap:10px;padding:9px 12px;background:#0d1f17;border-bottom:1px solid #2c5a3f;font-size:10px;color:#5a8;text-transform:uppercase;letter-spacing:.5px;font-weight:700;">'
+            +'<div></div><div>Camera</div><div>Stream / IP</div><div>NVR</div><div style="text-align:center;">Ch</div><div style="text-align:right;">Latency</div><div></div>'
+          +'</div>'
+          + (groupKeys.length === 0
+              ? '<div style="padding:32px 20px;text-align:center;color:#7aa99a;font-size:13px;">No cameras match this filter.</div>'
+              : groupKeys.map(function(gk){
+                  var groupCams = groups[gk];
+                  var groupOk = 0;
+                  groupCams.forEach(function(c){ if((results[c.id]||{}).status==='ok') groupOk++; });
+                  return ''
+                    +'<div style="padding:10px 12px;background:rgba(255,255,255,.025);border-bottom:1px solid #1c3a2a;font-size:11.5px;font-weight:700;color:#a5d6e6;letter-spacing:.3px;">'
+                      + esc(gk) + ' &nbsp;<span style="color:#7aa99a;font-weight:500;">— '+groupOk+'/'+groupCams.length+' healthy</span>'
+                    +'</div>'
+                    + groupCams.map(row).join('');
+                }).join('')
+            )
+        +'</div>'
+        // Help footnote
+        +'<div style="margin-top:14px;padding:12px 14px;background:rgba(66,165,245,.06);border:1px solid #42a5f566;border-radius:9px;font-size:11.5px;color:#a5d6e6;line-height:1.55;">'
+          +'<b style="color:#42a5f5;">How to read this</b><br>'
+          +'<b>❌ Broken</b> = go2rtc returned a non-image (likely RTSP DESCRIBE error or wrong path in go2rtc.yaml).<br>'
+          +'<b>⏱ Timeout</b> = bridge is reachable but stream took >4s (camera may be offline, or bandwidth issue).<br>'
+          +'<b>⚙ Unmapped</b> = the camera has no stream slug assigned. Go to IT → CCTV Setup → Assign cameras.<br>'
+          +'Export the CSV and hand it to whoever maintains <code style="background:#0d1f17;padding:1px 4px;border-radius:3px;">go2rtc.yaml</code> on the bridge.'
+        +'</div>'
+      +'</div>';
+
+    host.innerHTML = html;
+  }
+
+  // Public entry point
+  window.renderItStreamHealth = function(){
+    // Find the main content area — same target other IT renderers use
+    var target = document.getElementById('mainContent') || document.getElementById('content') || document.querySelector('.main-content') || document.body;
+    if(!target){ return; }
+    // If we already have a host, just re-render
+    var host = document.getElementById('itStreamHealthHost');
+    if(!host){
+      host = document.createElement('div');
+      host.id = 'itStreamHealthHost';
+      target.innerHTML = '';
+      target.appendChild(host);
+    }
+    render(loadHealth());
+  };
+
+  console.log('[HNX-CCTV] Stream Health Diagnostic ready — switchView("it_stream_health")');
+})();
+</script>
+<!-- ================= END HNX STREAM HEALTH DIAGNOSTIC ================= -->
+
+<!-- ================= HNX HR FINAL PAY DASHBOARD (v2.46.292) =================
+     Accounting batch view that lists every employee with an active offboarding
+     (T-44) + their current Final Pay status (T-46). Quick filter by stage.
+     Each row → opens the Final Pay modal directly (same modal HR uses).
+     Storage: reads hydroPro_offboarding_v1 + hydroPro_final_pay_v1
+     (both already exist from the T-44/T-46 builds, both cloud-synced).
+     ================================================================ -->
+<script>
+(function(){
+  'use strict';
+  if(window.renderHrFinalPayDashboard) return;
+
+  // --- helpers ---
+  function loadOffbAll(){
+    try{ return JSON.parse(localStorage.getItem('hydroPro_offboarding_v1')||'{}')||{}; }
+    catch(_){ return {}; }
+  }
+  function loadFpAll(){
+    try{ return JSON.parse(localStorage.getItem('hydroPro_final_pay_v1')||'{}')||{}; }
+    catch(_){ return {}; }
+  }
+  function getEmployees(){
+    try{
+      if(typeof window.employees!=='undefined' && Array.isArray(window.employees)) return window.employees;
+      var raw = localStorage.getItem('hydroPro_hr_employees');
+      if(raw) return JSON.parse(raw)||[];
+    }catch(_){}
+    return [];
+  }
+  function findEmp(empId){
+    var list = getEmployees();
+    for(var i=0;i<list.length;i++){ if(list[i].id===empId) return list[i]; }
+    return null;
+  }
+  function esc(s){ s=(s==null)?'':String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function money(n){ n=Number(n)||0; return '₱'+n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function fmtDate(iso){ if(!iso) return '—'; try{ return iso.substring(0,10); }catch(_){ return String(iso); } }
+  function ageDays(iso){
+    if(!iso) return null;
+    try{ var d=new Date(iso); return Math.floor((Date.now()-d.getTime())/86400000); }
+    catch(_){ return null; }
+  }
+
+  // Status & stage classification (combines T-44 + T-46 state into a single bucket)
+  function classifyRow(empId, offb, fp){
+    var stage; // 'no_fp' | 'prepared' | 'approved' | 'released'
+    var hold = !!(offb && offb.holdPay);
+    if(!fp) stage = 'no_fp';
+    else stage = fp.status || 'no_fp';
+    return { stage:stage, hold:hold };
+  }
+
+  function stageMeta(s, hold){
+    if(hold && s !== 'released'){
+      return { icon:'🚫', label:'HOLD', color:'#ef5350', bg:'rgba(239,83,80,.10)' };
+    }
+    switch(s){
+      case 'no_fp':    return { icon:'💰', label:'Needs preparation', color:'#ff9800', bg:'rgba(255,152,0,.10)' };
+      case 'prepared': return { icon:'💼', label:'Awaiting Mgr',      color:'#42a5f5', bg:'rgba(66,165,245,.10)' };
+      case 'approved': return { icon:'👔', label:'Awaiting Release',  color:'#7c4dff', bg:'rgba(124,77,255,.10)' };
+      case 'released': return { icon:'💸', label:'Paid out',          color:'#26c281', bg:'rgba(38,194,129,.10)' };
+      default:         return { icon:'⏸', label:'Unknown',            color:'#7a9a8e', bg:'rgba(122,154,142,.06)' };
+    }
+  }
+
+  function summary(rows){
+    var c = { no_fp:0, prepared:0, approved:0, released:0, hold:0, total:rows.length, totalNet:0, totalReleased:0 };
+    rows.forEach(function(r){
+      if(r.hold && r.stage!=='released') c.hold++;
+      else if(r.stage==='no_fp') c.no_fp++;
+      else if(r.stage==='prepared') c.prepared++;
+      else if(r.stage==='approved') c.approved++;
+      else if(r.stage==='released') c.released++;
+      if(r.fp && r.fp.calc){ c.totalNet += (Number(r.fp.calc.netFinalPay)||0); }
+      if(r.stage==='released' && r.fp && r.fp.calc){ c.totalReleased += (Number(r.fp.calc.netFinalPay)||0); }
+    });
+    return c;
+  }
+
+  function csvEscape(s){
+    s = (s==null)?'':String(s);
+    if(s.indexOf(',')>=0 || s.indexOf('"')>=0 || s.indexOf('\n')>=0) return '"'+s.replace(/"/g,'""')+'"';
+    return s;
+  }
+  function exportCsv(rows){
+    var header = ['employee_id','name','position','department','reason','last_working_day','offb_started','offb_status','fp_stage','hold_pay','hold_reason','asset_deduction','loan_deduction','other_deduction','base_wages','prorated_13th','leave_cash','total_earnings','total_deductions','net_final_pay','payment_method','payment_ref','prepared_by','prepared_at','approved_by','approved_at','released_by','released_at'];
+    var data = [header];
+    rows.forEach(function(r){
+      var e = r.emp || {};
+      var o = r.offb || {};
+      var fp = r.fp || {};
+      var c = fp.calc || {};
+      data.push([
+        e.id||'', e.name||'', e.position||e.role||'', e.dept||(e.departments?e.departments.join('|'):''),
+        o.reason||'', fp.lastWorkingDay||fmtDate(o.finalizedAt||o.startedAt), fmtDate(o.startedAt),
+        o.status||'', fp.status||'not_started', !!o.holdPay, o.holdReason||'',
+        c.assetDeduction||'', c.loanDeduction||'', c.otherDeductions||'',
+        c.baseWagesLastPeriod||'', c.prorated13thMonth||'', c.leaveCashValue||'',
+        c.totalEarnings||'', c.totalDeductions||'', c.netFinalPay||'',
+        fp.paymentMethod||'', fp.paymentRef||'',
+        fp.preparedBy||'', fmtDate(fp.preparedAt),
+        fp.approvedBy||'', fmtDate(fp.approvedAt),
+        fp.releasedBy||'', fmtDate(fp.releasedAt)
+      ]);
+    });
+    var csv = data.map(function(row){ return row.map(csvEscape).join(','); }).join('\n');
+    var blob = new Blob([csv], {type:'text/csv'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'final-pay-separations-'+ new Date().toISOString().substring(0,10)+'.csv';
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+    try{ if(typeof toast==='function') toast('💾 Exported '+(data.length-1)+' separation records'); }catch(_){}
+  }
+
+  var _state = { filter:'all', sort:'last_day_desc' };
+
+  function setFilter(f){ _state.filter = f; render(); }
+  function setSort(s){ _state.sort = s; render(); }
+  window.__hnxFpFilter = setFilter;
+  window.__hnxFpSort = setSort;
+  window.__hnxFpExport = function(){
+    var rows = collect(); exportCsv(applyFilter(rows));
+  };
+
+  function collect(){
+    var offbAll = loadOffbAll();
+    var fpAll = loadFpAll();
+    var rows = [];
+    Object.keys(offbAll).forEach(function(empId){
+      var offb = offbAll[empId];
+      if(!offb) return;
+      var fp = fpAll[empId] || null;
+      var cls = classifyRow(empId, offb, fp);
+      var emp = findEmp(empId);
+      rows.push({
+        empId: empId,
+        emp: emp,
+        offb: offb,
+        fp: fp,
+        stage: cls.stage,
+        hold: cls.hold,
+        lastDay: (fp && fp.lastWorkingDay) ? fp.lastWorkingDay : ((offb.finalizedAt||offb.startedAt||'').substring(0,10)),
+        netAmount: (fp && fp.calc) ? (Number(fp.calc.netFinalPay)||0) : null
+      });
+    });
+    return rows;
+  }
+
+  function applyFilter(rows){
+    var f = _state.filter;
+    var filtered = rows.filter(function(r){
+      if(f==='all') return true;
+      if(f==='hold')     return r.hold && r.stage!=='released';
+      if(f==='no_fp')    return r.stage==='no_fp' && !r.hold;
+      if(f==='action')   return (r.stage==='no_fp' || r.stage==='prepared' || r.stage==='approved') && (!r.hold || r.stage==='no_fp');
+      if(f==='prepared') return r.stage==='prepared' && !r.hold;
+      if(f==='approved') return r.stage==='approved' && !r.hold;
+      if(f==='released') return r.stage==='released';
+      return true;
+    });
+    // Sort
+    var s = _state.sort;
+    filtered.sort(function(a, b){
+      if(s==='last_day_desc') return (b.lastDay||'').localeCompare(a.lastDay||'');
+      if(s==='last_day_asc')  return (a.lastDay||'').localeCompare(b.lastDay||'');
+      if(s==='amount_desc')   return (b.netAmount||0)-(a.netAmount||0);
+      if(s==='amount_asc')    return (a.netAmount||0)-(b.netAmount||0);
+      if(s==='name')          return ((a.emp&&a.emp.name)||'').localeCompare((b.emp&&b.emp.name)||'');
+      return 0;
+    });
+    return filtered;
+  }
+
+  function quickAction(r){
+    var canPrepare = !!(window.HNX_Approval && window.HNX_Approval.canApprove && window.HNX_Approval.canApprove('final_pay_prepare'));
+    var canApprove = !!(window.HNX_Approval && window.HNX_Approval.canApprove && window.HNX_Approval.canApprove('final_pay_approve'));
+    var canRelease = !!(window.HNX_Approval && window.HNX_Approval.canApprove && window.HNX_Approval.canApprove('final_pay_release'));
+    var open = 'hnxOpenFinalPay(\''+esc(r.empId)+'\')';
+    if(r.hold && r.stage!=='released'){
+      return '<button onclick="'+open+'" style="padding:6px 12px;border-radius:6px;border:1px solid #ef535066;background:rgba(239,83,80,.10);color:#ef5350;font-size:11.5px;font-weight:700;cursor:pointer;">🚫 Resolve hold</button>';
+    }
+    if(r.stage==='no_fp'){
+      var disabled = !canPrepare;
+      return '<button onclick="'+open+'" style="padding:6px 12px;border-radius:6px;border:1px solid '+(disabled?'#2c5a3f':'#ff9800')+';background:'+(disabled?'transparent':'rgba(255,152,0,.10)')+';color:'+(disabled?'#7a9a8e':'#ff9800')+';font-size:11.5px;font-weight:700;cursor:pointer;">💰 '+(disabled?'View':'Compute')+'</button>';
+    }
+    if(r.stage==='prepared'){
+      return '<button onclick="'+open+'" style="padding:6px 12px;border-radius:6px;border:1px solid '+(canApprove?'#42a5f5':'#2c5a3f')+';background:'+(canApprove?'rgba(66,165,245,.10)':'transparent')+';color:'+(canApprove?'#42a5f5':'#9fc')+';font-size:11.5px;font-weight:700;cursor:pointer;">'+(canApprove?'👔 Approve':'👁 View')+'</button>';
+    }
+    if(r.stage==='approved'){
+      return '<button onclick="'+open+'" style="padding:6px 12px;border-radius:6px;border:1px solid '+(canRelease?'#7c4dff':'#2c5a3f')+';background:'+(canRelease?'rgba(124,77,255,.10)':'transparent')+';color:'+(canRelease?'#7c4dff':'#9fc')+';font-size:11.5px;font-weight:700;cursor:pointer;">'+(canRelease?'💰 Release':'👁 View')+'</button>';
+    }
+    if(r.stage==='released'){
+      return '<button onclick="hnxPrintSeparationCertificate(\''+esc(r.empId)+'\')" style="padding:6px 12px;border-radius:6px;border:1px solid #26c281;background:rgba(38,194,129,.10);color:#26c281;font-size:11.5px;font-weight:700;cursor:pointer;">🖨 Certificate</button>';
+    }
+    return '<button onclick="'+open+'" style="padding:6px 12px;border-radius:6px;border:1px solid #2c5a3f;background:transparent;color:#9fc;font-size:11.5px;font-weight:700;cursor:pointer;">👁 Open</button>';
+  }
+
+  function render(){
+    var host = document.getElementById('hrFinalPayHost');
+    if(!host) return;
+    var allRows = collect();
+    var sm = summary(allRows);
+    var rows = applyFilter(allRows);
+
+    function card(icon, n, label, color, sub){
+      return '<div style="background:'+color+'14;border:1px solid '+color+'55;border-radius:9px;padding:11px 13px;min-width:108px;flex:1;">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;">'
+          +'<div style="font-size:11px;color:#8aa;text-transform:uppercase;letter-spacing:.5px;font-weight:700;">'+label+'</div>'
+          +'<div style="font-size:14px;opacity:.8;">'+icon+'</div>'
+        +'</div>'
+        +'<div style="font-size:22px;font-weight:800;color:'+color+';font-family:var(--mono,monospace);margin-top:3px;">'+n+'</div>'
+        + (sub ? '<div style="font-size:10px;color:#7aa99a;margin-top:1px;">'+sub+'</div>' : '')
+      +'</div>';
+    }
+    function filterBtn(id, label, count, active, color){
+      return '<button onclick="__hnxFpFilter(\''+id+'\')" style="padding:7px 13px;border-radius:7px;border:1px solid '+(active?(color||'#26c281'):'#2c5a3f')+';background:'+(active?(color||'#26c281')+'22':'transparent')+';color:'+(active?(color||'#26c281'):'#9fc')+';font-size:12px;font-weight:600;cursor:pointer;">'+label+(count!=null?' ('+count+')':'')+'</button>';
+    }
+
+    function row(r){
+      var meta = stageMeta(r.stage, r.hold);
+      var name = (r.emp && r.emp.name) || r.empId;
+      var pos = (r.emp && (r.emp.position||r.emp.role||r.emp.dept)) || '—';
+      var net = r.netAmount==null ? '—' : money(r.netAmount);
+      var age = ageDays(r.lastDay);
+      var ageStr = age==null ? '' : (age===0 ? 'today' : (age<0 ? Math.abs(age)+'d from now' : age+'d ago'));
+      return '<div style="display:grid;grid-template-columns:1.5fr 1.2fr 0.9fr 0.9fr 1fr 1.2fr 1fr;gap:10px;align-items:center;padding:11px 14px;border-bottom:1px solid #1c3a2a;background:'+meta.bg+';font-size:12.5px;">'
+        +'<div><div style="color:#e8f5e9;font-weight:700;">'+esc(name)+'</div><div style="font-size:10.5px;color:#7aa99a;font-family:var(--mono,monospace);">'+esc(r.empId)+'</div></div>'
+        +'<div style="color:#a5d6e6;font-size:11.5px;">'+esc(pos)+'</div>'
+        +'<div style="color:#a5d6e6;font-size:11.5px;text-transform:capitalize;">'+esc((r.offb&&r.offb.reason)||'—')+'</div>'
+        +'<div><div style="color:#e8f5e9;font-family:var(--mono,monospace);font-size:11.5px;">'+esc(fmtDate(r.lastDay))+'</div>'+(ageStr?'<div style="font-size:10px;color:#7aa99a;">'+esc(ageStr)+'</div>':'')+'</div>'
+        +'<div style="text-align:right;font-family:var(--mono,monospace);font-weight:'+(r.netAmount!=null?'700':'400')+';color:'+(r.netAmount!=null?'#26c281':'#7aa99a')+';">'+esc(net)+'</div>'
+        +'<div><span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:11px;background:'+meta.color+'22;color:'+meta.color+';border:1px solid '+meta.color+'66;font-size:10.5px;font-weight:700;">'+meta.icon+' '+esc(meta.label)+'</span></div>'
+        +'<div style="text-align:right;">'+quickAction(r)+'</div>'
+      +'</div>';
+    }
+
+    var sortOpts = [
+      {id:'last_day_desc', label:'Last working day (newest)'},
+      {id:'last_day_asc',  label:'Last working day (oldest)'},
+      {id:'amount_desc',   label:'Net amount (high → low)'},
+      {id:'amount_asc',    label:'Net amount (low → high)'},
+      {id:'name',          label:'Employee name (A→Z)'}
+    ];
+
+    host.innerHTML = ''
+      +'<div style="padding:20px;max-width:1280px;margin:0 auto;">'
+        +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:18px;">'
+          +'<div>'
+            +'<div style="font-size:20px;font-weight:800;color:#e8f5e9;letter-spacing:.3px;">💰 Final Pay — Separating Employees</div>'
+            +'<div style="font-size:11.5px;color:#7aa99a;margin-top:4px;">Accounting batch view · '+sm.total+' employees in offboarding · pulls from T-44 offboarding + T-46 final pay records</div>'
+          +'</div>'
+          +'<button onclick="__hnxFpExport()" style="padding:9px 16px;border-radius:8px;border:1px solid #ff9800;background:rgba(255,152,0,.10);color:#ff9800;font-size:13px;font-weight:700;cursor:pointer;">💾 Export CSV</button>'
+        +'</div>'
+        // Summary cards
+        +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">'
+          + card('🚫', sm.hold,     'HOLD',     '#ef5350', sm.hold ? 'release blocked' : '')
+          + card('💰', sm.no_fp,    'NOT STARTED', '#ff9800', sm.no_fp ? 'needs prep' : '')
+          + card('💼', sm.prepared, 'AWAITING MGR', '#42a5f5', sm.prepared ? 'manager review' : '')
+          + card('👔', sm.approved, 'AWAITING RELEASE', '#7c4dff', sm.approved ? 'VP/CEO review' : '')
+          + card('💸', sm.released, 'PAID OUT', '#26c281', sm.released ? money(sm.totalReleased).replace('₱','₱ ') : '')
+          + card('👥', sm.total,    'TOTAL', '#9fc', '')
+        +'</div>'
+        // Filter + sort
+        +'<div style="display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px;">'
+          +'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">'
+            +'<span style="font-size:11px;color:#7aa99a;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-right:4px;">Filter</span>'
+            + filterBtn('all',      'All',           sm.total,    _state.filter==='all',      '#9fc')
+            + filterBtn('action',   '⚡ Action needed', sm.no_fp+sm.prepared+sm.approved,    _state.filter==='action',   '#ff9800')
+            + filterBtn('hold',     '🚫 Hold',       sm.hold,     _state.filter==='hold',     '#ef5350')
+            + filterBtn('no_fp',    '💰 Not started', sm.no_fp,   _state.filter==='no_fp',    '#ff9800')
+            + filterBtn('prepared', '💼 Prepared',   sm.prepared, _state.filter==='prepared', '#42a5f5')
+            + filterBtn('approved', '👔 Approved',   sm.approved, _state.filter==='approved', '#7c4dff')
+            + filterBtn('released', '💸 Released',   sm.released, _state.filter==='released', '#26c281')
+          +'</div>'
+          +'<div style="display:flex;gap:6px;align-items:center;">'
+            +'<span style="font-size:11px;color:#7aa99a;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-right:4px;">Sort</span>'
+            +'<select onchange="__hnxFpSort(this.value)" style="background:#0d1f17;border:1px solid #2c5a3f;color:#9fc;border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;">'
+              + sortOpts.map(function(o){ return '<option value="'+o.id+'"'+(_state.sort===o.id?' selected':'')+'>'+esc(o.label)+'</option>'; }).join('')
+            +'</select>'
+          +'</div>'
+        +'</div>'
+        // Table
+        +'<div style="border:1px solid #2c5a3f;border-radius:11px;overflow:hidden;background:#0a1612;">'
+          +'<div style="display:grid;grid-template-columns:1.5fr 1.2fr 0.9fr 0.9fr 1fr 1.2fr 1fr;gap:10px;padding:10px 14px;background:#0d1f17;border-bottom:1px solid #2c5a3f;font-size:10px;color:#5a8;text-transform:uppercase;letter-spacing:.5px;font-weight:700;">'
+            +'<div>Employee</div><div>Position</div><div>Reason</div><div>Last Day</div><div style="text-align:right;">Net Amount</div><div>Stage</div><div></div>'
+          +'</div>'
+          + (rows.length === 0
+              ? '<div style="padding:40px 20px;text-align:center;color:#7aa99a;font-size:13px;">'
+                + (sm.total===0
+                    ? '<div style="font-size:28px;opacity:.4;margin-bottom:10px;">✨</div>No active offboardings — every employee on the roster is active.'
+                    : 'No separations match this filter. Try <button onclick="__hnxFpFilter(\'all\')" style="background:transparent;border:none;color:#42a5f5;cursor:pointer;font-weight:700;text-decoration:underline;">All</button>.'
+                  )
+                + '</div>'
+              : rows.map(row).join(''))
+        +'</div>'
+        // Help
+        +'<div style="margin-top:14px;padding:12px 14px;background:rgba(66,165,245,.06);border:1px solid #42a5f566;border-radius:9px;font-size:11.5px;color:#a5d6e6;line-height:1.55;">'
+          +'<b style="color:#42a5f5;">How this view works</b><br>'
+          +'Every row is an employee with an active offboarding (T-44 Clearance / Turnover). The stage column reflects the T-46 Final Pay workflow: 💰 Not started → 💼 Prepared → 👔 Approved → 💸 Released. '
+          +'<br><b>🚫 HOLD</b> = the offboarding has its holdPay flag set (typically turnover document missing). Release is blocked until the offboarding is resolved.'
+          +'<br>Tap any row\'s action button to open the same Final Pay modal HR uses — same approval routing, same audit trail.'
+        +'</div>'
+      +'</div>';
+  }
+
+  // Public entry point — wired in the view dispatcher
+  window.renderHrFinalPayDashboard = function(){
+    var target = document.getElementById('mainContent') || document.getElementById('content') || document.querySelector('.main-content') || document.body;
+    if(!target) return;
+    var host = document.getElementById('hrFinalPayHost');
+    if(!host){
+      host = document.createElement('div');
+      host.id = 'hrFinalPayHost';
+      target.innerHTML = '';
+      target.appendChild(host);
+    }
+    render();
+  };
+
+  console.log('[HNX-HR] Final Pay dashboard ready — switchView("hr_final_pay")');
+})();
+</script>
+<!-- ================= END HNX HR FINAL PAY DASHBOARD ================= -->
+
+<!-- ================= HNX SOS INVENTORY SYNC (v2.46.293) =================
+     OAuth2-based integration with SOS Inventory (sosinventory.com).
+     Architecture:
+       Browser (this app)
+          ↓ x-api-key header
+       hnx-sync.eyalbenari99.workers.dev (Cloudflare Worker, extended with /sos/*)
+          ↓ OAuth2 bearer token (stored in worker KV)
+       SOS Inventory REST API (developer.sosinventory.com/v8)
+
+     Storage keys (all cloud-synced):
+       hydroPro_sos_items_v1       — cached items array
+       hydroPro_sos_locations_v1   — cached locations
+       hydroPro_sos_lots_v1        — cached lots
+       hydroPro_sos_shipments_v1   — cached shipments
+       hydroPro_sos_meta_v1        — {lastSync, connected, accountInfo, errors[]}
+
+     Public API:
+       window.__hnxSos.isConnected()        → boolean
+       window.__hnxSos.connect()            → opens OAuth popup
+       window.__hnxSos.disconnect()         → revokes token
+       window.__hnxSos.sync()               → triggers full sync; returns summary
+       window.__hnxSos.getItems()           → reads from cache
+       window.__hnxSos.getLocations()       → reads from cache
+       window.__hnxSos.getLots()            → reads from cache
+       window.__hnxSos.getShipments()       → reads from cache
+       window.__hnxSos.getMeta()            → {lastSync, connected, ...}
+
+     Auto-sync runs every 15 min if connected (pauses when tab hidden).
+     ================================================================ -->
+<script>
+(function(){
+  'use strict';
+  if(window.__hnxSos) return;
+
+  // ---------- config ----------
+  var WORKER_BASE = 'https://hnx-sync.eyalbenari99.workers.dev';
+  var KEY = {
+    items:     'hydroPro_sos_items_v1',
+    locations: 'hydroPro_sos_locations_v1',
+    lots:      'hydroPro_sos_lots_v1',
+    shipments: 'hydroPro_sos_shipments_v1',
+    meta:      'hydroPro_sos_meta_v1'
+  };
+  var AUTO_SYNC_MS = 15 * 60 * 1000;  // 15 min
+  var SYNC_TIMEOUT_MS = 30000;        // 30s per endpoint
+
+  // ---------- helpers ----------
+  function getToken(){
+    try{ return localStorage.getItem('hnx_cloud_token')||''; }catch(_){ return ''; }
+  }
+  function load(key, fallback){
+    try{ return JSON.parse(localStorage.getItem(key)||'null') || fallback; }
+    catch(_){ return fallback; }
+  }
+  function save(key, val){
+    try{ localStorage.setItem(key, JSON.stringify(val)); }catch(_){}
+  }
+  function nowIso(){ return new Date().toISOString(); }
+  function fmtAgo(iso){
+    if(!iso) return 'never';
+    var ms = Date.now() - new Date(iso).getTime();
+    if(isNaN(ms)) return '?';
+    var min = Math.floor(ms/60000);
+    if(min < 1) return 'just now';
+    if(min < 60) return min+' min ago';
+    var h = Math.floor(min/60);
+    if(h < 24) return h+'h ago';
+    return Math.floor(h/24)+'d ago';
+  }
+  function esc(s){ s=(s==null)?'':String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  // ---------- meta ----------
+  function getMeta(){
+    return load(KEY.meta, { connected:false, lastSync:null, accountInfo:null, errors:[] });
+  }
+  function setMeta(patch){
+    var m = getMeta();
+    Object.keys(patch).forEach(function(k){ m[k] = patch[k]; });
+    save(KEY.meta, m);
+    return m;
+  }
+  function logError(label, err){
+    var m = getMeta();
+    m.errors = (m.errors||[]).slice(-19);  // keep last 20
+    m.errors.push({ at: nowIso(), label: label, msg: (err && err.message) ? err.message : String(err) });
+    save(KEY.meta, m);
+  }
+
+  // ---------- worker fetch ----------
+  function workerFetch(path, opts){
+    opts = opts || {};
+    var token = getToken();
+    var headers = Object.assign({
+      'Accept': 'application/json',
+      'Authorization': token ? ('Bearer '+token) : ''
+    }, opts.headers || {});
+    if(opts.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+
+    var url = WORKER_BASE + path;
+    var ctl = new AbortController();
+    var timer = setTimeout(function(){ try{ ctl.abort(); }catch(_){} }, opts.timeout || SYNC_TIMEOUT_MS);
+
+    return fetch(url, {
+      method: opts.method || 'GET',
+      headers: headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      signal: ctl.signal
+    }).then(function(r){
+      clearTimeout(timer);
+      if(!r.ok) {
+        return r.text().then(function(txt){
+          var err = new Error('Worker '+r.status+': '+txt.slice(0,200));
+          err.status = r.status;
+          throw err;
+        });
+      }
+      return r.json();
+    }).catch(function(err){
+      clearTimeout(timer);
+      throw err;
+    });
+  }
+
+  // ---------- OAuth ----------
+  function connect(){
+    // Worker returns the SOS authorize URL we should send the user to.
+    // We open a popup; the worker's /sos/oauth/callback page will postMessage back to us.
+    return workerFetch('/sos/oauth/start').then(function(res){
+      if(!res || !res.authUrl){
+        throw new Error('Worker did not return authUrl. Check /sos/oauth/start is deployed and SOS_CLIENT_ID is configured.');
+      }
+      // Open OAuth popup
+      var w = 600, h = 700;
+      var left = (screen.width - w) / 2;
+      var top  = (screen.height - h) / 2;
+      var popup = window.open(res.authUrl, 'sos_oauth',
+        'width='+w+',height='+h+',left='+left+',top='+top+',scrollbars=yes');
+
+      return new Promise(function(resolve, reject){
+        if(!popup){ reject(new Error('Popup blocked. Please allow popups and try again.')); return; }
+        var timeout = setTimeout(function(){
+          try{ popup.close(); }catch(_){}
+          reject(new Error('OAuth timed out after 5 minutes.'));
+        }, 5*60*1000);
+
+        function onMsg(ev){
+          if(!ev.data || ev.data.type !== 'hnx-sos-oauth') return;
+          // Validate origin loosely — workers.dev or our domain
+          if(ev.data.status === 'success'){
+            cleanup();
+            setMeta({ connected:true, accountInfo: ev.data.account || null, lastSync:null });
+            resolve(ev.data);
+          } else {
+            cleanup();
+            reject(new Error(ev.data.error || 'OAuth failed'));
+          }
+        }
+        function cleanup(){
+          clearTimeout(timeout);
+          window.removeEventListener('message', onMsg);
+          try{ popup.close(); }catch(_){}
+        }
+        window.addEventListener('message', onMsg);
+      });
+    });
+  }
+
+  function disconnect(){
+    return workerFetch('/sos/oauth/disconnect', { method:'POST' }).then(function(){
+      setMeta({ connected:false, accountInfo:null });
+      // Don't wipe cached data on disconnect — operator may want to keep historical view
+      return { ok: true };
+    });
+  }
+
+  // ---------- data fetching ----------
+  function fetchItems(){
+    return workerFetch('/sos/items?limit=1000').then(function(res){
+      var arr = (res && res.items) || res || [];
+      save(KEY.items, arr);
+      return arr.length;
+    });
+  }
+  function fetchLocations(){
+    return workerFetch('/sos/locations').then(function(res){
+      var arr = (res && res.locations) || res || [];
+      save(KEY.locations, arr);
+      return arr.length;
+    });
+  }
+  function fetchLots(){
+    return workerFetch('/sos/lots?archived=false&limit=1000').then(function(res){
+      var arr = (res && res.lots) || res || [];
+      save(KEY.lots, arr);
+      return arr.length;
+    });
+  }
+  function fetchShipments(){
+    // Last 30 days only — shipments grow unbounded
+    var from = new Date(Date.now() - 30*86400000).toISOString().substring(0,10);
+    return workerFetch('/sos/shipments?from='+from+'&limit=500').then(function(res){
+      var arr = (res && res.shipments) || res || [];
+      save(KEY.shipments, arr);
+      return arr.length;
+    });
+  }
+
+  // ---------- full sync ----------
+  var _syncInflight = false;
+  function sync(){
+    if(_syncInflight) return Promise.reject(new Error('Sync already running'));
+    _syncInflight = true;
+
+    var summary = { items:0, locations:0, lots:0, shipments:0, errors:[] };
+    function tryStep(label, fn){
+      return fn().then(function(n){
+        summary[label] = n;
+      }).catch(function(err){
+        summary.errors.push({ step: label, msg: err.message });
+        logError('sync.'+label, err);
+      });
+    }
+
+    return Promise.all([
+      tryStep('items',     fetchItems),
+      tryStep('locations', fetchLocations),
+      tryStep('lots',      fetchLots),
+      tryStep('shipments', fetchShipments)
+    ]).then(function(){
+      var ok = summary.errors.length === 0;
+      setMeta({ lastSync: nowIso(), connected: ok || getMeta().connected });
+      _syncInflight = false;
+      if(typeof toast === 'function'){
+        if(ok) toast('📦 SOS synced — '+summary.items+' items · '+summary.locations+' locations · '+summary.lots+' lots · '+summary.shipments+' shipments');
+        else toast('⚠ SOS sync partial — '+summary.errors.length+' step(s) failed (see Admin → SOS)', 'warn');
+      }
+      // Refresh dashboard badge if rendered
+      try{ if(document.getElementById('sosSyncHost')) renderSyncView(); }catch(_){}
+      return summary;
+    });
+  }
+
+  // ---------- auto-sync loop ----------
+  var _autoTimer = null;
+  function startAutoSync(){
+    if(_autoTimer) return;
+    _autoTimer = setInterval(function(){
+      if(document.hidden) return;          // pause when tab hidden
+      var m = getMeta();
+      if(!m.connected) return;
+      sync().catch(function(){});           // swallow errors here — already logged
+    }, AUTO_SYNC_MS);
+  }
+  function stopAutoSync(){ if(_autoTimer){ clearInterval(_autoTimer); _autoTimer = null; } }
+
+  // ---------- public API ----------
+  window.__hnxSos = {
+    isConnected: function(){ return !!getMeta().connected; },
+    connect: connect,
+    disconnect: disconnect,
+    sync: sync,
+    getItems:     function(){ return load(KEY.items, []); },
+    getLocations: function(){ return load(KEY.locations, []); },
+    getLots:      function(){ return load(KEY.lots, []); },
+    getShipments: function(){ return load(KEY.shipments, []); },
+    getMeta:      getMeta,
+    startAutoSync: startAutoSync,
+    stopAutoSync:  stopAutoSync,
+    WORKER_BASE: WORKER_BASE
+  };
+
+  // ---------- UI: Admin → SOS Inventory Sync view ----------
+  function statusPill(connected){
+    return connected
+      ? '<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:12px;background:rgba(38,194,129,.15);color:#26c281;border:1px solid #26c281;font-size:11px;font-weight:700;">● CONNECTED</span>'
+      : '<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:12px;background:rgba(239,83,80,.15);color:#ef5350;border:1px solid #ef5350;font-size:11px;font-weight:700;">● NOT CONNECTED</span>';
+  }
+
+  function renderSyncView(){
+    var host = document.getElementById('sosSyncHost');
+    if(!host) return;
+    var meta = getMeta();
+    var items = window.__hnxSos.getItems();
+    var locations = window.__hnxSos.getLocations();
+    var lots = window.__hnxSos.getLots();
+    var shipments = window.__hnxSos.getShipments();
+
+    var lowStockCount = items.filter(function(it){
+      var on = Number(it.onhand || it.onHand || it.quantity || 0);
+      var rp = Number(it.reorderpoint || it.reorderPoint || it.minStock || 0);
+      return rp > 0 && on <= rp;
+    }).length;
+
+    var expiringSoon = lots.filter(function(l){
+      var d = l.expirationdate || l.expirationDate;
+      if(!d) return false;
+      var days = (new Date(d).getTime() - Date.now()) / 86400000;
+      return days > 0 && days <= 30;
+    }).length;
+
+    var expired = lots.filter(function(l){
+      var d = l.expirationdate || l.expirationDate;
+      if(!d) return false;
+      return new Date(d).getTime() < Date.now();
+    }).length;
+
+    function card(icon, n, label, color, sub){
+      return '<div style="background:'+color+'14;border:1px solid '+color+'55;border-radius:9px;padding:11px 13px;min-width:120px;flex:1;">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;">'
+          +'<div style="font-size:11px;color:#8aa;text-transform:uppercase;letter-spacing:.5px;font-weight:700;">'+label+'</div>'
+          +'<div style="font-size:14px;opacity:.8;">'+icon+'</div>'
+        +'</div>'
+        +'<div style="font-size:22px;font-weight:800;color:'+color+';font-family:var(--mono,monospace);margin-top:3px;">'+n+'</div>'
+        + (sub ? '<div style="font-size:10px;color:#7aa99a;margin-top:1px;">'+esc(sub)+'</div>' : '')
+      +'</div>';
+    }
+
+    var errorsHtml = '';
+    if(meta.errors && meta.errors.length){
+      errorsHtml = '<div style="margin-top:14px;padding:12px 14px;background:rgba(239,83,80,.06);border:1px solid #ef535066;border-radius:9px;">'
+        +'<div style="font-weight:700;color:#ef5350;font-size:12px;margin-bottom:6px;">⚠ Recent errors (last '+meta.errors.length+')</div>'
+        + meta.errors.slice(-5).reverse().map(function(e){
+            return '<div style="font-size:11px;color:#a5d6e6;font-family:monospace;margin:3px 0;">'+esc(e.at.substring(11,19))+' · '+esc(e.label)+': '+esc(e.msg)+'</div>';
+          }).join('')
+      +'</div>';
+    }
+
+    var notConnectedSetup = !meta.connected ? (
+      '<div style="margin-top:18px;padding:16px;background:rgba(255,152,0,.08);border:1px solid #ff9800;border-radius:11px;">'
+        +'<div style="font-weight:800;color:#ff9800;font-size:13px;margin-bottom:8px;">🔧 First-time setup (one-off, ~10 minutes)</div>'
+        +'<ol style="margin:8px 0 4px 22px;padding:0;color:#a5d6e6;font-size:11.5px;line-height:1.7;">'
+          +'<li>Go to <a href="https://developer.sosinventory.com" target="_blank" rel="noopener" style="color:#42a5f5;text-decoration:underline;">developer.sosinventory.com</a> and register as a developer (one-time, free).</li>'
+          +'<li>Create an app called <b>HydroNexis-AI</b>. Set the redirect URL to: <code style="background:#0d1f17;padding:1px 5px;border-radius:3px;color:#9cc;font-size:10.5px;">'+WORKER_BASE+'/sos/oauth/callback</code></li>'
+          +'<li>Copy the <b>Client ID</b> and <b>Client Secret</b>.</li>'
+          +'<li>Set both as Cloudflare worker secrets via <code style="background:#0d1f17;padding:1px 5px;border-radius:3px;color:#9cc;font-size:10.5px;">wrangler secret put SOS_CLIENT_ID</code> and <code style="background:#0d1f17;padding:1px 5px;border-radius:3px;color:#9cc;font-size:10.5px;">wrangler secret put SOS_CLIENT_SECRET</code>.</li>'
+          +'<li>Deploy the updated worker code (provided as <code style="background:#0d1f17;padding:1px 5px;border-radius:3px;color:#9cc;font-size:10.5px;">hnx-sync-worker-v3.1-sos.js</code> in this delivery).</li>'
+          +'<li>Come back here and tap <b>Connect to SOS Inventory</b>. A popup opens; sign in to SOS and click "Allow".</li>'
+        +'</ol>'
+      +'</div>'
+    ) : '';
+
+    var actionButtons = meta.connected
+      ? '<button id="sosSyncBtn" onclick="(function(){var b=document.getElementById(\'sosSyncBtn\');if(b){b.disabled=true;b.textContent=\'⚡ Syncing…\';}window.__hnxSos.sync().then(function(){if(b){b.disabled=false;b.textContent=\'🔄 Sync now\';}}).catch(function(e){if(b){b.disabled=false;b.textContent=\'🔄 Sync now\';} if(typeof toast===\'function\') toast(\'Sync failed: \'+e.message,\'error\');});})()" style="padding:9px 18px;border-radius:8px;border:1px solid #26c281;background:rgba(38,194,129,.15);color:#26c281;font-size:13px;font-weight:700;cursor:pointer;">🔄 Sync now</button>'
+        +'<button onclick="if(confirm(\'Disconnect from SOS Inventory? Cached data will remain.\')){window.__hnxSos.disconnect().then(function(){window.renderSosInventorySync();}).catch(function(e){if(typeof toast===\'function\') toast(\'Disconnect failed: \'+e.message,\'error\');});}" style="padding:9px 18px;border-radius:8px;border:1px solid #ef5350;background:rgba(239,83,80,.10);color:#ef5350;font-size:13px;font-weight:700;cursor:pointer;">🔌 Disconnect</button>'
+      : '<button id="sosConnectBtn" onclick="(function(){var b=document.getElementById(\'sosConnectBtn\');if(b){b.disabled=true;b.textContent=\'⏳ Opening…\';}window.__hnxSos.connect().then(function(){if(b){b.disabled=false;b.textContent=\'📦 Connect to SOS Inventory\';} window.renderSosInventorySync(); if(typeof toast===\'function\') toast(\'✓ Connected — running first sync…\'); window.__hnxSos.sync().catch(function(){});}).catch(function(e){if(b){b.disabled=false;b.textContent=\'📦 Connect to SOS Inventory\';} if(typeof toast===\'function\') toast(\'Connection failed: \'+e.message,\'error\');});})()" style="padding:11px 22px;border-radius:8px;border:1px solid #42a5f5;background:rgba(66,165,245,.15);color:#42a5f5;font-size:13.5px;font-weight:700;cursor:pointer;">📦 Connect to SOS Inventory</button>';
+
+    host.innerHTML = ''
+      +'<div style="padding:20px;max-width:1200px;margin:0 auto;">'
+        // Header
+        +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:18px;">'
+          +'<div>'
+            +'<div style="display:flex;align-items:center;gap:10px;">'
+              +'<div style="font-size:20px;font-weight:800;color:#e8f5e9;letter-spacing:.3px;">📦 SOS Inventory Sync</div>'
+              + statusPill(meta.connected)
+            +'</div>'
+            +'<div style="font-size:11.5px;color:#7aa99a;margin-top:5px;">OAuth2 integration with <a href="https://sosinventory.com" target="_blank" style="color:#42a5f5;">sosinventory.com</a> via the hnx-sync Cloudflare worker. Auto-syncs every 15 min when connected.</div>'
+          +'</div>'
+          +'<div style="display:flex;gap:8px;flex-wrap:wrap;">'+actionButtons+'</div>'
+        +'</div>'
+        // Status cards
+        +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">'
+          + card('📦', items.length,     'ITEMS',       '#26c281', meta.connected ? '' : 'demo data')
+          + card('🏭', locations.length, 'LOCATIONS',   '#42a5f5', '')
+          + card('🏷️', lots.length,     'LOTS',        '#7c4dff', '')
+          + card('🚚', shipments.length, 'SHIPMENTS',   '#ff9800', 'last 30 days')
+          + card('⚠️', lowStockCount,    'LOW STOCK',   '#ef5350', '≤ reorder point')
+          + card('⏳', expiringSoon,     'EXPIRING 30d','#ff9800', '')
+          + card('💀', expired,          'EXPIRED',     '#ef5350', '')
+        +'</div>'
+        // Last sync
+        +'<div style="padding:12px 14px;background:#0d1f17;border:1px solid #2c5a3f;border-radius:9px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">'
+          +'<div>'
+            +'<div style="font-size:11px;color:#7aa99a;text-transform:uppercase;letter-spacing:.5px;font-weight:700;">Last sync</div>'
+            +'<div style="font-size:14px;color:#9fc;font-family:var(--mono,monospace);margin-top:2px;">'+esc(fmtAgo(meta.lastSync))+(meta.lastSync ? ' <span style="font-size:11px;color:#7aa99a;">('+esc(meta.lastSync.substring(0,19).replace('T',' '))+' UTC)</span>':'')+'</div>'
+          +'</div>'
+          + (meta.accountInfo ? '<div style="text-align:right;"><div style="font-size:11px;color:#7aa99a;">Account</div><div style="font-size:13px;color:#a5d6e6;">'+esc(meta.accountInfo.companyName||meta.accountInfo.email||'(unknown)')+'</div></div>':'')
+        +'</div>'
+        // Setup instructions (when not connected)
+        + notConnectedSetup
+        // Errors
+        + errorsHtml
+        // Footer help
+        +'<div style="margin-top:18px;padding:14px 16px;background:rgba(66,165,245,.06);border:1px solid #42a5f566;border-radius:9px;font-size:11.5px;color:#a5d6e6;line-height:1.6;">'
+          +'<b style="color:#42a5f5;">How this connects to your Inventory module</b><br>'
+          +'When connected, the Inventory dashboard (Inventory → 📊 Dashboard) shows live SOS data: real stock levels, real low-stock alerts, real lot expiry, real shipments. The mock <code style="color:#9cc;">hydroPro_inv_stock</code> data is replaced automatically. Existing manual entries remain available for items not in SOS.'
+          +'<br><br><b style="color:#42a5f5;">Worker endpoints</b> (deployed at '+WORKER_BASE+'):<br>'
+          +'<code style="color:#9cc;font-size:10.5px;">/sos/oauth/start</code> &nbsp;·&nbsp; '
+          +'<code style="color:#9cc;font-size:10.5px;">/sos/oauth/callback</code> &nbsp;·&nbsp; '
+          +'<code style="color:#9cc;font-size:10.5px;">/sos/items</code> &nbsp;·&nbsp; '
+          +'<code style="color:#9cc;font-size:10.5px;">/sos/locations</code> &nbsp;·&nbsp; '
+          +'<code style="color:#9cc;font-size:10.5px;">/sos/lots</code> &nbsp;·&nbsp; '
+          +'<code style="color:#9cc;font-size:10.5px;">/sos/shipments</code>'
+        +'</div>'
+      +'</div>';
+  }
+
+  window.renderSosInventorySync = function(){
+    var target = document.getElementById('mainContent') || document.getElementById('content') || document.querySelector('.main-content') || document.body;
+    if(!target) return;
+    var host = document.getElementById('sosSyncHost');
+    if(!host){
+      host = document.createElement('div');
+      host.id = 'sosSyncHost';
+      target.innerHTML = '';
+      target.appendChild(host);
+    }
+    renderSyncView();
+  };
+
+  // Start auto-sync on load if connected
+  setTimeout(function(){ if(getMeta().connected) startAutoSync(); }, 5000);
+
+  console.log('[HNX-SOS] SOS Inventory integration ready — Admin → 📦 SOS Inventory Sync');
+})();
+</script>
+<!-- ================= END HNX SOS INVENTORY SYNC ================= -->
+
+
 
 <!-- ================= HNX T-11 PARTIAL COVERAGE (v2.46.279) =================
      Bring admin / packaging / security / inventory from 3/5 to 5/5 tabs:
@@ -144448,6 +145695,9 @@ body.hnx-mobile-locked { overflow: hidden; }
     {id:'emp_offboarding_approve',    module:'HR/Mgmt',  label:'Manager approve clearance',           defA:6, defN:5},
     {id:'emp_offboarding_finalize',   module:'HR/Mgmt',  label:'VP/COO/CEO finalize separation',      defA:7, defN:6},
     {id:'emp_contract_upload',        module:'HR',       label:'Upload / edit employee contract',     defA:5, defN:4},
+    {id:'final_pay_prepare',          module:'Accounting',label:'Prepare final pay computation',      defA:5, defN:4},
+    {id:'final_pay_approve',          module:'Accounting/Mgmt',label:'Manager approve final pay',     defA:6, defN:5},
+    {id:'final_pay_release',          module:'Accounting/Mgmt',label:'VP/COO/CEO release final pay',  defA:7, defN:6},
     // Irrigation
     {id:'irr_cal_approve',      module:'Irrigation',    label:'Approve dosing calibration',           defA:5, defN:4},
     {id:'irr_room_sign',        module:'Irrigation',    label:'Supervisor sign — room',               defA:4, defN:2},
@@ -145308,6 +146558,10 @@ body.hnx-mobile-locked { overflow: hidden; }
     if(canHRComplete) actions += '<button onclick="hnxOffboardingHRComplete(\''+esc(empId)+'\')" style="padding:10px 14px;border-radius:8px;border:1px solid #42a5f5;background:rgba(66,165,245,.12);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">📋 Mark HR complete</button>';
     if(canApproveStage) actions += '<button onclick="hnxOffboardingApprove(\''+esc(empId)+'\')" style="padding:10px 14px;border-radius:8px;border:1px solid #7c4dff;background:rgba(124,77,255,.12);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">👔 Manager approve</button>';
     if(canFinalize) actions += '<button onclick="hnxOffboardingFinalize(\''+esc(empId)+'\')" style="padding:10px 14px;border-radius:8px;border:1px solid #26c281;background:rgba(38,194,129,.12);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">🏁 Finalize separation</button>';
+    // T-46 link: once offboarding is past HR-complete, expose the Final Pay modal directly from here
+    if(stage==='hr_complete' || stage==='manager_approved' || stage==='finalized'){
+      actions += '<button onclick="hnxCloseOffboarding();hnxOpenFinalPay(\''+esc(empId)+'\')" style="padding:10px 14px;border-radius:8px;border:1px solid #ff9800;background:rgba(255,152,0,.12);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">💰 Final Pay →</button>';
+    }
     var assetCanEdit = canTick;
     var holdCanEdit = !!(window.HNX_Approval && (API.canApprove('emp_offboarding_approve')||API.canApprove('emp_offboarding_finalize'))) && stage!=='finalized';
     var assetInput = assetCanEdit
@@ -145691,6 +146945,357 @@ body.hnx-mobile-locked { overflow: hidden; }
       var color = hasFile ? '#42a5f5' : '#ff9800';
       var text  = hasFile ? ('Contract'+(nd?' · '+nd+'d notice':'')) : ('Terms only'+(nd?' · '+nd+'d':''));
       return '<span onclick="event.stopPropagation();hnxOpenContract(\''+esc(emp.id)+'\')" title="Tap to open contract" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:11px;background:'+color+'22;color:'+color+';border:1px solid '+color+'66;font-size:10.5px;font-weight:600;font-family:var(--mono,monospace);cursor:pointer;text-decoration:underline dotted;margin-left:5px;white-space:nowrap;">📄 '+esc(text)+'</span>';
+    }catch(_){ return ''; }
+  };
+
+  // ============================ T-46 HR LIFECYCLE 5/5 — Final Pay for Leaving Employees ============================
+  // Computed final pay = (base wages last period) + (pro-rated 13th month) + (unused leave cash)
+  //                    − (asset deduction from T-44) − (outstanding loans) − (other deductions).
+  // HOLD flag from T-44 holdPay blocks release. 3-stage approval pipeline (Accounting prepares →
+  // Manager approves → VP/COO/CEO releases). Printable separation certificate at the end.
+  var FP_KEY = 'hydroPro_final_pay_v1';
+  function loadFinalPayAll(){
+    try{ var raw=localStorage.getItem(FP_KEY); if(raw) return JSON.parse(raw)||{}; }catch(_){}
+    return {};
+  }
+  function saveFinalPayAll(obj){ try{ localStorage.setItem(FP_KEY, JSON.stringify(obj||{})); }catch(_){} }
+
+  // Pure compute function — testable in isolation.
+  function _computeFinalPay(inputs){
+    var i = inputs || {};
+    var base = Number(i.baseSalary)||0;
+    var daysInPeriod = Number(i.daysInPeriod)||1; if(daysInPeriod<=0) daysInPeriod=1;
+    var daysWorked = Math.min(Number(i.daysWorked)||0, daysInPeriod);
+    var unused = Number(i.unusedLeaveDays)||0;
+    var wdPerMonth = Number(i.workingDaysPerMonth)||22;
+    var months = Math.min(Math.max(Number(i.monthsWorkedThisYear)||0, 0), 12);
+    var dailyRate = wdPerMonth>0 ? (base/wdPerMonth) : 0;
+    var baseWages = (base/daysInPeriod)*daysWorked;
+    var prorated13th = (base*months)/12;
+    var leaveCash = unused*dailyRate;
+    var totalEarnings = baseWages + prorated13th + leaveCash;
+    var assetDed = Math.max(0, Number(i.assetDeduction)||0);
+    var loanDed  = Math.max(0, Number(i.loanDeduction)||0);
+    var otherDed = Math.max(0, Number(i.otherDeductions)||0);
+    var totalDed = assetDed + loanDed + otherDed;
+    var net = totalEarnings - totalDed;
+    function r(n){ return Math.round(n*100)/100; }
+    return {
+      baseWagesLastPeriod: r(baseWages),
+      prorated13thMonth:   r(prorated13th),
+      leaveCashValue:      r(leaveCash),
+      dailyRate:           r(dailyRate),
+      totalEarnings:       r(totalEarnings),
+      assetDeduction:      r(assetDed),
+      loanDeduction:       r(loanDed),
+      otherDeductions:     r(otherDed),
+      totalDeductions:     r(totalDed),
+      netFinalPay:         r(net)
+    };
+  }
+
+  function _suggestFinalPayInputs(empId){
+    // Auto-fill defaults from contract (T-45) + offboarding (T-44).
+    var contract = (typeof loadContract==='function') ? loadContract(empId) : null;
+    var offb = (typeof loadOffbAll==='function') ? (loadOffbAll()[empId]||null) : null;
+    var baseSalary = (contract && contract.terms && Number(contract.terms.baseSalary)) || 0;
+    var lastDay = (offb && offb.finalizedAt) ? offb.finalizedAt.substring(0,10) :
+                  (offb && offb.startedAt) ? offb.startedAt.substring(0,10) :
+                  new Date().toISOString().substring(0,10);
+    // Months worked this year: from Jan 1 of last-day's year to last-day's month.
+    var d = new Date(lastDay+'T00:00:00');
+    var months = isNaN(d) ? 0 : (d.getMonth()+1);
+    var asset = (offb && Number(offb.assetValueOwed)) || 0;
+    var hold = !!(offb && offb.holdPay);
+    var holdReason = (offb && offb.holdReason) || '';
+    return {
+      lastWorkingDay: lastDay,
+      daysWorked: 15,                   // common semi-monthly default; accountant edits
+      daysInPeriod: 15,
+      baseSalary: baseSalary,
+      monthsWorkedThisYear: months,
+      unusedLeaveDays: 0,
+      workingDaysPerMonth: 22,
+      assetDeduction: asset,
+      loanDeduction: 0,
+      otherDeductions: 0,
+      hold: hold,
+      holdReason: holdReason
+    };
+  }
+
+  window.hnxFinalPayFor = function(empId){ var all=loadFinalPayAll(); return all[empId]||null; };
+  window.hnxFinalPayDefaults = function(empId){ return _suggestFinalPayInputs(empId); };
+  window.hnxComputeFinalPay = _computeFinalPay; // expose pure for testing/preview
+
+  window.hnxPrepareFinalPay = function(empId, inputs){
+    try{
+      if(!(window.HNX_Approval && API.canApprove('final_pay_prepare'))){ toast('Not authorized to prepare final pay','warn'); return; }
+      var all = loadFinalPayAll();
+      var existing = all[empId] || {};
+      if(existing.status==='released'){ toast('Already released — cannot edit','warn'); return; }
+      var calc = _computeFinalPay(inputs);
+      var u = curUser();
+      // Refresh hold flag from T-44 at prepare time
+      var offb = (typeof loadOffbAll==='function') ? (loadOffbAll()[empId]||null) : null;
+      var hold = !!(offb && offb.holdPay);
+      var holdReason = (offb && offb.holdReason) || '';
+      all[empId] = Object.assign({}, existing, {
+        status:'prepared',
+        empId: empId,
+        inputs: inputs,
+        calc: calc,
+        lastWorkingDay: inputs.lastWorkingDay || (new Date().toISOString().substring(0,10)),
+        hold: hold,
+        holdReason: holdReason,
+        preparedAt: new Date().toISOString(),
+        preparedBy: u?(u.username||''):'',
+        // Clear later-stage signatures if recomputing after prepare
+        approvedAt: null, approvedBy: null,
+        releasedAt: null, releasedBy: null,
+        paymentMethod: existing.paymentMethod||'',
+        paymentRef:    existing.paymentRef||'',
+        notes:         existing.notes||''
+      });
+      saveFinalPayAll(all);
+      API.recordApproval('final_pay_prepare', empId, { note: 'Prepared final pay · net ₱'+calc.netFinalPay });
+      toast('💼 Final pay prepared — net ₱'+calc.netFinalPay.toLocaleString());
+      if(document.getElementById('hnxFpModal')) window.hnxRenderFinalPayModal(empId);
+      if(typeof renderHR==='function') renderHR();
+    }catch(e){ toast('Error preparing final pay','warn'); }
+  };
+
+  window.hnxApproveFinalPay = function(empId){
+    try{
+      if(!(window.HNX_Approval && API.canApprove('final_pay_approve'))){ toast('Not authorized','warn'); return; }
+      var all = loadFinalPayAll(); var rec = all[empId];
+      if(!rec || rec.status!=='prepared'){ toast('Must be prepared first','warn'); return; }
+      var u = curUser();
+      rec.status='approved';
+      rec.approvedAt = new Date().toISOString();
+      rec.approvedBy = u?(u.username||''):'';
+      saveFinalPayAll(all);
+      API.recordApproval('final_pay_approve', empId, { note:'Approved final pay · net ₱'+rec.calc.netFinalPay });
+      toast('✓ Final pay approved — awaiting release');
+      if(document.getElementById('hnxFpModal')) window.hnxRenderFinalPayModal(empId);
+      if(typeof renderHR==='function') renderHR();
+    }catch(e){ toast('Error','warn'); }
+  };
+
+  window.hnxReleaseFinalPay = function(empId, paymentInfo){
+    try{
+      if(!(window.HNX_Approval && API.canApprove('final_pay_release'))){ toast('Not authorized','warn'); return; }
+      var all = loadFinalPayAll(); var rec = all[empId];
+      if(!rec || rec.status!=='approved'){ toast('Must be approved first','warn'); return; }
+      // Re-check T-44 hold at release time
+      var offb = (typeof loadOffbAll==='function') ? (loadOffbAll()[empId]||null) : null;
+      if(offb && offb.holdPay){ toast('🚫 Cannot release — T-44 offboarding has HOLD pay flag ('+(offb.holdReason||'clearance incomplete')+')','warn'); return; }
+      var u = curUser();
+      rec.status='released';
+      rec.releasedAt = new Date().toISOString();
+      rec.releasedBy = u?(u.username||''):'';
+      if(paymentInfo){
+        rec.paymentMethod = String(paymentInfo.method||'').slice(0,40);
+        rec.paymentRef    = String(paymentInfo.ref||'').slice(0,80);
+      }
+      saveFinalPayAll(all);
+      API.recordApproval('final_pay_release', empId, { note:'Released final pay · net ₱'+rec.calc.netFinalPay+(rec.paymentRef?(' · ref '+rec.paymentRef):'') });
+      toast('💰 Final pay released');
+      if(document.getElementById('hnxFpModal')) window.hnxRenderFinalPayModal(empId);
+      if(typeof renderHR==='function') renderHR();
+    }catch(e){ toast('Error','warn'); }
+  };
+
+  // -- Separation Certificate (printable) --
+  window.hnxPrintSeparationCertificate = function(empId){
+    try{
+      var emp = _findEmp(empId);
+      var rec = window.hnxFinalPayFor(empId);
+      var offb = (typeof loadOffbAll==='function') ? (loadOffbAll()[empId]||null) : null;
+      var contract = (typeof loadContract==='function') ? loadContract(empId) : null;
+      if(!emp || !rec){ toast('No final pay record yet','warn'); return; }
+      var w = window.open('','_blank','width=820,height=900');
+      if(!w){ toast('Pop-up blocked — allow pop-ups to print certificate','warn'); return; }
+      function row(l,v){ return '<tr><td style="padding:6px 10px;color:#555;font-size:12px;">'+l+'</td><td style="padding:6px 10px;font-weight:600;text-align:right;font-family:monospace;">'+v+'</td></tr>'; }
+      var money = function(n){ return '₱'+(Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); };
+      var html = '<!doctype html><html><head><meta charset="utf-8"><title>Separation Certificate — '+esc(emp.name||emp.id)+'</title>'
+        +'<style>body{font-family:Georgia,serif;color:#111;max-width:780px;margin:30px auto;padding:30px;background:#fff;}h1{font-size:22px;margin:0;letter-spacing:1px;}h2{font-size:13px;color:#666;margin:4px 0 22px;font-weight:normal;text-transform:uppercase;letter-spacing:2px;}h3{font-size:14px;border-bottom:1px solid #999;padding-bottom:4px;margin-top:24px;}table{width:100%;border-collapse:collapse;margin-top:8px;}.net{font-size:16px;color:#0a6}.hold{color:#c33}.sig{display:flex;justify-content:space-between;margin-top:50px;}.sig div{text-align:center;width:30%;}.sig div::before{content:"";display:block;border-top:1px solid #444;margin-bottom:6px;}.foot{margin-top:30px;font-size:10px;color:#888;text-align:center;line-height:1.6;}@media print{body{margin:0;}}</style>'
+        +'</head><body>'
+        +'<div style="text-align:center;border-bottom:2px solid #111;padding-bottom:14px;margin-bottom:20px;">'
+          +'<h1>CERTIFICATE OF SEPARATION & FINAL PAY</h1>'
+          +'<h2>ABA Pardes Agritech Corp. · Philippines</h2>'
+        +'</div>'
+        +'<h3>Employee</h3>'
+        +'<table>'
+          + row('Name', esc(emp.name||''))
+          + row('Employee ID', esc(emp.id||''))
+          + row('Position', esc(emp.position||emp.role||'—'))
+          + row('Department', esc(emp.dept||(emp.departments?emp.departments.join(", "):'—')))
+          + row('Last working day', esc(rec.lastWorkingDay||'—'))
+          + row('Reason for separation', esc((offb&&offb.reason)||'—'))
+        +'</table>'
+        +'<h3>Final pay computation</h3>'
+        +'<table>'
+          + row('Base wages (last period: '+rec.inputs.daysWorked+'/'+rec.inputs.daysInPeriod+' days)', money(rec.calc.baseWagesLastPeriod))
+          + row('Pro-rated 13th month ('+rec.inputs.monthsWorkedThisYear+' / 12)', money(rec.calc.prorated13thMonth))
+          + row('Unused leave cash ('+rec.inputs.unusedLeaveDays+' days × ₱'+rec.calc.dailyRate+'/day)', money(rec.calc.leaveCashValue))
+          + '<tr><td style="padding:8px 10px;border-top:1px solid #999;font-weight:700;">Total earnings</td><td style="padding:8px 10px;border-top:1px solid #999;font-weight:700;text-align:right;font-family:monospace;">'+money(rec.calc.totalEarnings)+'</td></tr>'
+          + row('Less · Unreturned asset deduction', '−'+money(rec.calc.assetDeduction))
+          + row('Less · Outstanding loans / advances', '−'+money(rec.calc.loanDeduction))
+          + row('Less · Other deductions', '−'+money(rec.calc.otherDeductions))
+          + '<tr><td style="padding:8px 10px;border-top:1px solid #999;font-weight:700;">Total deductions</td><td style="padding:8px 10px;border-top:1px solid #999;font-weight:700;text-align:right;font-family:monospace;">−'+money(rec.calc.totalDeductions)+'</td></tr>'
+          + '<tr><td style="padding:10px;border-top:2px solid #111;font-weight:700;font-size:14px;">NET FINAL PAY</td><td style="padding:10px;border-top:2px solid #111;font-weight:700;text-align:right;font-family:monospace;" class="net">'+money(rec.calc.netFinalPay)+'</td></tr>'
+        +'</table>'
+        + (rec.paymentMethod || rec.paymentRef ? '<h3>Payment</h3><table>' + row('Method', esc(rec.paymentMethod||'—')) + row('Reference', esc(rec.paymentRef||'—')) + '</table>' : '')
+        +'<h3>Approval trail</h3>'
+        +'<table>'
+          + (rec.preparedAt ? row('Prepared by · Accounting', esc(rec.preparedBy||'?')+' · '+esc(rec.preparedAt.substring(0,10))) : '')
+          + (rec.approvedAt ? row('Approved by · Manager', esc(rec.approvedBy||'?')+' · '+esc(rec.approvedAt.substring(0,10))) : '')
+          + (rec.releasedAt ? row('Released by · VP/COO/CEO', esc(rec.releasedBy||'?')+' · '+esc(rec.releasedAt.substring(0,10))) : '')
+        +'</table>'
+        +'<div class="sig">'
+          +'<div>Employee<br><span style="font-size:10px;color:#888;">received in full settlement</span></div>'
+          +'<div>HR / Accounting<br><span style="font-size:10px;color:#888;">'+esc(rec.preparedBy||'')+'</span></div>'
+          +'<div>VP / COO / CEO<br><span style="font-size:10px;color:#888;">'+esc(rec.releasedBy||'')+'</span></div>'
+        +'</div>'
+        +'<div class="foot">Generated by HydroNexis-AI · '+ new Date().toISOString().substring(0,10) +'<br>This certificate is auto-derived from the Approvals Ledger and may be verified there.</div>'
+        +'<div style="text-align:center;margin-top:14px;"><button onclick="window.print()" style="padding:9px 18px;font-size:13px;background:#0a6;color:#fff;border:none;border-radius:5px;cursor:pointer;">🖨 Print</button></div>'
+        +'</body></html>';
+      w.document.write(html); w.document.close();
+    }catch(e){ toast('Error generating certificate','warn'); }
+  };
+
+  // -- Modal --
+  window.hnxOpenFinalPay = function(empId){
+    var old = document.getElementById('hnxFpModal'); if(old) old.remove();
+    var ov = document.createElement('div'); ov.id='hnxFpModal';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+    ov.innerHTML='<div id="hnxFpBox" style="background:#0a1612;border:1px solid #2c5a3f;border-radius:14px;max-width:760px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.6);"></div>';
+    ov.addEventListener('click', function(e){ if(e.target===ov) ov.remove(); });
+    document.body.appendChild(ov);
+    window.hnxRenderFinalPayModal(empId);
+  };
+  window.hnxCloseFinalPay = function(){ var ov=document.getElementById('hnxFpModal'); if(ov) ov.remove(); };
+
+  window.hnxRenderFinalPayModal = function(empId){
+    var box=document.getElementById('hnxFpBox'); if(!box) return;
+    var emp = _findEmp(empId);
+    if(!emp){ box.innerHTML='<div style="padding:24px;color:#fff;">Employee not found</div>'; return; }
+    var rec = window.hnxFinalPayFor(empId);
+    var offb = (typeof loadOffbAll==='function') ? (loadOffbAll()[empId]||null) : null;
+    if(!offb){
+      box.innerHTML = ''
+        +'<div style="padding:18px 20px;border-bottom:1px solid #1c3a2a;display:flex;justify-content:space-between;align-items:center;">'
+          +'<div style="font-weight:800;font-size:15px;color:#e8f5e9;">💰 Final Pay — '+esc(emp.name||emp.id)+'</div>'
+          +'<button onclick="hnxCloseFinalPay()" style="background:transparent;border:1px solid #2c5a3f;color:#9fc;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer;">✕</button>'
+        +'</div>'
+        +'<div style="padding:22px 20px;color:#a5d6e6;font-size:13px;line-height:1.55;">'
+          +'<div style="color:#ff9800;">Final pay requires an active offboarding (T-44). Start one from the activity badge → 🚪 Open Offboarding clearance.</div>'
+        +'</div>';
+      return;
+    }
+    // Defaults / existing values
+    var inputs = rec ? rec.inputs : _suggestFinalPayInputs(empId);
+    var calc = rec ? rec.calc : _computeFinalPay(inputs);
+    var stage = rec ? rec.status : 'not_started';
+    var stageMap = {
+      not_started:{label:'Not started · ready to prepare', color:'#8aa', icon:'⏳', step:0},
+      prepared:   {label:'Prepared · awaiting Manager',     color:'#42a5f5', icon:'💼', step:1},
+      approved:   {label:'Approved · awaiting Release',     color:'#7c4dff', icon:'👔', step:2},
+      released:   {label:'Released · paid out',             color:'#26c281', icon:'💰', step:3}
+    };
+    var sm = stageMap[stage] || stageMap.not_started;
+    var hold = !!(offb && offb.holdPay);
+    var canPrepare = !!(window.HNX_Approval && API.canApprove('final_pay_prepare')) && stage!=='released';
+    var canApprove = !!(window.HNX_Approval && API.canApprove('final_pay_approve')) && stage==='prepared';
+    var canRelease = !!(window.HNX_Approval && API.canApprove('final_pay_release')) && stage==='approved' && !hold;
+    var ro = canPrepare ? '' : ' readonly';
+    function num(v){ return (v===0||v) ? v : ''; }
+    function money(n){ return '₱'+(Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+    var stagePill = '<div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:'+sm.color+'22;color:'+sm.color+';border:1px solid '+sm.color+'66;border-radius:11px;font-size:11.5px;font-weight:700;">'+sm.icon+' Stage '+sm.step+'/3 · '+esc(sm.label)+'</div>';
+    var holdBanner = hold ? '<div style="margin:12px 20px 0;padding:10px 14px;border-radius:9px;background:rgba(239,83,80,.12);border:1px solid #ef535066;color:#ef5350;font-size:12px;line-height:1.5;"><b>🚫 HOLD — release blocked.</b><br>Reason (from T-44): '+esc(offb.holdReason||'Turnover incomplete')+'</div>' : '';
+    var inputGrid = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
+      +'<div><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Last working day</div><input type="date" id="hnxFp_last" value="'+esc(inputs.lastWorkingDay||'')+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;box-sizing:border-box;"></div>'
+      +'<div><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Base salary (₱/month)</div><input type="number" min="0" id="hnxFp_salary" value="'+esc(num(inputs.baseSalary))+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;box-sizing:border-box;font-family:var(--mono,monospace);"></div>'
+      +'<div><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Days worked in last period</div><input type="number" min="0" id="hnxFp_dw" value="'+esc(num(inputs.daysWorked))+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;box-sizing:border-box;"></div>'
+      +'<div><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Days in last period</div><input type="number" min="1" id="hnxFp_dp" value="'+esc(num(inputs.daysInPeriod))+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;box-sizing:border-box;"></div>'
+      +'<div><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Months worked this year</div><input type="number" min="0" max="12" id="hnxFp_mo" value="'+esc(num(inputs.monthsWorkedThisYear))+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;box-sizing:border-box;"></div>'
+      +'<div><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Unused leave (days)</div><input type="number" min="0" step="0.5" id="hnxFp_leave" value="'+esc(num(inputs.unusedLeaveDays))+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;box-sizing:border-box;"></div>'
+      +'<div><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Asset deduction <span style="color:#5a8;">← T-44</span></div><input type="number" min="0" id="hnxFp_asset" value="'+esc(num(inputs.assetDeduction))+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;box-sizing:border-box;font-family:var(--mono,monospace);"></div>'
+      +'<div><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Outstanding loans / advances</div><input type="number" min="0" id="hnxFp_loan" value="'+esc(num(inputs.loanDeduction))+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;box-sizing:border-box;font-family:var(--mono,monospace);"></div>'
+      +'<div style="grid-column:span 2"><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Other deductions</div><input type="number" min="0" id="hnxFp_other" value="'+esc(num(inputs.otherDeductions))+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;box-sizing:border-box;font-family:var(--mono,monospace);"></div>'
+    +'</div>';
+    // Breakdown
+    function bdRow(l,v,extra){
+      return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #1c3a2a;font-size:12.5px;color:#a5d6e6;"><span>'+l+'</span><span style="font-family:var(--mono,monospace);font-weight:'+(extra?'700':'500')+';color:'+(extra||'#e8f5e9')+';">'+money(v)+'</span></div>';
+    }
+    var breakdown = ''
+      + bdRow('Base wages (last period)', calc.baseWagesLastPeriod)
+      + bdRow('Pro-rated 13th month', calc.prorated13thMonth)
+      + bdRow('Unused leave cash', calc.leaveCashValue)
+      + '<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid #2c5a3f;border-bottom:1px solid #2c5a3f;font-size:13px;font-weight:700;color:#26c281;"><span>Total earnings</span><span style="font-family:var(--mono,monospace);">'+money(calc.totalEarnings)+'</span></div>'
+      + bdRow('− Asset deduction', calc.assetDeduction, '#ff9800')
+      + bdRow('− Outstanding loans', calc.loanDeduction, '#ff9800')
+      + bdRow('− Other deductions', calc.otherDeductions, '#ff9800')
+      + '<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid #2c5a3f;border-bottom:1px solid #2c5a3f;font-size:13px;font-weight:700;color:#ff9800;"><span>Total deductions</span><span style="font-family:var(--mono,monospace);">−'+money(calc.totalDeductions)+'</span></div>'
+      + '<div style="display:flex;justify-content:space-between;padding:14px 0 6px;font-size:16px;font-weight:800;color:'+(calc.netFinalPay>=0?'#26c281':'#ef5350')+';"><span>NET FINAL PAY</span><span style="font-family:var(--mono,monospace);">'+money(calc.netFinalPay)+'</span></div>';
+    var actions = '';
+    if(canPrepare){
+      var prepLabel = (stage==='not_started')?'💼 Lock as prepared':'🔄 Recompute & re-prepare';
+      actions += '<button onclick="(function(){var i={lastWorkingDay:document.getElementById(\'hnxFp_last\').value,baseSalary:document.getElementById(\'hnxFp_salary\').value,daysWorked:document.getElementById(\'hnxFp_dw\').value,daysInPeriod:document.getElementById(\'hnxFp_dp\').value,monthsWorkedThisYear:document.getElementById(\'hnxFp_mo\').value,unusedLeaveDays:document.getElementById(\'hnxFp_leave\').value,workingDaysPerMonth:'+(Number(inputs.workingDaysPerMonth)||22)+',assetDeduction:document.getElementById(\'hnxFp_asset\').value,loanDeduction:document.getElementById(\'hnxFp_loan\').value,otherDeductions:document.getElementById(\'hnxFp_other\').value};hnxPrepareFinalPay(\''+esc(empId)+'\',i);})()" style="padding:10px 14px;border-radius:8px;border:1px solid #42a5f5;background:rgba(66,165,245,.12);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">'+prepLabel+'</button>';
+    }
+    if(canApprove) actions += '<button onclick="hnxApproveFinalPay(\''+esc(empId)+'\')" style="padding:10px 14px;border-radius:8px;border:1px solid #7c4dff;background:rgba(124,77,255,.12);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">👔 Manager approve</button>';
+    if(canRelease) actions += '<button onclick="(function(){var m=prompt(\'Payment method (e.g. Bank transfer, Cash, Check):\',\'Bank transfer\');if(m===null)return;var r=prompt(\'Payment reference (e.g. check #, transaction id):\',\'\');hnxReleaseFinalPay(\''+esc(empId)+'\',{method:m,ref:r||\'\'});})()" style="padding:10px 14px;border-radius:8px;border:1px solid #26c281;background:rgba(38,194,129,.12);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">💰 Release for payment</button>';
+    if(stage==='approved' && hold) actions += '<span style="padding:10px 14px;border-radius:8px;border:1px solid #ef535066;background:rgba(239,83,80,.08);color:#ef5350;font-size:12px;font-weight:700;">🚫 Cannot release · HOLD active</span>';
+    if(rec) actions += '<button onclick="hnxPrintSeparationCertificate(\''+esc(empId)+'\')" style="padding:10px 14px;border-radius:8px;border:1px solid #ff9800;background:rgba(255,152,0,.10);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">🖨 Separation certificate</button>';
+    // History
+    var audit = '';
+    if(rec){
+      if(rec.preparedAt) audit += '<div>💼 Prepared '+esc(rec.preparedAt.substring(0,10))+' by '+esc(rec.preparedBy||'?')+' · net '+money(rec.calc.netFinalPay)+'</div>';
+      if(rec.approvedAt) audit += '<div>👔 Approved '+esc(rec.approvedAt.substring(0,10))+' by '+esc(rec.approvedBy||'?')+'</div>';
+      if(rec.releasedAt) audit += '<div>💰 Released '+esc(rec.releasedAt.substring(0,10))+' by '+esc(rec.releasedBy||'?')+(rec.paymentMethod?(' · '+esc(rec.paymentMethod)):'')+(rec.paymentRef?(' · ref '+esc(rec.paymentRef)):'')+'</div>';
+    }
+    box.innerHTML = ''
+      +'<div style="padding:16px 20px;border-bottom:1px solid #1c3a2a;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">'
+        +'<div>'
+          +'<div style="font-weight:800;font-size:15px;color:#e8f5e9;">💰 Final Pay — '+esc(emp.name||emp.id)+'</div>'
+          +'<div style="margin-top:7px;">'+stagePill+'</div>'
+        +'</div>'
+        +'<button onclick="hnxCloseFinalPay()" style="background:transparent;border:1px solid #2c5a3f;color:#9fc;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer;flex-shrink:0;">✕</button>'
+      +'</div>'
+      + holdBanner
+      +'<div style="padding:14px 20px;">'
+        +'<div style="font-size:11px;color:#8aa;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:8px;">Inputs <span style="color:#5a8;font-weight:500;letter-spacing:0;">← auto-filled from T-45 contract + T-44 offboarding</span></div>'
+        + inputGrid
+      +'</div>'
+      +'<div style="padding:14px 20px;background:rgba(255,255,255,.02);border-top:1px solid #1c3a2a;">'
+        +'<div style="font-size:11px;color:#8aa;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:6px;">Computed breakdown</div>'
+        + breakdown
+      +'</div>'
+      + (audit ? '<div style="padding:12px 20px;background:rgba(255,255,255,.02);border-top:1px solid #1c3a2a;"><div style="font-size:11px;color:#8aa;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-weight:700;">History</div><div style="font-size:12px;color:#a5d6e6;line-height:1.7;">'+audit+'</div></div>' : '')
+      +'<div style="padding:14px 20px;border-top:1px solid #1c3a2a;display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;">'
+        + actions
+        + '<button onclick="hnxCloseFinalPay()" style="background:transparent;border:1px solid #2c5a3f;color:#9fc;border-radius:8px;padding:9px 16px;font-weight:700;font-size:13px;cursor:pointer;">Close</button>'
+      +'</div>';
+  };
+
+  // Chip on each employee row — only shown when an offboarding exists
+  window.hnxFinalPayChip = function(emp){
+    if(!emp) return '';
+    try{
+      var offb = (typeof loadOffbAll==='function') ? (loadOffbAll()[emp.id]||null) : null;
+      if(!offb) return ''; // only relevant for employees being separated
+      var rec = window.hnxFinalPayFor(emp.id);
+      var status = rec ? rec.status : 'not_started';
+      var hold = !!(offb && offb.holdPay);
+      var color, icon, text;
+      if(hold && status!=='released'){ color='#ef5350'; icon='🚫'; text='Final pay · HOLD'; }
+      else if(status==='not_started'){ color='#ff9800'; icon='💰'; text='Compute final pay'; }
+      else if(status==='prepared'){ color='#42a5f5'; icon='💼'; text='FP · awaiting Mgr'; }
+      else if(status==='approved'){ color='#7c4dff'; icon='👔'; text='FP · awaiting release'; }
+      else if(status==='released'){ color='#26c281'; icon='💸'; text='Paid out'; }
+      else return '';
+      return '<span onclick="event.stopPropagation();hnxOpenFinalPay(\''+esc(emp.id)+'\')" title="Tap to open Final Pay" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:11px;background:'+color+'22;color:'+color+';border:1px solid '+color+'66;font-size:10.5px;font-weight:600;font-family:var(--mono,monospace);cursor:pointer;text-decoration:underline dotted;margin-left:5px;white-space:nowrap;">'+icon+' '+esc(text)+'</span>';
     }catch(_){ return ''; }
   };
 
