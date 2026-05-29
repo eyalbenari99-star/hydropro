@@ -21914,7 +21914,7 @@ function _buildEmpRow(emp,showSalary,typeColors){
         <div style="min-width:0;">
           <div style="font-size:12px;font-weight:700;color:var(--text);line-height:1.2;">${escapeHtml(emp.name||'(unnamed)')}</div>
           <div style="font-size:10px;color:var(--text3);font-family:var(--mono);">${(emp.id||'').replace(/</g,'&lt;')}${emp.nickname?' · '+escapeHtml(emp.nickname):''}${isInactive?' · '+status:''}</div>
-          <div style="margin-top:4px;">${(typeof window.hnxEmpActivityBadge==='function')?window.hnxEmpActivityBadge(emp):''}</div>
+          <div style="margin-top:4px;">${(typeof window.hnxEmpActivityBadge==='function')?window.hnxEmpActivityBadge(emp):''}${(typeof window.hnxOffboardingChip==='function')?window.hnxOffboardingChip(emp):''}${(typeof window.hnxContractChip==='function')?window.hnxContractChip(emp):''}</div>
         </div>
       </div>
     </td>
@@ -21973,6 +21973,8 @@ function buildEmpCard(emp){
     </div>
     <div class="emp-card-meta">
       ${(typeof window.hnxEmpActivityBadge==='function')?window.hnxEmpActivityBadge(emp):''}
+      ${(typeof window.hnxOffboardingChip==='function')?window.hnxOffboardingChip(emp):''}
+      ${(typeof window.hnxContractChip==='function')?window.hnxContractChip(emp):''}
       ${emp.role?`<span class="emp-chip role-${emp.role.replace(' ','\\ ')}">${emp.role}</span>`:''}
       ${emp.type?`<span class="emp-chip type-${emp.type}">${emp.type}</span>`:''}
       ${(()=>{
@@ -70831,7 +70833,16 @@ const ACTION_LABELS={
   poslevel_edit:'↕ Edited position level',
   user_level_set:'👤 Set user position level',
   user_dept_set:'🏢 Set user department',
-  emp_activity_override_clear:'🔄 Cleared employee activity override'
+  emp_activity_override_clear:'🔄 Cleared employee activity override',
+  emp_offboarding_start:'🚪 Started employee offboarding',
+  emp_offboarding_item_tick:'✓ Ticked offboarding checklist item',
+  emp_offboarding_hr_complete:'📋 HR clearance complete',
+  emp_offboarding_approve:'👔 Manager approved clearance',
+  emp_offboarding_finalize:'🏁 Finalized employee separation',
+  emp_offboarding_cancel:'⛔ Cancelled offboarding',
+  emp_contract_upload:'📄 Uploaded employee contract',
+  emp_contract_terms_set:'📋 Set/updated contract terms',
+  emp_contract_delete:'🗑 Deleted employee contract file'
 };
 
 function loadAuditLog(){try{return JSON.parse(localStorage.getItem(AUDIT_KEY)||'[]');}catch(e){return[];}}
@@ -71343,9 +71354,9 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.286-hract';window.HNX_BUILD='v2.86-p146-hract';  // 🟢 v2.46.286 — T-43 HR Lifecycle 2/5: auto Active/Inactive from attendance (30-day rule); live activity badge on every employee row; two new HR filter options (Active auto / Inactive auto); manual override gated by Approval Matrix (emp_active_inactive default rank 7 = VP). ▸ v2.46.285 — Department field editable for all incl. admin_secondary; toggle (replaces plain prompt) + loud 'not connected' banner so no one works local-only by accident. Fixes cross-device data sharing. ▸ v2.46.275 — T-10 call routing canonical. ▸ v2.46.274 — camera sync guard. ▸ v2.46.269 — module COMMAND CENTER  // 🧭 v2.46.275 — T-10: call routing re-pointed to the canonical 14 departments. Raise-Call picker, MODULE_ROUTE_MAP (IT calls now route to IT, not Admin), keyword classifier, office-calls view, both P14 module configs and MODULE_DEPTS all use canonical ids. Existing calls migrated (backed up; undo via window.hnxRestoreT10()). ▸ v2.46.274 — camera-streams sync guard. ▸ v2.46.273 — T-09 canonical dept registry. ▸ v2.46.269 — module COMMAND CENTER middle column is now an animated 'HYDRONEXIS-AI · ANALYSING' centerpiece (_mccAnalysisStage): pulsing brain core + rotating radar rings + conic sweep, cycling analysis ticker (pulls live aiRows), live equalizer bars, flowing SVG waveform, 4 live KPI chips (from cfg.kpis), scanning bar — all CSS-animated (no JS intervals), accent = module color. QC daily checklist moved to a footer link. Applies to all MCC_CONFIGS modules; Production's own command center (separate render) unaffected. ▸ v2.46.268-custtype —   // 🏷️ v2.46.268 — explicit CUSTOMER TYPE selector on the customer detail 💰 PRICE LIST card: supervisors can set a customer's type (Online/Hotels/Restaurants/Supermarkets/Distributors/Retail) or leave it on 🔎 Auto-detect (name-based). Manual type overrides name detection and drives the type-default price list. Operators see it read-only. New key hydroPro_crm_cust_seg; _custPricingSeg now checks manual override → _custDetectSeg(name). ▸ v2.46.267-pricelists —   // 💰 v2.46.267 — PRICE LISTS tied to customer types + per-customer default: added 'Distributors / Wholesale' segment; Custom Price Lists tab now has a '🏷️ Default price list per customer type' panel (hotels/restaurants/supermarkets/online/distributors/retail each pick a default list); each QBO customer's detail shows a 💰 PRICE LIST card with its effective list (override → type default → base prices). Changing a type default OR a customer's list is gated to CRM supervisors (admin/admin_secondary/supervisor) — operators see it read-only. Keys: hydroPro_crm_seg_default_pl, hydroPro_crm_cust_pl. '+ New Price List' & 'Generate from Segment' unchanged. ▸ v2.46.266-crm-modes —   // 🎨 v2.46.266 — CRM customer MODES (visual framework): each customer's avatar ball is now colored by mode + a 🎨 Mode dropdown filters the directory + a colored-dot legend with live counts. Modes: 🆕 New (created <30d), ⚪ Not Active (QBO inactive), 🔘 Uncategorized (active, cadence unknown). 🟢 Fully Active / 🔵 Active / 😴 Sleepy are DEFINED + colored + in the dropdown but show 0 / 'needs orders' until a per-customer order-date feed is wired (TODO in _qbCustModeId). Lead-by-status already lives in the Leads/Pipeline tabs. ▸ v2.46.265-cctv-snapshots —   // 🔧 v2.46.265 — BIG PERF FIX: wall tiles are now lightweight auto-refreshing SNAPSHOTS (go2rtc /api/frame.jpeg, refreshed every 4s) instead of full WebRTC player iframes — so 22/81 cameras load near-instantly at almost no CPU. LIVE video only on tap: normal wall tap→full() live, fullscreen Spotlight big tile = live, Grid + Spotlight-small tiles = snapshots. Dead streams show a clean offline tile (no retry storm). Snapshots pause when tab hidden / scope to the visible wall. ▸ v2.46.264-cctv-mosaic —   // 🔧 v2.46.264 — full-screen '🎯 1 Big + around' is now a real MOSAIC: one big tile (spans 2x2) with the rest sized small AROUND it, filling the screen (no side strip). Tap ANY camera (in Grid or Mosaic) to make it the big one — the choice is remembered per area (hydroPro_cctv_spot_v1). '📐 Grid' = all equal size. Big choice resets sensibly when you switch area tabs. ▸ v2.46.263-arrange-area —   // 🔧 v2.46.263 — ARRANGE is now PER-AREA: it only shows the cameras in the area tab you're on (not all 81), the area tabs appear inside Arrange so you can switch which screen you're organizing, and ◀▶ nudge a camera within its own area. Adjust one screen at a time. ▸ v2.46.262-cctv-stagger —   // 🔧 v2.46.262 — NORMAL CCTV wall now THROTTLES stream loading: instead of connecting every visible camera on the same frame (which froze the 22-cam Greenhouses tab), it opens max 4 streams at a time and starts the next as each finishes/​times-out — so big area tabs ramp up smoothly. Off-screen tiles still unload. (Stagger already applied to the fullscreen wall in p128.) ▸ v2.46.261-cctv-wall —   // 🔧 v2.46.261 — CCTV FULL-SCREEN VIDEO WALL: new ⛶ Full Screen button opens an edge-to-edge fullscreen wall (browser fullscreen API, no app chrome) for the current area tab. Two layouts with a toggle — 📐 Grid (auto-fits cameras to fill the screen, best rows×cols, no scroll) and 🎯 Spotlight (one big live feed + thumbnail strip; tap a thumb to swap into the big slot). Area tabs + Esc/Exit inside. Streams stagger-load (3 at a time) so it never opens dozens at once; spotlight runs only the big feed live. Normal wall's streams are paused while fullscreen is open. ▸ v2.46.260-cctv-areas —   // 🔧 v2.46.260 — CCTV LIVE WALL split into 8 AREA TABS (🌱 Greenhouses · 🛡 GH Perimeter · 🛡 Perimeter & Gates · 💧 Fertigation · 📦 Packaging & Logistics · 🏗 Project 11 · 🏢 Office & Admin · 📍 Security & Other) per ES BA's corrected mapping (CAM_AREA). Wall opens on ONE tab (remembered in hydroPro_cctv_area_v1), so it never loads all 81 at once; lazy-load stays underneath. Tap 📺 All to load everything (heaviest). ▸ v2.46.259-crm-nav —   // 🔧 v2.46.259 — CRM views now DISCOVERABLE: injected sub-tabs (🆕 Customer Master, 📁 Customer 360° Files, 📊 Customer Matrix, 📞 Open Issues) were created with class 'nav-tab' but the view-picker dropdown only lists '.module-sub-tab' — so they were loaded but invisible in the menu. Now created as 'module-sub-tab' with modTab- ids → they appear in the dropdown + are searchable. ▸ v2.46.258 — (1) CRM render guard: Overview/Leads/etc. can never blank to black again — any render error now shows a recovery panel with Retry + the real error message (logged to console). (2) CCTV live wall lazy-loads via IntersectionObserver: only on-screen cameras stream (300px preload margin; off-screen tiles unload to about:blank), eliminating the slow open + layout jump with ~60 cameras. ▸ prev v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
-const APP_BUILD=1780974000;
-const APP_BUILD_DATE='2026-05-28';
+const APP_VERSION='2.46.288-contract';window.HNX_BUILD='v2.86-p148-contract';  // 📄 v2.46.288 — T-45 HR Lifecycle 4/5: per-employee Contract file upload (PDF/JPG/PNG ≤ 4MB) + structured terms (notice period, probation, base salary, deductions, custom notes). Stored per-empId in dedicated hydroPro_emp_contract_<id> keys (each <5MB cloud-sync limit). Notice-period auto-feeds the T-44 offboarding hint. Contract chip on every employee row. AI auto-extract is a preview placeholder (full /ai/analyze extraction in T-45 phase 2). ALSO T-24 preview: 🤖 Open AI Co-Pilot now opens a reliable module-aware fallback panel wired to the live Cloud AI worker (/ai/analyze). ▸ v2.46.287 — T-44 Offboarding clearance workflow. ▸ v2.46.286 — T-43 auto Active/Inactive. toggle (replaces plain prompt) + loud 'not connected' banner so no one works local-only by accident. Fixes cross-device data sharing. ▸ v2.46.275 — T-10 call routing canonical. ▸ v2.46.274 — camera sync guard. ▸ v2.46.269 — module COMMAND CENTER  // 🧭 v2.46.275 — T-10: call routing re-pointed to the canonical 14 departments. Raise-Call picker, MODULE_ROUTE_MAP (IT calls now route to IT, not Admin), keyword classifier, office-calls view, both P14 module configs and MODULE_DEPTS all use canonical ids. Existing calls migrated (backed up; undo via window.hnxRestoreT10()). ▸ v2.46.274 — camera-streams sync guard. ▸ v2.46.273 — T-09 canonical dept registry. ▸ v2.46.269 — module COMMAND CENTER middle column is now an animated 'HYDRONEXIS-AI · ANALYSING' centerpiece (_mccAnalysisStage): pulsing brain core + rotating radar rings + conic sweep, cycling analysis ticker (pulls live aiRows), live equalizer bars, flowing SVG waveform, 4 live KPI chips (from cfg.kpis), scanning bar — all CSS-animated (no JS intervals), accent = module color. QC daily checklist moved to a footer link. Applies to all MCC_CONFIGS modules; Production's own command center (separate render) unaffected. ▸ v2.46.268-custtype —   // 🏷️ v2.46.268 — explicit CUSTOMER TYPE selector on the customer detail 💰 PRICE LIST card: supervisors can set a customer's type (Online/Hotels/Restaurants/Supermarkets/Distributors/Retail) or leave it on 🔎 Auto-detect (name-based). Manual type overrides name detection and drives the type-default price list. Operators see it read-only. New key hydroPro_crm_cust_seg; _custPricingSeg now checks manual override → _custDetectSeg(name). ▸ v2.46.267-pricelists —   // 💰 v2.46.267 — PRICE LISTS tied to customer types + per-customer default: added 'Distributors / Wholesale' segment; Custom Price Lists tab now has a '🏷️ Default price list per customer type' panel (hotels/restaurants/supermarkets/online/distributors/retail each pick a default list); each QBO customer's detail shows a 💰 PRICE LIST card with its effective list (override → type default → base prices). Changing a type default OR a customer's list is gated to CRM supervisors (admin/admin_secondary/supervisor) — operators see it read-only. Keys: hydroPro_crm_seg_default_pl, hydroPro_crm_cust_pl. '+ New Price List' & 'Generate from Segment' unchanged. ▸ v2.46.266-crm-modes —   // 🎨 v2.46.266 — CRM customer MODES (visual framework): each customer's avatar ball is now colored by mode + a 🎨 Mode dropdown filters the directory + a colored-dot legend with live counts. Modes: 🆕 New (created <30d), ⚪ Not Active (QBO inactive), 🔘 Uncategorized (active, cadence unknown). 🟢 Fully Active / 🔵 Active / 😴 Sleepy are DEFINED + colored + in the dropdown but show 0 / 'needs orders' until a per-customer order-date feed is wired (TODO in _qbCustModeId). Lead-by-status already lives in the Leads/Pipeline tabs. ▸ v2.46.265-cctv-snapshots —   // 🔧 v2.46.265 — BIG PERF FIX: wall tiles are now lightweight auto-refreshing SNAPSHOTS (go2rtc /api/frame.jpeg, refreshed every 4s) instead of full WebRTC player iframes — so 22/81 cameras load near-instantly at almost no CPU. LIVE video only on tap: normal wall tap→full() live, fullscreen Spotlight big tile = live, Grid + Spotlight-small tiles = snapshots. Dead streams show a clean offline tile (no retry storm). Snapshots pause when tab hidden / scope to the visible wall. ▸ v2.46.264-cctv-mosaic —   // 🔧 v2.46.264 — full-screen '🎯 1 Big + around' is now a real MOSAIC: one big tile (spans 2x2) with the rest sized small AROUND it, filling the screen (no side strip). Tap ANY camera (in Grid or Mosaic) to make it the big one — the choice is remembered per area (hydroPro_cctv_spot_v1). '📐 Grid' = all equal size. Big choice resets sensibly when you switch area tabs. ▸ v2.46.263-arrange-area —   // 🔧 v2.46.263 — ARRANGE is now PER-AREA: it only shows the cameras in the area tab you're on (not all 81), the area tabs appear inside Arrange so you can switch which screen you're organizing, and ◀▶ nudge a camera within its own area. Adjust one screen at a time. ▸ v2.46.262-cctv-stagger —   // 🔧 v2.46.262 — NORMAL CCTV wall now THROTTLES stream loading: instead of connecting every visible camera on the same frame (which froze the 22-cam Greenhouses tab), it opens max 4 streams at a time and starts the next as each finishes/​times-out — so big area tabs ramp up smoothly. Off-screen tiles still unload. (Stagger already applied to the fullscreen wall in p128.) ▸ v2.46.261-cctv-wall —   // 🔧 v2.46.261 — CCTV FULL-SCREEN VIDEO WALL: new ⛶ Full Screen button opens an edge-to-edge fullscreen wall (browser fullscreen API, no app chrome) for the current area tab. Two layouts with a toggle — 📐 Grid (auto-fits cameras to fill the screen, best rows×cols, no scroll) and 🎯 Spotlight (one big live feed + thumbnail strip; tap a thumb to swap into the big slot). Area tabs + Esc/Exit inside. Streams stagger-load (3 at a time) so it never opens dozens at once; spotlight runs only the big feed live. Normal wall's streams are paused while fullscreen is open. ▸ v2.46.260-cctv-areas —   // 🔧 v2.46.260 — CCTV LIVE WALL split into 8 AREA TABS (🌱 Greenhouses · 🛡 GH Perimeter · 🛡 Perimeter & Gates · 💧 Fertigation · 📦 Packaging & Logistics · 🏗 Project 11 · 🏢 Office & Admin · 📍 Security & Other) per ES BA's corrected mapping (CAM_AREA). Wall opens on ONE tab (remembered in hydroPro_cctv_area_v1), so it never loads all 81 at once; lazy-load stays underneath. Tap 📺 All to load everything (heaviest). ▸ v2.46.259-crm-nav —   // 🔧 v2.46.259 — CRM views now DISCOVERABLE: injected sub-tabs (🆕 Customer Master, 📁 Customer 360° Files, 📊 Customer Matrix, 📞 Open Issues) were created with class 'nav-tab' but the view-picker dropdown only lists '.module-sub-tab' — so they were loaded but invisible in the menu. Now created as 'module-sub-tab' with modTab- ids → they appear in the dropdown + are searchable. ▸ v2.46.258 — (1) CRM render guard: Overview/Leads/etc. can never blank to black again — any render error now shows a recovery panel with Retry + the real error message (logged to console). (2) CCTV live wall lazy-loads via IntersectionObserver: only on-screen cameras stream (300px preload margin; off-screen tiles unload to about:blank), eliminating the slow open + layout jump with ~60 cameras. ▸ prev v2.85.6 — Two fixes: (1) Auto-cleanup of redundant backup system (was v2.85.5: disabled System #2 daily backup, reduced System #1 retention 7→3 days, added one-time cleanup of legacy hydroPro_backup_* keys, added 5MB storage watchdog). (2) Made reload loop detector far less aggressive: threshold raised from 4 to 6 loads in 60s (hard refreshes no longer falsely trigger it), lockout reduced from 24 hours to 30 minutes, removed broken "Open Cache Repair" button (it pointed to /fix.html which doesn't exist) and replaced with working "🔄 Clear & Continue" button that clears the lock and reloads. Stale kill-flags are auto-cleaned when lockout expires. Backup of v2.85.4 saved as index-v2.85.4-backup.html.
+const APP_BUILD=1780986000;
+const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
 (function initVersionTracking(){
@@ -144432,6 +144443,11 @@ body.hnx-mobile-locked { overflow: hidden; }
     {id:'attend_late_approve',  module:'Production/HR', label:'Approve late attendance entry',        defA:4, defN:3},
     {id:'leave_request',        module:'Production/HR', label:'Approve leave request',                defA:5, defN:4},
     {id:'emp_active_inactive',  module:'Production/HR', label:'Mark employee active/inactive (manual)',defA:7, defN:5},
+    {id:'emp_offboarding_start',      module:'HR',       label:'Start employee offboarding',          defA:4, defN:3},
+    {id:'emp_offboarding_hr_complete',module:'HR',       label:'HR mark clearance complete',          defA:5, defN:4},
+    {id:'emp_offboarding_approve',    module:'HR/Mgmt',  label:'Manager approve clearance',           defA:6, defN:5},
+    {id:'emp_offboarding_finalize',   module:'HR/Mgmt',  label:'VP/COO/CEO finalize separation',      defA:7, defN:6},
+    {id:'emp_contract_upload',        module:'HR',       label:'Upload / edit employee contract',     defA:5, defN:4},
     // Irrigation
     {id:'irr_cal_approve',      module:'Irrigation',    label:'Approve dosing calibration',           defA:5, defN:4},
     {id:'irr_room_sign',        module:'Irrigation',    label:'Supervisor sign — room',               defA:4, defN:2},
@@ -144974,6 +144990,7 @@ body.hnx-mobile-locked { overflow: hidden; }
           +'<button onclick="hnxApplyActivityOverride(\''+esc(empId)+'\',\'active\')" style="text-align:left;padding:11px 14px;border-radius:8px;border:1px solid #26c281;background:rgba(38,194,129,.10);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">✅ Force <b>Active</b></button>'
           +'<button onclick="hnxApplyActivityOverride(\''+esc(empId)+'\',\'inactive\')" style="text-align:left;padding:11px 14px;border-radius:8px;border:1px solid #ef5350;background:rgba(239,83,80,.10);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">🚫 Force <b>Inactive</b></button>'
           +'<button onclick="hnxApplyActivityOverride(\''+esc(empId)+'\',\'\')" style="text-align:left;padding:11px 14px;border-radius:8px;border:1px solid #2c5a3f;background:rgba(255,255,255,.04);color:#9fc;font-size:13px;cursor:pointer;">🔄 Clear override (use the auto rule)</button>'
+          +'<button onclick="document.getElementById(\'hnxActivityOverride\').remove();hnxOpenOffboarding(\''+esc(empId)+'\')" style="text-align:left;padding:11px 14px;border-radius:8px;border:1px solid #ff9800;background:rgba(255,152,0,.10);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;margin-top:6px;">🚪 Open Offboarding clearance</button>'
         +'</div>'
         +'<div style="padding:14px 18px;border-top:1px solid #1c3a2a;display:flex;gap:10px;justify-content:flex-end;">'
           +'<button onclick="document.getElementById(\'hnxActivityOverride\').remove()" style="background:transparent;border:1px solid #2c5a3f;color:#9fc;border-radius:8px;padding:9px 16px;font-weight:700;font-size:13px;cursor:pointer;">Cancel</button>'
@@ -145004,6 +145021,677 @@ body.hnx-mobile-locked { overflow: hidden; }
       var ov = document.getElementById('hnxActivityOverride'); if(ov) ov.remove();
       if(typeof renderHR==='function') renderHR();
     }catch(e){ toast('Error setting override','warn'); }
+  };
+
+  // ============================ T-44 HR LIFECYCLE 3/5 — Offboarding Checklist & Clearance ============================
+  // Per-employee offboarding instance with configurable checklist + 4-stage approval pipeline
+  // (HR fills → HR-complete → Manager approves → VP/COO/CEO finalizes). Outcomes (assetValueOwed,
+  // holdPay, holdReason) feed T-46 Final Pay. On finalize, T-43's activeOverride is set to 'inactive'.
+  var OFFB_KEY = 'hydroPro_offboarding_v1';
+  var OFFB_TEMPLATE_KEY = 'hydroPro_offboarding_template_v1';
+  var DEFAULT_OFFB_TEMPLATE = [
+    { id:'resignation_letter', label:'Resignation letter submitted',                category:'docs',     required:true,  capturesValue:false, capturesHold:false },
+    { id:'notice_period',      label:'Notice period complied per contract',         category:'contract', required:true,  capturesValue:false, capturesHold:false },
+    { id:'turnover_doc',       label:'Turnover document submitted & accepted',      category:'docs',     required:true,  capturesValue:false, capturesHold:true  },
+    { id:'assets_returned',    label:'All assets returned (per 201 deployment list)',category:'assets',  required:true,  capturesValue:true,  capturesHold:false },
+    { id:'final_timesheet',    label:'Final timesheet submitted',                   category:'payroll',  required:true,  capturesValue:false, capturesHold:false },
+    { id:'knowledge_transfer', label:'Knowledge transfer completed',                category:'ops',      required:false, capturesValue:false, capturesHold:false },
+    { id:'exit_interview',     label:'Exit interview conducted',                    category:'hr',       required:false, capturesValue:false, capturesHold:false },
+    { id:'hr_forms',           label:'All HR exit forms signed',                    category:'hr',       required:true,  capturesValue:false, capturesHold:false },
+    { id:'system_access',      label:'System access revoked (IT clearance)',        category:'it',       required:true,  capturesValue:false, capturesHold:false },
+    { id:'loans_settled',      label:'Outstanding loans & cash advances settled',   category:'finance',  required:true,  capturesValue:false, capturesHold:false }
+  ];
+  function loadOffbTemplate(){
+    try{ var raw = localStorage.getItem(OFFB_TEMPLATE_KEY); if(raw){ var arr=JSON.parse(raw); if(Array.isArray(arr)&&arr.length) return arr; } }catch(_){}
+    return JSON.parse(JSON.stringify(DEFAULT_OFFB_TEMPLATE));
+  }
+  function saveOffbTemplate(arr){ try{ localStorage.setItem(OFFB_TEMPLATE_KEY, JSON.stringify(arr||DEFAULT_OFFB_TEMPLATE)); }catch(_){} }
+  function loadOffbAll(){
+    try{ var raw=localStorage.getItem(OFFB_KEY); if(raw) return JSON.parse(raw)||{}; }catch(_){}
+    return {};
+  }
+  function saveOffbAll(obj){ try{ localStorage.setItem(OFFB_KEY, JSON.stringify(obj||{})); }catch(_){} }
+  function _findEmp(empId){
+    var emp=null;
+    try{ if(typeof employees!=='undefined' && Array.isArray(employees)) for(var i=0;i<employees.length;i++) if(employees[i].id===empId){ emp=employees[i]; break; } }catch(_){}
+    if(!emp){ var arr=(typeof loadEmployees==='function')?loadEmployees():[]; for(var j=0;j<arr.length;j++) if(arr[j].id===empId){ emp=arr[j]; break; } }
+    return emp;
+  }
+  function _recomputeOffbDerived(empId){
+    var all = loadOffbAll(); var inst = all[empId]; if(!inst) return;
+    var tpl = loadOffbTemplate();
+    var hold=false, holdReasons=[];
+    for(var i=0;i<tpl.length;i++){
+      var t=tpl[i]; var it=inst.items[t.id]||{};
+      if(t.capturesHold && !it.done && t.required){ hold=true; holdReasons.push(t.label); }
+    }
+    if(inst.status !== 'finalized'){ inst.holdPay = hold; inst.holdReason = holdReasons.join('; '); }
+    saveOffbAll(all);
+  }
+
+  // -- Public API --
+  window.hnxOffboardingTemplate = function(){ return loadOffbTemplate(); };
+  window.hnxSetOffboardingTemplate = function(arr){
+    if(!(window.HNX_Approval && API.canApprove('emp_offboarding_start'))){ toast('Not authorized to edit template','warn'); return false; }
+    if(!Array.isArray(arr)){ return false; }
+    saveOffbTemplate(arr); toast('Offboarding template saved'); return true;
+  };
+  window.hnxOffboardingFor = function(empId){ var all=loadOffbAll(); return all[empId]||null; };
+  window.hnxAllOffboardings = function(){ return loadOffbAll(); };
+
+  window.hnxStartOffboarding = function(empId, reason){
+    try{
+      if(!(window.HNX_Approval && API.canApprove('emp_offboarding_start'))){ toast('Not authorized to start offboarding','warn'); return null; }
+      var all = loadOffbAll();
+      if(all[empId] && all[empId].status && all[empId].status!=='cancelled' && all[empId].status!=='finalized'){ toast('Offboarding already exists for this employee','warn'); return all[empId]; }
+      var tpl = loadOffbTemplate(); var items = {};
+      for(var i=0;i<tpl.length;i++){ items[tpl[i].id] = { done:false, doneAt:'', doneBy:'', note:'' }; }
+      var u = curUser();
+      all[empId] = {
+        status: 'in_progress',
+        reason: reason||'resignation',
+        startedAt: new Date().toISOString(),
+        startedBy: u?(u.username||''):'',
+        items: items,
+        assetValueOwed: 0,
+        holdPay: false,
+        holdReason: '',
+        hrCompletedAt: null, hrCompletedBy: null,
+        managerApprovedAt: null, managerApprovedBy: null,
+        finalizedAt: null, finalizedBy: null,
+        notes: ''
+      };
+      saveOffbAll(all);
+      API.recordApproval('emp_offboarding_start', empId, { note: 'Started offboarding ('+(reason||'resignation')+')' });
+      toast('🚪 Offboarding started');
+      _recomputeOffbDerived(empId);
+      if(typeof renderHR==='function') renderHR();
+      return all[empId];
+    }catch(e){ toast('Error starting offboarding','warn'); return null; }
+  };
+
+  window.hnxToggleOffbItem = function(empId, itemId){
+    try{
+      var all = loadOffbAll(); var inst = all[empId];
+      if(!inst){ toast('No offboarding for this employee','warn'); return; }
+      if(inst.status==='finalized'){ toast('Already finalized — checklist locked','warn'); return; }
+      if(!(window.HNX_Approval && (API.canApprove('emp_offboarding_hr_complete') || API.canApprove('emp_offboarding_approve') || API.canApprove('emp_offboarding_finalize')))){
+        toast('Not authorized to update checklist','warn'); return;
+      }
+      if(!inst.items[itemId]) inst.items[itemId] = { done:false, doneAt:'', doneBy:'', note:'' };
+      var u = curUser();
+      inst.items[itemId].done = !inst.items[itemId].done;
+      inst.items[itemId].doneAt = inst.items[itemId].done ? new Date().toISOString() : '';
+      inst.items[itemId].doneBy = inst.items[itemId].done && u ? (u.username||'') : '';
+      saveOffbAll(all);
+      doAudit('emp_offboarding_item_tick', itemId+(inst.items[itemId].done?' ✓':' ✗')+' for '+empId);
+      _recomputeOffbDerived(empId);
+      if(document.getElementById('hnxOffbModal')) window.hnxRenderOffboardingModal(empId);
+      if(typeof renderHR==='function') renderHR();
+    }catch(e){ toast('Error toggling item','warn'); }
+  };
+
+  window.hnxOffboardingHRComplete = function(empId){
+    try{
+      if(!(window.HNX_Approval && API.canApprove('emp_offboarding_hr_complete'))){ toast('Not authorized','warn'); return; }
+      var all = loadOffbAll(); var inst = all[empId];
+      if(!inst){ toast('No offboarding','warn'); return; }
+      if(inst.status!=='in_progress'){ toast('Stage already past HR-complete','warn'); return; }
+      var tpl = loadOffbTemplate(); var missing=[];
+      for(var i=0;i<tpl.length;i++){
+        if(tpl[i].required && !(inst.items[tpl[i].id] && inst.items[tpl[i].id].done)) missing.push(tpl[i].label);
+      }
+      if(missing.length){ toast('Cannot complete — '+missing.length+' required item(s) still open','warn'); return; }
+      var u = curUser();
+      inst.status='hr_complete';
+      inst.hrCompletedAt = new Date().toISOString();
+      inst.hrCompletedBy = u?(u.username||''):'';
+      saveOffbAll(all);
+      API.recordApproval('emp_offboarding_hr_complete', empId, { note: 'HR clearance complete' });
+      toast('✓ HR clearance complete — awaiting Manager approval');
+      if(document.getElementById('hnxOffbModal')) window.hnxRenderOffboardingModal(empId);
+      if(typeof renderHR==='function') renderHR();
+    }catch(e){ toast('Error','warn'); }
+  };
+
+  window.hnxOffboardingApprove = function(empId){
+    try{
+      if(!(window.HNX_Approval && API.canApprove('emp_offboarding_approve'))){ toast('Not authorized','warn'); return; }
+      var all = loadOffbAll(); var inst = all[empId];
+      if(!inst || inst.status!=='hr_complete'){ toast('HR clearance must be complete first','warn'); return; }
+      var u = curUser();
+      inst.status='manager_approved';
+      inst.managerApprovedAt = new Date().toISOString();
+      inst.managerApprovedBy = u?(u.username||''):'';
+      saveOffbAll(all);
+      API.recordApproval('emp_offboarding_approve', empId, { note: 'Manager approved clearance' });
+      toast('✓ Manager approved — awaiting VP/COO/CEO finalization');
+      if(document.getElementById('hnxOffbModal')) window.hnxRenderOffboardingModal(empId);
+      if(typeof renderHR==='function') renderHR();
+    }catch(e){ toast('Error','warn'); }
+  };
+
+  window.hnxOffboardingFinalize = function(empId){
+    try{
+      if(!(window.HNX_Approval && API.canApprove('emp_offboarding_finalize'))){ toast('Not authorized','warn'); return; }
+      var all = loadOffbAll(); var inst = all[empId];
+      if(!inst || inst.status!=='manager_approved'){ toast('Manager approval required first','warn'); return; }
+      var u = curUser();
+      inst.status='finalized';
+      inst.finalizedAt = new Date().toISOString();
+      inst.finalizedBy = u?(u.username||''):'';
+      saveOffbAll(all);
+      // Connect T-43: force the employee inactive on finalize
+      var emp = _findEmp(empId);
+      if(emp){ emp.activeOverride='inactive'; emp.activeOverrideAt=new Date().toISOString(); if(typeof saveEmployees==='function') saveEmployees(); }
+      API.recordApproval('emp_offboarding_finalize', empId, { note: 'Separation finalized'+(emp?(' for '+(emp.name||empId)):'') });
+      toast('🏁 Employee fully separated');
+      if(document.getElementById('hnxOffbModal')) window.hnxRenderOffboardingModal(empId);
+      if(typeof renderHR==='function') renderHR();
+    }catch(e){ toast('Error','warn'); }
+  };
+
+  window.hnxSetOffbAssetValue = function(empId, val){
+    try{
+      if(!(window.HNX_Approval && (API.canApprove('emp_offboarding_hr_complete') || API.canApprove('emp_offboarding_approve') || API.canApprove('emp_offboarding_finalize')))){ toast('Not authorized','warn'); return; }
+      var all=loadOffbAll(); var inst=all[empId]; if(!inst) return;
+      if(inst.status==='finalized'){ toast('Locked: finalized','warn'); return; }
+      inst.assetValueOwed = Math.max(0, Number(val)||0);
+      saveOffbAll(all);
+      toast('Asset value owed: ₱'+inst.assetValueOwed.toLocaleString());
+    }catch(e){ toast('Error','warn'); }
+  };
+  window.hnxToggleOffbHold = function(empId){
+    try{
+      if(!(window.HNX_Approval && (API.canApprove('emp_offboarding_approve') || API.canApprove('emp_offboarding_finalize')))){ toast('Not authorized','warn'); return; }
+      var all=loadOffbAll(); var inst=all[empId]; if(!inst) return;
+      if(inst.status==='finalized'){ toast('Locked: finalized','warn'); return; }
+      inst.holdPay = !inst.holdPay;
+      if(!inst.holdPay) inst.holdReason='';
+      saveOffbAll(all);
+      if(document.getElementById('hnxOffbModal')) window.hnxRenderOffboardingModal(empId);
+    }catch(e){ toast('Error','warn'); }
+  };
+
+  // -- Modal --
+  window.hnxOpenOffboarding = function(empId){
+    var old=document.getElementById('hnxOffbModal'); if(old) old.remove();
+    var ov=document.createElement('div'); ov.id='hnxOffbModal';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+    ov.innerHTML='<div id="hnxOffbBox" style="background:#0a1612;border:1px solid #2c5a3f;border-radius:14px;max-width:700px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.6);"></div>';
+    ov.addEventListener('click',function(e){ if(e.target===ov) ov.remove(); });
+    document.body.appendChild(ov);
+    window.hnxRenderOffboardingModal(empId);
+  };
+  window.hnxCloseOffboarding = function(){ var ov=document.getElementById('hnxOffbModal'); if(ov) ov.remove(); };
+
+  window.hnxRenderOffboardingModal = function(empId){
+    var box=document.getElementById('hnxOffbBox'); if(!box) return;
+    var emp = _findEmp(empId);
+    if(!emp){ box.innerHTML='<div style="padding:24px;color:#fff;">Employee not found</div>'; return; }
+    var inst = window.hnxOffboardingFor(empId);
+    if(!inst){
+      var canStart = !!(window.HNX_Approval && API.canApprove('emp_offboarding_start'));
+      box.innerHTML = ''
+        +'<div style="padding:18px 20px;border-bottom:1px solid #1c3a2a;display:flex;justify-content:space-between;align-items:center;">'
+          +'<div style="font-weight:800;font-size:16px;color:#e8f5e9;">🚪 Offboarding — '+esc(emp.name||emp.id)+'</div>'
+          +'<button onclick="hnxCloseOffboarding()" style="background:transparent;border:1px solid #2c5a3f;color:#9fc;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer;">✕</button>'
+        +'</div>'
+        +'<div style="padding:22px 20px;color:#a5d6e6;font-size:13px;line-height:1.55;">'
+          +'<div>No active offboarding for this employee.</div>'
+          +(canStart
+            ? '<div style="margin-top:14px;font-size:12.5px;color:#8aa;">Starting an offboarding creates a tracked HR clearance checklist. Outcomes (asset deductions, pay-hold flag) feed Final Pay (T-46). All steps are logged in the Approvals Ledger.</div>'
+              +'<div style="margin-top:16px;font-size:11px;color:#8aa;text-transform:uppercase;letter-spacing:1px;font-weight:700;">Reason</div>'
+              +'<div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
+                +'<button onclick="hnxStartOffboarding(\''+esc(empId)+'\',\'resignation\');hnxRenderOffboardingModal(\''+esc(empId)+'\');" style="text-align:left;padding:11px 14px;border-radius:8px;border:1px solid #ff9800;background:rgba(255,152,0,.10);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">📄 Resignation</button>'
+                +'<button onclick="hnxStartOffboarding(\''+esc(empId)+'\',\'termination\');hnxRenderOffboardingModal(\''+esc(empId)+'\');" style="text-align:left;padding:11px 14px;border-radius:8px;border:1px solid #ef5350;background:rgba(239,83,80,.10);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">⚠ Termination</button>'
+                +'<button onclick="hnxStartOffboarding(\''+esc(empId)+'\',\'retirement\');hnxRenderOffboardingModal(\''+esc(empId)+'\');" style="text-align:left;padding:11px 14px;border-radius:8px;border:1px solid #26c281;background:rgba(38,194,129,.10);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">🎓 Retirement</button>'
+                +'<button onclick="hnxStartOffboarding(\''+esc(empId)+'\',\'other\');hnxRenderOffboardingModal(\''+esc(empId)+'\');" style="text-align:left;padding:11px 14px;border-radius:8px;border:1px solid #607d8b;background:rgba(96,125,139,.10);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">📌 Other</button>'
+              +'</div>'
+            : '<div style="margin-top:14px;color:#ff9800;font-size:12px;">Your position level is too low to start offboarding (gated by Approval Matrix · task <b>emp_offboarding_start</b>).</div>'
+          )
+        +'</div>';
+      return;
+    }
+    var tpl = loadOffbTemplate();
+    var stage = inst.status||'in_progress';
+    var stageMap = {
+      in_progress:     { label:'In progress · HR filling',       color:'#ff9800', icon:'📋', step:1 },
+      hr_complete:     { label:'HR complete · awaiting Manager', color:'#42a5f5', icon:'✅', step:2 },
+      manager_approved:{ label:'Mgr approved · awaiting Final',  color:'#7c4dff', icon:'👔', step:3 },
+      finalized:       { label:'Finalized · fully separated',    color:'#26c281', icon:'🏁', step:4 }
+    };
+    var sm = stageMap[stage] || stageMap.in_progress;
+    var canHRComplete = !!(window.HNX_Approval && API.canApprove('emp_offboarding_hr_complete')) && stage==='in_progress';
+    var canApproveStage = !!(window.HNX_Approval && API.canApprove('emp_offboarding_approve')) && stage==='hr_complete';
+    var canFinalize = !!(window.HNX_Approval && API.canApprove('emp_offboarding_finalize')) && stage==='manager_approved';
+    var canTick = !!(window.HNX_Approval && (API.canApprove('emp_offboarding_hr_complete')||API.canApprove('emp_offboarding_approve')||API.canApprove('emp_offboarding_finalize'))) && stage!=='finalized';
+    var doneCount=0, requiredDone=0, requiredTotal=0;
+    for(var k=0;k<tpl.length;k++){
+      var t=tpl[k]; var it=inst.items[t.id]||{};
+      if(it.done) doneCount++;
+      if(t.required){ requiredTotal++; if(it.done) requiredDone++; }
+    }
+    var pct = tpl.length ? Math.round(100*doneCount/tpl.length) : 0;
+    var itemsHtml = tpl.map(function(t){
+      var it = inst.items[t.id] || { done:false };
+      var checked = it.done;
+      var clickable = canTick;
+      var icon = checked ? '✅' : (t.required ? '⬜' : '⚪');
+      var color = checked ? '#26c281' : (t.required ? '#ff9800' : '#888');
+      var sub = checked && it.doneAt ? ('<div style="font-size:10.5px;color:#8aa;margin-top:3px;">'+esc(it.doneAt.substring(0,10))+' · '+esc(it.doneBy||'?')+'</div>') : '';
+      var capValue = t.capturesValue && !checked ? '<div style="font-size:10.5px;color:#ff9800;margin-top:3px;">⚠ Asset value should be deducted from final pay</div>' : '';
+      var capHold = t.capturesHold && !checked && t.required ? '<div style="font-size:10.5px;color:#ef5350;margin-top:3px;">⚠ Auto-holds final pay until completed</div>' : '';
+      // T-44 ↔ T-45 link: when rendering notice_period, surface the contracted notice days if known
+      var contractHint = '';
+      if(t.id==='notice_period' && typeof window.hnxContractNoticeDays==='function'){
+        var nd = window.hnxContractNoticeDays(empId);
+        if(nd) contractHint = '<div style="font-size:10.5px;color:#42a5f5;margin-top:3px;">📄 Contract says: <b>'+nd+' day'+(nd===1?'':'s')+'</b> notice required</div>';
+      }
+      var clickAttr = clickable?(' onclick="hnxToggleOffbItem(\''+esc(empId)+'\',\''+esc(t.id)+'\')"'):'';
+      var rowStyle = 'display:flex;align-items:flex-start;gap:10px;padding:11px 12px;background:'+(checked?'rgba(38,194,129,.06)':'rgba(255,255,255,.02)')+';border:1px solid '+color+'44;border-radius:9px;margin-bottom:7px;'+(clickable?'cursor:pointer;':'cursor:default;opacity:.85;');
+      return '<div'+clickAttr+' style="'+rowStyle+'">'
+        +'<span style="font-size:18px;color:'+color+';flex-shrink:0;line-height:1;">'+icon+'</span>'
+        +'<div style="flex:1;min-width:0;">'
+          +'<div style="font-size:13px;color:#e8f5e9;font-weight:'+(t.required?'700':'500')+';">'+esc(t.label)+(t.required?' <span style="color:#ff9800;font-size:10.5px;">(required)</span>':'')+'</div>'
+          + sub + capValue + capHold + contractHint
+        +'</div>'
+      +'</div>';
+    }).join('');
+    var stagePill = '<div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:'+sm.color+'22;color:'+sm.color+';border:1px solid '+sm.color+'66;border-radius:11px;font-size:11.5px;font-weight:700;">'+sm.icon+' Stage '+sm.step+'/4 · '+esc(sm.label)+'</div>';
+    var audit = '';
+    if(inst.startedAt) audit += '<div>🚪 Started '+esc(inst.startedAt.substring(0,10))+' by '+esc(inst.startedBy||'?')+' · reason: '+esc(inst.reason||'')+'</div>';
+    if(inst.hrCompletedAt) audit += '<div>📋 HR complete '+esc(inst.hrCompletedAt.substring(0,10))+' by '+esc(inst.hrCompletedBy||'?')+'</div>';
+    if(inst.managerApprovedAt) audit += '<div>👔 Manager approved '+esc(inst.managerApprovedAt.substring(0,10))+' by '+esc(inst.managerApprovedBy||'?')+'</div>';
+    if(inst.finalizedAt) audit += '<div>🏁 Finalized '+esc(inst.finalizedAt.substring(0,10))+' by '+esc(inst.finalizedBy||'?')+'</div>';
+    var actions='';
+    if(canHRComplete) actions += '<button onclick="hnxOffboardingHRComplete(\''+esc(empId)+'\')" style="padding:10px 14px;border-radius:8px;border:1px solid #42a5f5;background:rgba(66,165,245,.12);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">📋 Mark HR complete</button>';
+    if(canApproveStage) actions += '<button onclick="hnxOffboardingApprove(\''+esc(empId)+'\')" style="padding:10px 14px;border-radius:8px;border:1px solid #7c4dff;background:rgba(124,77,255,.12);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">👔 Manager approve</button>';
+    if(canFinalize) actions += '<button onclick="hnxOffboardingFinalize(\''+esc(empId)+'\')" style="padding:10px 14px;border-radius:8px;border:1px solid #26c281;background:rgba(38,194,129,.12);color:#e8f5e9;font-size:13px;font-weight:700;cursor:pointer;">🏁 Finalize separation</button>';
+    var assetCanEdit = canTick;
+    var holdCanEdit = !!(window.HNX_Approval && (API.canApprove('emp_offboarding_approve')||API.canApprove('emp_offboarding_finalize'))) && stage!=='finalized';
+    var assetInput = assetCanEdit
+      ? '<input type="number" min="0" step="any" value="'+(Number(inst.assetValueOwed)||0)+'" onchange="hnxSetOffbAssetValue(\''+esc(empId)+'\',this.value)" style="width:160px;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:6px 10px;font-size:13px;font-family:var(--mono,monospace);">'
+      : '<span style="font-family:var(--mono,monospace);font-weight:700;color:#ff9800;">₱'+(Number(inst.assetValueOwed||0).toLocaleString())+'</span>';
+    var holdInput = holdCanEdit
+      ? '<button onclick="hnxToggleOffbHold(\''+esc(empId)+'\')" style="padding:7px 14px;border-radius:7px;border:1px solid '+(inst.holdPay?'#ef5350':'#26c281')+';background:'+(inst.holdPay?'rgba(239,83,80,.10)':'rgba(38,194,129,.10)')+';color:'+(inst.holdPay?'#ef5350':'#26c281')+';font-size:12px;font-weight:700;cursor:pointer;">'+(inst.holdPay?'🚫 HOLD pay':'✅ Pay clear')+'</button>'
+      : '<span style="color:'+(inst.holdPay?'#ef5350':'#26c281')+';font-weight:700;font-family:var(--mono,monospace);">'+(inst.holdPay?'🚫 HOLD':'✅ CLEAR')+'</span>';
+    var holdReason = inst.holdPay && inst.holdReason ? ('<div style="font-size:11px;color:#ef5350;margin-top:5px;line-height:1.4;">Reason: '+esc(inst.holdReason)+'</div>') : '';
+    box.innerHTML = ''
+      +'<div style="padding:16px 20px;border-bottom:1px solid #1c3a2a;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">'
+        +'<div>'
+          +'<div style="font-weight:800;font-size:16px;color:#e8f5e9;">🚪 Offboarding — '+esc(emp.name||emp.id)+'</div>'
+          +'<div style="margin-top:7px;">'+stagePill+'</div>'
+        +'</div>'
+        +'<button onclick="hnxCloseOffboarding()" style="background:transparent;border:1px solid #2c5a3f;color:#9fc;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer;">✕</button>'
+      +'</div>'
+      +'<div style="padding:13px 20px;background:rgba(255,255,255,.02);border-bottom:1px solid #1c3a2a;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">'
+        +'<div style="font-size:12px;color:#8aa;">Progress: <b style="color:#e8f5e9;">'+doneCount+'/'+tpl.length+'</b> ('+pct+'%)</div>'
+        +'<div style="flex:1;min-width:140px;height:8px;background:#0d1f17;border:1px solid #2c5a3f;border-radius:5px;overflow:hidden;"><div style="height:100%;width:'+pct+'%;background:'+sm.color+';transition:width .3s;"></div></div>'
+        +'<div style="font-size:11.5px;color:#8aa;">Required: <b style="color:'+(requiredDone===requiredTotal?'#26c281':'#e8f5e9')+';">'+requiredDone+'/'+requiredTotal+'</b></div>'
+      +'</div>'
+      +'<div style="padding:14px 20px;">'
+        +'<div style="font-size:11px;color:#8aa;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;font-weight:700;">Clearance checklist</div>'
+        +itemsHtml
+      +'</div>'
+      +'<div style="padding:14px 20px;background:rgba(255,255,255,.02);border-top:1px solid #1c3a2a;">'
+        +'<div style="font-size:11px;color:#8aa;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;font-weight:700;">Final pay outcomes <span style="color:#5a8;font-weight:500;">→ feeds T-46</span></div>'
+        +'<div style="display:flex;align-items:flex-start;gap:24px;flex-wrap:wrap;">'
+          +'<div><div style="font-size:11px;color:#8aa;margin-bottom:5px;">Asset value owed</div>'+assetInput+'</div>'
+          +'<div><div style="font-size:11px;color:#8aa;margin-bottom:5px;">Final pay status</div>'+holdInput+holdReason+'</div>'
+        +'</div>'
+      +'</div>'
+      +(audit ? '<div style="padding:12px 20px;background:rgba(255,255,255,.02);border-top:1px solid #1c3a2a;"><div style="font-size:11px;color:#8aa;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-weight:700;">History</div><div style="font-size:12px;color:#a5d6e6;line-height:1.7;">'+audit+'</div></div>' : '')
+      +'<div style="padding:14px 20px;border-top:1px solid #1c3a2a;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;">'
+        +actions
+        +'<button onclick="hnxCloseOffboarding()" style="background:transparent;border:1px solid #2c5a3f;color:#9fc;border-radius:8px;padding:9px 16px;font-weight:700;font-size:13px;cursor:pointer;">Close</button>'
+      +'</div>';
+  };
+
+  // Small chip shown next to the activity badge when an offboarding exists for the employee
+  window.hnxOffboardingChip = function(emp){
+    if(!emp) return '';
+    try{
+      var inst = window.hnxOffboardingFor(emp.id);
+      if(!inst) return '';
+      var map = {
+        in_progress:     { color:'#ff9800', icon:'📋', text:'Offb · HR filling' },
+        hr_complete:     { color:'#42a5f5', icon:'✅', text:'Offb · awaiting Mgr' },
+        manager_approved:{ color:'#7c4dff', icon:'👔', text:'Offb · awaiting Final' },
+        finalized:       { color:'#26c281', icon:'🏁', text:'Separated' }
+      };
+      var s = map[inst.status] || map.in_progress;
+      return '<span onclick="event.stopPropagation();hnxOpenOffboarding(\''+esc(emp.id)+'\')" title="Tap to open offboarding clearance" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:11px;background:'+s.color+'22;color:'+s.color+';border:1px solid '+s.color+'66;font-size:10.5px;font-weight:600;font-family:var(--mono,monospace);cursor:pointer;text-decoration:underline dotted;margin-left:5px;white-space:nowrap;">'+s.icon+' '+esc(s.text)+'</span>';
+    }catch(_){ return ''; }
+  };
+
+  // ============================ T-24 PREVIEW — AI Co-Pilot quick patch ============================
+  // The legacy aimBotToggle was tied to a mockup overlay that only renders inside the Production view.
+  // This patch provides a reliable, module-aware fallback panel that lives anywhere and uses the live
+  // Cloud AI worker (/ai/analyze on hnx-sync.eyalbenari99.workers.dev) for real answers.
+  // Marked "🧪 Preview" — full per-module Manager-AI replaces this in T-24.
+  function _hnxCurrentModuleName(){
+    try{
+      // 1) From the visible module dropdown / title bar
+      var sel = document.querySelector('.module-dropdown-title, [data-module-label]');
+      if(sel && sel.textContent.trim()) return sel.textContent.trim();
+      // 2) From the current view id
+      var cur = (typeof window.currentView==='string') ? window.currentView : '';
+      if(cur){
+        var map = {
+          hydro_brain:'HydroNexis Brain',
+          hr_employees:'HR & People',
+          supervisor:'Production',
+          irrigation:'Irrigation',
+          maintenance:'Maintenance',
+          inventory:'Inventory',
+          packaging:'Packaging',
+          logistics:'Logistics',
+          security:'Security',
+          accounting:'Accounting',
+          marketing:'Marketing',
+          qc:'Quality Control',
+          it:'IT',
+          admin:'Administration'
+        };
+        if(map[cur]) return map[cur];
+        return cur.replace(/_/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();});
+      }
+      return 'General';
+    }catch(e){ return 'General'; }
+  }
+  function _hnxAvailableContext(){
+    // Snapshot a chunk of the visible page text + current module — capped at ~3000 chars.
+    try{
+      var main = document.getElementById('appMain') || document.body;
+      var txt = (main.innerText || main.textContent || '').replace(/\s+/g,' ').trim();
+      if(txt.length > 3000) txt = txt.substring(0,3000) + '... [truncated]';
+      return txt;
+    }catch(e){ return ''; }
+  }
+
+  window.hnxAimOpen = function(){
+    var existing = document.getElementById('hnxAimPanel');
+    if(existing){ existing.remove(); return; }
+    var moduleName = _hnxCurrentModuleName();
+    var u = (typeof curUser==='function')?curUser():null;
+    var hasToken = !!localStorage.getItem('hnx_cloud_token');
+    var ov = document.createElement('div'); ov.id='hnxAimPanel';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+    var connectNote = hasToken ? '' :
+      '<div style="margin:10px 20px 0;padding:8px 12px;border-radius:8px;background:rgba(239,83,80,.10);border:1px solid #ef535066;color:#ff9800;font-size:11.5px;line-height:1.5;">⚠ Cloud is not connected on this device — answers will fail until an admin connects (Cloud Sync · Connect now).</div>';
+    ov.innerHTML='<div style="background:#0a1612;border:1px solid #2c5a3f;border-radius:14px;max-width:680px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.6);">'
+      +'<div style="padding:15px 20px;border-bottom:1px solid #1c3a2a;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">'
+        +'<div>'
+          +'<div style="font-weight:800;font-size:15px;color:#e8f5e9;">🤖 AI Co-Pilot · <span style="color:#26c281;">'+esc(moduleName)+'</span></div>'
+          +'<div style="font-size:11px;color:#8aa;margin-top:4px;">🧪 Preview — full module-aware AI lands in T-24. Powered by Cloud AI worker.</div>'
+        +'</div>'
+        +'<button onclick="document.getElementById(\'hnxAimPanel\').remove()" style="background:transparent;border:1px solid #2c5a3f;color:#9fc;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer;">✕</button>'
+      +'</div>'
+      + connectNote
+      +'<div id="hnxAimMsgs" style="flex:1;overflow-y:auto;padding:14px 20px;font-size:13px;color:#a5d6e6;min-height:120px;">'
+        +'<div style="color:#8aa;line-height:1.55;font-size:12.5px;">Ask anything about this page or module. I see what is on your screen and reply using your data.</div>'
+        +'<div style="margin-top:12px;display:flex;flex-direction:column;gap:6px;">'
+          +'<button onclick="hnxAimQuickAsk(\'Summarise what I am looking at right now in 3 bullet points\')" style="text-align:left;padding:8px 12px;border-radius:7px;border:1px solid #2c5a3f;background:rgba(255,255,255,.03);color:#9fc;font-size:12px;cursor:pointer;">💡 Summarise this page in 3 bullets</button>'
+          +'<button onclick="hnxAimQuickAsk(\'What needs my attention right now in '+esc(moduleName)+' and why?\')" style="text-align:left;padding:8px 12px;border-radius:7px;border:1px solid #2c5a3f;background:rgba(255,255,255,.03);color:#9fc;font-size:12px;cursor:pointer;">🎯 What needs my attention?</button>'
+          +'<button onclick="hnxAimQuickAsk(\'Suggest the next 3 actions I should take in '+esc(moduleName)+'\')" style="text-align:left;padding:8px 12px;border-radius:7px;border:1px solid #2c5a3f;background:rgba(255,255,255,.03);color:#9fc;font-size:12px;cursor:pointer;">▶️ Next 3 actions</button>'
+        +'</div>'
+      +'</div>'
+      +'<div style="padding:12px 20px;border-top:1px solid #1c3a2a;display:flex;gap:8px;">'
+        +'<input id="hnxAimInput" type="text" placeholder="Ask about '+esc(moduleName)+'..." autocomplete="off" style="flex:1;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:8px;padding:10px 14px;font-size:13px;outline:none;" onkeydown="if(event.key===\'Enter\')hnxAimAsk()">'
+        +'<button onclick="hnxAimAsk()" style="padding:10px 18px;border-radius:8px;border:1px solid #26c281;background:rgba(38,194,129,.18);color:#e8f5e9;font-weight:700;font-size:13px;cursor:pointer;">Ask →</button>'
+      +'</div>'
+    +'</div>';
+    ov.addEventListener('click', function(e){ if(e.target===ov) ov.remove(); });
+    document.body.appendChild(ov);
+    setTimeout(function(){ var inp=document.getElementById('hnxAimInput'); if(inp) inp.focus(); }, 100);
+  };
+
+  window.hnxAimQuickAsk = function(q){
+    var inp = document.getElementById('hnxAimInput');
+    if(inp){ inp.value = q; window.hnxAimAsk(); }
+  };
+
+  window.hnxAimAsk = function(){
+    var inp = document.getElementById('hnxAimInput');
+    var msgs = document.getElementById('hnxAimMsgs');
+    if(!inp || !msgs) return;
+    var q = (inp.value||'').trim();
+    if(!q) return;
+    // Clear the introductory hint on first ask
+    if(msgs.querySelector('[data-aim-hint]') || msgs.children.length<=2) msgs.innerHTML='';
+    var userDiv = document.createElement('div');
+    userDiv.style.cssText='margin-top:12px;padding:10px 12px;background:rgba(66,165,245,.10);border:1px solid #42a5f566;border-radius:9px;color:#e8f5e9;';
+    userDiv.innerHTML='<div style="font-size:10px;color:#42a5f5;font-weight:700;margin-bottom:4px;letter-spacing:.5px;">YOU</div>'+esc(q);
+    msgs.appendChild(userDiv);
+    inp.value='';
+    var aiDiv = document.createElement('div');
+    aiDiv.style.cssText='margin-top:10px;padding:10px 12px;background:rgba(38,194,129,.08);border:1px solid #26c28166;border-radius:9px;color:#e8f5e9;';
+    aiDiv.innerHTML='<div style="font-size:10px;color:#26c281;font-weight:700;margin-bottom:4px;letter-spacing:.5px;">CLAUDE</div><div style="color:#8aa;font-style:italic;">⏳ thinking...</div>';
+    msgs.appendChild(aiDiv);
+    msgs.scrollTop = msgs.scrollHeight;
+    var moduleName = _hnxCurrentModuleName();
+    var pageText  = _hnxAvailableContext();
+    var ctx = {
+      module: moduleName,
+      view:   (typeof window.currentView==='string')?window.currentView:'',
+      date:   new Date().toISOString().slice(0,10),
+      pageContent: pageText
+    };
+    var fn = (typeof window.__hnxApi==='function') ? window.__hnxApi : null;
+    if(!fn){
+      aiDiv.innerHTML='<div style="font-size:10px;color:#ef5350;font-weight:700;margin-bottom:4px;letter-spacing:.5px;">CLOUD OFFLINE</div><div style="color:#ff9800;line-height:1.55;">Cloud AI is not initialised on this device. Have an admin tap the cloud Connect button.</div>';
+      return;
+    }
+    fn('/ai/analyze',{method:'POST',body:JSON.stringify({context:ctx,question:q})})
+      .then(function(d){
+        var ans = '';
+        if(d){
+          ans = d.answer || d.reply || '';
+          if(!ans && d.analysis){
+            var a=d.analysis;
+            ans = (a.recommendation || a.conclusion || a.monitoring || '');
+            if(!ans){ try{ ans = JSON.stringify(a, null, 2); }catch(_){} }
+          }
+        }
+        if(!ans) ans = 'No answer returned. Try rephrasing the question.';
+        aiDiv.innerHTML='<div style="font-size:10px;color:#26c281;font-weight:700;margin-bottom:4px;letter-spacing:.5px;">CLAUDE · Cloud AI</div><div style="white-space:pre-wrap;line-height:1.55;">'+esc(ans)+'</div>';
+        msgs.scrollTop = msgs.scrollHeight;
+      })
+      .catch(function(e){
+        aiDiv.innerHTML='<div style="font-size:10px;color:#ef5350;font-weight:700;margin-bottom:4px;letter-spacing:.5px;">ERROR</div><div style="color:#ff9800;line-height:1.55;">'+esc(e.message||'Could not reach the AI worker. Check cloud sync is connected.')+'</div>';
+      });
+  };
+
+  // Override the legacy Open AI Co-pilot button: always show our reliable fallback panel.
+  // The legacy mockup overlay is no longer wired since it only renders inside the Production view
+  // and never connected to the real Cloud AI. T-24 will replace this entirely with a proper per-module pane.
+  try{
+    window.aimBotToggle = function(){ window.hnxAimOpen(); };
+  }catch(_){}
+
+  // ============================ T-45 HR LIFECYCLE 4/5 — Contract Upload & Terms ============================
+  // One contract file + structured terms per employee. Stored per-empId in a dedicated key so each file
+  // stays under the cloud-sync 5MB-per-key limit. Notice-period feeds the T-44 checklist hint; salary +
+  // deductions feed T-46 Final Pay later. AI auto-extraction comes in T-45 phase 2 via /ai/analyze.
+  function _contractKey(empId){ return 'hydroPro_emp_contract_'+empId; }
+  function loadContract(empId){
+    try{ var raw=localStorage.getItem(_contractKey(empId)); if(raw) return JSON.parse(raw); }catch(_){}
+    return null;
+  }
+  function saveContract(empId, obj){
+    try{ localStorage.setItem(_contractKey(empId), JSON.stringify(obj)); return true; }
+    catch(e){ toast('Storage error — file may be too large','warn'); return false; }
+  }
+
+  window.hnxContractFor = function(empId){ return loadContract(empId); };
+  window.hnxContractNoticeDays = function(empId){
+    var c = loadContract(empId);
+    if(!c || !c.terms) return null;
+    var n = Number(c.terms.noticePeriodDays);
+    return (n>0) ? n : null;
+  };
+
+  window.hnxUploadContract = function(empId, file){
+    try{
+      if(!(window.HNX_Approval && API.canApprove('emp_contract_upload'))){ toast('Not authorized to upload contracts','warn'); return; }
+      if(!file){ toast('No file selected','warn'); return; }
+      var okTypes = ['application/pdf','image/jpeg','image/png','image/jpg'];
+      if(okTypes.indexOf(file.type)===-1){ toast('Only PDF, JPG, or PNG accepted','warn'); return; }
+      if(file.size > 4*1024*1024){ toast('File too large (max 4MB for cloud sync)','warn'); return; }
+      var reader = new FileReader();
+      reader.onerror = function(){ toast('Error reading file','warn'); };
+      reader.onload = function(e){
+        try{
+          var u = curUser();
+          var existing = loadContract(empId) || {};
+          var contract = {
+            fileName: String(file.name||'').slice(0,200),
+            fileType: file.type,
+            fileSize: file.size,
+            dataUrl: e.target.result,
+            uploadedAt: new Date().toISOString(),
+            uploadedBy: u?(u.username||''):'',
+            terms: existing.terms || { noticePeriodDays:'', probationMonths:'', baseSalary:'', deductionPolicies:'', customNotes:'' },
+            lastEditedBy: u?(u.username||''):'',
+            lastEditedAt: new Date().toISOString()
+          };
+          if(saveContract(empId, contract)){
+            API.recordApproval('emp_contract_upload', empId, { note: 'Uploaded contract: '+contract.fileName+' ('+Math.round(file.size/1024)+' KB)' });
+            toast('✓ Contract uploaded');
+            if(document.getElementById('hnxContractModal')) window.hnxRenderContractModal(empId);
+            if(typeof renderHR==='function') renderHR();
+          }
+        }catch(err){ toast('Error saving contract','warn'); }
+      };
+      reader.readAsDataURL(file);
+    }catch(e){ toast('Error uploading','warn'); }
+  };
+
+  window.hnxSetContractTerms = function(empId, terms){
+    try{
+      if(!(window.HNX_Approval && API.canApprove('emp_contract_upload'))){ toast('Not authorized','warn'); return; }
+      var c = loadContract(empId) || { terms:{} };
+      var u = curUser();
+      c.terms = {
+        noticePeriodDays: Number(terms.noticePeriodDays)||0,
+        probationMonths:  Number(terms.probationMonths)||0,
+        baseSalary:       Number(terms.baseSalary)||0,
+        deductionPolicies:String(terms.deductionPolicies||'').slice(0,2000),
+        customNotes:      String(terms.customNotes||'').slice(0,2000)
+      };
+      c.lastEditedBy = u?(u.username||''):'';
+      c.lastEditedAt = new Date().toISOString();
+      if(saveContract(empId, c)){
+        doAudit('emp_contract_terms_set', 'Updated contract terms for '+empId);
+        toast('✓ Terms saved');
+        if(document.getElementById('hnxContractModal')) window.hnxRenderContractModal(empId);
+        if(typeof renderHR==='function') renderHR();
+      }
+    }catch(e){ toast('Error saving terms','warn'); }
+  };
+
+  window.hnxDeleteContractFile = function(empId){
+    try{
+      if(!(window.HNX_Approval && API.canApprove('emp_contract_upload'))){ toast('Not authorized','warn'); return; }
+      var c = loadContract(empId);
+      if(!c){ toast('No contract','warn'); return; }
+      if(typeof confirm==='function' && !confirm('Delete the stored contract FILE for this employee? Terms will be preserved.')) return;
+      c.dataUrl = ''; c.fileName = ''; c.fileType = ''; c.fileSize = 0;
+      if(saveContract(empId, c)){
+        doAudit('emp_contract_delete', 'Deleted contract file for '+empId);
+        toast('Contract file deleted (terms kept)');
+        if(document.getElementById('hnxContractModal')) window.hnxRenderContractModal(empId);
+        if(typeof renderHR==='function') renderHR();
+      }
+    }catch(e){ toast('Error','warn'); }
+  };
+
+  window.hnxOpenContract = function(empId){
+    var old = document.getElementById('hnxContractModal'); if(old) old.remove();
+    var ov = document.createElement('div'); ov.id='hnxContractModal';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+    ov.innerHTML='<div id="hnxContractBox" style="background:#0a1612;border:1px solid #2c5a3f;border-radius:14px;max-width:740px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.6);"></div>';
+    ov.addEventListener('click', function(e){ if(e.target===ov) ov.remove(); });
+    document.body.appendChild(ov);
+    window.hnxRenderContractModal(empId);
+  };
+  window.hnxCloseContract = function(){ var ov=document.getElementById('hnxContractModal'); if(ov) ov.remove(); };
+
+  window.hnxRenderContractModal = function(empId){
+    var box = document.getElementById('hnxContractBox'); if(!box) return;
+    var emp = _findEmp(empId);
+    if(!emp){ box.innerHTML='<div style="padding:24px;color:#fff;">Employee not found</div>'; return; }
+    var contract = loadContract(empId);
+    var hasFile = !!(contract && contract.dataUrl);
+    var canEdit = !!(window.HNX_Approval && API.canApprove('emp_contract_upload'));
+    var t = (contract && contract.terms) || {};
+    var previewHtml = '';
+    if(hasFile){
+      if((contract.fileType||'').indexOf('image/')===0){
+        previewHtml = '<img src="'+esc(contract.dataUrl)+'" style="max-width:100%;max-height:340px;border-radius:8px;border:1px solid #2c5a3f;display:block;margin:0 auto;">';
+      } else if((contract.fileType||'')==='application/pdf'){
+        previewHtml = '<embed src="'+esc(contract.dataUrl)+'" type="application/pdf" style="width:100%;height:360px;border-radius:8px;border:1px solid #2c5a3f;background:#fff;">'
+                    + '<div style="margin-top:6px;text-align:right;"><a href="'+esc(contract.dataUrl)+'" download="'+esc(contract.fileName||'contract.pdf')+'" style="color:#26c281;font-size:11px;text-decoration:underline dotted;">⬇ Download original</a></div>';
+      }
+    }
+    var uploadSection = canEdit ?
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
+        +'<input type="file" id="hnxContractFile" accept="application/pdf,image/jpeg,image/png" style="font-size:11.5px;color:#9fc;flex:1;min-width:200px;">'
+        +'<button onclick="(function(){var f=document.getElementById(\'hnxContractFile\').files[0];if(f){hnxUploadContract(\''+esc(empId)+'\',f);}else{toast(\'Pick a file first\',\'warn\');}})()" style="padding:8px 14px;border-radius:7px;border:1px solid #26c281;background:rgba(38,194,129,.15);color:#e8f5e9;font-size:12px;font-weight:700;cursor:pointer;">📤 '+ (hasFile?'Replace':'Upload') +'</button>'
+      +'</div>'
+      +'<div style="font-size:10.5px;color:#8aa;margin-top:6px;line-height:1.5;">Accepted: PDF, JPG, PNG · max 4MB per file (cloud sync limit).</div>'
+      : '<div style="font-size:11.5px;color:#ff9800;">Your position level is too low to upload contracts (gated by Approval Matrix · <b>emp_contract_upload</b>).</div>';
+    var ro = canEdit ? '' : ' readonly';
+    var termsHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">'
+      +'<div><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Notice period (days)</div><input type="number" min="0" id="hnxCT_notice" value="'+esc(t.noticePeriodDays||'')+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;font-family:var(--mono,monospace);box-sizing:border-box;"></div>'
+      +'<div><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Probation (months)</div><input type="number" min="0" id="hnxCT_probation" value="'+esc(t.probationMonths||'')+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;font-family:var(--mono,monospace);box-sizing:border-box;"></div>'
+      +'<div style="grid-column:span 2"><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Base salary (₱ monthly)</div><input type="number" min="0" id="hnxCT_salary" value="'+esc(t.baseSalary||'')+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;font-family:var(--mono,monospace);box-sizing:border-box;"></div></div>'
+      +'<div style="grid-column:span 2"><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Deduction policies</div><textarea id="hnxCT_deductions"'+ro+' rows="3" placeholder="e.g. SSS, PhilHealth, PAG-IBIG, withholding tax, salary loan deductions..." style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:8px 10px;font-size:12.5px;resize:vertical;box-sizing:border-box;font-family:inherit;">'+esc(t.deductionPolicies||'')+'</textarea></div>'
+      +'<div style="grid-column:span 2"><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Custom notes / special clauses</div><textarea id="hnxCT_notes"'+ro+' rows="3" placeholder="Allowances, COLA, bonuses, restrictive covenants..." style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:8px 10px;font-size:12.5px;resize:vertical;box-sizing:border-box;font-family:inherit;">'+esc(t.customNotes||'')+'</textarea></div>'
+    +'</div>';
+    box.innerHTML = ''
+      +'<div style="padding:16px 20px;border-bottom:1px solid #1c3a2a;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">'
+        +'<div>'
+          +'<div style="font-weight:800;font-size:15px;color:#e8f5e9;">📄 Contract — '+esc(emp.name||emp.id)+'</div>'
+          +'<div style="font-size:11px;color:#8aa;margin-top:4px;line-height:1.5;">'+ (hasFile ? 'File: '+esc(contract.fileName)+' · '+Math.round((contract.fileSize||0)/1024)+' KB · uploaded '+esc((contract.uploadedAt||'').substring(0,10))+' by '+esc(contract.uploadedBy||'?') : 'No file uploaded · enter terms below') +'</div>'
+        +'</div>'
+        +'<button onclick="hnxCloseContract()" style="background:transparent;border:1px solid #2c5a3f;color:#9fc;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer;flex-shrink:0;">✕</button>'
+      +'</div>'
+      + (hasFile ? '<div style="padding:14px 20px;border-bottom:1px solid #1c3a2a;background:rgba(255,255,255,.02);">'+previewHtml+'</div>' : '')
+      +'<div style="padding:14px 20px;border-bottom:1px solid #1c3a2a;">'
+        +'<div style="font-size:11px;color:#8aa;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:8px;">'+ (hasFile?'Replace file':'Upload contract file') +'</div>'
+        + uploadSection
+      +'</div>'
+      +'<div style="padding:14px 20px;">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px;">'
+          +'<div style="font-size:11px;color:#8aa;text-transform:uppercase;letter-spacing:1px;font-weight:700;">Contract terms <span style="color:#5a8;font-weight:500;letter-spacing:0;">→ feeds T-44 / T-46</span></div>'
+          +(canEdit && hasFile ? '<button onclick="if(typeof showToast===\'function\')showToast(\'🧪 AI auto-extraction lands in T-45 phase 2 (via /ai/analyze). For now please enter terms manually.\',\'warn\')" style="padding:5px 10px;border-radius:6px;border:1px solid #7c4dff;background:rgba(124,77,255,.10);color:#9fc;font-size:11px;font-weight:600;cursor:pointer;">🤖 Auto-extract (preview)</button>' : '')
+        +'</div>'
+        + termsHtml
+        + (canEdit ? '<div style="margin-top:12px;display:flex;justify-content:flex-end;gap:8px;">'
+            + (hasFile ? '<button onclick="hnxDeleteContractFile(\''+esc(empId)+'\')" style="padding:8px 12px;border-radius:7px;border:1px solid #ef5350;background:rgba(239,83,80,.10);color:#ef5350;font-size:11.5px;font-weight:700;cursor:pointer;">🗑 Delete file</button>' : '')
+            + '<button onclick="hnxSetContractTerms(\''+esc(empId)+'\',{noticePeriodDays:document.getElementById(\'hnxCT_notice\').value,probationMonths:document.getElementById(\'hnxCT_probation\').value,baseSalary:document.getElementById(\'hnxCT_salary\').value,deductionPolicies:document.getElementById(\'hnxCT_deductions\').value,customNotes:document.getElementById(\'hnxCT_notes\').value})" style="padding:8px 14px;border-radius:7px;border:1px solid #26c281;background:rgba(38,194,129,.18);color:#e8f5e9;font-size:12.5px;font-weight:700;cursor:pointer;">💾 Save terms</button>'
+          +'</div>' : '')
+      +'</div>'
+      +'<div style="padding:12px 20px;border-top:1px solid #1c3a2a;display:flex;justify-content:flex-end;"><button onclick="hnxCloseContract()" style="background:transparent;border:1px solid #2c5a3f;color:#9fc;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;">Close</button></div>';
+  };
+
+  // Small chip on each employee row
+  window.hnxContractChip = function(emp){
+    if(!emp) return '';
+    try{
+      var c = loadContract(emp.id);
+      if(!c){
+        if(!(window.HNX_Approval && API.canApprove('emp_contract_upload'))) return '';
+        return '<span onclick="event.stopPropagation();hnxOpenContract(\''+esc(emp.id)+'\')" title="No contract on file — tap to add" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:11px;background:rgba(96,125,139,.08);color:#8aa;border:1px solid #607d8b55;font-size:10.5px;font-weight:600;font-family:var(--mono,monospace);cursor:pointer;text-decoration:underline dotted;margin-left:5px;white-space:nowrap;">📄 + contract</span>';
+      }
+      var hasFile = !!c.dataUrl;
+      var nd = (c.terms && Number(c.terms.noticePeriodDays)) || 0;
+      var color = hasFile ? '#42a5f5' : '#ff9800';
+      var text  = hasFile ? ('Contract'+(nd?' · '+nd+'d notice':'')) : ('Terms only'+(nd?' · '+nd+'d':''));
+      return '<span onclick="event.stopPropagation();hnxOpenContract(\''+esc(emp.id)+'\')" title="Tap to open contract" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:11px;background:'+color+'22;color:'+color+';border:1px solid '+color+'66;font-size:10.5px;font-weight:600;font-family:var(--mono,monospace);cursor:pointer;text-decoration:underline dotted;margin-left:5px;white-space:nowrap;">📄 '+esc(text)+'</span>';
+    }catch(_){ return ''; }
   };
 
   // ---------- boot ----------
