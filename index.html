@@ -5841,6 +5841,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 <div class="view" id="view-inv_dash"><div id="stubInvDashBody"></div></div>
 <div class="view" id="view-inv_stock"><div id="stubInvStockBody"></div></div>
 <div class="view" id="view-inv_movements"><div id="stubInvMovementsBody"></div></div>
+<div class="view" id="view-inv_velocity"><div id="invVelocityBody"></div></div>
 <div class="view" id="view-inv_categories"><div id="stubInvCategoriesBody"></div></div>
 <div class="view" id="view-inv_calls"><div id="invCallsBody"></div></div>
 <!-- Packaging -->
@@ -20589,6 +20590,7 @@ const MODULES={
       {id:'inv_dash',label:'Dashboard',perm:'viewInventory'},
       {id:'inv_calls',label:'📞 Inventory Calls',perm:'viewInventory',title:'Inventory calls & tickets — pending approvals + open stock issues'},
       {id:'inv_stock',label:'📦 Stock',perm:'viewInventory'},
+      {id:'inv_velocity',label:'📊 Item Velocity',perm:'viewInventory',title:'Classify items by movement: Active / Slow Moving / Dead Stock'},
       {id:'inv_movements',label:'🔄 Movements',perm:'viewInventory'},
       {id:'inv_categories',label:'🏷️ Categories',perm:'viewInventory'}
     ]
@@ -21226,7 +21228,7 @@ function switchView(v,skipModuleCheck){
     maint_dash:'viewMaintenance',maint_tasks:'viewMaintenance',maint_calendar:'viewMaintenance',maint_materials:'viewMaintenance',maint_ozone:'viewMaintenance',maint_ro:'viewMaintenance',maint_radio:'viewMaintenance',maint_tools:'viewMaintenance',maint_equipment:'viewMaintenance',maint_nft:'viewMaintenance',maint_parts:'viewMaintenance',maint_matrix:'viewMaintenance',maint_recurring:'viewMaintenance',maint_open_calls:'viewMaintenance',
     it_cctv:'viewMaintenance',it_radios:'viewMaintenance',it_devices:'viewMaintenance',it_prj11:'viewMaintenance',
     irr_dash:'viewIrrigation',irr_schedule:'viewIrrigation',irr_drums:'viewIrrigation',irr_nutrients:'viewIrrigation',irr_systems:'viewIrrigation',irr_smart_dose:'viewIrrigation',irr_ai_insights:'viewIrrigation',irr_predictions:'viewIrrigation',irr_recurring:'viewIrrigation',irr_open_calls:'viewIrrigation',
-    inv_dash:'viewInventory',inv_stock:'viewInventory',inv_movements:'viewInventory',inv_categories:'viewInventory',
+    inv_dash:'viewInventory',inv_stock:'viewInventory',inv_movements:'viewInventory',inv_categories:'viewInventory',inv_velocity:'viewInventory',
     pack_dash:'viewPackaging',pack_materials:'viewPackaging',pack_operations:'viewPackaging',
     log_dash:'viewLogistics',log_deliveries:'viewLogistics',log_routes:'viewLogistics',log_vehicles:'viewLogistics',log_recurring:'viewLogistics',log_open_calls:'viewLogistics',log_megabox_matrix:'viewLogistics',
     crm_dash:'viewCRM',crm_reminders:'viewCRM',crm_leads:'viewCRM',crm_customers:'viewCRM',crm_marketing:'viewCRM',crm_pipeline:'viewCRM',crm_catalog:'viewCRM',crm_quotes:'viewCRM',crm_orders:'viewCRM',crm_sales:'viewCRM',
@@ -21366,6 +21368,7 @@ function switchView(v,skipModuleCheck){
   if(v==='inv_dash')renderInvDash();
   if(v==='inv_stock')renderInvStock();
   if(v==='inv_movements')renderInvMovements();
+  if(v==='inv_velocity')renderInvVelocity();
   if(v==='inv_categories')renderInvCategories();
   if(v==='inv_calls')renderInvCalls();
   if(v==='pack_washtrim'){renderWashTrim();return;}
@@ -59762,6 +59765,143 @@ function renderInvDash(){renderInv('dashboard');}
 function renderInvStock(){renderInv('stock');}
 function renderInvMovements(){renderInv('movements');}
 function renderInvCategories(){renderInv('categories');}
+
+// p160 · Item Velocity view — classifies stock by movement
+let _invVelocityFilter='all';
+function renderInvVelocity(){
+  var host = document.getElementById('invVelocityBody'); if(!host) return;
+  var stock = _invLoadStock();
+  var sosConnected = !!(window.__hnxSos && window.__hnxSos.isConnected && window.__hnxSos.isConnected());
+  // Classify
+  var byVel = { active:[], slow:[], dead:[], unknown:[] };
+  stock.forEach(function(s){ byVel[_invClassifyVelocity(s)].push(s); });
+  var total = stock.length;
+  var filtered = (_invVelocityFilter==='all') ? stock.slice() : byVel[_invVelocityFilter].slice();
+  // Sort: urgent first (dead → slow → unknown → active), then by stock value descending
+  var ord = {dead:0,slow:1,unknown:2,active:3};
+  filtered.sort(function(a,b){
+    var va = _invClassifyVelocity(a), vb = _invClassifyVelocity(b);
+    if(ord[va] !== ord[vb]) return ord[va]-ord[vb];
+    var valA = (parseFloat(a.onHand)||0)*(parseFloat(a.unitCost)||0);
+    var valB = (parseFloat(b.onHand)||0)*(parseFloat(b.unitCost)||0);
+    return valB - valA;
+  });
+  var pct = function(n){ return total>0 ? Math.round(n/total*100) : 0; };
+  // Capital tied up in dead stock
+  var deadCapital = byVel.dead.reduce(function(a,s){ return a + (parseFloat(s.onHand)||0)*(parseFloat(s.unitCost)||0); }, 0);
+  var slowCapital = byVel.slow.reduce(function(a,s){ return a + (parseFloat(s.onHand)||0)*(parseFloat(s.unitCost)||0); }, 0);
+
+  function filterBtn(key, count, color, label){
+    var sel = _invVelocityFilter===key;
+    return '<button onclick="_invVelocityFilter=\''+key+'\';renderInvVelocity();" style="padding:8px 14px;border-radius:8px;border:1px solid '+color+';background:'+(sel?color:'transparent')+';color:'+(sel?'#0a1612':color)+';font-size:12px;font-weight:700;cursor:pointer;">'+label+' · '+count+'</button>';
+  }
+
+  var sourceNote = sosConnected
+    ? '<span style="color:#26c281;">● Live SOS data ('+ (_invLoadStockFromSos().length) +' items)</span>'
+    : '<span style="color:#ffb300;">⚠ Not connected to SOS — showing manual stock only</span>';
+
+  var html =
+    ((typeof window._hnxRenderDashHero==='function') ? window._hnxRenderDashHero({
+      module: 'inventory',
+      icon: '📊',
+      title: 'ITEM VELOCITY ANALYSIS',
+      tagline: 'AI classifies every SKU by movement: Active (moved ≤30d) · Slow (30–90d) · Dead (90d+ or out of stock). Flags trapped capital and clearance candidates.',
+      chips: [
+        {label:'Items',  value: String(total),               tone:'info'},
+        {label:'Active', value: String(byVel.active.length), tone:'ok'},
+        {label:'Slow',   value: String(byVel.slow.length),   tone: byVel.slow.length>0?'warn':''},
+        {label:'Dead',   value: String(byVel.dead.length),   tone: byVel.dead.length>0?'crit':''}
+      ]
+    }) : '')
+   +'<div class="section-title">📊 Item Velocity</div>'
+   +'<div style="font-size:12px;color:var(--text2);margin:4px 0 18px;">'+sourceNote+' &middot; classification based on last-modified date + on-hand qty.</div>'
+
+   // KPI grid
+   +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:18px;">'
+   +'<div style="padding:14px;border:1px solid #26c281;border-radius:10px;background:rgba(38,194,129,.08);"><div style="font-size:10px;color:#7aa99a;letter-spacing:.5px;font-weight:700;">🟢 ACTIVE</div><div style="font-size:28px;font-weight:800;color:#26c281;margin-top:4px;line-height:1;">'+byVel.active.length+'</div><div style="font-size:10px;color:#7aa99a;margin-top:4px;">'+pct(byVel.active.length)+'% &middot; moved ≤30d</div></div>'
+   +'<div style="padding:14px;border:1px solid #ffb300;border-radius:10px;background:rgba(255,179,0,.08);"><div style="font-size:10px;color:#7aa99a;letter-spacing:.5px;font-weight:700;">🟡 SLOW MOVING</div><div style="font-size:28px;font-weight:800;color:#ffb300;margin-top:4px;line-height:1;">'+byVel.slow.length+'</div><div style="font-size:10px;color:#7aa99a;margin-top:4px;">'+pct(byVel.slow.length)+'% &middot; ₱'+slowCapital.toLocaleString(undefined,{maximumFractionDigits:0})+' tied up</div></div>'
+   +'<div style="padding:14px;border:1px solid #ef5350;border-radius:10px;background:rgba(239,83,80,.08);"><div style="font-size:10px;color:#7aa99a;letter-spacing:.5px;font-weight:700;">🔴 DEAD STOCK</div><div style="font-size:28px;font-weight:800;color:#ef5350;margin-top:4px;line-height:1;">'+byVel.dead.length+'</div><div style="font-size:10px;color:#7aa99a;margin-top:4px;">'+pct(byVel.dead.length)+'% &middot; ₱'+deadCapital.toLocaleString(undefined,{maximumFractionDigits:0})+' trapped</div></div>'
+   +'<div style="padding:14px;border:1px solid #7aa99a;border-radius:10px;background:rgba(122,169,154,.08);"><div style="font-size:10px;color:#7aa99a;letter-spacing:.5px;font-weight:700;">⚪ UNKNOWN</div><div style="font-size:28px;font-weight:800;color:#7aa99a;margin-top:4px;line-height:1;">'+byVel.unknown.length+'</div><div style="font-size:10px;color:#7aa99a;margin-top:4px;">'+pct(byVel.unknown.length)+'% &middot; no date info</div></div>'
+   +'</div>'
+
+   // Filter row
+   +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;">'
+   +'<span style="font-size:11px;color:var(--text3);margin-right:4px;">Filter:</span>'
+   + filterBtn('all',     total,                '#42a5f5', '📋 All')
+   + filterBtn('dead',    byVel.dead.length,    '#ef5350', '🔴 Dead')
+   + filterBtn('slow',    byVel.slow.length,    '#ffb300', '🟡 Slow')
+   + filterBtn('active',  byVel.active.length,  '#26c281', '🟢 Active')
+   + filterBtn('unknown', byVel.unknown.length, '#7aa99a', '⚪ Unknown')
+   +'<div style="flex:1;"></div>'
+   +'<button class="btn btn-outline" style="font-size:11px;" onclick="invVelocityExportCSV()">⬇ Export CSV</button>'
+   +'</div>'
+
+   // Table
+   +(filtered.length===0
+     ? '<div style="padding:40px;text-align:center;color:var(--text3);border:1px dashed var(--border);border-radius:10px;">No items in this category.</div>'
+     : '<div class="tool-table-wrap"><table class="cctv-inventory-table">'
+       +'<thead><tr><th>Velocity</th><th>SKU</th><th>Item</th><th>Category</th><th style="text-align:right;">On Hand</th><th style="text-align:right;">Reorder</th><th>Last Activity</th><th style="text-align:right;">Stock Value</th></tr></thead>'
+       +'<tbody>'
+       + filtered.slice(0, 500).map(function(s){
+           var v = _invClassifyVelocity(s);
+           var vl = _invVelocityLabel(v);
+           var ago = s._modified ? _timeAgoOC(s._modified) : '—';
+           var val = (parseFloat(s.onHand)||0) * (parseFloat(s.unitCost)||0);
+           var lowFlag = (parseFloat(s.minStock)>0 && parseFloat(s.onHand)<=parseFloat(s.minStock));
+           return '<tr style="background:'+vl.bg+';">'
+             +'<td><span style="color:'+vl.color+';font-weight:700;font-size:11px;white-space:nowrap;">'+vl.label+'</span></td>'
+             +'<td style="font-family:var(--mono);font-size:11px;">'+_escOC(s.sku||'—')+'</td>'
+             +'<td><strong>'+_escOC(s.name||'—')+'</strong>'+(s.sosCategory?'<div style="font-size:10px;color:var(--text3);">'+_escOC(s.sosCategory)+'</div>':'')+'</td>'
+             +'<td style="font-size:11px;">'+_escOC((INV_CATEGORIES.find(function(c){return c.id===s.category;})||{name:'—'}).name)+'</td>'
+             +'<td style="font-family:var(--mono);text-align:right;color:'+vl.color+';font-weight:700;">'+(s.onHand||0)+(s.unit?' '+_escOC(s.unit):'')+(lowFlag?' ⚠':'')+'</td>'
+             +'<td style="font-family:var(--mono);text-align:right;color:var(--text3);">'+(s.minStock||'—')+'</td>'
+             +'<td style="font-size:11px;color:var(--text3);">'+ago+'</td>'
+             +'<td style="font-family:var(--mono);text-align:right;">'+(val>0?'₱'+val.toLocaleString(undefined,{maximumFractionDigits:0}):'—')+'</td>'
+             +'</tr>';
+         }).join('')
+       +'</tbody></table></div>'
+       + (filtered.length > 500 ? '<div style="font-size:11px;color:var(--text3);margin-top:8px;text-align:center;">Showing first 500 of '+filtered.length+'. Export CSV for full list.</div>' : ''))
+
+   // Recommendations
+   +'<div style="margin-top:18px;padding:14px 16px;border:1px solid var(--border);border-radius:10px;background:var(--surface2);font-size:12px;color:var(--text2);line-height:1.7;">'
+   +'<div style="font-weight:800;color:var(--text);margin-bottom:6px;">💡 Recommended actions</div>'
+   +'• <strong style="color:#ef5350;">Dead stock (₱'+deadCapital.toLocaleString(undefined,{maximumFractionDigits:0})+' trapped)</strong> — clearance, supplier returns, or writeoff. Free up the warehouse space.<br>'
+   +'• <strong style="color:#ffb300;">Slow movers (₱'+slowCapital.toLocaleString(undefined,{maximumFractionDigits:0})+' tied up)</strong> — review reorder points; reduce next PO; bundle with active items.<br>'
+   +'• <strong style="color:#26c281;">Active items</strong> — protect against stock-outs; ensure reorder points are healthy.<br>'
+   +'• <strong style="color:#7aa99a;">Unknown</strong> — items without modified dates in SOS; spot-check, re-catalog if abandoned.'
+   +'</div>';
+
+  host.innerHTML = html;
+}
+
+function invVelocityExportCSV(){
+  try{
+    var stock = _invLoadStock();
+    var rows = [['Velocity','SKU','Name','Category','SOS Category','On Hand','Unit','Reorder Point','Unit Cost','Stock Value','Last Modified','Days Since Activity','Supplier','Location']];
+    stock.forEach(function(s){
+      var v = _invClassifyVelocity(s);
+      var val = (parseFloat(s.onHand)||0)*(parseFloat(s.unitCost)||0);
+      var days = '';
+      if(s._modified){ var t=new Date(s._modified).getTime(); if(!isNaN(t)) days = Math.floor((Date.now()-t)/86400000); }
+      rows.push([
+        v, s.sku||'', s.name||'',
+        (INV_CATEGORIES.find(function(c){return c.id===s.category;})||{name:''}).name,
+        s.sosCategory||'',
+        s.onHand||0, s.unit||'', s.minStock||0, s.unitCost||0,
+        val.toFixed(2), s._modified||'', days,
+        s.supplier||'', s.location||''
+      ]);
+    });
+    var csv = rows.map(function(r){ return r.map(function(c){ var s=String(c==null?'':c); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }).join(','); }).join('\n');
+    var blob = new Blob([csv], {type:'text/csv'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'hnx_item_velocity_'+new Date().toISOString().slice(0,10)+'.csv';
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ try{URL.revokeObjectURL(a.href); a.remove();}catch(_){} }, 100);
+    if(typeof toast==='function') toast('✓ Exported '+(rows.length-1)+' items');
+  }catch(e){ if(typeof toast==='function') toast('Export failed: '+e.message,'error'); }
+}
 function _escOC(s){return (s==null?'':String(s)).replace(/[<>]/g,'');}
 function _timeAgoOC(ts){ if(!ts)return '—'; var diff=Date.now()-(+new Date(ts)); if(isNaN(diff))return '—'; var h=Math.floor(diff/3600000),d=Math.floor(h/24); if(d>0)return d+'d ago'; if(h>0)return h+'h ago'; var m=Math.floor(diff/60000); return (m>0?m:0)+'m ago'; }
 function hnxRaiseDeptCall(group,deptId){
@@ -71403,8 +71543,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.46.299-sosfix';window.HNX_BUILD='v2.86-p159-sosfix';  // p159: SOS Inventory Sync was blanking the page. Root cause: HNX switchView() requires a pre-rendered <div class="view" id="view-XXX"> in the DOM. SOS module never created its view container. Fix: SOS IIFE now auto-creates it at init time.
-const APP_BUILD=1781032000;
+const APP_VERSION='2.47.0-invvelocity';window.HNX_BUILD='v2.86-p160-invvelocity';  // p160: real SOS data flowing into Inventory dashboard + new Item Velocity view (Active/Slow/Dead classification). Auto-clears stale sync errors at start of each new sync. Worker v3.1.2-throttle adds retry on SOS throttle 400.
+const APP_BUILD=1781035200;
 const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
@@ -91585,8 +91725,116 @@ function _invDocsForItem(item){
   return INV_DOC_TEMPLATES.default;
 }
 
+// ============================================================
+// p160 · SOS Inventory data adapter + velocity classifier
+// ============================================================
+// Maps raw SOS items (returned by /sos/items via the worker) into the same
+// shape the Inventory module uses everywhere: {sku, name, category, unit,
+// onHand, minStock, unitCost, supplier, location, _modified, _source}.
+// Field names from SOS vary by tenant/version — we try several aliases.
+function _invSosCategoryMap(sosCategory){
+  if(!sosCategory) return 'other';
+  var s = String(sosCategory).toLowerCase();
+  if(/fert|nutrient|hydro|growan|ferti/.test(s)) return 'fertilizer';
+  if(/seed/.test(s)) return 'seeds';
+  if(/rockwool|substrate|media|coco|peat|perlite/.test(s)) return 'media';
+  if(/chem|pestici|fungici|sanitiz|herbici|biocide/.test(s)) return 'chemicals';
+  if(/pack|crate|carton|box|bag|bin|clamshell|punnet|label/.test(s)) return 'packaging';
+  if(/tool|part|spare|equip|mechani|bearing|motor|pump/.test(s)) return 'tools';
+  if(/clean|detergent|sanitation|disinfect/.test(s)) return 'cleaning';
+  if(/electric|wire|bulb|sensor|cable|breaker|fuse/.test(s)) return 'electrical';
+  if(/plumb|pipe|valve|tube|hose|fitting|gasket/.test(s)) return 'plumbing';
+  if(/office|paper|pen|stationer/.test(s)) return 'office';
+  return 'other';
+}
+function _invSosPick(obj, keys, dflt){
+  if(!obj) return dflt;
+  for(var i=0;i<keys.length;i++){
+    var v = obj[keys[i]];
+    if(v!==undefined && v!==null && v!=='') return v;
+  }
+  return dflt;
+}
+function _invSosFlatten(val){
+  if(val==null) return '';
+  if(typeof val === 'object') return val.name || val.title || val.displayName || '';
+  return String(val);
+}
+function _invLoadStockFromSos(){
+  try{
+    if(!window.__hnxSos) return [];
+    var raw = window.__hnxSos.getItems ? window.__hnxSos.getItems() : [];
+    if(!Array.isArray(raw) || raw.length===0) return [];
+    return raw.map(function(it){
+      var name    = _invSosPick(it, ['name','description','itemName','displayName'], '');
+      var sku     = _invSosPick(it, ['sku','itemNumber','partNumber','code','number'], '');
+      var cat     = _invSosFlatten(_invSosPick(it, ['categoryName','category','categoryDisplayName','itemCategory'], ''));
+      var uom     = _invSosFlatten(_invSosPick(it, ['unitOfMeasureName','uom','unit','baseUOM'], ''));
+      var onHand  = parseFloat(_invSosPick(it, ['quantityOnHand','onHand','qtyOnHand','qty','quantity','availableQty','onhand','available'], 0)) || 0;
+      var reorder = parseFloat(_invSosPick(it, ['reorderPoint','reorderpoint','minStock','reorder','minQty'], 0)) || 0;
+      var cost    = parseFloat(_invSosPick(it, ['purchaseCost','cost','unitCost','averageCost','avgCost','baseCost'], 0)) || 0;
+      var vendor  = _invSosFlatten(_invSosPick(it, ['vendorName','vendor','supplier','supplierName','preferredVendor'], ''));
+      var loc     = _invSosFlatten(_invSosPick(it, ['locationName','location','primaryLocation','defaultLocation','homeLocation'], ''));
+      var mod     = _invSosPick(it, ['dateModified','lastModified','modifiedDate','lastUpdated','updatedAt','modified'], null);
+      return {
+        id:           'sos_' + (it.id || it._id || sku || Math.random().toString(36).slice(2,10)),
+        sku:          String(sku||''),
+        name:         String(name||''),
+        category:     _invSosCategoryMap(cat),
+        sosCategory:  String(cat||''),
+        unit:         String(uom||''),
+        onHand:       onHand,
+        minStock:     reorder,
+        unitCost:     cost,
+        supplier:     String(vendor||''),
+        location:     String(loc||''),
+        notes:        '',
+        _source:      'sos',
+        _modified:    mod,
+        _raw:         it
+      };
+    });
+  }catch(e){
+    if(window.console) console.warn('[inv] _invLoadStockFromSos failed:', e);
+    return [];
+  }
+}
+// Classify item by movement velocity. Returns 'active' | 'slow' | 'dead' | 'unknown'.
+function _invClassifyVelocity(item){
+  if(!item) return 'unknown';
+  var onHand = parseFloat(item.onHand)||0;
+  if(onHand <= 0) return 'dead';
+  var mod = item._modified;
+  if(!mod) return 'unknown';
+  var ts = new Date(mod).getTime();
+  if(isNaN(ts)) return 'unknown';
+  var days = (Date.now() - ts) / 86400000;
+  if(days <= 30) return 'active';
+  if(days <= 90) return 'slow';
+  return 'dead';
+}
+function _invVelocityLabel(v){
+  switch(v){
+    case 'active': return {label:'🟢 Active',  color:'#26c281', bg:'rgba(38,194,129,.10)'};
+    case 'slow':   return {label:'🟡 Slow',    color:'#ffb300', bg:'rgba(255,179,0,.10)'};
+    case 'dead':   return {label:'🔴 Dead',    color:'#ef5350', bg:'rgba(239,83,80,.10)'};
+    default:       return {label:'⚪ Unknown', color:'#7aa99a', bg:'rgba(122,169,154,.10)'};
+  }
+}
+
 function _invLoadStock(){
-  try{return JSON.parse(localStorage.getItem('hydroPro_inv_stock')||'[]');}catch(e){return [];}
+  // p160: prefer real SOS data when connected, fall back to manual stock.
+  // Merge: SOS items first, plus any manual items not in SOS (by SKU).
+  var sosStock = _invLoadStockFromSos();
+  var manualStock = [];
+  try{ manualStock = JSON.parse(localStorage.getItem('hydroPro_inv_stock')||'[]'); }catch(e){}
+  if(sosStock.length === 0) return manualStock;
+  var sosSkus = {};
+  sosStock.forEach(function(s){ if(s.sku) sosSkus[s.sku.toUpperCase()] = true; });
+  var manualOnly = manualStock.filter(function(m){
+    return !m.sku || !sosSkus[m.sku.toUpperCase()];
+  });
+  return sosStock.concat(manualOnly);
 }
 function _invLoadFiles(){try{return JSON.parse(localStorage.getItem(INV_ITEM_FILES_KEY)||'{}');}catch(e){return {};}}
 function _invSaveFiles(d){localStorage.setItem(INV_ITEM_FILES_KEY,JSON.stringify(d));}
@@ -145171,6 +145419,10 @@ body.hnx-mobile-locked { overflow: hidden; }
   function sync(){
     if(_syncInflight) return Promise.reject(new Error('Sync already running'));
     _syncInflight = true;
+
+    // p160: clear stale errors at start of each new sync run so the UI only shows
+    // errors from THIS run. Old errors from previous worker versions can be misleading.
+    setMeta({ errors: [] });
 
     var summary = { items:0, locations:0, lots:0, shipments:0, errors:[] };
     function tryStep(label, fn){
