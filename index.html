@@ -71543,8 +71543,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.48.0-idb';window.HNX_BUILD='v2.86-p162-idb';  // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
-const APP_BUILD=1781123200;
+const APP_VERSION='2.48.1-idb';window.HNX_BUILD='v2.86-p163-partialsync';  // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
+const APP_BUILD=1781209600;
 const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
@@ -145471,10 +145471,10 @@ body.hnx-mobile-locked { overflow: hidden; }
   var _SOS_MAX_THROTTLE_RETRIES = 3;
   var _SOS_THROTTLE_BASE_DELAY_MS = 1000;
 
-  function _sosFetchPageWithRetry(url){
+  function _sosFetchPageWithRetry(url, timeoutMs){
     var retries = 0;
     function attempt(){
-      return workerFetch(url).catch(function(err){
+      return workerFetch(url, timeoutMs ? { timeout: timeoutMs } : undefined).catch(function(err){
         var msg = String(err && err.message || '');
         // Worker 400 with "throttle" OR HTTP 429 → wait and retry
         if((/throttle/i.test(msg) || /\b429\b/.test(msg)) && retries < _SOS_MAX_THROTTLE_RETRIES){
@@ -145488,7 +145488,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     return attempt();
   }
 
-  function _sosFetchAllPages(path, keyName, extraQuery, maxPages){
+  function _sosFetchAllPages(path, keyName, extraQuery, maxPages, timeoutMs){
     maxPages = maxPages || 50;
     extraQuery = extraQuery || '';
     var all = [];
@@ -145497,7 +145497,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 
     function nextPage(){
       var url = path + '?start=' + start + '&limit=' + _SOS_PAGE_SIZE + (extraQuery ? '&'+extraQuery : '');
-      return _sosFetchPageWithRetry(url).then(function(res){
+      return _sosFetchPageWithRetry(url, timeoutMs).then(function(res){
         var arr = (res && res[keyName]) || (res && res.data) || (Array.isArray(res) ? res : []);
         if(!Array.isArray(arr)) arr = [];
         all = all.concat(arr);
@@ -145508,14 +145508,27 @@ body.hnx-mobile-locked { overflow: hidden; }
         // Advance and continue after a polite delay
         start += _SOS_PAGE_SIZE;
         return new Promise(function(r){ setTimeout(r, _SOS_INTER_PAGE_DELAY_MS); }).then(nextPage);
+      }, function(err){
+        // p163: PRESERVE PARTIAL PROGRESS. A single slow/aborted/throttled page
+        // must NOT discard the pages already gathered. The old behavior threw,
+        // so tryStep caught it, memSave never ran, and the endpoint reverted to
+        // its last good save (items stuck at 200). Now: if we have anything,
+        // keep it and let the next sync resume from a fresh run.
+        if(all.length > 0){
+          try{ logError('sync.'+keyName+'.partial', new Error('kept '+all.length+' rows; stopped at page '+(page+1)+': '+(err && err.message || err))); }catch(_){}
+          return all;
+        }
+        throw err;   // first page failed outright — surface the real error
       });
     }
     return nextPage();
   }
 
   function fetchItems(){
-    // Cap at 50 pages = 10,000 items (Cloudflare Worker subrequest budget consideration)
-    return _sosFetchAllPages('/sos/items', 'items', '', 50).then(function(arr){
+    // Cap at 50 pages = 10,000 items. Items is the largest endpoint and deep
+    // offset pages can be slow, so give each page request a 60s timeout (vs the
+    // 30s default) before the AbortController fires.
+    return _sosFetchAllPages('/sos/items', 'items', '', 50, 60000).then(function(arr){
       memSave(KEY.items, arr);
       return arr.length;
     });
