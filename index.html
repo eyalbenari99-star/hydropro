@@ -60189,6 +60189,21 @@ function renderInvCalls(){
   `;
 }
 
+// p169 · custom inventory categories (on top of live SOS categories)
+function _invLoadCustomCats(){ try{ return JSON.parse(localStorage.getItem('hydroPro_inv_custom_categories_v1')||'[]'); }catch(e){ return []; } }
+function _invSaveCustomCats(a){ try{ localStorage.setItem('hydroPro_inv_custom_categories_v1', JSON.stringify(a)); }catch(e){} try{ if(typeof hnxCloudSyncPush==='function') hnxCloudSyncPush(); }catch(e){} }
+window.hnxInvAddCategory=function(){
+  if(!((typeof can==='function')&&can('manageInventory'))){ if(typeof showToast==='function')showToast('Adding categories needs Inventory manage rights','warn'); return; }
+  var el=document.getElementById('invNewCat'); var name=el?el.value.trim():''; if(!name){ if(typeof showToast==='function')showToast('Enter a category name','warn'); return; }
+  var a=_invLoadCustomCats(); if(a.some(function(c){return c.toLowerCase()===name.toLowerCase();})){ if(typeof showToast==='function')showToast('Category already exists','warn'); return; }
+  a.push(name); _invSaveCustomCats(a); if(typeof showToast==='function')showToast('\u2713 Category added','info'); renderInv('categories');
+};
+window.hnxInvDelCategory=function(name){
+  if(!((typeof can==='function')&&can('manageInventory'))){ if(typeof showToast==='function')showToast('Needs Inventory manage rights','warn'); return; }
+  if(!confirm('Delete custom category \u201c'+name+'\u201d? (SOS categories can\u2019t be deleted.)')) return;
+  _invSaveCustomCats(_invLoadCustomCats().filter(function(c){return c.toLowerCase()!==name.toLowerCase();})); renderInv('categories');
+};
+
 function renderInv(tab){
   _invTab=tab||_invTab;
   const targets={dashboard:'stubInvDashBody',stock:'stubInvStockBody',movements:'stubInvMovementsBody',categories:'stubInvCategoriesBody'};
@@ -60325,15 +60340,31 @@ function renderInv(tab){
     `;
   }
   else if(_invTab==='categories'){
-    const counts={};stock.forEach(s=>{const c=s.category||'other';counts[c]=(counts[c]||0)+1;});
+    // p169: categories pulled LIVE from SOS (each item's real sosCategory), plus user-added custom categories.
+    const counts={}; let totalCatItems=0;
+    stock.forEach(s=>{ const c=(s.sosCategory||'').trim()||'Uncategorized'; counts[c]=(counts[c]||0)+1; totalCatItems++; });
+    const custom=_invLoadCustomCats(); const customSet={};
+    custom.forEach(c=>{ customSet[c.toLowerCase()]=1; if(!(c in counts)) counts[c]=counts[c]||0; });
+    const cats=Object.keys(counts).sort((a,b)=>(counts[b]-counts[a])||a.localeCompare(b));
+    const sosOn=!!(window.__hnxSos&&window.__hnxSos.isConnected&&window.__hnxSos.isConnected());
+    const canMng=(typeof can==='function')&&can('manageInventory');
+    const rows=cats.map(c=>{
+      const isCustom=customSet[c.toLowerCase()];
+      const nm=String(c).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+      const del=isCustom&&canMng?`<button class="btn btn-outline" style="font-size:10px;padding:2px 7px;color:var(--danger);" onclick="hnxInvDelCategory('${String(c).replace(/'/g,"\\'")}')">🗑</button>`:'';
+      return `<tr><td>${c==='Uncategorized'?'<span style="color:var(--text3);">'+nm+'</span>':nm}${isCustom?' <span style="font-size:9px;color:#42a5f5;border:1px solid #42a5f5;border-radius:8px;padding:0 6px;">custom</span>':''}</td><td style="text-align:right;font-family:var(--mono);">${counts[c]}</td><td style="text-align:right;">${del}</td></tr>`;
+    }).join('');
     document.getElementById(target).innerHTML=`
       <div class="section-title">📚 Categories</div>
-      <div class="tool-table-wrap" style="max-width:520px;">
+      <div style="font-size:12px;color:var(--text2);margin:-4px 0 14px;">${sosOn?`<span style="color:#26c281;">● Live from SOS — ${totalCatItems.toLocaleString()} items across ${cats.filter(c=>counts[c]>0).length} categories</span>`:'<span style="color:#ffb300;">⚠ Not connected to SOS — showing manual stock only</span>'}</div>
+      ${canMng?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;max-width:520px;"><input id="invNewCat" class="users-input" style="flex:1;min-width:160px;" placeholder="New category name…" onkeydown="if(event.key==='Enter')hnxInvAddCategory()"><button class="btn btn-primary" onclick="hnxInvAddCategory()">➕ Add category</button></div>`:''}
+      <div class="tool-table-wrap" style="max-width:560px;">
         <table class="cctv-inventory-table">
-          <thead><tr><th>Category</th><th style="text-align:right;">Items</th></tr></thead>
-          <tbody>${INV_CATEGORIES.map(c=>`<tr><td>${c.name}</td><td style="text-align:right;font-family:var(--mono);">${counts[c.id]||0}</td></tr>`).join('')}</tbody>
+          <thead><tr><th>Category</th><th style="text-align:right;">Items</th><th></th></tr></thead>
+          <tbody>${rows||'<tr><td colspan="3" style="padding:20px;text-align:center;color:var(--text3);">No categories yet.</td></tr>'}</tbody>
         </table>
       </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px;max-width:560px;">Categories come straight from your SOS items. Custom categories you add here become assignable per item in the Item Master (next phase).</div>
     `;
   }
 }
@@ -71766,8 +71797,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.51.0-master';window.HNX_BUILD='v2.86-p168-master';  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
-const APP_BUILD=1781641600;
+const APP_VERSION='2.51.1-master';window.HNX_BUILD='v2.86-p169-cats';  // p169: Categories view now pulls LIVE from SOS (each item's real category) with real counts + add/delete custom categories (assignable per-item in Item Master). //  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
+const APP_BUILD=1781728000;
 const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
