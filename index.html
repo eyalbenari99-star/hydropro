@@ -71763,8 +71763,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.50.0-reqmod';window.HNX_BUILD='v2.86-p166-itemreq';  // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
-const APP_BUILD=1781468800;
+const APP_VERSION='2.50.1-reqmod';window.HNX_BUILD='v2.86-p167-reqfix';  // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
+const APP_BUILD=1781555200;
 const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
@@ -146034,7 +146034,9 @@ body.hnx-mobile-locked { overflow: hidden; }
   function nowIso(){ return new Date().toISOString(); }
   function me(){ try{ var u=(typeof getCurrentUser==='function')?getCurrentUser():(window.currentUser||null); return u?{name:u.name||u.username||'user', role:u.role||'user'}:{name:'user',role:'user'}; }catch(e){ return {name:'user',role:'user'}; } }
   function canApprove(){ try{ return (typeof can==='function') && can('manageInventory'); }catch(e){ return false; } }
-  function reqNo(){ var y=new Date().getFullYear(); var n=loadReqs().length+1; return 'REQ-'+y+'-'+String(n).padStart(4,'0'); }
+  function reqNo(){ var d=new Date(); var mm=String(d.getMonth()+1).padStart(2,'0'); var dd=String(d.getDate()).padStart(2,'0'); var yy=String(d.getFullYear()).slice(-2); var today=d.toISOString().slice(0,10); var n=loadReqs().filter(function(r){return (r.createdAt||'').slice(0,10)===today;}).length+1; return 'IR'+mm+dd+'-'+yy+'-'+String(n).padStart(3,'0'); }
+  function isExec(){ try{ var u=(typeof getCurrentUser==='function')?getCurrentUser():null; if(!u) return false; if(u.role==='admin') return true; return /vp|coo|ceo|exec|owner|director|president|gm/.test(String(u.role||'').toLowerCase()); }catch(e){ return false; } }
+  function deptDefault(m){ if(!m) return 'General / shared'; var lc=String(m).toLowerCase(); for(var i=0;i<DEPTS.length;i++){ if(DEPTS[i].toLowerCase()===lc) return DEPTS[i]; } for(var j=0;j<DEPTS.length;j++){ if(DEPTS[j].toLowerCase().indexOf(lc)>=0||lc.indexOf(DEPTS[j].toLowerCase())>=0) return DEPTS[j]; } return 'General / shared'; }
   function P(n){ return '\u20b1'+Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0}); }
 
   // ---------- dropdown data sources (live) ----------
@@ -146112,14 +146114,14 @@ body.hnx-mobile-locked { overflow: hidden; }
     // A Header
     H+='<div class="section-title" style="font-size:13px;">A \u00b7 Request</div>';
     H+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'
-      + fld('Requesting module/dept', '<div class="users-input" style="width:100%;background:var(--surface2);color:var(--text3);">'+esc(d.reqModule)+'</div>', 'auto from where it was raised')
+      + fld('Requesting department', sel('reqModule',DEPTS,deptDefault(d.reqModule)), 'who is raising this request')
       + fld('Priority', sel('priority',['Low','Medium','High','Critical'],d.priority))
       +'</div>';
 
     // B Item
     H+='<div class="section-title" style="font-size:13px;margin-top:10px;">B \u00b7 Item</div>';
     H+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'
-      + fld('Request type', sel('type',[{v:'issue',l:'Stock Issue (consumable)'},{v:'asset',l:'Asset Deployment'},{v:'purchase',l:'Purchase Request (buy)'},{v:'transfer',l:'Stock Transfer'},{v:'return',l:'Return / Replacement'}],d.type))
+      + fld('Request type', sel('type',[{v:'shipment',l:'Shipment (ship out)'},{v:'issue',l:'Stock Issue (consumable)'},{v:'asset',l:'Asset Deployment (transfer)'},{v:'transfer',l:'Stock Transfer'},{v:'purchase',l:'Purchase Request (buy)'},{v:'return',l:'Return / Replacement'}],d.type))
       + fld('Item source', sel('itemSource',[{v:'existing',l:'Existing SOS item'},{v:'new',l:'New item (not in SOS)'}],d.itemSource))
       +'</div>';
     if(d.itemSource==='existing'){
@@ -146170,7 +146172,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     H+='<div class="section-title" style="font-size:13px;margin-top:10px;">D \u00b7 Reason & support</div>';
     H+= fld('Reason / why it\u2019s needed *', '<textarea class="users-input" style="width:100%;min-height:64px;" placeholder="Explain why this is needed" oninput="__hnxInvReq.set(\'reason\',this.value,false)">'+esc(d.reason)+'</textarea>');
     H+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'
-      + fld('Link to (optional)', sel('linkType',[{v:'',l:'\u2014 none \u2014'},{v:'project',l:'Project'},{v:'wo',l:'Maintenance work-order'},{v:'crop',l:'Crop cycle'},{v:'ticket',l:'Call / ticket #'}], d.linkType))
+      + fld('Link to (optional)', sel('linkType',[{v:'',l:'\u2014 none \u2014'},{v:'project',l:'Project'},{v:'wo',l:'Maintenance work-order'},{v:'crop',l:'Crop cycle'},{v:'ticket',l:'Call / ticket #'},{v:'asset',l:'Asset / equipment'},{v:'gh',l:'Greenhouse (GH)'},{v:'po',l:'Purchase order'},{v:'breakdown',l:'Repair / breakdown'},{v:'event',l:'Event / activity'},{v:'memo',l:'Department memo'},{v:'audit',l:'Audit / compliance'},{v:'supplier',l:'Supplier'},{v:'other',l:'Other'}], d.linkType))
       + fld('Reference #', txt('linkRef',d.linkRef,'optional'))
       + fld('Needed-by date', txt('neededBy',d.neededBy,'','date'))
       + fld('Budget / GL code', txt('budgetCode',d.budgetCode,'for purchases'))
@@ -146190,22 +146192,25 @@ body.hnx-mobile-locked { overflow: hidden; }
     return H;
   }
 
-  function itemPicker(d){
-    var q=(S.itemQuery||'').toLowerCase().trim();
-    var input='<input class="users-input" style="width:100%;" placeholder="Type name or SKU\u2026" value="'+esc(S.itemQuery)+'" oninput="__hnxInvReq.itemSearch(this.value)">';
-    if(!q || q.length<2) return input;
-    var items=sosItems();
-    var hits=[];
-    for(var i=0;i<items.length && hits.length<20;i++){
+  function itemResultsHtml(q){
+    q=String(q||'').toLowerCase().trim();
+    if(q.length<2) return '<div style="padding:8px 10px;color:var(--text3);font-size:11px;">Type at least 2 characters\u2026</div>';
+    var items=sosItems(); var hits=[];
+    for(var i=0;i<items.length && hits.length<25;i++){
       var it=items[i]; var hay=((it.name||'')+' '+(it.sku||'')).toLowerCase();
       if(hay.indexOf(q)>=0) hits.push(it);
     }
-    var list = hits.length? hits.map(function(it){
-      return '<div onclick="__hnxInvReq.pickItem(\''+esc((it.sku||'')).replace(/'/g,"\\'")+'\')" style="padding:7px 10px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px;">'
+    if(!hits.length) return '<div style="padding:10px;color:var(--text3);font-size:12px;">No match'+(items.length?'':' \u2014 no SOS items loaded yet; tap Sync in Admin \u2192 SOS Inventory Sync')+'. Use \u201cNew item\u201d if it isn\u2019t in SOS.</div>';
+    return hits.map(function(it){
+      var sku=String(it.sku||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      return '<div onclick="__hnxInvReq.pickItem(\''+sku+'\')" style="padding:7px 10px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px;">'
         + '<strong>'+esc(it.name||'(no name)')+'</strong> <span style="color:var(--text3);font-family:var(--mono);">'+esc(it.sku||'')+'</span>'
         + '<span style="float:right;color:var(--text3);">on hand '+(num(it.onHand))+' \u00b7 '+P(it.unitCost)+'</span></div>';
-    }).join('') : '<div style="padding:10px;color:var(--text3);font-size:12px;">No match. Use "New item" if it isn\u2019t in SOS.</div>';
-    return input + '<div style="border:1px solid var(--border);border-radius:8px;margin-top:6px;max-height:240px;overflow:auto;background:var(--surface);">'+list+'</div>';
+    }).join('');
+  }
+  function itemPicker(d){
+    return '<input id="reqItemInput" class="users-input" style="width:100%;" placeholder="Type name or SKU\u2026" value="'+esc(S.itemQuery)+'" oninput="__hnxInvReq.itemSearch(this.value)" autocomplete="off">'
+      + '<div id="reqItemResults" style="border:1px solid var(--border);border-radius:8px;margin-top:6px;max-height:240px;overflow:auto;background:var(--surface);">'+itemResultsHtml(S.itemQuery)+'</div>';
   }
   function dupWarn(d){
     var nm=(d.itemName||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); if(!nm||nm.length<3) return '';
@@ -146239,7 +146244,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     }).join('');
     return bar+'<div class="tool-table-wrap"><table class="cctv-inventory-table"><thead><tr><th>No.</th><th>Item</th><th style="text-align:right;">Qty</th><th style="text-align:right;">Est. value</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
   }
-  function typeLabel(t){ return {issue:'Stock Issue',asset:'Asset Deployment',purchase:'Purchase',transfer:'Transfer',return:'Return'}[t]||t; }
+  function typeLabel(t){ return {shipment:'Shipment',issue:'Stock Issue',asset:'Asset Deployment',purchase:'Purchase',transfer:'Transfer',return:'Return'}[t]||t; }
   function statusBadge(r){
     var map={submitted:['#ffb300','In approval'],approved:['#26c6da','Approved \u2013 to issue'],issued:['#7c4dff','Issued \u2013 posting'],completed:['#26c281','Completed'],rejected:['#ef5350','Rejected'],'awaiting-sos':['#ffb300','Awaiting SOS ref']};
     var m=map[r.status]||['#7aa99a',r.status];
@@ -146291,10 +146296,13 @@ body.hnx-mobile-locked { overflow: hidden; }
     // approval step
     if(r.status==='submitted'){
       var step=(r.chain||[]).filter(function(s){return s.status==='pending';})[0];
-      if(!canApprove()) return '<div style="font-size:12px;color:var(--text3);">Awaiting approval at: <strong>'+esc(step?step.role:'\u2014')+'</strong>. You don\u2019t have approval rights.</div>';
-      return '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;"><span style="font-size:12px;color:var(--text2);">Approving as <strong>'+esc(step?step.role:'')+'</strong>:</span>'
-        + '<button class="btn btn-primary" onclick="__hnxInvReq.approve(\''+r.id+'\')">\u2713 Approve & e-sign</button>'
-        + '<button class="btn btn-outline" style="color:#ef5350;border-color:#ef5350;" onclick="__hnxInvReq.reject(\''+r.id+'\')">\u2715 Reject</button></div>';
+      var execBtn = isExec() ? '<button class="btn" style="background:#7c4dff;color:#fff;border:none;" onclick="__hnxInvReq.execApprove(\''+r.id+'\')">\u26a1 Executive approve (override all)</button>' : '';
+      if(!canApprove() && !isExec()) return '<div style="font-size:12px;color:var(--text3);">Awaiting approval at: <strong>'+esc(step?step.role:'\u2014')+'</strong>. You don\u2019t have approval rights.</div>';
+      return '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">'
+        + (canApprove()? '<span style="font-size:12px;color:var(--text2);">Approving as <strong>'+esc(step?step.role:'')+'</strong>:</span><button class="btn btn-primary" onclick="__hnxInvReq.approve(\''+r.id+'\')">\u2713 Approve &amp; e-sign</button>' : '')
+        + execBtn
+        + '<button class="btn btn-outline" style="color:#ef5350;border-color:#ef5350;" onclick="__hnxInvReq.reject(\''+r.id+'\')">\u2715 Reject</button></div>'
+        + (execBtn? '<div style="font-size:10px;color:var(--text3);margin-top:6px;">Executive override approves all pending levels at once \u2014 valid even if the department manager hasn\u2019t approved.</div>':'');
     }
     // warehouse confirm
     if(r.status==='approved'){
@@ -146323,7 +146331,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     tab:function(t){ S.tab=t; render(); },
     filter:function(f){ S.filter=f; render(); },
     set:function(k,v,rerender){ if(!S.draft) S.draft=newDraft('inventory'); S.draft[k]=v; if(rerender) render(); },
-    itemSearch:function(q){ S.itemQuery=q; render(); },
+    itemSearch:function(q){ S.itemQuery=q; var el=document.getElementById('reqItemResults'); if(el) el.innerHTML=itemResultsHtml(q); else render(); },
     pickItem:function(sku){
       var it=sosItems().filter(function(x){return String(x.sku)===String(sku);})[0]; if(!it) return;
       var d=S.draft||(S.draft=newDraft('inventory'));
@@ -146364,8 +146372,18 @@ body.hnx-mobile-locked { overflow: hidden; }
       try{ if(typeof hnxCloudSyncPush==='function') hnxCloudSyncPush(); }catch(e){}
       render();
     },
+    execApprove:function(id){
+      if(!isExec()){ toast('Executive role required','warn'); return; }
+      var rs=loadReqs(); var r=rs.filter(function(x){return x.id===id;})[0]; if(!r) return;
+      var sg=sign();
+      (r.chain||[]).forEach(function(s){ if(s.status==='pending'){ s.status='approved'; s.by=sg.by+' (exec override)'; s.at=sg.at; s.sig=sg.hash; } });
+      r.status='approved'; (r.history=r.history||[]).push({at:sg.at,by:sg.by,act:'executive override approve'});
+      saveReqs(rs); toast('\u26a1 Approved by executive override','info');
+      try{ if(typeof hnxCloudSyncPush==='function') hnxCloudSyncPush(); }catch(e){}
+      render();
+    },
     reject:function(id){
-      if(!canApprove()){ toast('No approval rights','warn'); return; }
+      if(!canApprove() && !isExec()){ toast('No approval rights','warn'); return; }
       var rs=loadReqs(); var r=rs.filter(function(x){return x.id===id;})[0]; if(!r) return;
       var step=(r.chain||[]).filter(function(s){return s.status==='pending';})[0]; var sg=sign();
       if(step){ step.status='rejected'; step.by=sg.by; step.at=sg.at; step.sig=sg.hash; }
@@ -146408,9 +146426,12 @@ body.hnx-mobile-locked { overflow: hidden; }
 
   // ---------- SOS post-back ----------
   function sosEndpointFor(r){
-    if(r.type==='purchase') return '/sos/create-po';
-    if(r.type==='transfer') return '/sos/create-adjustment';
-    return '/sos/create-inventory-issue';   // issue / asset / return
+    if(r.type==='purchase')  return '/sos/create-po';
+    if(r.type==='shipment')  return '/sos/create-shipment';
+    if(r.type==='asset')     return '/sos/create-transfer';   // asset deployment = SOS Transfer
+    if(r.type==='transfer')  return '/sos/create-transfer';
+    if(r.type==='return')    return '/sos/create-receipt';
+    return '/sos/create-inventory-issue';   // stock issue / consumable
   }
   function postToSos(id){
     var rs=loadReqs(); var r=rs.filter(function(x){return x.id===id;})[0]; if(!r) return;
