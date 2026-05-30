@@ -5843,6 +5843,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 <div class="view" id="view-inv_movements"><div id="stubInvMovementsBody"></div></div>
 <div class="view" id="view-inv_velocity"><div id="invVelocityBody"></div></div>
 <div class="view" id="view-inv_diagnostics"><div id="invDiagBody"></div></div>
+<div class="view" id="view-inv_requests"><div id="invRequestsBody"></div></div>
 <div class="view" id="view-inv_categories"><div id="stubInvCategoriesBody"></div></div>
 <div class="view" id="view-inv_calls"><div id="invCallsBody"></div></div>
 <!-- Packaging -->
@@ -20593,6 +20594,7 @@ const MODULES={
       {id:'inv_stock',label:'📦 Stock',perm:'viewInventory'},
       {id:'inv_velocity',label:'📊 Item Velocity',perm:'viewInventory',title:'Classify items by movement: Active / Slow Moving / Dead Stock'},
       {id:'inv_diagnostics',label:'🩺 Diagnostics',perm:'viewInventory',title:'AI Diagnostics + Inventory Health — low/out/dead/overstock, duplicate SKUs, supplier risk, health score'},
+      {id:'inv_requests',label:'📝 Requests',perm:'viewInventory',title:'Item requests — raise, approve (e-signed), warehouse confirm, post back to SOS'},
       {id:'inv_movements',label:'🔄 Movements',perm:'viewInventory'},
       {id:'inv_categories',label:'🏷️ Categories',perm:'viewInventory'}
     ]
@@ -21230,7 +21232,7 @@ function switchView(v,skipModuleCheck){
     maint_dash:'viewMaintenance',maint_tasks:'viewMaintenance',maint_calendar:'viewMaintenance',maint_materials:'viewMaintenance',maint_ozone:'viewMaintenance',maint_ro:'viewMaintenance',maint_radio:'viewMaintenance',maint_tools:'viewMaintenance',maint_equipment:'viewMaintenance',maint_nft:'viewMaintenance',maint_parts:'viewMaintenance',maint_matrix:'viewMaintenance',maint_recurring:'viewMaintenance',maint_open_calls:'viewMaintenance',
     it_cctv:'viewMaintenance',it_radios:'viewMaintenance',it_devices:'viewMaintenance',it_prj11:'viewMaintenance',
     irr_dash:'viewIrrigation',irr_schedule:'viewIrrigation',irr_drums:'viewIrrigation',irr_nutrients:'viewIrrigation',irr_systems:'viewIrrigation',irr_smart_dose:'viewIrrigation',irr_ai_insights:'viewIrrigation',irr_predictions:'viewIrrigation',irr_recurring:'viewIrrigation',irr_open_calls:'viewIrrigation',
-    inv_dash:'viewInventory',inv_stock:'viewInventory',inv_movements:'viewInventory',inv_categories:'viewInventory',inv_velocity:'viewInventory',inv_diagnostics:'viewInventory',
+    inv_dash:'viewInventory',inv_stock:'viewInventory',inv_movements:'viewInventory',inv_categories:'viewInventory',inv_velocity:'viewInventory',inv_diagnostics:'viewInventory',inv_requests:'viewInventory',
     pack_dash:'viewPackaging',pack_materials:'viewPackaging',pack_operations:'viewPackaging',
     log_dash:'viewLogistics',log_deliveries:'viewLogistics',log_routes:'viewLogistics',log_vehicles:'viewLogistics',log_recurring:'viewLogistics',log_open_calls:'viewLogistics',log_megabox_matrix:'viewLogistics',
     crm_dash:'viewCRM',crm_reminders:'viewCRM',crm_leads:'viewCRM',crm_customers:'viewCRM',crm_marketing:'viewCRM',crm_pipeline:'viewCRM',crm_catalog:'viewCRM',crm_quotes:'viewCRM',crm_orders:'viewCRM',crm_sales:'viewCRM',
@@ -21372,6 +21374,7 @@ function switchView(v,skipModuleCheck){
   if(v==='inv_movements')renderInvMovements();
   if(v==='inv_velocity')renderInvVelocity();
   if(v==='inv_diagnostics')renderInvDiagnostics();
+  if(v==='inv_requests')renderInvRequests();
   if(v==='inv_categories')renderInvCategories();
   if(v==='inv_calls')renderInvCalls();
   if(v==='pack_washtrim'){renderWashTrim();return;}
@@ -71760,8 +71763,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.49.0-diag';window.HNX_BUILD='v2.86-p165-invdiag';  // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
-const APP_BUILD=1781382400;
+const APP_VERSION='2.50.0-reqmod';window.HNX_BUILD='v2.86-p166-itemreq';  // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
+const APP_BUILD=1781468800;
 const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
@@ -146002,6 +146005,447 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ================= END HNX SOS INVENTORY SYNC ================= -->
+<!-- ===== HNX ITEM REQUEST MODULE (p166) ===== -->
+<script>
+/* ============================================================
+   p166 · Phase 2 · ITEM REQUEST MODULE  (spec sheets 07/08/10/14)
+   Raise from any module → Inventory Requests queue → threshold approval
+   chain (e-signed) → Warehouse "Confirm issued" gate → SOS post-back
+   (auto via worker write endpoints, manual SOS-ref fallback).
+   Store: hydroPro_inv_requests_v1 (small JSON, localStorage, cloud-synced).
+   ============================================================ */
+(function(){
+  'use strict';
+  if(window.__hnxInvReq) return;
+
+  var REQ_KEY = 'hydroPro_inv_requests_v1';
+  var T1 = 10000, T2 = 50000;            // PHP approval thresholds (adjustable)
+  var DEPTS = ['General / shared','Management','Admin','HR','Accounting','IT','Production','Maintenance','Irrigation','QC','Inventory','Packaging','Logistics','Security','Marketing'];
+  var UNITS = ['pc','set','box','pack','roll','kg','g','L','mL','m','bag','bottle','can','pair'];
+
+  // ---------- state ----------
+  var S = { view:'list', tab:'new', filter:'all', openId:null, itemQuery:'', draft:null };
+
+  // ---------- store ----------
+  function loadReqs(){ try{ return JSON.parse(localStorage.getItem(REQ_KEY)||'[]'); }catch(e){ return []; } }
+  function saveReqs(a){ try{ localStorage.setItem(REQ_KEY, JSON.stringify(a)); }catch(e){} }
+  function esc(s){ s=(s==null)?'':String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function num(x){ return parseFloat(x)||0; }
+  function nowIso(){ return new Date().toISOString(); }
+  function me(){ try{ var u=(typeof getCurrentUser==='function')?getCurrentUser():(window.currentUser||null); return u?{name:u.name||u.username||'user', role:u.role||'user'}:{name:'user',role:'user'}; }catch(e){ return {name:'user',role:'user'}; } }
+  function canApprove(){ try{ return (typeof can==='function') && can('manageInventory'); }catch(e){ return false; } }
+  function reqNo(){ var y=new Date().getFullYear(); var n=loadReqs().length+1; return 'REQ-'+y+'-'+String(n).padStart(4,'0'); }
+  function P(n){ return '\u20b1'+Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0}); }
+
+  // ---------- dropdown data sources (live) ----------
+  function sosItems(){ try{ return (typeof _invLoadStock==='function')?_invLoadStock():[]; }catch(e){ return []; } }
+  function sosLocations(){
+    try{
+      var s=window.__hnxSos; if(!s||!s.getLocations) return [];
+      return s.getLocations().map(function(l){ return (l&&(l.name||l.locationName||l.fullName))||String(l); }).filter(Boolean);
+    }catch(e){ return []; }
+  }
+  function sosSuppliers(){
+    var set={}; sosItems().forEach(function(i){ var v=(i.supplier||'').trim(); if(v) set[v]=1; });
+    return Object.keys(set).sort();
+  }
+  function ghLocations(){ var a=[]; for(var i=1;i<=10;i++) a.push('GH'+i); return a; }
+  function activeEmployees(){ try{ var e=(typeof loadEmployees==='function')?loadEmployees():[]; return (e||[]).filter(function(x){ return !x.status || x.status==='Active'; }); }catch(_){ return []; } }
+
+  // ---------- approval chain ----------
+  function computeChain(d){
+    var v = num(d.qty)*num(d.unitCost);
+    var roles = ['Department Manager'];
+    if(v > T1) roles.push('Division Head');
+    if(v > T2) roles.push('VP / COO');
+    if(d.type==='purchase'){ roles.push('Procurement'); roles.push('Accounting'); }
+    if(d.fulfillType==='employee') roles.push('HR (201 file)');
+    return roles.map(function(r,i){ return {level:i+1, role:r, status:'pending', by:'', at:'', sig:''}; });
+  }
+  function sign(){ var u=me(); var at=nowIso(); var raw=u.name+'|'+at+'|'+Math.random().toString(36).slice(2,8); var h=''; try{ h=btoa(unescape(encodeURIComponent(raw))).replace(/=+$/,'').slice(0,24); }catch(e){ h=raw.slice(0,24); } return { by:u.name, role:u.role, at:at, device:(navigator.userAgent||'').slice(0,120), hash:h }; }
+
+  // ---------- draft ----------
+  function newDraft(moduleId){
+    return { id:'', no:'', createdAt:'', createdBy:'', reqModule:moduleId||'inventory',
+      priority:'Medium', type:'issue', itemSource:'existing',
+      itemSku:'', itemName:'', itemDesc:'', category:'', brand:'', supplier:'', unit:'pc', unitCost:0, onHand:null,
+      qty:1, needDept:'General / shared', fulfillType:'location', fromLoc:'', toLoc:'', empId:'', empName:'',
+      assetTag:'', returnExpected:false, returnDate:'', costCenter:'General / shared',
+      reason:'', linkType:'', linkRef:'', neededBy:'', budgetCode:'' };
+  }
+
+  // ============================================================
+  //  RENDER
+  // ============================================================
+  function render(){
+    var host=document.getElementById('invRequestsBody'); if(!host) return;
+    if(!(typeof can==='function') || !can('viewInventory')){ host.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3);">Access denied — needs Inventory view permission.</div>'; return; }
+    if(S.view==='detail'){ host.innerHTML=renderDetail(); return; }
+    var hero = (typeof window._hnxRenderDashHero==='function') ? window._hnxRenderDashHero({
+      module:'inventory', icon:'\ud83d\udcdd', title:'ITEM REQUESTS',
+      tagline:'Any module can raise a request \u2192 threshold approval chain (e-signed) \u2192 warehouse confirms it was issued \u2192 posts back to SOS. Existing items pull from your live SOS catalog.',
+      chips: reqChips()
+    }) : '';
+    var tabs='<div style="display:flex;gap:8px;margin:0 0 16px;flex-wrap:wrap;">'
+      + tabBtn('new','\u2795 New Request') + tabBtn('queue','\ud83d\udccb Requests') + '</div>';
+    host.innerHTML = hero + tabs + (S.tab==='new'? renderForm() : renderQueue());
+  }
+  function tabBtn(k,label){ var on=S.tab===k; return '<button onclick="__hnxInvReq.tab(\''+k+'\')" style="padding:8px 16px;border-radius:8px;border:1px solid '+(on?'#42a5f5':'var(--border)')+';background:'+(on?'#42a5f5':'transparent')+';color:'+(on?'#0a1612':'var(--text2)')+';font-size:13px;font-weight:700;cursor:pointer;">'+label+'</button>'; }
+  function reqChips(){
+    var rs=loadReqs(); var pend=rs.filter(function(r){return r.status==='submitted';}).length;
+    var toIssue=rs.filter(function(r){return r.status==='approved';}).length;
+    var done=rs.filter(function(r){return r.status==='completed';}).length;
+    return [ {label:'Open', value:String(pend), tone: pend>0?'warn':''}, {label:'To issue', value:String(toIssue), tone: toIssue>0?'warn':''}, {label:'Completed', value:String(done), tone:'ok'} ];
+  }
+
+  // ---------- FORM ----------
+  function fld(label,inner,hint){ return '<div style="margin-bottom:12px;"><label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;letter-spacing:.3px;">'+label+'</label>'+inner+(hint?'<div style="font-size:10px;color:var(--text3);margin-top:3px;">'+hint+'</div>':'')+'</div>'; }
+  function sel(key,opts,val){ return '<select class="users-input" style="width:100%;" onchange="__hnxInvReq.set(\''+key+'\',this.value,true)">'+opts.map(function(o){ var v=(typeof o==='object')?o.v:o, l=(typeof o==='object')?o.l:o; return '<option value="'+esc(v)+'"'+(String(val)===String(v)?' selected':'')+'>'+esc(l)+'</option>'; }).join('')+'</select>'; }
+  function txt(key,val,ph,type){ return '<input class="users-input" style="width:100%;" type="'+(type||'text')+'" value="'+esc(val==null?'':val)+'" placeholder="'+esc(ph||'')+'" oninput="__hnxInvReq.set(\''+key+'\',this.value,false)">'; }
+
+  function renderForm(){
+    var d=S.draft||(S.draft=newDraft('inventory'));
+    var v = num(d.qty)*num(d.unitCost);
+    var chainPreview = computeChain(d).map(function(s){ return s.role; }).join(' \u2192 ');
+    var H='<div style="max-width:760px;">';
+
+    // A Header
+    H+='<div class="section-title" style="font-size:13px;">A \u00b7 Request</div>';
+    H+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'
+      + fld('Requesting module/dept', '<div class="users-input" style="width:100%;background:var(--surface2);color:var(--text3);">'+esc(d.reqModule)+'</div>', 'auto from where it was raised')
+      + fld('Priority', sel('priority',['Low','Medium','High','Critical'],d.priority))
+      +'</div>';
+
+    // B Item
+    H+='<div class="section-title" style="font-size:13px;margin-top:10px;">B \u00b7 Item</div>';
+    H+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'
+      + fld('Request type', sel('type',[{v:'issue',l:'Stock Issue (consumable)'},{v:'asset',l:'Asset Deployment'},{v:'purchase',l:'Purchase Request (buy)'},{v:'transfer',l:'Stock Transfer'},{v:'return',l:'Return / Replacement'}],d.type))
+      + fld('Item source', sel('itemSource',[{v:'existing',l:'Existing SOS item'},{v:'new',l:'New item (not in SOS)'}],d.itemSource))
+      +'</div>';
+    if(d.itemSource==='existing'){
+      H+= fld('Find item (SOS)', itemPicker(d), d.itemSku?('Selected: '+esc(d.itemName)+' \u00b7 SKU '+esc(d.itemSku)+(d.onHand!=null?(' \u00b7 on hand '+d.onHand):'')+' \u00b7 cost '+P(d.unitCost)) : 'Type a name or SKU, then tap a result');
+    } else {
+      H+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'
+        + fld('New item name', txt('itemName',d.itemName,'e.g. Nitrile gloves L'))
+        + fld('Category', txt('category',d.category,'e.g. PPE'))
+        + fld('Brand', txt('brand',d.brand,''))
+        + fld('Supplier', sel('supplier',[''].concat(sosSuppliers()), d.supplier))
+        +'</div>'
+        + fld('Description', txt('itemDesc',d.itemDesc,'full description'))
+        + dupWarn(d);
+    }
+    H+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">'
+      + fld('Quantity', txt('qty',d.qty,'','number'))
+      + fld('Unit', sel('unit',UNITS,d.unit))
+      + fld('Est. unit cost (\u20b1)', txt('unitCost',d.unitCost,'','number'))
+      +'</div>'
+      + '<div style="font-size:12px;color:var(--text2);margin:-2px 0 10px;">Estimated total: <strong style="color:var(--text);">'+P(v)+'</strong></div>';
+
+    // C Destination
+    H+='<div class="section-title" style="font-size:13px;margin-top:10px;">C \u00b7 Destination</div>';
+    H+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'
+      + fld('Department that needs it', sel('needDept',DEPTS,d.needDept), 'includes General / shared')
+      + fld('Fulfillment', sel('fulfillType',[{v:'location',l:'To a location'},{v:'employee',l:'To an employee (\u2192 201 file)'},{v:'department',l:'To a department (shared stock)'}],d.fulfillType))
+      +'</div>';
+    if(d.type==='issue'||d.type==='transfer'||d.type==='asset'){
+      H+= fld('Ship-from location (SOS)', sel('fromLoc',[''].concat(sosLocations()), d.fromLoc), 'live from SOS \u00b7 '+sosLocations().length+' locations');
+    }
+    if(d.fulfillType==='location'){
+      H+= fld('Ship-to / destination (SOS + GH)', sel('toLoc',[''].concat(sosLocations()).concat(ghLocations()), d.toLoc), 'live from SOS');
+    } else if(d.fulfillType==='employee'){
+      var emps=activeEmployees();
+      H+= fld('Assign to employee', sel('empId',[{v:'',l:'\u2014 select employee \u2014'}].concat(emps.map(function(e){ return {v:e.id, l:(e.name||'?')+(e.dept?(' ('+e.dept+')'):'')}; })), d.empId),
+              d.empId?'\u2713 will be logged to this employee\u2019s 201 file on issue':'links the deployment to their 201 file');
+      if(d.type==='asset'){
+        H+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'
+          + fld('Asset tag / serial', txt('assetTag',d.assetTag,'optional'))
+          + fld('Return expected?', sel('returnExpected',[{v:false,l:'No (permanent)'},{v:true,l:'Yes (returnable)'}], d.returnExpected))
+          +'</div>'
+          + (String(d.returnExpected)==='true' ? fld('Expected return date', txt('returnDate',d.returnDate,'','date')) : '');
+      }
+    }
+    H+= fld('Charge-to (cost center)', sel('costCenter',DEPTS,d.costCenter));
+
+    // D Justification
+    H+='<div class="section-title" style="font-size:13px;margin-top:10px;">D \u00b7 Reason & support</div>';
+    H+= fld('Reason / why it\u2019s needed *', '<textarea class="users-input" style="width:100%;min-height:64px;" placeholder="Explain why this is needed" oninput="__hnxInvReq.set(\'reason\',this.value,false)">'+esc(d.reason)+'</textarea>');
+    H+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'
+      + fld('Link to (optional)', sel('linkType',[{v:'',l:'\u2014 none \u2014'},{v:'project',l:'Project'},{v:'wo',l:'Maintenance work-order'},{v:'crop',l:'Crop cycle'},{v:'ticket',l:'Call / ticket #'}], d.linkType))
+      + fld('Reference #', txt('linkRef',d.linkRef,'optional'))
+      + fld('Needed-by date', txt('neededBy',d.neededBy,'','date'))
+      + fld('Budget / GL code', txt('budgetCode',d.budgetCode,'for purchases'))
+      +'</div>';
+
+    // E Approval preview
+    H+='<div style="margin:8px 0 14px;padding:12px 14px;border:1px dashed var(--border);border-radius:10px;background:var(--surface2);font-size:12px;color:var(--text2);">'
+      + '<strong style="color:var(--text);">Approval chain (auto):</strong> '+esc(chainPreview)
+      + '<div style="font-size:11px;color:var(--text3);margin-top:4px;">Thresholds: \u2264'+P(T1)+' \u2192 manager \u00b7 \u2264'+P(T2)+' \u2192 + division head \u00b7 above \u2192 + VP/COO. Purchases add Procurement+Accounting. Employee assets add HR.</div>'
+      +'</div>';
+
+    H+='<div style="display:flex;gap:10px;flex-wrap:wrap;">'
+      + '<button class="btn btn-primary" onclick="__hnxInvReq.submit()">\u2705 Submit request</button>'
+      + '<button class="btn btn-outline" onclick="__hnxInvReq.reset()">Clear</button>'
+      +'</div>';
+    H+='</div>';
+    return H;
+  }
+
+  function itemPicker(d){
+    var q=(S.itemQuery||'').toLowerCase().trim();
+    var input='<input class="users-input" style="width:100%;" placeholder="Type name or SKU\u2026" value="'+esc(S.itemQuery)+'" oninput="__hnxInvReq.itemSearch(this.value)">';
+    if(!q || q.length<2) return input;
+    var items=sosItems();
+    var hits=[];
+    for(var i=0;i<items.length && hits.length<20;i++){
+      var it=items[i]; var hay=((it.name||'')+' '+(it.sku||'')).toLowerCase();
+      if(hay.indexOf(q)>=0) hits.push(it);
+    }
+    var list = hits.length? hits.map(function(it){
+      return '<div onclick="__hnxInvReq.pickItem(\''+esc((it.sku||'')).replace(/'/g,"\\'")+'\')" style="padding:7px 10px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px;">'
+        + '<strong>'+esc(it.name||'(no name)')+'</strong> <span style="color:var(--text3);font-family:var(--mono);">'+esc(it.sku||'')+'</span>'
+        + '<span style="float:right;color:var(--text3);">on hand '+(num(it.onHand))+' \u00b7 '+P(it.unitCost)+'</span></div>';
+    }).join('') : '<div style="padding:10px;color:var(--text3);font-size:12px;">No match. Use "New item" if it isn\u2019t in SOS.</div>';
+    return input + '<div style="border:1px solid var(--border);border-radius:8px;margin-top:6px;max-height:240px;overflow:auto;background:var(--surface);">'+list+'</div>';
+  }
+  function dupWarn(d){
+    var nm=(d.itemName||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); if(!nm||nm.length<3) return '';
+    var hit=sosItems().filter(function(it){ return String(it.name||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()===nm; });
+    if(!hit.length) return '';
+    return '<div style="margin:-4px 0 10px;padding:8px 10px;border:1px solid #ffb300;border-radius:8px;background:rgba(255,179,0,.08);font-size:11px;color:#ffb300;">\u26a0 Possible duplicate \u2014 \u201c'+esc(hit[0].name)+'\u201d already exists in SOS (SKU '+esc(hit[0].sku||'\u2014')+'). Consider picking the existing item.</div>';
+  }
+
+  // ---------- QUEUE ----------
+  function renderQueue(){
+    var rs=loadReqs().slice().reverse();
+    var f=S.filter, u=me();
+    var filtered=rs.filter(function(r){
+      if(f==='all') return true;
+      if(f==='pending') return r.status==='submitted';
+      if(f==='mine') return r.createdBy===u.name;
+      if(f==='issue') return r.status==='approved';
+      if(f==='done') return r.status==='completed';
+      return true;
+    });
+    function chip(k,l){ var on=f===k; return '<button onclick="__hnxInvReq.filter(\''+k+'\')" style="padding:6px 12px;border-radius:7px;border:1px solid '+(on?'#42a5f5':'var(--border)')+';background:'+(on?'#42a5f5':'transparent')+';color:'+(on?'#0a1612':'var(--text2)')+';font-size:11px;font-weight:700;cursor:pointer;">'+l+'</button>'; }
+    var bar='<div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px;">'+chip('all','All')+chip('pending','Awaiting approval')+chip('issue','To issue')+chip('done','Completed')+chip('mine','Mine')+'</div>';
+    if(!filtered.length) return bar+'<div style="padding:40px;text-align:center;color:var(--text3);border:1px dashed var(--border);border-radius:10px;">No requests here yet.</div>';
+    var rows=filtered.map(function(r){
+      return '<tr style="cursor:pointer;" onclick="__hnxInvReq.open(\''+r.id+'\')">'
+        + '<td style="font-family:var(--mono);font-size:11px;">'+esc(r.no)+'</td>'
+        + '<td><strong>'+esc(r.itemName||'\u2014')+'</strong><div style="font-size:10px;color:var(--text3);">'+esc(typeLabel(r.type))+' \u00b7 '+esc(r.needDept)+'</div></td>'
+        + '<td style="text-align:right;font-family:var(--mono);">'+esc(r.qty)+' '+esc(r.unit)+'</td>'
+        + '<td style="text-align:right;font-family:var(--mono);">'+P(num(r.qty)*num(r.unitCost))+'</td>'
+        + '<td>'+statusBadge(r)+'</td></tr>';
+    }).join('');
+    return bar+'<div class="tool-table-wrap"><table class="cctv-inventory-table"><thead><tr><th>No.</th><th>Item</th><th style="text-align:right;">Qty</th><th style="text-align:right;">Est. value</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  }
+  function typeLabel(t){ return {issue:'Stock Issue',asset:'Asset Deployment',purchase:'Purchase',transfer:'Transfer',return:'Return'}[t]||t; }
+  function statusBadge(r){
+    var map={submitted:['#ffb300','In approval'],approved:['#26c6da','Approved \u2013 to issue'],issued:['#7c4dff','Issued \u2013 posting'],completed:['#26c281','Completed'],rejected:['#ef5350','Rejected'],'awaiting-sos':['#ffb300','Awaiting SOS ref']};
+    var m=map[r.status]||['#7aa99a',r.status];
+    return '<span style="display:inline-block;font-size:10px;font-weight:700;color:'+m[0]+';border:1px solid '+m[0]+';border-radius:10px;padding:2px 8px;">'+m[1]+'</span>';
+  }
+
+  // ---------- DETAIL ----------
+  function renderDetail(){
+    var r=loadReqs().filter(function(x){return x.id===S.openId;})[0];
+    if(!r) return '<div style="padding:20px;">Request not found. <button class="btn btn-outline" onclick="__hnxInvReq.back()">\u2190 Back</button></div>';
+    var v=num(r.qty)*num(r.unitCost);
+    function row(l,val){ return '<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;"><span style="color:var(--text3);">'+l+'</span><span style="color:var(--text);text-align:right;">'+(val||'\u2014')+'</span></div>'; }
+    var H='<button class="btn btn-outline" style="margin-bottom:12px;" onclick="__hnxInvReq.back()">\u2190 Back to requests</button>';
+    H+='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;"><div class="section-title" style="margin:0;">'+esc(r.no)+'</div>'+statusBadge(r)+'</div>';
+    H+='<div style="max-width:640px;border:1px solid var(--border);border-radius:10px;padding:14px 16px;background:var(--surface2);margin-bottom:14px;">'
+      + row('Item', '<strong>'+esc(r.itemName||'\u2014')+'</strong>'+(r.itemSku?(' <span style="font-family:var(--mono);color:var(--text3);">'+esc(r.itemSku)+'</span>'):''))
+      + row('Type', esc(typeLabel(r.type)))
+      + row('Quantity', esc(r.qty)+' '+esc(r.unit)+' \u00b7 '+P(v))
+      + row('Needed by dept', esc(r.needDept))
+      + row('Fulfillment', r.fulfillType==='employee'?('Employee \u2192 '+esc(r.empName||r.empId)+' (201 file)'):(r.fulfillType==='location'?('Location \u2192 '+esc(r.toLoc||'\u2014')):'Department stock'))
+      + (r.fromLoc?row('Ship-from', esc(r.fromLoc)):'')
+      + (r.assetTag?row('Asset tag', esc(r.assetTag)):'')
+      + row('Charge-to', esc(r.costCenter))
+      + row('Reason', esc(r.reason))
+      + (r.linkType?row('Linked', esc(r.linkType)+' '+esc(r.linkRef||'')):'')
+      + (r.neededBy?row('Needed by', esc(r.neededBy)):'')
+      + row('Raised by', esc(r.createdBy)+' \u00b7 '+esc((r.createdAt||'').slice(0,16).replace('T',' ')))
+      + (r.sosRef?row('SOS reference', '<strong style="color:#26c281;">'+esc(r.sosRef)+'</strong>'+(r.sosAuto?' (auto)':' (manual)')):'')
+      +'</div>';
+
+    // Approval timeline
+    H+='<div class="section-title" style="font-size:13px;">Approval chain</div>';
+    H+='<div style="max-width:640px;margin-bottom:14px;">'+ (r.chain||[]).map(function(s){
+        var c=s.status==='approved'?'#26c281':s.status==='rejected'?'#ef5350':'#7aa99a';
+        return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px;">'
+          + '<span style="width:18px;height:18px;border-radius:50%;border:2px solid '+c+';color:'+c+';display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;">'+(s.status==='approved'?'\u2713':s.status==='rejected'?'\u2715':s.level)+'</span>'
+          + '<span style="flex:1;color:var(--text);">'+esc(s.role)+'</span>'
+          + '<span style="color:var(--text3);font-size:11px;">'+(s.by?(esc(s.by)+' \u00b7 '+esc((s.at||'').slice(0,16).replace('T',' '))):s.status)+'</span></div>';
+      }).join('')+'</div>';
+
+    // Actions
+    H+= renderActions(r);
+    return H;
+  }
+  function renderActions(r){
+    var u=me();
+    if(r.status==='rejected') return '<div style="color:#ef5350;font-size:12px;">This request was rejected.</div>';
+    if(r.status==='completed') return '<div style="color:#26c281;font-size:12px;">\u2713 Completed and recorded'+(r.fulfillType==='employee'?' to the employee\u2019s 201 file.':'.')+'</div>';
+    // approval step
+    if(r.status==='submitted'){
+      var step=(r.chain||[]).filter(function(s){return s.status==='pending';})[0];
+      if(!canApprove()) return '<div style="font-size:12px;color:var(--text3);">Awaiting approval at: <strong>'+esc(step?step.role:'\u2014')+'</strong>. You don\u2019t have approval rights.</div>';
+      return '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;"><span style="font-size:12px;color:var(--text2);">Approving as <strong>'+esc(step?step.role:'')+'</strong>:</span>'
+        + '<button class="btn btn-primary" onclick="__hnxInvReq.approve(\''+r.id+'\')">\u2713 Approve & e-sign</button>'
+        + '<button class="btn btn-outline" style="color:#ef5350;border-color:#ef5350;" onclick="__hnxInvReq.reject(\''+r.id+'\')">\u2715 Reject</button></div>';
+    }
+    // warehouse confirm
+    if(r.status==='approved'){
+      if(!canApprove()) return '<div style="font-size:12px;color:#26c6da;">Approved \u2014 waiting for the warehouse supervisor to confirm it was issued.</div>';
+      return '<div style="border:1px solid #7c4dff;border-radius:10px;padding:12px 14px;background:rgba(124,77,255,.06);">'
+        + '<div style="font-size:12px;color:var(--text2);margin-bottom:8px;">Fully approved. Confirm you physically issued/handed this item \u2014 then it posts to SOS.</div>'
+        + '<button class="btn" style="background:#7c4dff;color:#fff;border:none;" onclick="__hnxInvReq.confirmIssue(\''+r.id+'\')">\ud83d\udce6 Confirm issued \u2192 post to SOS</button></div>';
+    }
+    // awaiting SOS ref (auto post-back failed / endpoint not live)
+    if(r.status==='issued'||r.status==='awaiting-sos'){
+      return '<div style="border:1px solid #ffb300;border-radius:10px;padding:12px 14px;background:rgba(255,179,0,.06);">'
+        + '<div id="reqSosMsg" style="font-size:12px;color:var(--text2);margin-bottom:8px;">'+(r.status==='issued'?'Issued. Posting to SOS\u2026':'Auto-post unavailable \u2014 post it in SOS, then paste the reference # here.')+'</div>'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;"><input id="reqSosRef" class="users-input" style="max-width:240px;" placeholder="SOS reference #" value="'+esc(r.sosRef||'')+'">'
+        + '<button class="btn btn-primary" onclick="__hnxInvReq.saveSosRef(\''+r.id+'\')">Save SOS ref &amp; complete</button>'
+        + '<button class="btn btn-outline" onclick="__hnxInvReq.retrySos(\''+r.id+'\')">\u21bb Retry auto-post</button></div></div>';
+    }
+    return '';
+  }
+
+  // ============================================================
+  //  ACTIONS  (exposed on window.__hnxInvReq)
+  // ============================================================
+  function toast(m,t){ try{ if(typeof showToast==='function') showToast(m,t||'info'); else if(typeof toast==='function'){} }catch(e){} }
+
+  window.__hnxInvReq = {
+    tab:function(t){ S.tab=t; render(); },
+    filter:function(f){ S.filter=f; render(); },
+    set:function(k,v,rerender){ if(!S.draft) S.draft=newDraft('inventory'); S.draft[k]=v; if(rerender) render(); },
+    itemSearch:function(q){ S.itemQuery=q; render(); },
+    pickItem:function(sku){
+      var it=sosItems().filter(function(x){return String(x.sku)===String(sku);})[0]; if(!it) return;
+      var d=S.draft||(S.draft=newDraft('inventory'));
+      d.itemSku=it.sku||''; d.itemName=it.name||''; d.unit=it.unit||d.unit; d.unitCost=num(it.unitCost); d.onHand=num(it.onHand); d.category=it.sosCategory||d.category;
+      S.itemQuery=''; render();
+    },
+    reset:function(){ S.draft=newDraft(S.draft?S.draft.reqModule:'inventory'); S.itemQuery=''; render(); },
+    submit:function(){
+      var d=S.draft; if(!d) return;
+      if(d.itemSource==='existing' && !d.itemSku){ toast('Pick an SOS item or switch to New item','warn'); return; }
+      if(d.itemSource==='new' && !(d.itemName||'').trim()){ toast('Enter the new item name','warn'); return; }
+      if(!(num(d.qty)>0)){ toast('Quantity must be more than 0','warn'); return; }
+      if(!(d.reason||'').trim()){ toast('Add a reason / why it\u2019s needed','warn'); return; }
+      if(d.fulfillType==='employee' && !d.empId){ toast('Select the employee to assign it to','warn'); return; }
+      if(d.fulfillType==='location' && !d.toLoc){ toast('Select the ship-to location','warn'); return; }
+      var emps=activeEmployees(); var em=emps.filter(function(e){return String(e.id)===String(d.empId);})[0];
+      var rs=loadReqs();
+      var rec=JSON.parse(JSON.stringify(d));
+      rec.id='req_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+      rec.no=reqNo(); rec.createdAt=nowIso(); rec.createdBy=me().name; rec.empName=em?em.name:'';
+      rec.chain=computeChain(d); rec.status='submitted'; rec.history=[{at:nowIso(),by:me().name,act:'submitted'}];
+      rs.push(rec); saveReqs(rs);
+      S.draft=newDraft(d.reqModule); S.itemQuery=''; S.tab='queue'; S.filter='all';
+      toast('\u2705 '+rec.no+' submitted \u2014 routed to '+rec.chain[0].role,'info');
+      try{ if(typeof hnxCloudSyncPush==='function') hnxCloudSyncPush(); }catch(e){}
+      render();
+    },
+    open:function(id){ S.openId=id; S.view='detail'; render(); },
+    back:function(){ S.view='list'; S.openId=null; render(); },
+    approve:function(id){
+      if(!canApprove()){ toast('No approval rights','warn'); return; }
+      var rs=loadReqs(); var r=rs.filter(function(x){return x.id===id;})[0]; if(!r) return;
+      var step=(r.chain||[]).filter(function(s){return s.status==='pending';})[0]; if(!step) return;
+      var sg=sign(); step.status='approved'; step.by=sg.by; step.at=sg.at; step.sig=sg.hash;
+      (r.history=r.history||[]).push({at:sg.at,by:sg.by,act:'approved '+step.role});
+      if(!(r.chain||[]).some(function(s){return s.status==='pending';})) r.status='approved';
+      saveReqs(rs); toast('\u2713 Approved as '+step.role,'info');
+      try{ if(typeof hnxCloudSyncPush==='function') hnxCloudSyncPush(); }catch(e){}
+      render();
+    },
+    reject:function(id){
+      if(!canApprove()){ toast('No approval rights','warn'); return; }
+      var rs=loadReqs(); var r=rs.filter(function(x){return x.id===id;})[0]; if(!r) return;
+      var step=(r.chain||[]).filter(function(s){return s.status==='pending';})[0]; var sg=sign();
+      if(step){ step.status='rejected'; step.by=sg.by; step.at=sg.at; step.sig=sg.hash; }
+      r.status='rejected'; (r.history=r.history||[]).push({at:sg.at,by:sg.by,act:'rejected'});
+      saveReqs(rs); render();
+    },
+    confirmIssue:function(id){
+      if(!canApprove()){ toast('Only warehouse/admin can confirm issue','warn'); return; }
+      var rs=loadReqs(); var r=rs.filter(function(x){return x.id===id;})[0]; if(!r) return;
+      var sg=sign(); r.issuedBy=sg.by; r.issuedAt=sg.at; r.status='issued';
+      (r.history=r.history||[]).push({at:sg.at,by:sg.by,act:'issued'});
+      if(r.fulfillType==='employee') write201(r);
+      saveReqs(rs); render();
+      postToSos(r.id);
+    },
+    saveSosRef:function(id){
+      var el=document.getElementById('reqSosRef'); var ref=el?el.value.trim():'';
+      if(!ref){ toast('Enter the SOS reference #','warn'); return; }
+      var rs=loadReqs(); var r=rs.filter(function(x){return x.id===id;})[0]; if(!r) return;
+      r.sosRef=ref; r.sosAuto=false; r.status='completed';
+      (r.history=r.history||[]).push({at:nowIso(),by:me().name,act:'SOS ref '+ref+' (manual)'});
+      saveReqs(rs); toast('\u2713 '+r.no+' completed','info');
+      try{ if(typeof hnxCloudSyncPush==='function') hnxCloudSyncPush(); }catch(e){}
+      render();
+    },
+    retrySos:function(id){ postToSos(id); },
+    raise:function(moduleId){ S.draft=newDraft(moduleId||'inventory'); S.itemQuery=''; S.tab='new'; S.view='list'; render(); }
+  };
+
+  // ---------- 201 write ----------
+  function write201(r){
+    try{
+      if(typeof load201Memos!=='function'||typeof save201Memos!=='function') return;
+      var all=load201Memos(); var k=r.empId; if(!k) return;
+      (all[k]=all[k]||[]).push({ at:r.issuedAt||nowIso(), by:r.issuedBy||me().name,
+        type:'Asset/Item issued', text:(r.itemName||'item')+' \u00d7'+r.qty+' '+r.unit+(r.assetTag?(' \u00b7 asset '+r.assetTag):'')+' \u00b7 ref '+r.no });
+      save201Memos(all);
+    }catch(e){}
+  }
+
+  // ---------- SOS post-back ----------
+  function sosEndpointFor(r){
+    if(r.type==='purchase') return '/sos/create-po';
+    if(r.type==='transfer') return '/sos/create-adjustment';
+    return '/sos/create-inventory-issue';   // issue / asset / return
+  }
+  function postToSos(id){
+    var rs=loadReqs(); var r=rs.filter(function(x){return x.id===id;})[0]; if(!r) return;
+    var fn=(typeof window.__hnxApi==='function')?window.__hnxApi:null;
+    var msg=document.getElementById('reqSosMsg');
+    if(!fn){ r.status='awaiting-sos'; saveReqs(rs); if(msg)msg.textContent='Cloud worker not connected \u2014 paste the SOS reference # manually.'; render(); return; }
+    if(msg) msg.textContent='Posting to SOS\u2026';
+    var ep=sosEndpointFor(r);
+    var body={ ref:r.no, type:r.type, itemSku:r.itemSku, itemName:r.itemName, qty:num(r.qty), unit:r.unit, unitCost:num(r.unitCost),
+      fromLocation:r.fromLoc, toLocation:r.toLoc, supplier:r.supplier, department:r.needDept, employee:r.empName, note:r.reason };
+    fn(ep,{method:'POST',body:JSON.stringify(body)})
+      .then(function(d){
+        var rs2=loadReqs(); var r2=rs2.filter(function(x){return x.id===id;})[0]; if(!r2) return;
+        var ref=d&&(d.ref||d.id||d.number||d.transactionId||(d.data&&(d.data.id||d.data.number)));
+        if(ref){ r2.sosRef=String(ref); r2.sosAuto=true; r2.status='completed'; (r2.history=r2.history||[]).push({at:nowIso(),by:me().name,act:'SOS posted '+ref+' (auto)'}); saveReqs(rs2); toast('\u2713 Posted to SOS \u00b7 '+ref,'info'); }
+        else { r2.status='awaiting-sos'; saveReqs(rs2); }
+        try{ if(typeof hnxCloudSyncPush==='function') hnxCloudSyncPush(); }catch(e){}
+        render();
+      })
+      .catch(function(e){
+        var rs2=loadReqs(); var r2=rs2.filter(function(x){return x.id===id;})[0]; if(r2){ r2.status='awaiting-sos'; saveReqs(rs2); }
+        if(msg) msg.textContent='Auto-post failed ('+((e&&e.message)||'error')+') \u2014 post in SOS and paste the reference # here.';
+        render();
+      });
+  }
+
+  // ---------- public render hooks ----------
+  window.renderInvRequests = function(){ if(S.view==='detail' && !S.openId) S.view='list'; render(); };
+  window.hnxRaiseItemRequest = function(moduleId){ try{ if(typeof switchView==='function') switchView('inv_requests'); }catch(e){} window.__hnxInvReq.raise(moduleId); };
+  window.__hnxInvReq.render = render;
+
+})();
+</script>
+<!-- ===== END HNX ITEM REQUEST MODULE ===== -->
+
 
 <!-- ================= HNX DASHBOARD HERO PATTERN (v2.46.295) =================
      Reusable dashboard hero with Ken Burns photoreal background, pulsing brain
