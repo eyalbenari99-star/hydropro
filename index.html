@@ -5845,6 +5845,9 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 <div class="view" id="view-inv_diagnostics"><div id="invDiagBody"></div></div>
 <div class="view" id="view-inv_requests"><div id="invRequestsBody"></div></div>
 <div class="view" id="view-inv_master"><div id="invMasterBody"></div></div>
+<div class="view" id="view-inv_purchase"><div id="invPurchaseBody"></div></div>
+<div class="view" id="view-inv_duplicates"><div id="invDupBody"></div></div>
+<div class="view" id="view-inv_audit"><div id="invAuditBody"></div></div>
 <div class="view" id="view-inv_categories"><div id="stubInvCategoriesBody"></div></div>
 <div class="view" id="view-inv_calls"><div id="invCallsBody"></div></div>
 <!-- Packaging -->
@@ -20597,6 +20600,9 @@ const MODULES={
       {id:'inv_diagnostics',label:'🩺 Diagnostics',perm:'viewInventory',title:'AI Diagnostics + Inventory Health — low/out/dead/overstock, duplicate SKUs, supplier risk, health score'},
       {id:'inv_requests',label:'📝 Requests',perm:'viewInventory',title:'Item requests — raise, approve (e-signed), warehouse confirm, post back to SOS'},
       {id:'inv_master',label:'🗂️ Master Data',perm:'viewInventory',title:'Suppliers & Brands master data — reference lists for the Item Master'},
+      {id:'inv_purchase',label:'🛒 Purchase Engine',perm:'viewInventory',title:'Reorder-point & safety-stock breaches grouped into draft POs by supplier, with budget check'},
+      {id:'inv_duplicates',label:'🧩 Duplicate AI',perm:'viewInventory',title:'AI duplicate-detection — weighted similarity across name/desc/brand/manufacturer/usage; review, keep master, merge'},
+      {id:'inv_audit',label:'🧾 Audit Trail',perm:'viewInventory',title:'Immutable log of inventory changes — who, what, old→new, date/time; filter + CSV export'},
       {id:'inv_movements',label:'🔄 Movements',perm:'viewInventory'},
       {id:'inv_categories',label:'🏷️ Categories',perm:'viewInventory'}
     ]
@@ -21378,6 +21384,9 @@ function switchView(v,skipModuleCheck){
   if(v==='inv_diagnostics')renderInvDiagnostics();
   if(v==='inv_requests')renderInvRequests();
   if(v==='inv_master')renderInvMaster();
+  if(v==='inv_purchase')renderInvPurchase();
+  if(v==='inv_duplicates')renderInvDuplicates();
+  if(v==='inv_audit')renderInvAudit();
   if(v==='inv_categories')renderInvCategories();
   if(v==='inv_calls')renderInvCalls();
   if(v==='pack_washtrim'){renderWashTrim();return;}
@@ -59782,12 +59791,12 @@ function renderInvVelocity(){
   var stock = _invLoadStock();
   var sosConnected = !!(window.__hnxSos && window.__hnxSos.isConnected && window.__hnxSos.isConnected());
   // Classify
-  var byVel = { active:[], slow:[], dead:[], unknown:[] };
+  var byVel = { active:[], slow:[], dormant:[], dead:[], unknown:[] };
   stock.forEach(function(s){ s.__vel = _invClassifyVelocity(s); byVel[s.__vel].push(s); });   // p163b: classify ONCE (was re-classified ~26× per item during sort at scale)
   var total = stock.length;
   var filtered = (_invVelocityFilter==='all') ? stock.slice() : byVel[_invVelocityFilter].slice();
-  // Sort: urgent first (dead → slow → unknown → active), then by stock value descending
-  var ord = {dead:0,slow:1,unknown:2,active:3};
+  // Sort: urgent first (dead → dormant → slow → unknown → active), then by stock value descending
+  var ord = {dead:0,dormant:1,slow:2,unknown:3,active:4};
   filtered.sort(function(a,b){
     var va = a.__vel, vb = b.__vel;
     if(ord[va] !== ord[vb]) return ord[va]-ord[vb];
@@ -59799,6 +59808,7 @@ function renderInvVelocity(){
   // Capital tied up in dead stock
   var deadCapital = byVel.dead.reduce(function(a,s){ return a + (parseFloat(s.onHand)||0)*(parseFloat(s.unitCost)||0); }, 0);
   var slowCapital = byVel.slow.reduce(function(a,s){ return a + (parseFloat(s.onHand)||0)*(parseFloat(s.unitCost)||0); }, 0);
+  var dormantCapital = byVel.dormant.reduce(function(a,s){ return a + (parseFloat(s.onHand)||0)*(parseFloat(s.unitCost)||0); }, 0);
 
   function filterBtn(key, count, color, label){
     var sel = _invVelocityFilter===key;
@@ -59814,22 +59824,23 @@ function renderInvVelocity(){
       module: 'inventory',
       icon: '📊',
       title: 'ITEM VELOCITY ANALYSIS',
-      tagline: 'AI classifies every SKU by movement: Active (moved ≤30d) · Slow (30–90d) · Dead (90d+ or out of stock). Flags trapped capital and clearance candidates.',
+      tagline: 'AI classifies every SKU by movement: Active (≤90d) · Slow Moving (91–180d) · Dormant (181–365d) · Dead Stock (>365d). Items with an AI forecast stay Active. Flags trapped capital and clearance candidates.',
       chips: [
-        {label:'Items',  value: String(total),               tone:'info'},
-        {label:'Active', value: String(byVel.active.length), tone:'ok'},
-        {label:'Slow',   value: String(byVel.slow.length),   tone: byVel.slow.length>0?'warn':''},
-        {label:'Dead',   value: String(byVel.dead.length),   tone: byVel.dead.length>0?'crit':''}
+        {label:'Active',  value: String(byVel.active.length),  tone:'ok'},
+        {label:'Slow',    value: String(byVel.slow.length),    tone: byVel.slow.length>0?'warn':''},
+        {label:'Dormant', value: String(byVel.dormant.length), tone: byVel.dormant.length>0?'warn':''},
+        {label:'Dead',    value: String(byVel.dead.length),    tone: byVel.dead.length>0?'crit':''}
       ]
     }) : '')
    +'<div class="section-title">📊 Item Velocity</div>'
-   +'<div style="font-size:12px;color:var(--text2);margin:4px 0 18px;">'+sourceNote+' &middot; classification based on last-modified date + on-hand qty.</div>'
+   +'<div style="font-size:12px;color:var(--text2);margin:4px 0 18px;">'+sourceNote+' &middot; bands by days since last movement (≤90 / 180 / 365).</div>'
 
    // KPI grid
    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:18px;">'
-   +'<div style="padding:14px;border:1px solid #26c281;border-radius:10px;background:rgba(38,194,129,.08);"><div style="font-size:10px;color:#7aa99a;letter-spacing:.5px;font-weight:700;">🟢 ACTIVE</div><div style="font-size:28px;font-weight:800;color:#26c281;margin-top:4px;line-height:1;">'+byVel.active.length+'</div><div style="font-size:10px;color:#7aa99a;margin-top:4px;">'+pct(byVel.active.length)+'% &middot; moved ≤30d</div></div>'
-   +'<div style="padding:14px;border:1px solid #ffb300;border-radius:10px;background:rgba(255,179,0,.08);"><div style="font-size:10px;color:#7aa99a;letter-spacing:.5px;font-weight:700;">🟡 SLOW MOVING</div><div style="font-size:28px;font-weight:800;color:#ffb300;margin-top:4px;line-height:1;">'+byVel.slow.length+'</div><div style="font-size:10px;color:#7aa99a;margin-top:4px;">'+pct(byVel.slow.length)+'% &middot; ₱'+slowCapital.toLocaleString(undefined,{maximumFractionDigits:0})+' tied up</div></div>'
-   +'<div style="padding:14px;border:1px solid #ef5350;border-radius:10px;background:rgba(239,83,80,.08);"><div style="font-size:10px;color:#7aa99a;letter-spacing:.5px;font-weight:700;">🔴 DEAD STOCK</div><div style="font-size:28px;font-weight:800;color:#ef5350;margin-top:4px;line-height:1;">'+byVel.dead.length+'</div><div style="font-size:10px;color:#7aa99a;margin-top:4px;">'+pct(byVel.dead.length)+'% &middot; ₱'+deadCapital.toLocaleString(undefined,{maximumFractionDigits:0})+' trapped</div></div>'
+   +'<div style="padding:14px;border:1px solid #26c281;border-radius:10px;background:rgba(38,194,129,.08);"><div style="font-size:10px;color:#7aa99a;letter-spacing:.5px;font-weight:700;">🟢 ACTIVE</div><div style="font-size:28px;font-weight:800;color:#26c281;margin-top:4px;line-height:1;">'+byVel.active.length+'</div><div style="font-size:10px;color:#7aa99a;margin-top:4px;">'+pct(byVel.active.length)+'% &middot; moved ≤90d</div></div>'
+   +'<div style="padding:14px;border:1px solid #ffb300;border-radius:10px;background:rgba(255,179,0,.08);"><div style="font-size:10px;color:#7aa99a;letter-spacing:.5px;font-weight:700;">🟡 SLOW MOVING</div><div style="font-size:28px;font-weight:800;color:#ffb300;margin-top:4px;line-height:1;">'+byVel.slow.length+'</div><div style="font-size:10px;color:#7aa99a;margin-top:4px;">'+pct(byVel.slow.length)+'% &middot; 91–180d · ₱'+slowCapital.toLocaleString(undefined,{maximumFractionDigits:0})+' tied up</div></div>'
+   +'<div style="padding:14px;border:1px solid #ff7043;border-radius:10px;background:rgba(255,112,67,.08);"><div style="font-size:10px;color:#7aa99a;letter-spacing:.5px;font-weight:700;">🟠 DORMANT</div><div style="font-size:28px;font-weight:800;color:#ff7043;margin-top:4px;line-height:1;">'+byVel.dormant.length+'</div><div style="font-size:10px;color:#7aa99a;margin-top:4px;">'+pct(byVel.dormant.length)+'% &middot; 181–365d · ₱'+dormantCapital.toLocaleString(undefined,{maximumFractionDigits:0})+' tied up</div></div>'
+   +'<div style="padding:14px;border:1px solid #ef5350;border-radius:10px;background:rgba(239,83,80,.08);"><div style="font-size:10px;color:#7aa99a;letter-spacing:.5px;font-weight:700;">🔴 DEAD STOCK</div><div style="font-size:28px;font-weight:800;color:#ef5350;margin-top:4px;line-height:1;">'+byVel.dead.length+'</div><div style="font-size:10px;color:#7aa99a;margin-top:4px;">'+pct(byVel.dead.length)+'% &middot; >365d · ₱'+deadCapital.toLocaleString(undefined,{maximumFractionDigits:0})+' trapped</div></div>'
    +'<div style="padding:14px;border:1px solid #7aa99a;border-radius:10px;background:rgba(122,169,154,.08);"><div style="font-size:10px;color:#7aa99a;letter-spacing:.5px;font-weight:700;">⚪ UNKNOWN</div><div style="font-size:28px;font-weight:800;color:#7aa99a;margin-top:4px;line-height:1;">'+byVel.unknown.length+'</div><div style="font-size:10px;color:#7aa99a;margin-top:4px;">'+pct(byVel.unknown.length)+'% &middot; no date info</div></div>'
    +'</div>'
 
@@ -59838,6 +59849,7 @@ function renderInvVelocity(){
    +'<span style="font-size:11px;color:var(--text3);margin-right:4px;">Filter:</span>'
    + filterBtn('all',     total,                '#42a5f5', '📋 All')
    + filterBtn('dead',    byVel.dead.length,    '#ef5350', '🔴 Dead')
+   + filterBtn('dormant', byVel.dormant.length, '#ff7043', '🟠 Dormant')
    + filterBtn('slow',    byVel.slow.length,    '#ffb300', '🟡 Slow')
    + filterBtn('active',  byVel.active.length,  '#26c281', '🟢 Active')
    + filterBtn('unknown', byVel.unknown.length, '#7aa99a', '⚪ Unknown')
@@ -59874,8 +59886,9 @@ function renderInvVelocity(){
    // Recommendations
    +'<div style="margin-top:18px;padding:14px 16px;border:1px solid var(--border);border-radius:10px;background:var(--surface2);font-size:12px;color:var(--text2);line-height:1.7;">'
    +'<div style="font-weight:800;color:var(--text);margin-bottom:6px;">💡 Recommended actions</div>'
-   +'• <strong style="color:#ef5350;">Dead stock (₱'+deadCapital.toLocaleString(undefined,{maximumFractionDigits:0})+' trapped)</strong> — clearance, supplier returns, or writeoff. Free up the warehouse space.<br>'
-   +'• <strong style="color:#ffb300;">Slow movers (₱'+slowCapital.toLocaleString(undefined,{maximumFractionDigits:0})+' tied up)</strong> — review reorder points; reduce next PO; bundle with active items.<br>'
+   +'• <strong style="color:#ef5350;">Dead stock (₱'+deadCapital.toLocaleString(undefined,{maximumFractionDigits:0})+' trapped)</strong> — no movement in 365+ days. Clearance, supplier returns, or writeoff. Free up the warehouse space.<br>'
+   +'• <strong style="color:#ff7043;">Dormant (₱'+dormantCapital.toLocaleString(undefined,{maximumFractionDigits:0})+' tied up)</strong> — 181–365 days idle. Review before they go dead; discount or redeploy.<br>'
+   +'• <strong style="color:#ffb300;">Slow movers (₱'+slowCapital.toLocaleString(undefined,{maximumFractionDigits:0})+' tied up)</strong> — 91–180 days. Review reorder points; reduce next PO; bundle with active items.<br>'
    +'• <strong style="color:#26c281;">Active items</strong> — protect against stock-outs; ensure reorder points are healthy.<br>'
    +'• <strong style="color:#7aa99a;">Unknown</strong> — items without modified dates in SOS; spot-check, re-catalog if abandoned.'
    +'</div>';
@@ -60196,12 +60209,12 @@ window.hnxInvAddCategory=function(){
   if(!((typeof can==='function')&&can('manageInventory'))){ if(typeof showToast==='function')showToast('Adding categories needs Inventory manage rights','warn'); return; }
   var el=document.getElementById('invNewCat'); var name=el?el.value.trim():''; if(!name){ if(typeof showToast==='function')showToast('Enter a category name','warn'); return; }
   var a=_invLoadCustomCats(); if(a.some(function(c){return c.toLowerCase()===name.toLowerCase();})){ if(typeof showToast==='function')showToast('Category already exists','warn'); return; }
-  a.push(name); _invSaveCustomCats(a); if(typeof showToast==='function')showToast('\u2713 Category added','info'); renderInv('categories');
+  a.push(name); _invSaveCustomCats(a); try{window.hnxInvAudit&&window.hnxInvAudit('Category added', name, '', name);}catch(e){} if(typeof showToast==='function')showToast('\u2713 Category added','info'); renderInv('categories');
 };
 window.hnxInvDelCategory=function(name){
   if(!((typeof can==='function')&&can('manageInventory'))){ if(typeof showToast==='function')showToast('Needs Inventory manage rights','warn'); return; }
   if(!confirm('Delete custom category \u201c'+name+'\u201d? (SOS categories can\u2019t be deleted.)')) return;
-  _invSaveCustomCats(_invLoadCustomCats().filter(function(c){return c.toLowerCase()!==name.toLowerCase();})); renderInv('categories');
+  _invSaveCustomCats(_invLoadCustomCats().filter(function(c){return c.toLowerCase()!==name.toLowerCase();})); try{window.hnxInvAudit&&window.hnxInvAudit('Category deleted', name, name, '');}catch(e){} renderInv('categories');
 };
 
 function renderInv(tab){
@@ -71797,8 +71810,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.51.1-master';window.HNX_BUILD='v2.86-p169-cats';  // p169: Categories view now pulls LIVE from SOS (each item's real category) with real counts + add/delete custom categories (assignable per-item in Item Master). //  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
-const APP_BUILD=1781728000;
+const APP_VERSION='2.56.0-audit';window.HNX_BUILD='v2.86-p177-audit';  // p176: CCTV live-stream cap + rotation (Live: All/4/6/8/12/16) to protect NVR. p177: Audit Trail (spec 16) — central log of inventory changes (user/action/old->new/date/time), filter+CSV; instrumented Master Data, Categories, Purchase Engine, Duplicate AI. //  // p175: CCTV wall false-offline fix — serialize stream health-probes (1 at a time, spaced), 3-strike + 7s timeout, lock 'ok' so verification stops saturating the bridge and flipping all live tiles to STREAM OFFLINE. //  // p174: Active-Item logic (spec 05) — movement bands Active<=90 / Slow 91-180 / Dormant 181-365 / Dead >365, forecast-override hook; Item Velocity view now 4-band with Dormant KPI+filter+capital. //  // p173: Duplicate-detection AI — weighted similarity (name/desc/brand/mfr/usage) with blocking, clustering, keep-master/dismiss/AI-review; merged dups hidden from Item Files. //  // p172: Purchase Engine — reorder-point/safety-stock breaches grouped into draft POs by supplier, budget check, draft PO tracking; forecast & open-PO inputs pending. //  // p171: Item Files defaults to May-2026-modified items, deduped by name, with scope chips (May/30d/All) + dedupe toggle; shows real SOS category. //  // p170: Item Master tab in Master Data — enrich each SOS SKU with brand/supplier/manufacturer/category(incl custom)/criticality/safety-stock; overlay store hydroPro_inv_item_master_v1, search-only over 9.3k items, focus-safe. //  // p169: Categories view now pulls LIVE from SOS (each item's real category) with real counts + add/delete custom categories (assignable per-item in Item Master). //  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
+const APP_BUILD=1782332800;
 const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
@@ -78030,6 +78043,9 @@ window.switchView=function(v){
     hr_disciplinary:{module:'hr',renderer:'renderHrDisciplinary'},
     hr_leaves:{module:'hr',renderer:'renderHrLeaves'},
     inv_files:{module:'inventory',renderer:'renderInvFiles'},
+    inv_purchase:{module:'inventory',renderer:'renderInvPurchase'},
+    inv_duplicates:{module:'inventory',renderer:'renderInvDuplicates'},
+    inv_audit:{module:'inventory',renderer:'renderInvAudit'},
     inv_matrix:{module:'inventory',renderer:'renderInvMatrix'},
     inv_expiry:{module:'inventory',renderer:'renderInvExpiry'},
     crm_master:{module:'crm',renderer:'renderCRMMaster'},
@@ -92055,24 +92071,28 @@ function _invLoadStockFromSos(){
 }
 // Classify item by movement velocity. Returns 'active' | 'slow' | 'dead' | 'unknown'.
 function _invClassifyVelocity(item){
+  // p174 · Active-Item logic (spec sheet 05): movement-based bands.
+  //   ≤90d Active · 91–180d Slow Moving · 181–365d Dormant · >365d Dead Stock.
+  //   AI forecast-demand override → stays Active (hook; forecast data pending).
   if(!item) return 'unknown';
-  var onHand = parseFloat(item.onHand)||0;
-  if(onHand <= 0) return 'dead';
+  try{ if(typeof window.hnxInvForecastExists==='function' && window.hnxInvForecastExists(item.sku||item.id)) return 'active'; }catch(e){}
   var mod = item._modified;
   if(!mod) return 'unknown';
   var ts = new Date(mod).getTime();
   if(isNaN(ts)) return 'unknown';
   var days = (Date.now() - ts) / 86400000;
-  if(days <= 30) return 'active';
-  if(days <= 90) return 'slow';
-  return 'dead';
+  if(days <= 90)  return 'active';
+  if(days <= 180) return 'slow';     // Slow Moving
+  if(days <= 365) return 'dormant';  // Dormant
+  return 'dead';                     // Dead Stock (>365d no movement)
 }
 function _invVelocityLabel(v){
   switch(v){
-    case 'active': return {label:'🟢 Active',  color:'#26c281', bg:'rgba(38,194,129,.10)'};
-    case 'slow':   return {label:'🟡 Slow',    color:'#ffb300', bg:'rgba(255,179,0,.10)'};
-    case 'dead':   return {label:'🔴 Dead',    color:'#ef5350', bg:'rgba(239,83,80,.10)'};
-    default:       return {label:'⚪ Unknown', color:'#7aa99a', bg:'rgba(122,169,154,.10)'};
+    case 'active':  return {label:'🟢 Active',  color:'#26c281', bg:'rgba(38,194,129,.10)'};
+    case 'slow':    return {label:'🟡 Slow',    color:'#ffb300', bg:'rgba(255,179,0,.10)'};
+    case 'dormant': return {label:'🟠 Dormant', color:'#ff7043', bg:'rgba(255,112,67,.10)'};
+    case 'dead':    return {label:'🔴 Dead',    color:'#ef5350', bg:'rgba(239,83,80,.10)'};
+    default:        return {label:'⚪ Unknown', color:'#7aa99a', bg:'rgba(122,169,154,.10)'};
   }
 }
 
@@ -92133,21 +92153,46 @@ function _invItemStatus(item){
 
 let _invSelectedSku=null;
 
+/* p171 · Item Files scope + dedupe (default: items modified in May 2026, deduped by name) */
+var _invFilesScope='may';      // 'may' | '30d' | 'all'
+var _invFilesDedupe=true;
+window._invFilesSetScope=function(s){ _invFilesScope=s; _invSelectedSku=null; renderInvFiles(); };
+window._invFilesToggleDedupe=function(){ _invFilesDedupe=!_invFilesDedupe; renderInvFiles(); };
+function _invFilesInMay(it){ var m=it&&it._modified; if(!m) return false; try{ var d=new Date(m); return d.getFullYear()===2026 && d.getMonth()===4; }catch(e){ return false; } }
+function _invFilesInLast30(it){ var m=it&&it._modified; if(!m) return false; try{ return (Date.now()-new Date(m).getTime())<=30*86400000; }catch(e){ return false; } }
+function _invFilesResolveSet(){
+  var all=_invLoadStock();
+  try{ if(typeof window.hnxInvIsMerged==='function'){ all=all.filter(function(it){ return !window.hnxInvIsMerged(it.sku||it.id); }); } }catch(e){}
+  var totalAll=all.length;
+  var scoped = _invFilesScope==='all' ? all.slice()
+             : _invFilesScope==='30d' ? all.filter(_invFilesInLast30)
+             : all.filter(_invFilesInMay);
+  var dupRemoved=0;
+  if(_invFilesDedupe){
+    var seen={}, out=[];
+    scoped.slice().sort(function(a,b){ return String(b._modified||'').localeCompare(String(a._modified||'')); }).forEach(function(it){
+      var key=String(it.name||'').toLowerCase().replace(/\s+/g,' ').trim() || ('__'+(it.sku||it.id));
+      if(seen[key]){ dupRemoved++; return; }
+      seen[key]=1; out.push(it);
+    });
+    scoped=out;
+  }
+  return {items:scoped, dupRemoved:dupRemoved, totalAll:totalAll};
+}
+
 window.renderInvFiles=function(){
   let view=document.getElementById('view-inv_files');
   if(!view){view=document.createElement('div');view.className='view';view.id='view-inv_files';(document.getElementById('appMain')||document.body).appendChild(view);}
-  /* v2.46.158 force-active removed — switchView owns view activation, watchdog enforces */
-  const items=_invLoadStock();
   if(_invSelectedSku){
-    const it=items.find(x=>(x.sku||x.id)===_invSelectedSku);
+    const it=_invLoadStock().find(x=>(x.sku||x.id)===_invSelectedSku);
     if(it){view.innerHTML=_invItemDetail(it);return;}
     _invSelectedSku=null;
   }
-  // Status summary
+  const resolved=_invFilesResolveSet();
+  const items=resolved.items;
   const statuses=items.map(it=>({item:it,status:_invItemStatus(it)}));
   let critCt=0,warnCt=0,okCt=0;
   statuses.forEach(s=>{if(s.status.status==='critical')critCt++;else if(s.status.status==='warning')warnCt++;else okCt++;});
-  // Sort: critical first
   statuses.sort((a,b)=>{
     const order={critical:0,warning:1,ok:2};
     if(order[a.status.status]!==order[b.status.status])return order[a.status.status]-order[b.status.status];
@@ -92156,33 +92201,41 @@ window.renderInvFiles=function(){
   const rows=statuses.map(s=>{
     const it=s.item;const st=s.status;
     const color=st.status==='critical'?'var(--danger)':st.status==='warning'?'var(--warn)':'var(--ok)';
-    const icon=st.status==='critical'?'✕':st.status==='warning'?'⚠':'✓';
+    const icon=st.status==='critical'?'\u2715':st.status==='warning'?'\u26a0':'\u2713';
     const lotInfo=st.expired>0?`<span style="color:var(--danger);">${st.expired} expired</span>`:st.nearExp>0?`<span style="color:var(--warn);">${st.nearExp} near-exp</span>`:st.activeLots?`<span style="color:var(--ok);">${st.activeLots} lots</span>`:'<span style="color:var(--text3);">no lots</span>';
     const stockInfo=st.outOfStock?'<span style="color:var(--danger);font-weight:700;">OUT</span>':st.lowStock?'<span style="color:var(--warn);font-weight:700;">LOW</span>':'<span style="color:var(--text2);">'+st.onHand+'</span>';
     return `<tr style="cursor:pointer;border-left:3px solid ${color};" onclick="_invSelectedSku='${(it.sku||it.id||'').replace(/'/g,'')}';renderInvFiles();">
       <td style="font-weight:600;">${(it.name||'').replace(/[<>]/g,'')}</td>
       <td style="font-family:var(--mono);font-size:11px;">${(it.sku||it.id||'').replace(/[<>]/g,'')}</td>
-      <td style="font-size:11px;">${(it.category||'—').replace(/[<>]/g,'')}</td>
+      <td style="font-size:11px;">${(it.sosCategory||it.category||'\u2014').replace(/[<>]/g,'')}</td>
       <td style="font-family:var(--mono);font-size:11px;">${stockInfo}</td>
       <td style="text-align:center;color:${color};font-weight:700;font-size:12px;">${icon} ${st.status.toUpperCase()}</td>
       <td style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--ok);">${st.present}/${st.total}</td>
       <td style="text-align:center;font-family:var(--mono);font-size:11px;">${lotInfo}</td>
     </tr>`;
   }).join('');
-  view.innerHTML=`<div class="section-title">📁 Inventory Item Files</div>
+  const scope=_invFilesScope;
+  const chip=(k,l)=>`<button onclick="_invFilesSetScope('${k}')" style="padding:6px 12px;border-radius:7px;border:1px solid ${scope===k?'#42a5f5':'var(--border)'};background:${scope===k?'#42a5f5':'transparent'};color:${scope===k?'#0a1612':'var(--text2)'};font-size:11px;font-weight:700;cursor:pointer;">${l}</button>`;
+  const scopeLabel=scope==='all'?'all items':scope==='30d'?'modified in last 30 days':'modified in May 2026';
+  view.innerHTML=`<div class="section-title">\ud83d\udcc1 Inventory Item Files</div>
     <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
-      <strong>📁 Per-SKU file management:</strong> Each item has a complete document file (MSDS, COA, supplier invoice, photo). Required docs depend on category — chemicals need MSDS, food needs HACCP, etc. Items with expired lots, missing critical docs, or out-of-stock flag as <span style="color:var(--danger);font-weight:700;">CRITICAL</span>.
+      <strong>\ud83d\udcc1 Per-SKU file management:</strong> Each item has a complete document file (MSDS, COA, supplier invoice, photo). Required docs depend on category. Items with expired lots, missing critical docs, or out-of-stock flag as <span style="color:var(--danger);font-weight:700;">CRITICAL</span>.
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+      ${chip('may','May 2026')}${chip('30d','Last 30 days')}${chip('all','All items')}
+      <button onclick="_invFilesToggleDedupe()" style="padding:6px 12px;border-radius:7px;border:1px solid ${_invFilesDedupe?'#26c281':'var(--border)'};background:transparent;color:${_invFilesDedupe?'#26c281':'var(--text2)'};font-size:11px;font-weight:700;cursor:pointer;">${_invFilesDedupe?'\u2713 ':''}Dedupe by name</button>
+      <span style="font-size:11px;color:var(--text3);">Showing ${items.length.toLocaleString()} \u00b7 ${scopeLabel}${_invFilesDedupe&&resolved.dupRemoved?(' \u00b7 '+resolved.dupRemoved+' duplicate'+(resolved.dupRemoved>1?'s':'')+' hidden'):''} \u00b7 ${resolved.totalAll.toLocaleString()} total in SOS</span>
     </div>
     <div class="fleet-stat-row">
-      <div class="fleet-stat-card"><div class="fleet-stat-label">Total items</div><div class="fleet-stat-val">${items.length}</div></div>
-      <div class="fleet-stat-card"><div class="fleet-stat-label">✕ Critical</div><div class="fleet-stat-val ${critCt>0?'danger':''}">${critCt}</div></div>
-      <div class="fleet-stat-card"><div class="fleet-stat-label">⚠ Warning</div><div class="fleet-stat-val ${warnCt>0?'warn':''}">${warnCt}</div></div>
-      <div class="fleet-stat-card"><div class="fleet-stat-label">✓ OK</div><div class="fleet-stat-val green">${okCt}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">Items shown</div><div class="fleet-stat-val">${items.length.toLocaleString()}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">\u2715 Critical</div><div class="fleet-stat-val ${critCt>0?'danger':''}">${critCt.toLocaleString()}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">\u26a0 Warning</div><div class="fleet-stat-val ${warnCt>0?'warn':''}">${warnCt.toLocaleString()}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">\u2713 OK</div><div class="fleet-stat-val green">${okCt.toLocaleString()}</div></div>
     </div>
     ${items.length?`<div class="fleet-table-wrap" style="margin-top:14px;"><table class="fleet-table" style="width:100%;font-size:12px;">
       <thead><tr><th>Item</th><th>SKU</th><th>Category</th><th>Stock</th><th>Status</th><th>Docs</th><th>Lots / Expiry</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table></div>`:'<div style="text-align:center;padding:30px;color:var(--text3);">No inventory items yet. Add via Inventory → Stock.</div>'}`;
+    </table></div>`:`<div style="text-align:center;padding:30px;color:var(--text3);">No items ${scope==='may'?'were modified in May 2026':scope==='30d'?'modified in the last 30 days':'found'}. Try a wider scope (e.g. <strong>All items</strong>) or run a SOS sync.</div>`}`;
 };
 
 function _invItemDetail(item){
@@ -136123,6 +136176,9 @@ body.hnx-mobile-locked { overflow: hidden; }
             '<button onclick="window.__itCctvGrid.toggleArrange()" style="padding:6px 12px;border-radius:6px;border:1px solid #ffca52;background:rgba(255,202,82,.08);color:#ffca52;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">\uD83D\uDD00 Arrange</button>'+
             '<button onclick="window.__itCctvGrid.wallFull()" style="padding:6px 12px;border-radius:6px;border:1px solid #4dd0e1;background:rgba(77,208,225,.12);color:#4dd0e1;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">⛶ Full Screen</button>'+
             '<button onclick="window.__itCctvGrid.render()" style="padding:6px 12px;border-radius:6px;border:1px solid rgba(120,160,140,.4);background:transparent;color:#9fc7bb;font-size:12px;cursor:pointer;font-family:inherit;">\u21BB Refresh</button>'+
+            '<select onchange="window.__itCctvGrid.setMaxLive(this.value)" title="Max cameras streaming live at once - protects the NVR" style="padding:6px 8px;border-radius:6px;border:1px solid rgba(120,160,140,.4);background:#0a120d;color:#9fc7bb;font-size:12px;font-family:inherit;cursor:pointer;">'+
+              [['0','Live: All'],['4','Live: 4'],['6','Live: 6'],['8','Live: 8'],['12','Live: 12'],['16','Live: 16']].map(function(o){ return '<option value="'+o[0]+'"'+(String(_cctvMaxLive())===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('')+
+            '</select>'+
           '</div>'+
           areaTabsHtml+
           (canEdit()?(
@@ -136179,6 +136235,8 @@ body.hnx-mobile-locked { overflow: hidden; }
         },{ root:null, rootMargin:'200px 0px', threshold:0.01 });
         Array.prototype.forEach.call(frames,function(f){ io.observe(f); });
         _state._io=io;
+        if(_state._rotTimer){ try{ clearInterval(_state._rotTimer); }catch(e){} }
+        _state._rotTimer=setInterval(_cctvRotate, 20000);   // p176 — gentle live-stream rotation
       }catch(e){ try{ console.warn('[cctv lazy] init failed',e); }catch(_){}
         try{ var fr=(body||document).querySelectorAll('iframe[data-cctv-src]'); Array.prototype.forEach.call(fr,function(f){ if(f.getAttribute('data-loaded')!=='1'){ f.setAttribute('data-loaded','1'); f.src=f.getAttribute('data-cctv-src'); } }); }catch(_){}
       }
@@ -136189,10 +136247,14 @@ body.hnx-mobile-locked { overflow: hidden; }
     function _cctvPump(){
       try{
         var body=_state._cctvBody; if(!body) return;
-        var PAR=4;
+        var PAR=4, cap=_cctvMaxLive();
         if(_state._cctvInflight==null) _state._cctvInflight=0;
         while(_state._cctvInflight<PAR){
-          var f=body.querySelector('iframe[data-cctv-src][data-want="1"]:not([data-loaded]):not([data-loading])');
+          if(cap>0){
+            var liveN=body.querySelectorAll('iframe[data-cctv-src][data-loaded="1"]').length + _state._cctvInflight;
+            if(liveN>=cap) break;   // p176 — hard live-stream cap (protects NVR)
+          }
+          var f=body.querySelector('iframe[data-cctv-src][data-want="1"]:not([data-loaded]):not([data-loading]):not([data-cooldown])');
           if(!f) break;
           (function(f){
             f.setAttribute('data-loading','1');
@@ -136200,13 +136262,54 @@ body.hnx-mobile-locked { overflow: hidden; }
             var ph=f.parentNode&&f.parentNode.querySelector('.hnx-cctv-ph');
             if(ph){ ph.innerHTML='<span style="opacity:.7;font-size:10px;font-family:monospace;color:#7aa99a;">\u2026</span>'; }
             var done=false;
-            var finish=function(){ if(done)return; done=true; f.removeAttribute('data-loading'); f.setAttribute('data-loaded','1'); if(ph)ph.style.display='none'; _state._cctvInflight--; _cctvPump(); };
+            var finish=function(){ if(done)return; done=true; f.removeAttribute('data-loading'); f.setAttribute('data-loaded','1'); f.setAttribute('data-loaded-at',Date.now()+''); if(ph)ph.style.display='none'; _state._cctvInflight--; _cctvPump(); };
             f.addEventListener('load',finish,{once:true});
             setTimeout(finish,1200);
             f.src=f.getAttribute('data-cctv-src');
           })(f);
         }
       }catch(e){}
+    }
+
+    /* p176 — live-stream cap + gentle rotation. Cap limits how many cameras stream
+       at once (NVR-friendly); rotation cycles which visible cameras are live so all
+       eventually get screen time. 0 = unlimited (All). */
+    function _cctvMaxLive(){ try{ var v=parseInt(localStorage.getItem('hydroPro_cctv_max_live')||'0',10); return (isNaN(v)||v<0)?0:v; }catch(e){ return 0; } }
+    function _cctvRotate(){
+      try{
+        var body=_state._cctvBody;
+        if(!body || !document.body.contains(body)){ if(_state._rotTimer){ clearInterval(_state._rotTimer); _state._rotTimer=null; } return; }
+        var now=Date.now();
+        Array.prototype.forEach.call(body.querySelectorAll('iframe[data-cooldown]'), function(f){ if(now-(parseInt(f.getAttribute('data-cooldown'),10)||0) > 18000) f.removeAttribute('data-cooldown'); });
+        var cap=_cctvMaxLive(); if(cap<=0){ _cctvPump(); return; }
+        var wanted=body.querySelectorAll('iframe[data-cctv-src][data-want="1"]');
+        if(wanted.length<=cap){ _cctvPump(); return; }   // everything visible already fits
+        var loaded=Array.prototype.slice.call(body.querySelectorAll('iframe[data-cctv-src][data-want="1"][data-loaded="1"]'));
+        if(loaded.length>=cap){
+          loaded.sort(function(a,b){ return (parseInt(a.getAttribute('data-loaded-at'),10)||0)-(parseInt(b.getAttribute('data-loaded-at'),10)||0); });
+          var victim=loaded[0];
+          victim.removeAttribute('data-loaded'); victim.removeAttribute('data-loading');
+          victim.setAttribute('data-cooldown', now+'');
+          try{ victim.src='about:blank'; }catch(e){}
+          var ph=victim.parentNode&&victim.parentNode.querySelector('.hnx-cctv-ph'); if(ph){ ph.style.display='flex'; ph.innerHTML='\uD83D\uDCF7'; }
+        }
+        _cctvPump();
+      }catch(e){}
+    }
+    function setMaxLive(v){
+      try{ localStorage.setItem('hydroPro_cctv_max_live', String(parseInt(v,10)||0)); }catch(e){}
+      try{
+        var body=_state._cctvBody, cap=_cctvMaxLive();
+        if(body && cap>0){
+          var loaded=Array.prototype.slice.call(body.querySelectorAll('iframe[data-cctv-src][data-loaded="1"]'));
+          if(loaded.length>cap){
+            loaded.sort(function(a,b){ return (parseInt(b.getAttribute('data-loaded-at'),10)||0)-(parseInt(a.getAttribute('data-loaded-at'),10)||0); }); // newest first
+            loaded.slice(0, loaded.length-cap).forEach(function(f){ f.removeAttribute('data-loaded'); f.removeAttribute('data-loading'); try{f.src='about:blank';}catch(e){} var ph=f.parentNode&&f.parentNode.querySelector('.hnx-cctv-ph'); if(ph){ph.style.display='flex';ph.innerHTML='\uD83D\uDCF7';} });
+          }
+        }
+      }catch(e){}
+      try{ if(typeof showToast==='function') showToast((parseInt(v,10)||0)?('Live cap: '+(parseInt(v,10))+' streams'):'Live cap: All','info'); }catch(e){}
+      _cctvPump();
     }
 
     function setFilter(f){ _state.filter=f; render(); }
@@ -136468,7 +136571,7 @@ body.hnx-mobile-locked { overflow: hidden; }
       step();
     }
 
-    return { render:render, setFilter:setFilter, search:search, saveBase:saveBase, connect:connect, detect:detect, autoConnect:autoConnect, assign:assign, manualAssign:manualAssign, closeConnect:closeConnect, full:full, closeFull:closeFull, toggleArrange:toggleArrange, dragStart:dragStart, drop:drop, moveLeft:moveLeft, moveRight:moveRight, setAreaIdx:setAreaIdx, wallFull:wallFull, _wallClose:_wallClose, _wallSetLayout:_wallSetLayout, _wallSpot:_wallSpot, _wallRerender:_wallRerender, _wallSetArea:_wallSetArea };
+    return { render:render, setFilter:setFilter, search:search, saveBase:saveBase, connect:connect, detect:detect, autoConnect:autoConnect, assign:assign, manualAssign:manualAssign, closeConnect:closeConnect, full:full, closeFull:closeFull, toggleArrange:toggleArrange, dragStart:dragStart, drop:drop, moveLeft:moveLeft, moveRight:moveRight, setAreaIdx:setAreaIdx, wallFull:wallFull, setMaxLive:setMaxLive, _wallClose:_wallClose, _wallSetLayout:_wallSetLayout, _wallSpot:_wallSpot, _wallRerender:_wallRerender, _wallSetArea:_wallSetArea };
   })();
 
   // ── Build-queue placeholders for views not yet built ──
@@ -144130,34 +144233,52 @@ body.hnx-mobile-locked { overflow: hidden; }
   // p150 — post-upgrade health check. If the snapshot endpoint comes back broken
   // twice in a row, the stream is genuinely offline → replace any go2rtc error
   // text with a clean "📡 Stream offline · tap to refresh" overlay.
+  // p175 — serialized probe gate: only ONE snapshot health-probe hits the bridge
+  // at a time (spaced), so verification never competes with the live streams for
+  // the NVR's limited concurrent connections — which previously made every tile
+  // flip to STREAM OFFLINE at once a few seconds after coming online.
+  var _vQueue = [], _vBusy = false;
+  function _vGate(run){ _vQueue.push(run); _vPump(); }
+  function _vPump(){
+    if(_vBusy || !_vQueue.length) return;
+    _vBusy = true;
+    var run = _vQueue.shift();
+    run(function(){ _vBusy = false; setTimeout(_vPump, 350); });
+  }
+
   function verifyAfterUpgrade(tile, snapUrl){
     if(!tile || !document.body.contains(tile)) return;
     if(tile.getAttribute('data-hnx-verified')) return;
     if(!snapUrl) return;
-    var fails = 0;
+    var fails = 0, MAX_FAILS = 3;
     function tick(){
       if(!document.body.contains(tile)) return;
-      var p = new Image();
-      var settled = false;
-      function ok(){ if(settled) return; settled = true;
-        tile.setAttribute('data-hnx-verified','ok');
-      }
-      function bad(){
-        if(settled) return; settled = true;
-        fails++;
-        if(fails >= 2){
-          tile.setAttribute('data-hnx-verified','offline');
-          showStreamOffline(tile);
-        } else {
-          setTimeout(tick, 2200);
+      if(tile.getAttribute('data-hnx-verified') === 'ok') return;   // already proven good — never flip
+      _vGate(function(release){
+        if(tile.getAttribute('data-hnx-verified') === 'ok'){ release(); return; }
+        var p = new Image();
+        var settled = false;
+        function ok(){ if(settled) return; settled = true; release();
+          tile.setAttribute('data-hnx-verified','ok');              // proven live — locked in
         }
-      }
-      p.onload = function(){ (p.naturalWidth>2) ? ok() : bad(); };
-      p.onerror = bad;
-      // bust cache aggressively — go2rtc's frame.jpeg likes a fresh URL
-      var sep = snapUrl.indexOf('?')>=0 ? '&' : '?';
-      p.src = snapUrl + sep + 'v=' + Date.now();
-      setTimeout(function(){ if(!settled) bad(); }, 4000);  // timeout failure too
+        function bad(){
+          if(settled) return; settled = true; release();
+          fails++;
+          if(fails >= MAX_FAILS){
+            if(tile.getAttribute('data-hnx-verified') === 'ok') return;
+            tile.setAttribute('data-hnx-verified','offline');
+            showStreamOffline(tile);
+          } else {
+            setTimeout(tick, 3000);                                 // back off, retry serialized
+          }
+        }
+        p.onload = function(){ (p.naturalWidth>2) ? ok() : bad(); };
+        p.onerror = bad;
+        // bust cache aggressively — go2rtc's frame.jpeg likes a fresh URL
+        var sep = snapUrl.indexOf('?')>=0 ? '&' : '?';
+        p.src = snapUrl + sep + 'v=' + Date.now();
+        setTimeout(function(){ if(!settled) bad(); }, 7000);        // longer timeout (was 4s)
+      });
     }
     tick();
   }
@@ -146500,19 +146621,21 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===== END HNX ITEM REQUEST MODULE ===== -->
-<!-- ===== HNX MASTER DATA MODULE (p168) ===== -->
+<!-- ===== HNX MASTER DATA MODULE (p170) ===== -->
 <script>
 /* ============================================================
-   p168 · Phase 3a · MASTER DATA — Suppliers + Brands (spec sheets 03/04)
-   Reference tables HydroNexis owns. Suppliers seedable from SOS. Feeds the
-   Item Master (Phase 3b) brand/supplier dropdowns. Inventory module only.
-   Stores: hydroPro_inv_suppliers_v1 · hydroPro_inv_brands_v1 (cloud-synced).
+   p170 · Phase 3 · MASTER DATA — Suppliers + Brands + ITEM MASTER
+   Suppliers/Brands = reference tables. Item Master = an ENRICHMENT overlay
+   over SOS items (keyed by SKU): brand, supplier, manufacturer, category
+   (incl. custom), criticality, safety stock, subcategory. Never duplicates SOS.
+   Stores: hydroPro_inv_suppliers_v1 · hydroPro_inv_brands_v1 · hydroPro_inv_item_master_v1
    ============================================================ */
 (function(){
   'use strict';
   if(window.__hnxInvMaster) return;
-  var SUP_KEY='hydroPro_inv_suppliers_v1', BR_KEY='hydroPro_inv_brands_v1';
-  var S={tab:'suppliers', editing:null};   // editing: null | {kind:'sup'|'br', id:'new'|<id>}
+  var SUP_KEY='hydroPro_inv_suppliers_v1', BR_KEY='hydroPro_inv_brands_v1', IM_KEY='hydroPro_inv_item_master_v1';
+  var S={tab:'suppliers', editing:null, itemQuery:'', itemFilter:'all', editSku:null};
+  var CRIT=['','Low','Medium','High','Critical'];
 
   function esc(s){ s=(s==null)?'':String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function uid(p){ return p+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,6); }
@@ -146521,68 +146644,54 @@ body.hnx-mobile-locked { overflow: hidden; }
   function saveSup(a){ try{ localStorage.setItem(SUP_KEY,JSON.stringify(a)); }catch(e){} push(); }
   function loadBr(){ try{ return JSON.parse(localStorage.getItem(BR_KEY)||'[]'); }catch(e){ return []; } }
   function saveBr(a){ try{ localStorage.setItem(BR_KEY,JSON.stringify(a)); }catch(e){} push(); }
+  function loadIM(){ try{ return JSON.parse(localStorage.getItem(IM_KEY)||'{}'); }catch(e){ return {}; } }
+  function saveIM(o){ try{ localStorage.setItem(IM_KEY,JSON.stringify(o)); }catch(e){} push(); }
   function push(){ try{ if(typeof hnxCloudSyncPush==='function') hnxCloudSyncPush(); }catch(e){} }
   function toast(m,t){ try{ if(typeof showToast==='function') showToast(m,t||'info'); }catch(e){} }
   function canEdit(){ try{ return (typeof can==='function') && can('manageInventory'); }catch(e){ return false; } }
   function val(id){ var el=document.getElementById(id); return el?el.value.trim():''; }
-  function sosSupplierNames(){ try{ var st=(typeof _invLoadStock==='function')?_invLoadStock():[]; var m={}; st.forEach(function(i){ var v=(i.supplier||'').trim(); if(v) m[v]=1; }); return Object.keys(m).sort(); }catch(e){ return []; } }
+  function sosItemsAll(){ try{ return (typeof _invLoadStock==='function')?_invLoadStock():[]; }catch(e){ return []; } }
+  function sosSupplierNames(){ var m={}; sosItemsAll().forEach(function(i){ var v=(i.supplier||'').trim(); if(v) m[v]=1; }); return Object.keys(m).sort(); }
+  function categoriesAll(){ var m={}; sosItemsAll().forEach(function(s){ var c=(s.sosCategory||'').trim(); if(c) m[c]=1; }); try{ (JSON.parse(localStorage.getItem('hydroPro_inv_custom_categories_v1')||'[]')).forEach(function(c){ m[c]=1; }); }catch(e){} return Object.keys(m).sort(); }
+  function brandName(id){ if(!id) return ''; var b=loadBr().filter(function(x){return x.id===id;})[0]; return b?b.name:''; }
+  function supplierName(id){ if(!id) return ''; var s=loadSup().filter(function(x){return x.id===id;})[0]; return s?s.name:''; }
 
   function scoreChip(n){ n=num(n); var c=n>=75?'#26c281':n>=50?'#ffb300':n>0?'#ef5350':'#7aa99a'; return '<span style="display:inline-block;font-family:var(--mono);font-weight:700;color:'+c+';border:1px solid '+c+';border-radius:10px;padding:1px 8px;font-size:11px;">'+(n?n:'\u2014')+'</span>'; }
   function statusChip(s){ var on=(s||'Active')==='Active'; var c=on?'#26c281':'#7aa99a'; return '<span style="font-size:10px;font-weight:700;color:'+c+';border:1px solid '+c+';border-radius:10px;padding:1px 8px;">'+(on?'Active':'Inactive')+'</span>'; }
+  function critChip(v){ if(!v) return '<span style="color:var(--text3);">\u2014</span>'; var c={Low:'#7aa99a',Medium:'#42a5f5',High:'#ffb300',Critical:'#ef5350'}[v]||'#7aa99a'; return '<span style="font-size:10px;font-weight:700;color:'+c+';border:1px solid '+c+';border-radius:10px;padding:1px 8px;">'+esc(v)+'</span>'; }
 
   function render(){
     var host=document.getElementById('invMasterBody'); if(!host) return;
     if(!(typeof can==='function') || !can('viewInventory')){ host.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3);">Access denied \u2014 needs Inventory view permission.</div>'; return; }
-    var sup=loadSup(), br=loadBr();
+    var sup=loadSup(), br=loadBr(), im=loadIM();
     var hero=(typeof window._hnxRenderDashHero==='function')?window._hnxRenderDashHero({
       module:'inventory', icon:'\ud83d\uddc2\ufe0f', title:'MASTER DATA',
-      tagline:'Suppliers and brands HydroNexis owns \u2014 the reference lists the Item Master attaches to each SKU. Import suppliers straight from your SOS catalog.',
-      chips:[ {label:'Suppliers', value:String(sup.length), tone:'info'}, {label:'Brands', value:String(br.length), tone:'info'} ]
+      tagline:'Suppliers, brands and the Item Master \u2014 the structured layer over your SOS catalog. Enrich each SKU with brand, supplier, criticality and safety stock without ever duplicating SOS.',
+      chips:[ {label:'Suppliers', value:String(sup.length), tone:'info'}, {label:'Brands', value:String(br.length), tone:'info'}, {label:'Enriched items', value:String(Object.keys(im).length), tone: Object.keys(im).length?'ok':''} ]
     }):'';
     var tabs='<div style="display:flex;gap:8px;margin:0 0 16px;flex-wrap:wrap;">'
-      + tabBtn('suppliers','\ud83d\ude9a Suppliers') + tabBtn('brands','\ud83c\udff7\ufe0f Brands')
-      + '<span style="flex:1;"></span>'
-      + '<span style="align-self:center;font-size:11px;color:var(--text3);">\ud83d\udce6 Items \u2192 next phase</span></div>';
-    host.innerHTML = hero + tabs + (S.tab==='suppliers'? renderSuppliers(sup) : renderBrands(br));
+      + tabBtn('suppliers','\ud83d\ude9a Suppliers') + tabBtn('brands','\ud83c\udff7\ufe0f Brands') + tabBtn('items','\ud83d\udce6 Item Master') + '</div>';
+    var body = S.tab==='suppliers'? renderSuppliers(sup) : S.tab==='brands'? renderBrands(br) : renderItems(im);
+    host.innerHTML = hero + tabs + body;
   }
   function tabBtn(k,l){ var on=S.tab===k; return '<button onclick="__hnxInvMaster.tab(\''+k+'\')" style="padding:8px 16px;border-radius:8px;border:1px solid '+(on?'#42a5f5':'var(--border)')+';background:'+(on?'#42a5f5':'transparent')+';color:'+(on?'#0a1612':'var(--text2)')+';font-size:13px;font-weight:700;cursor:pointer;">'+l+'</button>'; }
 
   // ---------- SUPPLIERS ----------
   function renderSuppliers(sup){
     var H='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">';
-    if(canEdit()){
-      H+='<button class="btn btn-primary" onclick="__hnxInvMaster.edit(\'sup\',\'new\')">\u2795 Add supplier</button>'
-       + '<button class="btn btn-outline" onclick="__hnxInvMaster.importSos()">\u2b07 Import from SOS</button>';
-    }
+    if(canEdit()){ H+='<button class="btn btn-primary" onclick="__hnxInvMaster.edit(\'sup\',\'new\')">\u2795 Add supplier</button><button class="btn btn-outline" onclick="__hnxInvMaster.importSos()">\u2b07 Import from SOS</button>'; }
     H+='</div>';
     if(S.editing && S.editing.kind==='sup') H+=supEditor(sup);
     if(!sup.length) return H+'<div style="padding:40px;text-align:center;color:var(--text3);border:1px dashed var(--border);border-radius:10px;">No suppliers yet. Add one, or import from SOS.</div>';
     var rows=sup.slice().sort(function(a,b){return (a.name||'').localeCompare(b.name||'');}).map(function(s){
-      return '<tr><td><strong>'+esc(s.name||'\u2014')+'</strong></td>'
-        + '<td style="font-size:12px;">'+esc(s.contact||'\u2014')+'</td>'
-        + '<td style="font-size:12px;color:var(--text3);">'+esc(s.email||'')+(s.phone?('<br>'+esc(s.phone)):'')+'</td>'
-        + '<td style="text-align:center;">'+scoreChip(s.score)+'</td>'
-        + '<td style="text-align:center;">'+statusChip(s.status)+'</td>'
-        + '<td style="text-align:right;white-space:nowrap;">'+(canEdit()?('<button class="btn btn-outline" style="font-size:10px;padding:3px 8px;" onclick="__hnxInvMaster.edit(\'sup\',\''+s.id+'\')">\u270f\ufe0f</button> <button class="btn btn-outline" style="font-size:10px;padding:3px 8px;color:var(--danger);" onclick="__hnxInvMaster.del(\'sup\',\''+s.id+'\')">\ud83d\uddd1</button>'):'')+'</td></tr>';
+      return '<tr><td><strong>'+esc(s.name||'\u2014')+'</strong></td><td style="font-size:12px;">'+esc(s.contact||'\u2014')+'</td><td style="font-size:12px;color:var(--text3);">'+esc(s.email||'')+(s.phone?('<br>'+esc(s.phone)):'')+'</td><td style="text-align:center;">'+scoreChip(s.score)+'</td><td style="text-align:center;">'+statusChip(s.status)+'</td><td style="text-align:right;white-space:nowrap;">'+(canEdit()?('<button class="btn btn-outline" style="font-size:10px;padding:3px 8px;" onclick="__hnxInvMaster.edit(\'sup\',\''+s.id+'\')">\u270f\ufe0f</button> <button class="btn btn-outline" style="font-size:10px;padding:3px 8px;color:var(--danger);" onclick="__hnxInvMaster.del(\'sup\',\''+s.id+'\')">\ud83d\uddd1</button>'):'')+'</td></tr>';
     }).join('');
     return H+'<div class="tool-table-wrap"><table class="cctv-inventory-table"><thead><tr><th>Supplier</th><th>Contact</th><th>Email / phone</th><th style="text-align:center;">Score</th><th style="text-align:center;">Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
   }
   function supEditor(sup){
     var s = S.editing.id==='new' ? {id:'new',name:'',contact:'',email:'',phone:'',score:'',status:'Active',notes:''} : (sup.filter(function(x){return x.id===S.editing.id;})[0]||{id:'new'});
     function f(label,id,v,ph,type){ return '<div style="margin-bottom:10px;"><label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">'+label+'</label><input id="'+id+'" class="users-input" style="width:100%;" type="'+(type||'text')+'" value="'+esc(v==null?'':v)+'" placeholder="'+esc(ph||'')+'"></div>'; }
-    return '<div style="border:1px solid #42a5f5;border-radius:10px;padding:14px 16px;background:rgba(66,165,245,.05);margin-bottom:16px;max-width:640px;">'
-      + '<div style="font-weight:800;margin-bottom:10px;">'+(s.id==='new'?'New supplier':'Edit supplier')+'</div>'
-      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'
-      + f('Supplier name *','sup_name',s.name,'Company name')
-      + f('Contact person','sup_contact',s.contact,'')
-      + f('Email','sup_email',s.email,'','email')
-      + f('Phone','sup_phone',s.phone,'')
-      + f('Reliability score (0\u2013100)','sup_score',s.score,'e.g. 80','number')
-      + '<div style="margin-bottom:10px;"><label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">Status</label><select id="sup_status" class="users-input" style="width:100%;"><option'+((s.status||'Active')==='Active'?' selected':'')+'>Active</option><option'+(s.status==='Inactive'?' selected':'')+'>Inactive</option></select></div>'
-      + '</div>'
-      + f('Notes','sup_notes',s.notes,'')
-      + '<div style="display:flex;gap:10px;margin-top:6px;"><button class="btn btn-primary" onclick="__hnxInvMaster.save(\'sup\')">Save</button><button class="btn btn-outline" onclick="__hnxInvMaster.cancel()">Cancel</button></div>'
-      + '</div>';
+    return '<div style="border:1px solid #42a5f5;border-radius:10px;padding:14px 16px;background:rgba(66,165,245,.05);margin-bottom:16px;max-width:640px;"><div style="font-weight:800;margin-bottom:10px;">'+(s.id==='new'?'New supplier':'Edit supplier')+'</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'+f('Supplier name *','sup_name',s.name,'Company name')+f('Contact person','sup_contact',s.contact,'')+f('Email','sup_email',s.email,'','email')+f('Phone','sup_phone',s.phone,'')+f('Reliability score (0\u2013100)','sup_score',s.score,'e.g. 80','number')+'<div style="margin-bottom:10px;"><label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">Status</label><select id="sup_status" class="users-input" style="width:100%;"><option'+((s.status||'Active')==='Active'?' selected':'')+'>Active</option><option'+(s.status==='Inactive'?' selected':'')+'>Inactive</option></select></div></div>'+f('Notes','sup_notes',s.notes,'')+'<div style="display:flex;gap:10px;margin-top:6px;"><button class="btn btn-primary" onclick="__hnxInvMaster.save(\'sup\')">Save</button><button class="btn btn-outline" onclick="__hnxInvMaster.cancel()">Cancel</button></div></div>';
   }
 
   // ---------- BRANDS ----------
@@ -146594,32 +146703,99 @@ body.hnx-mobile-locked { overflow: hidden; }
     if(!br.length) return H+'<div style="padding:40px;text-align:center;color:var(--text3);border:1px dashed var(--border);border-radius:10px;">No brands yet. Add one.</div>';
     var rows=br.slice().sort(function(a,b){return (a.name||'').localeCompare(b.name||'');}).map(function(b){
       var site=b.website?('<a href="'+esc(b.website)+'" target="_blank" rel="noopener" style="color:#42a5f5;">'+esc(b.website.replace(/^https?:\/\//,''))+'</a>'):'\u2014';
-      return '<tr><td><strong>'+esc(b.name||'\u2014')+'</strong></td>'
-        + '<td style="font-size:12px;">'+esc(b.country||'\u2014')+'</td>'
-        + '<td style="font-size:12px;">'+site+'</td>'
-        + '<td style="text-align:center;">'+statusChip(b.status)+'</td>'
-        + '<td style="text-align:right;white-space:nowrap;">'+(canEdit()?('<button class="btn btn-outline" style="font-size:10px;padding:3px 8px;" onclick="__hnxInvMaster.edit(\'br\',\''+b.id+'\')">\u270f\ufe0f</button> <button class="btn btn-outline" style="font-size:10px;padding:3px 8px;color:var(--danger);" onclick="__hnxInvMaster.del(\'br\',\''+b.id+'\')">\ud83d\uddd1</button>'):'')+'</td></tr>';
+      return '<tr><td><strong>'+esc(b.name||'\u2014')+'</strong></td><td style="font-size:12px;">'+esc(b.country||'\u2014')+'</td><td style="font-size:12px;">'+site+'</td><td style="text-align:center;">'+statusChip(b.status)+'</td><td style="text-align:right;white-space:nowrap;">'+(canEdit()?('<button class="btn btn-outline" style="font-size:10px;padding:3px 8px;" onclick="__hnxInvMaster.edit(\'br\',\''+b.id+'\')">\u270f\ufe0f</button> <button class="btn btn-outline" style="font-size:10px;padding:3px 8px;color:var(--danger);" onclick="__hnxInvMaster.del(\'br\',\''+b.id+'\')">\ud83d\uddd1</button>'):'')+'</td></tr>';
     }).join('');
     return H+'<div class="tool-table-wrap"><table class="cctv-inventory-table"><thead><tr><th>Brand</th><th>Country</th><th>Website</th><th style="text-align:center;">Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
   }
   function brEditor(br){
     var b = S.editing.id==='new' ? {id:'new',name:'',country:'',website:'',status:'Active'} : (br.filter(function(x){return x.id===S.editing.id;})[0]||{id:'new'});
     function f(label,id,v,ph){ return '<div style="margin-bottom:10px;"><label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">'+label+'</label><input id="'+id+'" class="users-input" style="width:100%;" value="'+esc(v==null?'':v)+'" placeholder="'+esc(ph||'')+'"></div>'; }
-    return '<div style="border:1px solid #42a5f5;border-radius:10px;padding:14px 16px;background:rgba(66,165,245,.05);margin-bottom:16px;max-width:560px;">'
-      + '<div style="font-weight:800;margin-bottom:10px;">'+(b.id==='new'?'New brand':'Edit brand')+'</div>'
-      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'
-      + f('Brand name *','br_name',b.name,'')
-      + f('Country','br_country',b.country,'')
-      + f('Website','br_website',b.website,'https://')
-      + '<div style="margin-bottom:10px;"><label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">Status</label><select id="br_status" class="users-input" style="width:100%;"><option'+((b.status||'Active')==='Active'?' selected':'')+'>Active</option><option'+(b.status==='Inactive'?' selected':'')+'>Inactive</option></select></div>'
-      + '</div>'
-      + '<div style="display:flex;gap:10px;margin-top:6px;"><button class="btn btn-primary" onclick="__hnxInvMaster.save(\'br\')">Save</button><button class="btn btn-outline" onclick="__hnxInvMaster.cancel()">Cancel</button></div>'
+    return '<div style="border:1px solid #42a5f5;border-radius:10px;padding:14px 16px;background:rgba(66,165,245,.05);margin-bottom:16px;max-width:560px;"><div style="font-weight:800;margin-bottom:10px;">'+(b.id==='new'?'New brand':'Edit brand')+'</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'+f('Brand name *','br_name',b.name,'')+f('Country','br_country',b.country,'')+f('Website','br_website',b.website,'https://')+'<div style="margin-bottom:10px;"><label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">Status</label><select id="br_status" class="users-input" style="width:100%;"><option'+((b.status||'Active')==='Active'?' selected':'')+'>Active</option><option'+(b.status==='Inactive'?' selected':'')+'>Inactive</option></select></div></div><div style="display:flex;gap:10px;margin-top:6px;"><button class="btn btn-primary" onclick="__hnxInvMaster.save(\'br\')">Save</button><button class="btn btn-outline" onclick="__hnxInvMaster.cancel()">Cancel</button></div></div>';
+  }
+
+  // ---------- ITEM MASTER ----------
+  function renderItems(im){
+    if(S.editSku) return itemEditor(im);
+    var items=sosItemsAll();
+    var enrichedCount=Object.keys(im).length;
+    var withBrand=0, withSup=0, withCrit=0;
+    Object.keys(im).forEach(function(k){ var e=im[k]; if(e.brandId)withBrand++; if(e.supplierId)withSup++; if(e.criticality)withCrit++; });
+    var sosOn=!!(window.__hnxSos&&window.__hnxSos.isConnected&&window.__hnxSos.isConnected());
+
+    var H='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">'
+      + filterChip('all','Search') + filterChip('enriched','Enriched ('+enrichedCount+')')
       + '</div>';
+    H+='<div style="font-size:11px;color:var(--text3);margin-bottom:12px;">'+(sosOn?items.length.toLocaleString()+' SOS items \u00b7 ':'')+enrichedCount+' enriched \u00b7 '+withBrand+' w/ brand \u00b7 '+withSup+' w/ supplier \u00b7 '+withCrit+' w/ criticality</div>';
+
+    if(S.itemFilter==='enriched'){
+      var rows=Object.keys(im).map(function(sku){ var base=items.filter(function(i){return String(i.sku)===String(sku);})[0]||{sku:sku,name:'(not in current SOS pull)'}; return itemRow(base, im[sku]); });
+      H+= rows.length ? '<div class="tool-table-wrap">'+itemTable(rows.slice(0,150).join(''))+'</div>'+(rows.length>150?'<div style="font-size:11px;color:var(--text3);margin-top:6px;">Showing 150 of '+rows.length+'.</div>':'')
+                      : '<div style="padding:40px;text-align:center;color:var(--text3);border:1px dashed var(--border);border-radius:10px;">No items enriched yet. Switch to Search, find an item, and tap it to add brand/supplier/criticality.</div>';
+      return H;
+    }
+    // search mode
+    H+='<input id="imSearch" class="users-input" style="width:100%;max-width:520px;" placeholder="Type item name or SKU\u2026" value="'+esc(S.itemQuery)+'" oninput="__hnxInvMaster.itemSearch(this.value)" autocomplete="off">';
+    H+='<div id="imResults" style="margin-top:10px;">'+itemResultsHtml(S.itemQuery, im)+'</div>';
+    return H;
+  }
+  function filterChip(k,l){ var on=S.itemFilter===k; return '<button onclick="__hnxInvMaster.itemFilter(\''+k+'\')" style="padding:6px 12px;border-radius:7px;border:1px solid '+(on?'#42a5f5':'var(--border)')+';background:'+(on?'#42a5f5':'transparent')+';color:'+(on?'#0a1612':'var(--text2)')+';font-size:11px;font-weight:700;cursor:pointer;">'+l+'</button>'; }
+  function itemTable(rowsHtml){ return '<table class="cctv-inventory-table"><thead><tr><th>Item</th><th>Category</th><th>Brand</th><th>Supplier</th><th style="text-align:center;">Critical</th><th style="text-align:right;">On hand</th></tr></thead><tbody>'+rowsHtml+'</tbody></table>'; }
+  function itemRow(base, e){
+    e=e||{};
+    var sku=String(base.sku||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    var cat=e.category||base.sosCategory||'';
+    var enriched=!!(e.brandId||e.supplierId||e.manufacturer||e.criticality||e.safetyStock||e.category||e.subcategory);
+    return '<tr style="cursor:pointer;'+(enriched?'background:rgba(38,194,129,.05);':'')+'" onclick="__hnxInvMaster.editItem(\''+sku+'\')">'
+      + '<td><strong>'+esc(base.name||'\u2014')+'</strong> <span style="font-family:var(--mono);color:var(--text3);font-size:11px;">'+esc(base.sku||'')+'</span>'+(enriched?' <span style="color:#26c281;">\u25cf</span>':'')+'</td>'
+      + '<td style="font-size:12px;">'+esc(cat||'\u2014')+'</td>'
+      + '<td style="font-size:12px;">'+esc(brandName(e.brandId)||'\u2014')+'</td>'
+      + '<td style="font-size:12px;">'+esc(supplierName(e.supplierId)||'\u2014')+'</td>'
+      + '<td style="text-align:center;">'+critChip(e.criticality)+'</td>'
+      + '<td style="text-align:right;font-family:var(--mono);">'+num(base.onHand)+'</td></tr>';
+  }
+  function itemResultsHtml(q, im){
+    im=im||loadIM(); q=String(q||'').toLowerCase().trim();
+    if(q.length<2) return '<div style="padding:8px 2px;color:var(--text3);font-size:12px;">Type at least 2 characters to find an item\u2026</div>';
+    var items=sosItemsAll(); var hits=[];
+    for(var i=0;i<items.length && hits.length<60;i++){ var it=items[i]; var hay=((it.name||'')+' '+(it.sku||'')).toLowerCase(); if(hay.indexOf(q)>=0) hits.push(it); }
+    if(!hits.length) return '<div style="padding:14px;color:var(--text3);font-size:12px;border:1px dashed var(--border);border-radius:8px;">No match'+(items.length?'':' \u2014 no SOS items loaded; tap Sync in Admin \u2192 SOS')+'.</div>';
+    return '<div class="tool-table-wrap">'+itemTable(hits.map(function(it){ return itemRow(it, im[String(it.sku)]); }).join(''))+'</div>'+(hits.length>=60?'<div style="font-size:11px;color:var(--text3);margin-top:6px;">Showing first 60 matches \u2014 refine your search.</div>':'');
+  }
+  function itemEditor(im){
+    var sku=S.editSku; var base=sosItemsAll().filter(function(i){return String(i.sku)===String(sku);})[0]||{sku:sku,name:'(item)',sosCategory:'',onHand:0,unitCost:0,unit:''};
+    var e=im[sku]||{};
+    var brands=loadBr().filter(function(b){return (b.status||'Active')==='Active';});
+    var sups=loadSup().filter(function(s){return (s.status||'Active')==='Active';});
+    var cats=categoriesAll();
+    function optList(arr, sel, useId){ return arr.map(function(o){ var v=useId?o.id:o, l=useId?o.name:o; return '<option value="'+esc(v)+'"'+(String(sel)===String(v)?' selected':'')+'>'+esc(l)+'</option>'; }).join(''); }
+    function selF(label,id,inner){ return '<div style="margin-bottom:10px;"><label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">'+label+'</label>'+inner+'</div>'; }
+    function txtF(label,id,v,ph,type){ return '<div style="margin-bottom:10px;"><label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">'+label+'</label><input id="'+id+'" class="users-input" style="width:100%;" type="'+(type||'text')+'" value="'+esc(v==null?'':v)+'" placeholder="'+esc(ph||'')+'"></div>'; }
+    var P='\u20b1';
+    return '<button class="btn btn-outline" style="margin-bottom:12px;" onclick="__hnxInvMaster.backItems()">\u2190 Back to items</button>'
+      + '<div style="max-width:680px;">'
+      + '<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--surface2);margin-bottom:14px;font-size:12px;">'
+      + '<div style="font-weight:800;font-size:14px;color:var(--text);margin-bottom:4px;">'+esc(base.name||'\u2014')+'</div>'
+      + '<span style="font-family:var(--mono);color:var(--text3);">'+esc(base.sku||'')+'</span> \u00b7 SOS category: <strong>'+esc(base.sosCategory||'\u2014')+'</strong> \u00b7 on hand '+num(base.onHand)+(base.unit?(' '+esc(base.unit)):'')+' \u00b7 cost '+P+num(base.unitCost).toLocaleString()
+      + '</div>'
+      + '<div style="border:1px solid #42a5f5;border-radius:10px;padding:14px 16px;background:rgba(66,165,245,.05);">'
+      + '<div style="font-weight:800;margin-bottom:10px;">Enrich this item</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'
+      + selF('Brand','im_brand','<select id="im_brand" class="users-input" style="width:100%;"><option value="">\u2014 none \u2014</option>'+optList(brands, e.brandId, true)+'</select>'+(brands.length?'':'<div style="font-size:10px;color:#ffb300;margin-top:3px;">Add brands in the Brands tab first.</div>'))
+      + selF('Supplier','im_supplier','<select id="im_supplier" class="users-input" style="width:100%;"><option value="">\u2014 none \u2014</option>'+optList(sups, e.supplierId, true)+'</select>'+(sups.length?'':'<div style="font-size:10px;color:#ffb300;margin-top:3px;">Add suppliers (or Import from SOS) first.</div>'))
+      + txtF('Manufacturer','im_mfr',e.manufacturer,'')
+      + selF('Category','im_cat','<select id="im_cat" class="users-input" style="width:100%;"><option value="">\u2014 use SOS category \u2014</option>'+optList(cats, (e.category||base.sosCategory||''), false)+'</select>')
+      + txtF('Subcategory','im_subcat',e.subcategory,'')
+      + selF('Criticality','im_crit','<select id="im_crit" class="users-input" style="width:100%;">'+CRIT.map(function(c){ return '<option value="'+c+'"'+((e.criticality||'')===c?' selected':'')+'>'+(c||'\u2014 none \u2014')+'</option>'; }).join('')+'</select>')
+      + txtF('Safety stock','im_safety',e.safetyStock,'units','number')
+      + '</div>'
+      + txtF('Notes','im_notes',e.notes,'')
+      + '<div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap;">'+(canEdit()?'<button class="btn btn-primary" onclick="__hnxInvMaster.saveItem()">Save enrichment</button>'+((im[sku])?'<button class="btn btn-outline" style="color:var(--danger);" onclick="__hnxInvMaster.clearItem()">Clear enrichment</button>':''):'<span style="font-size:12px;color:var(--text3);">View only \u2014 needs Inventory manage rights to edit.</span>')+'<button class="btn btn-outline" onclick="__hnxInvMaster.backItems()">Cancel</button></div>'
+      + '</div></div>';
   }
 
   // ---------- actions ----------
   window.__hnxInvMaster = {
-    tab:function(t){ S.tab=t; S.editing=null; render(); },
+    tab:function(t){ S.tab=t; S.editing=null; S.editSku=null; render(); },
     edit:function(kind,id){ if(!canEdit()){ toast('Edit needs Inventory manage rights','warn'); return; } S.tab=(kind==='sup')?'suppliers':'brands'; S.editing={kind:kind,id:id}; render(); },
     cancel:function(){ S.editing=null; render(); },
     save:function(kind){
@@ -146629,13 +146805,13 @@ body.hnx-mobile-locked { overflow: hidden; }
         var arr=loadSup(); var id=S.editing.id;
         var rec={ id:(id==='new'?uid('sup'):id), name:name, contact:val('sup_contact'), email:val('sup_email'), phone:val('sup_phone'), score:num(val('sup_score')), status:val('sup_status')||'Active', notes:val('sup_notes') };
         if(id==='new') arr.push(rec); else arr=arr.map(function(x){return x.id===id?rec:x;});
-        saveSup(arr); toast('\u2713 Supplier saved','info');
+        saveSup(arr); try{window.hnxInvAudit&&window.hnxInvAudit(id==='new'?'Supplier added':'Supplier updated', name, '', name);}catch(e){} toast('\u2713 Supplier saved','info');
       } else {
         var bn=val('br_name'); if(!bn){ toast('Brand name required','warn'); return; }
         var ba=loadBr(); var bid=S.editing.id;
         var brec={ id:(bid==='new'?uid('br'):bid), name:bn, country:val('br_country'), website:val('br_website'), status:val('br_status')||'Active' };
         if(bid==='new') ba.push(brec); else ba=ba.map(function(x){return x.id===bid?brec:x;});
-        saveBr(ba); toast('\u2713 Brand saved','info');
+        saveBr(ba); try{window.hnxInvAudit&&window.hnxInvAudit(bid==='new'?'Brand added':'Brand updated', bn, '', bn);}catch(e){} toast('\u2713 Brand saved','info');
       }
       S.editing=null; render();
     },
@@ -146644,6 +146820,7 @@ body.hnx-mobile-locked { overflow: hidden; }
       if(!confirm('Delete this '+(kind==='sup'?'supplier':'brand')+'?')) return;
       if(kind==='sup') saveSup(loadSup().filter(function(x){return x.id!==id;}));
       else saveBr(loadBr().filter(function(x){return x.id!==id;}));
+      try{window.hnxInvAudit&&window.hnxInvAudit((kind==='sup'?'Supplier':'Brand')+' deleted', id, '', '');}catch(e){}
       render();
     },
     importSos:function(){
@@ -146651,18 +146828,504 @@ body.hnx-mobile-locked { overflow: hidden; }
       var names=sosSupplierNames(); if(!names.length){ toast('No suppliers found in SOS items','warn'); return; }
       var arr=loadSup(); var have={}; arr.forEach(function(s){ have[(s.name||'').toLowerCase()]=1; });
       var added=0; names.forEach(function(n){ if(!have[n.toLowerCase()]){ arr.push({id:uid('sup'),name:n,contact:'',email:'',phone:'',score:0,status:'Active',notes:'imported from SOS'}); added++; } });
-      saveSup(arr); toast(added?('\u2713 Imported '+added+' supplier'+(added>1?'s':'')+' from SOS'):'All SOS suppliers already exist','info'); render();
+      saveSup(arr); try{window.hnxInvAudit&&window.hnxInvAudit('Suppliers imported from SOS', '', '', added+' added');}catch(e){} toast(added?('\u2713 Imported '+added+' supplier'+(added>1?'s':'')+' from SOS'):'All SOS suppliers already exist','info'); render();
+    },
+    // item master
+    itemFilter:function(f){ S.itemFilter=f; S.editSku=null; render(); },
+    itemSearch:function(q){ S.itemQuery=q; var el=document.getElementById('imResults'); if(el) el.innerHTML=itemResultsHtml(q, loadIM()); else render(); },
+    editItem:function(sku){ S.editSku=String(sku); render(); },
+    backItems:function(){ S.editSku=null; render(); },
+    saveItem:function(){
+      if(!canEdit()){ toast('No rights','warn'); return; }
+      var sku=S.editSku; if(!sku) return;
+      var im=loadIM();
+      var rec={ brandId:val('im_brand'), supplierId:val('im_supplier'), manufacturer:val('im_mfr'), category:val('im_cat'), subcategory:val('im_subcat'), criticality:val('im_crit'), safetyStock:val('im_safety'), notes:val('im_notes'), updatedAt:new Date().toISOString() };
+      var any=rec.brandId||rec.supplierId||rec.manufacturer||rec.category||rec.subcategory||rec.criticality||rec.safetyStock||rec.notes;
+      if(any) im[sku]=rec; else delete im[sku];
+      saveIM(im); try{window.hnxInvAudit&&window.hnxInvAudit(any?'Item Master save':'Item Master clear', sku, '', any?JSON.stringify(rec):'');}catch(e){} toast('\u2713 Saved enrichment for '+sku,'info'); S.editSku=null; render();
+    },
+    clearItem:function(){
+      if(!canEdit()){ toast('No rights','warn'); return; }
+      var sku=S.editSku; if(!sku) return; if(!confirm('Clear all enrichment for this item?')) return;
+      var im=loadIM(); var _o=im[sku]; delete im[sku]; saveIM(im); try{window.hnxInvAudit&&window.hnxInvAudit('Item Master clear', sku, _o?JSON.stringify(_o):'', '');}catch(e){} S.editSku=null; render();
     }
   };
 
-  // expose for the Item Master (Phase 3b) + request form
+  // exposed for request form / diagnostics
   window.hnxInvSuppliers = loadSup;
   window.hnxInvBrands = loadBr;
+  window.hnxInvItemMaster = loadIM;
   window.renderInvMaster = function(){ render(); };
 
 })();
+
 </script>
 <!-- ===== END HNX MASTER DATA MODULE ===== -->
+<!-- ===== HNX PURCHASE ENGINE MODULE (p172) ===== -->
+<script>
+/* ============================================================
+   p172 · Phase 4 · PURCHASE ENGINE
+   Turns reorder-point / safety-stock breaches into draft POs grouped by supplier.
+   Inputs: current stock (SOS) + reorder point (SOS) + safety stock (Item Master)
+           + supplier (Item Master / SOS) + budget. Forecast demand & open-PO
+           lookup are marked PENDING (need 24-mo usage history / SOS PO GET).
+   Stores: hydroPro_inv_draft_pos_v1 · hydroPro_inv_budget_v1
+   ============================================================ */
+(function(){
+  'use strict';
+  if(window.__hnxInvPurchase) return;
+  var PO_KEY='hydroPro_inv_draft_pos_v1', BUD_KEY='hydroPro_inv_budget_v1';
+  var P='\u20b1';
+
+  function esc(s){ s=(s==null)?'':String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function num(x){ return parseFloat(x)||0; }
+  function uid(p){ return p+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,6); }
+  function money(n){ return P+Math.round(num(n)).toLocaleString(); }
+  function safeId(s){ return String(s||'').replace(/[^a-zA-Z0-9_]/g,'_'); }
+  function toast(m,t){ try{ if(typeof showToast==='function') showToast(m,t||'info'); }catch(e){} }
+  function canEdit(){ try{ return (typeof can==='function') && can('manageInventory'); }catch(e){ return false; } }
+  function push(){ try{ if(typeof hnxCloudSyncPush==='function') hnxCloudSyncPush(); }catch(e){} }
+  function stock(){ try{ return (typeof _invLoadStock==='function')?_invLoadStock():[]; }catch(e){ return []; } }
+  function IM(){ try{ return (typeof window.hnxInvItemMaster==='function')?window.hnxInvItemMaster():{}; }catch(e){ return {}; } }
+  function suppliers(){ try{ return (typeof window.hnxInvSuppliers==='function')?window.hnxInvSuppliers():[]; }catch(e){ return []; } }
+  function loadPOs(){ try{ return JSON.parse(localStorage.getItem(PO_KEY)||'[]'); }catch(e){ return []; } }
+  function savePOs(a){ try{ localStorage.setItem(PO_KEY,JSON.stringify(a)); }catch(e){} push(); }
+  function loadBudget(){ try{ return num(JSON.parse(localStorage.getItem(BUD_KEY)||'0')); }catch(e){ return 0; } }
+  function saveBudget(v){ try{ localStorage.setItem(BUD_KEY,JSON.stringify(num(v))); }catch(e){} push(); }
+  function supName(id){ if(!id) return ''; var s=suppliers().filter(function(x){return x.id===id;})[0]; return s?s.name:''; }
+  function supLead(name){ var s=suppliers().filter(function(x){return (x.name||'')===name;})[0]; return (s&&s.leadTimeDays)?(num(s.leadTimeDays)+'d'):'\u2014'; }
+
+  // Build reorder candidates: only items with a reorder point (SOS) or safety stock (Item Master) set.
+  function candidates(){
+    var im=IM(); var out=[];
+    stock().forEach(function(it){
+      var sku=String(it.sku||it.id||''); if(!sku) return;
+      var e=im[sku]||{};
+      var reorder=num(it.minStock);
+      var safety=num(e.safetyStock);
+      var target=Math.max(reorder,safety);
+      if(target<=0) return;                       // no reorder config -> skip (keeps dead catalog out)
+      var onHand=num(it.onHand);
+      if(onHand>=target) return;                  // healthy
+      var qty=Math.max(1, Math.ceil(target-onHand));
+      var cost=num(it.unitCost);
+      var sup=supName(e.supplierId) || (it.supplier||'').trim() || 'Unassigned';
+      out.push({ sku:sku, name:it.name||'', onHand:onHand, reorder:reorder, safety:safety, target:target, qty:qty, cost:cost, lineTotal:qty*cost, supplier:sup, crit:(e.criticality||'') });
+    });
+    return out;
+  }
+  function groupBySupplier(cands){
+    var g={}; cands.forEach(function(c){ (g[c.supplier]=g[c.supplier]||[]).push(c); });
+    return g;
+  }
+
+  function render(){
+    var host=document.getElementById('invPurchaseBody'); if(!host) return;
+    if(!((typeof can==='function')&&can('viewInventory'))){ host.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3);">Access denied \u2014 needs Inventory view permission.</div>'; return; }
+    var cands=candidates();
+    var groups=groupBySupplier(cands);
+    var supKeys=Object.keys(groups).sort(function(a,b){ return a.localeCompare(b); });
+    var totalSpend=cands.reduce(function(s,c){return s+c.lineTotal;},0);
+    var budget=loadBudget();
+    var overBudget = budget>0 && totalSpend>budget;
+    var sosOn=!!(window.__hnxSos&&window.__hnxSos.isConnected&&window.__hnxSos.isConnected());
+
+    var hero=(typeof window._hnxRenderDashHero==='function')?window._hnxRenderDashHero({
+      module:'inventory', icon:'\ud83d\uded2', title:'PURCHASE ENGINE',
+      tagline:'Items below reorder point or safety stock, grouped into draft purchase orders by supplier. Set order quantities, check them against budget, and generate draft POs ready for sign-off.',
+      chips:[ {label:'Need reorder', value:String(cands.length), tone: cands.length?'warn':'ok'}, {label:'Suppliers', value:String(supKeys.length), tone:'info'}, {label:'Est. spend', value:money(totalSpend), tone: overBudget?'danger':'info'} ]
+    }):'';
+
+    var budgetBar='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">'
+      + '<label style="font-size:12px;color:var(--text2);font-weight:700;">Monthly budget '+P+'</label>'
+      + '<input id="poBudget" class="users-input" type="number" style="width:140px;" value="'+(budget||'')+'" placeholder="0" '+(canEdit()?'':'disabled')+'>'
+      + (canEdit()?'<button class="btn btn-outline" onclick="__hnxInvPurchase.setBudget()">Save</button>':'')
+      + '<span style="font-size:12px;color:'+(overBudget?'var(--danger)':budget>0?'var(--ok)':'var(--text3)')+';font-weight:700;">'
+        + (budget>0?(overBudget?('\u26a0 Over budget by '+money(totalSpend-budget)):('\u2713 Within budget \u2014 '+money(budget-totalSpend)+' left')):'Set a budget to track spend')
+      + '</span></div>';
+
+    var note='<div style="font-size:11px;color:var(--text3);margin-bottom:14px;line-height:1.5;">'
+      + 'Only items with a <strong>reorder point</strong> (from SOS) or a <strong>safety stock</strong> (set in Item Master) are considered \u2014 so the dead catalog stays out. '
+      + 'Order qty = target \u2212 on hand. <span style="color:#ffb300;">Forecast demand</span> and <span style="color:#ffb300;">open-PO offset</span> are pending (need 24-month usage history and SOS PO lookup).'
+      + '</div>';
+
+    var body='';
+    if(!supKeys.length){
+      body='<div style="padding:40px;text-align:center;color:var(--text3);border:1px dashed var(--border);border-radius:10px;">'
+        +(sosOn?'Nothing to reorder \u2014 no item is below its reorder point or safety stock. <br><span style="font-size:11px;">Tip: set safety stock per item in <strong>Master Data \u2192 Item Master</strong> to drive suggestions.</span>':'Not connected to SOS. Connect & sync in Admin \u2192 SOS to compute reorder needs.')
+        +'</div>';
+    } else {
+      body=supKeys.map(function(sup){
+        var rows=groups[sup]; var sub=rows.reduce(function(s,c){return s+c.lineTotal;},0);
+        var safe=safeId(sup);
+        var lines=rows.sort(function(a,b){return b.lineTotal-a.lineTotal;}).map(function(c){
+          var critC={Low:'#7aa99a',Medium:'#42a5f5',High:'#ffb300',Critical:'#ef5350'}[c.crit]||'';
+          return '<tr>'
+            + '<td style="font-weight:600;">'+esc(c.name||'\u2014')+' <span style="font-family:var(--mono);color:var(--text3);font-size:10px;">'+esc(c.sku)+'</span>'+(c.crit?(' <span style="font-size:9px;color:'+critC+';border:1px solid '+critC+';border-radius:8px;padding:0 5px;">'+esc(c.crit)+'</span>'):'')+'</td>'
+            + '<td style="text-align:right;font-family:var(--mono);color:'+(c.onHand<=0?'var(--danger)':'var(--text2)')+';">'+c.onHand+'</td>'
+            + '<td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--text3);">'+c.target+'</td>'
+            + '<td style="text-align:right;"><input id="pq_'+safe+'_'+safeId(c.sku)+'" class="users-input" type="number" min="0" style="width:80px;text-align:right;" value="'+c.qty+'" '+(canEdit()?'':'disabled')+'></td>'
+            + '<td style="text-align:right;font-family:var(--mono);font-size:11px;">'+money(c.cost)+'</td>'
+            + '<td style="text-align:right;font-family:var(--mono);">'+money(c.lineTotal)+'</td>'
+            + '<td style="text-align:center;color:#ffb300;font-size:11px;" title="Forecast pending \u2014 needs usage history">\u23f3</td>'
+            + '</tr>';
+        }).join('');
+        return '<div style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px;background:var(--surface);">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'
+            + '<div style="font-weight:800;font-size:15px;">\ud83d\ude9a '+esc(sup)+' <span style="font-size:11px;color:var(--text3);font-weight:400;">\u00b7 '+rows.length+' item'+(rows.length>1?'s':'')+' \u00b7 lead '+supLead(sup)+'</span></div>'
+            + '<div style="font-weight:800;color:var(--info);">'+money(sub)+'</div>'
+          + '</div>'
+          + '<div class="tool-table-wrap"><table class="cctv-inventory-table"><thead><tr><th>Item</th><th style="text-align:right;">On hand</th><th style="text-align:right;">Target</th><th style="text-align:right;">Order qty</th><th style="text-align:right;">Unit cost</th><th style="text-align:right;">Line total</th><th style="text-align:center;">Fcst</th></tr></thead><tbody>'+lines+'</tbody></table></div>'
+          + (canEdit()?'<div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="__hnxInvPurchase.genPO(\''+esc(sup).replace(/'/g,"\\'")+'\')">\ud83d\udcc4 Generate draft PO</button></div>':'')
+          + '</div>';
+      }).join('');
+    }
+
+    var draftsHtml=renderDrafts();
+
+    host.innerHTML = hero + budgetBar + note + body + draftsHtml;
+    var bi=document.getElementById('poBudget'); if(bi) bi.onkeydown=function(e){ if(e.key==='Enter') __hnxInvPurchase.setBudget(); };
+  }
+
+  function renderDrafts(){
+    var pos=loadPOs(); if(!pos.length) return '';
+    var rows=pos.slice().sort(function(a,b){return (b.createdAt||'').localeCompare(a.createdAt||'');}).map(function(po){
+      var stColor=po.status==='ordered'?'#26c281':po.status==='cancelled'?'#7aa99a':'#ffb300';
+      return '<tr>'
+        + '<td style="font-family:var(--mono);font-size:11px;">'+esc(po.ref||po.id)+'</td>'
+        + '<td>'+esc(po.supplier||'\u2014')+'</td>'
+        + '<td style="text-align:right;font-family:var(--mono);">'+(po.lines?po.lines.length:0)+'</td>'
+        + '<td style="text-align:right;font-family:var(--mono);">'+money(po.total)+'</td>'
+        + '<td style="text-align:center;"><span style="font-size:10px;font-weight:700;color:'+stColor+';border:1px solid '+stColor+';border-radius:10px;padding:1px 8px;">'+esc((po.status||'draft').toUpperCase())+'</span></td>'
+        + '<td style="font-size:11px;color:var(--text3);">'+esc((po.createdAt||'').slice(0,10))+'</td>'
+        + '<td style="text-align:right;white-space:nowrap;">'
+          + (canEdit()&&po.status==='draft'?'<button class="btn btn-outline" style="font-size:10px;padding:3px 8px;color:#26c281;" onclick="__hnxInvPurchase.markOrdered(\''+po.id+'\')">\u2713 Mark ordered</button> ':'')
+          + (canEdit()?'<button class="btn btn-outline" style="font-size:10px;padding:3px 8px;color:var(--danger);" onclick="__hnxInvPurchase.delPO(\''+po.id+'\')">\ud83d\uddd1</button>':'')
+        + '</td></tr>';
+    }).join('');
+    return '<div class="section-title" style="margin-top:22px;">\ud83d\udcc4 Draft Purchase Orders</div>'
+      + '<div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Posting these to SOS is pending (needs the worker write deploy + SOS write scope). For now they\u2019re tracked here for sign-off.</div>'
+      + '<div class="tool-table-wrap"><table class="cctv-inventory-table"><thead><tr><th>Ref</th><th>Supplier</th><th style="text-align:right;">Lines</th><th style="text-align:right;">Total</th><th style="text-align:center;">Status</th><th>Created</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  }
+
+  window.__hnxInvPurchase = {
+    setBudget:function(){ if(!canEdit()){ toast('Needs Inventory manage rights','warn'); return; } var el=document.getElementById('poBudget'); var _b=el?el.value:0; saveBudget(_b); try{window.hnxInvAudit&&window.hnxInvAudit('Budget set', 'monthly', '', String(_b));}catch(e){} toast('\u2713 Budget saved','info'); render(); },
+    genPO:function(sup){
+      if(!canEdit()){ toast('Needs Inventory manage rights','warn'); return; }
+      var groups=groupBySupplier(candidates()); var rows=groups[sup]||[]; if(!rows.length){ toast('No items for this supplier','warn'); return; }
+      var safe=safeId(sup); var lines=[]; var total=0;
+      rows.forEach(function(c){ var el=document.getElementById('pq_'+safe+'_'+safeId(c.sku)); var q=el?Math.max(0,Math.floor(num(el.value))):c.qty; if(q<=0) return; var lt=q*c.cost; total+=lt; lines.push({sku:c.sku,name:c.name,qty:q,unitCost:c.cost,lineTotal:lt}); });
+      if(!lines.length){ toast('All quantities are zero','warn'); return; }
+      var pos=loadPOs();
+      var ref='PO'+(new Date()).toISOString().slice(2,10).replace(/-/g,'')+'-'+String(pos.length+1).padStart(3,'0');
+      var who=''; try{ who=(typeof getCurrentUser==='function'&&getCurrentUser())?(getCurrentUser().name||getCurrentUser().username||''):''; }catch(e){}
+      pos.push({ id:uid('po'), ref:ref, supplier:sup, lines:lines, total:total, status:'draft', createdAt:new Date().toISOString(), createdBy:who });
+      savePOs(pos); try{window.hnxInvAudit&&window.hnxInvAudit('Draft PO created', ref+' \u00b7 '+sup, '', lines.length+' lines \u00b7 '+money(total));}catch(e){} toast('\u2713 Draft PO '+ref+' created \u00b7 '+lines.length+' line'+(lines.length>1?'s':'')+' \u00b7 '+money(total),'info'); render();
+    },
+    markOrdered:function(id){ if(!canEdit())return; var pos=loadPOs().map(function(p){ if(p.id===id){ p.status='ordered'; try{window.hnxInvAudit&&window.hnxInvAudit('PO marked ordered', p.ref||p.id, 'draft', 'ordered');}catch(e){} } return p; }); savePOs(pos); render(); },
+    delPO:function(id){ if(!canEdit())return; if(!confirm('Delete this draft PO?'))return; try{window.hnxInvAudit&&window.hnxInvAudit('PO deleted', id, '', '');}catch(e){} savePOs(loadPOs().filter(function(p){return p.id!==id;})); render(); }
+  };
+
+  window.renderInvPurchase = function(){ render(); };
+})();
+
+</script>
+<!-- ===== END HNX PURCHASE ENGINE MODULE ===== -->
+<!-- ===== HNX DUPLICATE AI MODULE (p173) ===== -->
+<script>
+/* ============================================================
+   p173 · Phase 5 · DUPLICATE-DETECTION AI
+   Weighted similarity per spec: Name 35% · Description 25% · Brand 10% ·
+   Manufacturer 10% · Usage 20% (weights renormalised over available signals).
+   Blocking by first significant token keeps it fast over ~9.3k items.
+   Decisions: hydroPro_inv_dup_decisions_v1 { merges:{dupSku:primarySku}, dismissed:{key:1} }
+   Merged duplicates are hidden from Item Files.
+   ============================================================ */
+(function(){
+  'use strict';
+  if(window.__hnxInvDup) return;
+  var DEC_KEY='hydroPro_inv_dup_decisions_v1';
+  var S={ scope:'may', min:75, scanned:false };
+  var _ai={};       // transient AI results keyed by cluster key
+  var STOP={the:1,and:1,for:1,with:1,'of':1,'to':1,'in':1,'a':1,'x':1,pcs:1,pc:1,set:1,pack:1};
+
+  function num(x){ return parseFloat(x)||0; }
+  function esc(s){ s=(s==null)?'':String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function toast(m,t){ try{ if(typeof showToast==='function') showToast(m,t||'info'); }catch(e){} }
+  function canEdit(){ try{ return (typeof can==='function') && can('manageInventory'); }catch(e){ return false; } }
+  function push(){ try{ if(typeof hnxCloudSyncPush==='function') hnxCloudSyncPush(); }catch(e){} }
+  function stock(){ try{ return (typeof _invLoadStock==='function')?_invLoadStock():[]; }catch(e){ return []; } }
+  function IM(){ try{ return (typeof window.hnxInvItemMaster==='function')?window.hnxInvItemMaster():{}; }catch(e){ return {}; } }
+  function loadDec(){ try{ var d=JSON.parse(localStorage.getItem(DEC_KEY)||'{}'); d.merges=d.merges||{}; d.dismissed=d.dismissed||{}; return d; }catch(e){ return {merges:{},dismissed:{}}; } }
+  function saveDec(d){ try{ localStorage.setItem(DEC_KEY,JSON.stringify(d)); }catch(e){} push(); }
+
+  function norm(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9 ]+/g,' ').replace(/\s+/g,' ').trim(); }
+  function toks(s){ return norm(s).split(' ').filter(function(t){ return t.length>=2 && !/^\d+$/.test(t) && !STOP[t]; }); }
+  function dice(aSet,bSet){ if(!aSet.length||!bSet.length) return 0; var m={},inter=0; aSet.forEach(function(t){m[t]=1;}); bSet.forEach(function(t){ if(m[t]){inter++; m[t]=0;} }); return (2*inter)/(aSet.length+bSet.length); }
+  function descOf(it){ try{ var r=it._raw||{}; var d=r.description||r.fullName||''; if(d && norm(d)!==norm(it.name)) return d; }catch(e){} return ''; }
+  function velOf(it){ try{ return (typeof _invClassifyVelocity==='function')?_invClassifyVelocity(it):'unknown'; }catch(e){ return 'unknown'; } }
+
+  // weighted similarity 0..1
+  function score(a,b,im){
+    var W={name:.35,desc:.25,brand:.10,mfr:.10,use:.20};
+    var parts=[], wsum=0, acc=0;
+    var na=toks(a.name), nb=toks(b.name);
+    var nameSim=dice(na,nb); acc+=W.name*nameSim; wsum+=W.name;
+    var da=descOf(a), db=descOf(b);
+    if(da&&db){ var ds=dice(toks(da),toks(db)); acc+=W.desc*ds; wsum+=W.desc; }
+    var ea=im[a.sku]||{}, eb=im[b.sku]||{};
+    if(ea.brandId&&eb.brandId){ acc+=W.brand*(ea.brandId===eb.brandId?1:0); wsum+=W.brand; }
+    if(ea.manufacturer&&eb.manufacturer){ acc+=W.mfr*(norm(ea.manufacturer)===norm(eb.manufacturer)?1:0); wsum+=W.mfr; }
+    var va=velOf(a), vb=velOf(b);
+    if(va!=='unknown'&&vb!=='unknown'){ acc+=W.use*(va===vb?1:0.4); wsum+=W.use; }
+    return wsum? (acc/wsum) : nameSim;
+  }
+
+  // build clusters of likely duplicates
+  function compute(){
+    var dec=loadDec();
+    var items=stock().filter(function(it){ return (it.sku||it.id) && !dec.merges[String(it.sku||it.id)]; });
+    if(S.scope==='may') items=items.filter(inMay);
+    var im=IM();
+    // block by first significant token
+    var blocks={}; var skipped=0;
+    items.forEach(function(it){ var t=toks(it.name); if(!t.length) return; var k=t[0]; (blocks[k]=blocks[k]||[]).push(it); });
+    var minScore=S.min/100, pairs=[], comps=0, MAX=160000, bigSkipped=0;
+    var keys=Object.keys(blocks);
+    for(var bi=0; bi<keys.length; bi++){
+      var arr=blocks[keys[bi]]; if(arr.length<2) continue;
+      if(arr.length>500){ bigSkipped++; continue; }
+      for(var i=0;i<arr.length;i++){ for(var j=i+1;j<arr.length;j++){
+        if(comps++>MAX){ break; }
+        var sc=score(arr[i],arr[j],im);
+        if(sc>=minScore) pairs.push([String(arr[i].sku||arr[i].id),String(arr[j].sku||arr[j].id),sc]);
+      } if(comps>MAX) break; }
+      if(comps>MAX) break;
+    }
+    // union-find
+    var parent={}; function find(x){ if(parent[x]==null)parent[x]=x; while(parent[x]!==x){ parent[x]=parent[parent[x]]; x=parent[x]; } return x; }
+    function uni(a,b){ parent[find(a)]=find(b); }
+    var maxScore={};
+    pairs.forEach(function(p){ uni(p[0],p[1]); var k1=p[0],k2=p[1]; maxScore[k1]=Math.max(maxScore[k1]||0,p[2]); maxScore[k2]=Math.max(maxScore[k2]||0,p[2]); });
+    var groups={};
+    Object.keys(parent).forEach(function(sku){ var r=find(sku); (groups[r]=groups[r]||[]).push(sku); });
+    var bySku={}; items.forEach(function(it){ bySku[String(it.sku||it.id)]=it; });
+    var clusters=[];
+    Object.keys(groups).forEach(function(r){ var skus=groups[r]; if(skus.length<2) return;
+      var key=skus.slice().sort().join('|'); if(dec.dismissed[key]) return;
+      var sc=0; skus.forEach(function(s){ sc=Math.max(sc, maxScore[s]||0); });
+      clusters.push({ key:key, skus:skus, items:skus.map(function(s){return bySku[s];}).filter(Boolean), score:Math.round(sc*100) });
+    });
+    clusters.sort(function(a,b){ return b.score-a.score || b.items.length-a.items.length; });
+    return { clusters:clusters, total:items.length, comps:comps, truncated:comps>MAX, bigSkipped:bigSkipped, mergedCount:Object.keys(dec.merges).length, dismissedCount:Object.keys(dec.dismissed).length };
+  }
+  function inMay(it){ var m=it&&it._modified; if(!m) return false; try{ var d=new Date(m); return d.getFullYear()===2026 && d.getMonth()===4; }catch(e){ return false; } }
+
+  function render(){
+    var host=document.getElementById('invDupBody'); if(!host) return;
+    if(!((typeof can==='function')&&can('viewInventory'))){ host.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3);">Access denied \u2014 needs Inventory view permission.</div>'; return; }
+    var needScan = S.scope==='all' && !S.scanned;
+    var R = needScan ? null : compute();
+
+    var hero=(typeof window._hnxRenderDashHero==='function')?window._hnxRenderDashHero({
+      module:'inventory', icon:'\ud83e\udde9', title:'DUPLICATE-DETECTION AI',
+      tagline:'Weighted similarity across item name, description, brand, manufacturer and usage pattern surfaces likely duplicate SKUs for review. Pick the master record, dismiss false positives, or ask the AI.',
+      chips:[ {label:'Suspected clusters', value: R?String(R.clusters.length):'\u2014', tone: R&&R.clusters.length?'warn':'ok'}, {label:'Merged away', value:String(loadDec()&&Object.keys(loadDec().merges).length), tone:'info'}, {label:'Min score', value:S.min+'%', tone:'info'} ]
+    }):'';
+
+    function scopeChip(k,l){ var on=S.scope===k; return '<button onclick="__hnxInvDup.scope(\''+k+'\')" style="padding:6px 12px;border-radius:7px;border:1px solid '+(on?'#42a5f5':'var(--border)')+';background:'+(on?'#42a5f5':'transparent')+';color:'+(on?'#0a1612':'var(--text2)')+';font-size:11px;font-weight:700;cursor:pointer;">'+l+'</button>'; }
+    function minChip(v){ var on=S.min===v; return '<button onclick="__hnxInvDup.min('+v+')" style="padding:6px 10px;border-radius:7px;border:1px solid '+(on?'#26c281':'var(--border)')+';background:transparent;color:'+(on?'#26c281':'var(--text2)')+';font-size:11px;font-weight:700;cursor:pointer;">'+v+'%+</button>'; }
+    var controls='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">'
+      + scopeChip('may','May 2026') + scopeChip('all','All items')
+      + '<span style="width:10px;"></span><span style="font-size:11px;color:var(--text3);">Min match</span>'
+      + minChip(60)+minChip(75)+minChip(90)
+      + '</div>';
+
+    var meta = R ? ('<div style="font-size:11px;color:var(--text3);margin-bottom:14px;">Scanned '+R.total.toLocaleString()+' items \u00b7 '+R.comps.toLocaleString()+' comparisons'
+        + (R.truncated?' (capped \u2014 narrow to May or raise min score)':'')
+        + (R.bigSkipped?(' \u00b7 '+R.bigSkipped+' very large name-group(s) skipped'):'')
+        + (R.dismissedCount?(' \u00b7 '+R.dismissedCount+' dismissed'):'')
+        + '</div>') : '';
+
+    var body='';
+    if(needScan){
+      body='<div style="padding:36px;text-align:center;border:1px dashed var(--border);border-radius:10px;">'
+        + '<div style="color:var(--text2);margin-bottom:12px;">Full-catalog scan compares all ~'+stock().length.toLocaleString()+' items and may take a few seconds on mobile.</div>'
+        + '<button class="btn btn-primary" onclick="__hnxInvDup.runScan()">\ud83d\udd0d Run full scan</button></div>';
+    } else if(!R.clusters.length){
+      body='<div style="padding:40px;text-align:center;color:var(--text3);border:1px dashed var(--border);border-radius:10px;">No likely duplicates at '+S.min+'%+ in this scope. Lower the min score or widen to All items.</div>';
+    } else {
+      body=R.clusters.slice(0,80).map(function(c){ return clusterCard(c); }).join('');
+      if(R.clusters.length>80) body+='<div style="font-size:11px;color:var(--text3);margin-top:8px;">Showing top 80 of '+R.clusters.length+' clusters.</div>';
+    }
+    host.innerHTML = hero + controls + meta + body;
+  }
+
+  function clusterCard(c){
+    var scColor=c.score>=90?'#ef5350':c.score>=75?'#ffb300':'#42a5f5';
+    var rows=c.items.map(function(it){
+      var sku=String(it.sku||it.id);
+      return '<tr>'
+        + '<td style="font-weight:600;">'+esc(it.name||'\u2014')+' <span style="font-family:var(--mono);color:var(--text3);font-size:10px;">'+esc(sku)+'</span></td>'
+        + '<td style="text-align:right;font-family:var(--mono);">'+num(it.onHand)+'</td>'
+        + '<td style="font-size:11px;">'+esc((it.sosCategory||it.category||'\u2014'))+'</td>'
+        + '<td style="font-size:11px;">'+esc((it.supplier||'\u2014'))+'</td>'
+        + (canEdit()?('<td style="text-align:right;"><button class="btn btn-outline" style="font-size:10px;padding:3px 8px;color:#26c281;" onclick="__hnxInvDup.primary(\''+c.key+'\',\''+sku.replace(/'/g,"\\'")+'\')">\u2b50 Keep this</button></td>'):'<td></td>')
+        + '</tr>';
+    }).join('');
+    var ai=_ai[c.key];
+    var aiHtml = ai? ('<div style="margin-top:10px;padding:10px 12px;border:1px solid #7e57c2;border-radius:8px;background:rgba(126,87,194,.07);font-size:12px;line-height:1.5;"><strong style="color:#b39ddb;">\ud83e\udde0 AI review</strong> <span style="font-size:10px;color:var(--text3);">'+(ai.src||'')+'</span><br>'+esc(ai.text)+'</div>') : '';
+    return '<div style="border:1px solid var(--border);border-left:3px solid '+scColor+';border-radius:12px;padding:14px 16px;margin-bottom:14px;background:var(--surface);">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'
+        + '<div style="font-weight:800;">'+c.items.length+' possible duplicates <span style="font-size:11px;color:'+scColor+';font-family:var(--mono);">\u00b7 '+c.score+'% match</span></div>'
+        + '<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+          + '<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:#b39ddb;" onclick="__hnxInvDup.ai(\''+c.key+'\')">\ud83e\udde0 AI review</button>'
+          + (canEdit()?('<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="__hnxInvDup.dismiss(\''+c.key+'\')">Not duplicates</button>'):'')
+        + '</div>'
+      + '</div>'
+      + '<div class="tool-table-wrap"><table class="cctv-inventory-table"><thead><tr><th>Item</th><th style="text-align:right;">On hand</th><th>Category</th><th>Supplier</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      + '<div style="font-size:10px;color:var(--text3);margin-top:6px;">\u201cKeep this\u201d marks the others as duplicates of it and hides them from Item Files (reversible in decisions).</div>'
+      + aiHtml
+      + '</div>';
+  }
+
+  window.__hnxInvDup = {
+    scope:function(k){ S.scope=k; if(k==='all') S.scanned=false; render(); },
+    min:function(v){ S.min=v; render(); },
+    runScan:function(){ S.scanned=true; render(); },
+    primary:function(key,keepSku){
+      if(!canEdit()){ toast('Needs Inventory manage rights','warn'); return; }
+      var skus=key.split('|'); var dec=loadDec();
+      skus.forEach(function(s){ if(s!==keepSku) dec.merges[s]=keepSku; });
+      delete dec.dismissed[key];
+      saveDec(dec); try{window.hnxInvAudit&&window.hnxInvAudit('Duplicates merged', keepSku, skus.join(','), 'master='+keepSku);}catch(e){} toast('\u2713 Kept '+keepSku+' \u00b7 '+(skus.length-1)+' marked duplicate','info'); render();
+    },
+    dismiss:function(key){ if(!canEdit()){ toast('Needs rights','warn'); return; } var dec=loadDec(); dec.dismissed[key]=1; saveDec(dec); try{window.hnxInvAudit&&window.hnxInvAudit('Duplicate cluster dismissed', key, '', '');}catch(e){} render(); },
+    ai:function(key){
+      var skus=key.split('|'); var by={}; stock().forEach(function(it){ by[String(it.sku||it.id)]=it; });
+      var lines=skus.map(function(s){ var it=by[s]||{}; return '- '+(it.name||s)+' (SKU '+s+', on hand '+num(it.onHand)+', cat '+(it.sosCategory||it.category||'?')+', supplier '+(it.supplier||'?')+')'; }).join('\n');
+      var ctx='You are an inventory data-quality assistant. Decide whether these catalog items are TRUE DUPLICATES of one another (the same physical item entered more than once) versus legitimately distinct variants (different size/colour/spec). Items:\n'+lines+'\nGive a short verdict and which single record to keep as master.';
+      _ai[key]={text:'Analyzing\u2026',src:''}; render();
+      try{
+        if(typeof window.__hnxApi!=='function'){ _ai[key]={text:'Cloud AI not available in this build.',src:''}; render(); return; }
+        window.__hnxApi('/ai/analyze',{method:'POST',body:JSON.stringify({context:ctx})}).then(function(r){
+          var a=r&&r.analysis?r.analysis:null;
+          var text=a? ((a.conclusion||'')+(a.recommendation?(' \u2014 '+a.recommendation):'')) : (r&&r.answer?r.answer:'No response.');
+          _ai[key]={text:text||'No response.',src:(r&&r.src)||'Cloud AI'}; render();
+        }).catch(function(e){ _ai[key]={text:'AI request failed: '+(e&&e.message||e),src:''}; render(); });
+      }catch(e){ _ai[key]={text:'AI error: '+(e&&e.message||e),src:''}; render(); }
+    }
+  };
+
+  // helpers consumed elsewhere (Item Files hides merged duplicates)
+  window.hnxInvDupDecisions = loadDec;
+  window.hnxInvIsMerged = function(sku){ var d=loadDec(); return d.merges[String(sku)]||null; };
+  window.renderInvDuplicates = function(){ render(); };
+})();
+
+</script>
+<!-- ===== END HNX DUPLICATE AI MODULE ===== -->
+<!-- ===== HNX AUDIT TRAIL MODULE (p177) ===== -->
+<script>
+/* ============================================================
+   p177 · Phase 7 · AUDIT TRAIL  (spec sheet 16)
+   Central immutable-ish log of inventory write-actions:
+   User · Action · Old → New · Date · Time · (IP server-side only).
+   Store: hydroPro_inv_audit_v1 (capped 2000, newest first). Cloud-synced.
+   Any module logs via window.hnxInvAudit(action, entity, oldVal, newVal).
+   ============================================================ */
+(function(){
+  'use strict';
+  if(window.__hnxInvAudit) return;
+  var KEY='hydroPro_inv_audit_v1', CAP=2000;
+
+  function esc(s){ s=(s==null)?'':String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function load(){ try{ return JSON.parse(localStorage.getItem(KEY)||'[]'); }catch(e){ return []; } }
+  function save(a){ try{ localStorage.setItem(KEY,JSON.stringify(a.slice(0,CAP))); }catch(e){} try{ if(typeof hnxCloudSyncPush==='function') hnxCloudSyncPush(); }catch(e){} }
+  function who(){ try{ var u=(typeof getCurrentUser==='function')?getCurrentUser():null; return u?(u.name||u.username||u.role||'user'):'user'; }catch(e){ return 'user'; } }
+  function clip(v){ v=(v==null)?'':String(v); return v.length>140?v.slice(0,140)+'\u2026':v; }
+
+  // PUBLIC: log an action
+  window.hnxInvAudit = function(action, entity, oldVal, newVal){
+    try{
+      var arr=load();
+      arr.unshift({ id:'a_'+Date.now()+'_'+Math.random().toString(36).slice(2,5), ts:new Date().toISOString(), user:who(), action:String(action||''), entity:String(entity||''), old:clip(oldVal), neu:clip(newVal) });
+      save(arr);
+    }catch(e){}
+  };
+
+  var S={ q:'', action:'all' };
+
+  function render(){
+    var host=document.getElementById('invAuditBody'); if(!host) return;
+    if(!((typeof can==='function')&&can('viewInventory'))){ host.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3);">Access denied \u2014 needs Inventory view permission.</div>'; return; }
+    var all=load();
+    var actions={}; all.forEach(function(e){ if(e.action) actions[e.action]=(actions[e.action]||0)+1; });
+    var actKeys=Object.keys(actions).sort();
+    var q=S.q.toLowerCase();
+    var rows=all.filter(function(e){
+      if(S.action!=='all' && e.action!==S.action) return false;
+      if(q){ var hay=((e.user||'')+' '+(e.action||'')+' '+(e.entity||'')+' '+(e.old||'')+' '+(e.neu||'')).toLowerCase(); if(hay.indexOf(q)<0) return false; }
+      return true;
+    });
+
+    var hero=(typeof window._hnxRenderDashHero==='function')?window._hnxRenderDashHero({
+      module:'inventory', icon:'\ud83e\uddfe', title:'AUDIT TRAIL',
+      tagline:'Every inventory change \u2014 who did what, the old value and the new value, with date and time. A tamper-evident record across Master Data, Categories, Purchasing and duplicate resolution.',
+      chips:[ {label:'Entries', value:String(all.length), tone:'info'}, {label:'Actions', value:String(actKeys.length), tone:'info'}, {label:'Showing', value:String(rows.length), tone: rows.length?'ok':''} ]
+    }):'';
+
+    var actOpts='<option value="all">All actions ('+all.length+')</option>'+actKeys.map(function(k){ return '<option value="'+esc(k)+'"'+(S.action===k?' selected':'')+'>'+esc(k)+' ('+actions[k]+')</option>'; }).join('');
+    var controls='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">'
+      + '<select onchange="__hnxInvAudit.setAction(this.value)" class="users-input" style="max-width:240px;">'+actOpts+'</select>'
+      + '<input class="users-input" style="flex:1;min-width:180px;" placeholder="Search user / entity / value\u2026" value="'+esc(S.q)+'" oninput="__hnxInvAudit.search(this.value)">'
+      + '<button class="btn btn-outline" onclick="__hnxInvAudit.exportCSV()">\u2b07 Export CSV</button>'
+      + '</div>';
+
+    var body;
+    if(!all.length){
+      body='<div style="padding:40px;text-align:center;color:var(--text3);border:1px dashed var(--border);border-radius:10px;">No audit entries yet. Changes in Master Data, Categories, Purchase Engine and Duplicate AI will be recorded here.</div>';
+    } else if(!rows.length){
+      body='<div style="padding:30px;text-align:center;color:var(--text3);border:1px dashed var(--border);border-radius:10px;">No entries match this filter.</div>';
+    } else {
+      var trs=rows.slice(0,300).map(function(e){
+        var d=new Date(e.ts); var date=isNaN(d)?'':d.toISOString().slice(0,10); var time=isNaN(d)?'':d.toTimeString().slice(0,8);
+        return '<tr>'
+          + '<td style="font-family:var(--mono);font-size:11px;white-space:nowrap;">'+date+'<div style="color:var(--text3);">'+time+'</div></td>'
+          + '<td style="font-size:12px;">'+esc(e.user||'\u2014')+'</td>'
+          + '<td style="font-size:12px;"><span style="font-weight:700;">'+esc(e.action||'\u2014')+'</span></td>'
+          + '<td style="font-size:12px;">'+esc(e.entity||'\u2014')+'</td>'
+          + '<td style="font-size:11px;color:var(--text3);max-width:200px;">'+esc(e.old||'')+'</td>'
+          + '<td style="font-size:11px;max-width:200px;">'+esc(e.neu||'')+'</td>'
+          + '</tr>';
+      }).join('');
+      body='<div class="tool-table-wrap"><table class="cctv-inventory-table"><thead><tr><th>Date / Time</th><th>User</th><th>Action</th><th>Entity</th><th>Old</th><th>New</th></tr></thead><tbody>'+trs+'</tbody></table></div>'
+        + (rows.length>300?'<div style="font-size:11px;color:var(--text3);margin-top:6px;">Showing latest 300 of '+rows.length+'. Export CSV for the full log.</div>':'')
+        + '<div style="font-size:10px;color:var(--text3);margin-top:8px;">IP address is recorded server-side by the sync worker (not available in the browser) and will appear in the exported log once the worker writes it.</div>';
+    }
+    host.innerHTML = hero + controls + body;
+  }
+
+  window.__hnxInvAudit = {
+    setAction:function(v){ S.action=v; render(); },
+    search:function(q){ S.q=q; var b=document.getElementById('invAuditBody'); /* light: re-render */ render(); },
+    exportCSV:function(){
+      try{
+        var all=load();
+        var rows=[['Date','Time','User','Action','Entity','Old Value','New Value','IP']];
+        all.forEach(function(e){ var d=new Date(e.ts); rows.push([ isNaN(d)?'':d.toISOString().slice(0,10), isNaN(d)?'':d.toTimeString().slice(0,8), e.user||'', e.action||'', e.entity||'', e.old||'', e.neu||'', '' ]); });
+        var csv=rows.map(function(r){ return r.map(function(c){ var s=String(c==null?'':c); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }).join(','); }).join('\n');
+        var blob=new Blob([csv],{type:'text/csv'}); var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='hnx_inventory_audit_'+new Date().toISOString().slice(0,10)+'.csv'; document.body.appendChild(a); a.click(); setTimeout(function(){ try{URL.revokeObjectURL(a.href); a.remove();}catch(_){} },100);
+        if(typeof showToast==='function') showToast('\u2713 Exported '+(rows.length-1)+' entries','info');
+      }catch(e){ if(typeof showToast==='function') showToast('Export failed','warn'); }
+    }
+  };
+
+  window.renderInvAudit = function(){ render(); };
+})();
+
+</script>
+<!-- ===== END HNX AUDIT TRAIL MODULE ===== -->
 
 
 
