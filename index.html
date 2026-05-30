@@ -36284,6 +36284,8 @@ function renderIrrDash(){
       <button class="btn btn-primary" onclick="switchView('irr_systems')">🔬 Calibration</button>
     </div>
 
+    ${(typeof window.hnxIrrWatchBanner==='function'?window.hnxIrrWatchBanner(_irrDate):'')}
+
     <div class="pay-stat-row">
       <div class="pay-stat" style="cursor:pointer;" onclick="switchView('irr_schedule')" title="Click to open daily room checks"><div class="pay-stat-label">Rooms Checked</div><div class="pay-stat-val ${roomsDone===roomsTotal?'ok':'warn'}">${roomsDone}/${roomsTotal}</div></div>
       <div class="pay-stat" style="cursor:pointer;" onclick="switchView('irr_drums')" title="Click to view drum levels"><div class="pay-stat-label">Drums OK</div><div class="pay-stat-val ${drumOk===drumTotal?'ok':'warn'}">${drumOk}/${drumTotal}</div></div>
@@ -41435,7 +41437,7 @@ function _renderMaintDash_inner(){
       tagline: 'AI watches every PM cycle · every reading · every spare part — auto-creates tasks from upcoming services, flags overdue, suggests bundled work orders.',
       chips: [
         {label:'Open tasks',  value: String(openTasks.length),       tone: openTasks.length===0?'ok':(openTasks.length>20?'crit':'warn')},
-        {label:'Done today',  value: String(doneToday.length),       tone: doneToday.length>0?'ok':''},
+        {label:'Done today',  value: String(doneToday.length),       tone: doneToday.length>0?'ok':'', spark:(function(){try{var all=(typeof loadRecurringCompletions==='function')?loadRecurringCompletions():{};var out=[];for(var i=13;i>=0;i--){var d=new Date();d.setDate(d.getDate()-i);var ds=d.toISOString().slice(0,10);var n=0;for(var k in all){var e=all[k];if(e&&e.date===ds&&e.status==='done')n++;}out.push(n);}return out;}catch(e){return[];}})()},
         {label:'Overdue',     value: String(overdueScheduled.length),tone: overdueScheduled.length===0?'ok':(overdueScheduled.length>5?'crit':'warn')},
         {label:'Materials',   value: String(pendingMats),            tone: pendingMats===0?'ok':'info'}
       ]
@@ -71951,8 +71953,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.61.1-v6sync';window.HNX_BUILD='v2.86-p193-v6sync';  // p193: T-88 completion — Contract Renewals. Added a "Contract End" date field to the 201 file (employee edit form, populate, save, detail view, default record). The HR "Regularization" card is now "HR Renewals" and its watch covers BOTH tracks: trainees hitting the 6-month probation mark (regularize) AND any employee whose contractEnd is within 45 days or already past (renew/end). Rows are tagged PROBATION (purple) or CONTRACT (cyan); contract overdue shows EXPIRED. Still alert-only (no auto status change) and read-only over hydroPro_employees. Completes the T-88 gap noted in p192. App-only, no worker change. // p192: T-86/T-88 — HR Regularization Watch (probation slice). // (p192 detail) The HR dashboard gains a "Regularization" stat card (overdue / due-soon count) that opens a watch list of TRAINEES reaching the 6-month probationary mark (PH max probation), computed from emp.dateHired + type. Each row shows hire date, the 6-month date, and an OVERDUE-Nd / in-Nd chip; overdue first. Flags trainees missing a hire date (so they can be filled in), and a "Go to 201 files" jump. Once-a-day nudge when decisions are due. NOTE: this is the data-ready slice — true contract-renewal (T-88) needs a contract-end field that the employee record does not have yet; Temporary/Contractual end dates likewise aren't stored. Read-only over hydroPro_employees; alert-only (no auto status change — regularization is a human decision). App-only, no worker change. window.hnxHRAlerts(). // p191: T-79 — PM Work-Order Lookahead (Maintenance). A new "🔧 PM Lookahead" button in the Recurring Tasks header opens a list of Maintenance-owned recurring tasks due in the NEXT 3 DAYS (predicted from the same calendar-landing schedule the hub uses — daily/weekly-Mon/monthly/quarterly/etc.). Each row shows cadence, owner, area, and a TODAY/TOMORROW/in-N-days chip, with one-tap "Create work order" (raises a maintenance issue via createIssue → hydroPro_issues_v2, board-visible + cloud-synced) and, for today's tasks, "Mark done" (markRecurringDone). "Create all" does the batch. Already-created WOs are de-duplicated via hydroPro_pm_wo_created_v1 (key = taskId+date+area) so a task is never double-raised. A once-a-day toast nudges when PMs are coming up. Read-only over RECURRING_TASKS + completions; no edits to the existing recurring engine. App-only, no worker change. window.hnxPMWorkOrders(). // p190: T-110 — Weekly Executive Summary (Management). The Manager Summary (📊 topbar button) now opens with a Cloud-AI cross-module weekly digest at the top: open issues by module + how many are critical, daily reports filed in the period, harvests due within 7 days, and beds needing replanting (overdue). "Generate now"/"Regenerate" builds it on demand over the selected date range; it AUTO-PREPARES every Monday after 7am and saves to hydroPro_weekly_summary_v1 so it is waiting for leadership (with a toast). Plain, simple language, no jargon, no bullets. Reads existing stores only (issues v2, hn_daily_reports_v1, planting log) — additive, app-only, no worker change. window.hnxWeeklySummary(). // p189: T-77 — yield capture + per-variety anomaly. The ✓ Harvested button now opens a small modal to record yield (kg, optional). Yields build a per-variety baseline (per-plant when a plant count exists, else raw kg; needs 3+ harvests). A harvest >15% below its variety baseline is flagged — instantly via a warn toast on save, and listed in a "⚠ Yield anomalies" strip + "📊 Yield by variety" panel in the Planting Log. Stays quiet until enough history exists (no false alarms). Completes Production autonomy cluster T-74/75/76/77. Extends p187/p188; app-only, no worker change. // p188: T-76 — "🔄 Ready to transplant" section in the Planting Log. A bed surfaces when it's been marked ✓ Harvested (now empty) OR is past its harvest date but not yet harvested (overdue → harvest then replant). Each shows greenhouse + bed + last variety + idle days, longest-idle first; "➕ Plant here" pre-fills the add form for that exact bed; "Dismiss" hides it. Auto-clears once a newer planting is logged for the same bed (bedKey = gh+bed, or gh+variety when no bed). Goal: no idle beds. Extends the p187 Planting Log; app-only, no worker change. // p187: T-75 FOUNDATION — Production "🌱 Planting Log" tab. Captures transplants (greenhouse + variety + date, optional bed/count/stage) into hydroPro_planting_log_v1, plus an editable variety→days-to-harvest table (hydroPro_variety_maturity_v1, seeded with hydroponic estimates). Computes each bed's EXPECTED HARVEST DATE + days-left (transplant date + maturity) sorted soonest-first with overdue/≤7d colouring — this delivers T-75's core prediction. "✓ Harvested" clears a bed (sets up T-76 transplant recommendation). Tab injected into Production like Daily Reports; both stores cloud-synced. Additive, app-only, no worker change. window.__hnxPL. // p186: T-74 autonomy rung 1 (Production daily report AUTO-DRAFT). New "🤖 Auto-draft" button in Daily Reports builds a draft report from today's OPEN issues/calls (grouped by greenhouse via GH-text parse) + today's EC/pH readings (per-pool, mapped to GH via _irrPoolToGh, ranges EC 1.2-3.2 / pH 5.5-6.5), asks Cloud AI (/ai/analyze) for a 2-4 sentence plain-language summary, and shows a REVIEW modal. Supervisor edits the summary and presses "Sign & File" → window.hnSaveReport() files it as the official report (id rpt_<date>_prod_autodraft). Nothing filed without a signature. ~7am once-per-day nudge if today isn't filed. Builds on existing hn_daily_reports_v1; additive, no existing report code changed. App-only, no worker change. window.hnxAutoDraftReport(). // p185: in-page CCTV wall — fair rotation + honest "tap to view" + load-on-demand. The bridge/NVR serves only ~6 greenhouse streams at once, so the first cameras held every live slot while the rest sat on a misleading "connecting…" forever. (1) ROTATION: every 22s the oldest live tile is cycled out to a still snapshot and the longest-waiting camera is promoted, so ALL cameras get screen time (mirrors the full-screen wall's _cctvRotate, but keeps a still frame during rest). (2) TAP TO VIEW: a tile stuck on "connecting…" >12s rewrites to "📷 TAP TO VIEW · waiting for a free slot"; tapping forces THAT camera live immediately past the cap via window.__hnxCctvLive.forceTile(). (3) Background snapshot retry already round-robins, now paired with a 20s rotation cooldown so a just-rotated tile isn't instantly re-promoted. New API: forceTile(), rotate(). App-only, no worker change. // p184: CCTV wall self-heals. (1) Each offline camera now AUTO-RETRIES on a jittered ~30s timer (capped at 6 attempts; existing serialized/throttled probes unchanged so the NVR is never hammered). (2) The bridge-offline banner re-checks every 8s while the server is down and, the instant cctv.abapardes.com.ph is reachable again, auto-reconnects EVERY condemned tile via new window.__hnxCctvLive.recover() — no tap on Re-check or on any camera needed. (3) Offline-tile message clarified to "CAMERA SERVER OFFLINE"/"STREAM OFFLINE · ↻ auto-retrying… · or tap to retry now" so it's obvious the app is handling it, not the dashboard. App-only, no worker change. // p183: (1) open-PO parser refactored into a pure, offline-testable function — window.hnxOpenPOSelfTest() proves the real AteretPaz PO #2026-21-PO0528-01 resolves to 700 on-order by BOTH name and id, a partial PO yields open-only (1000 ordered − 600 recv = 400), and closed POs are skipped; field net widened; id lookup form fixed; Purchase Engine status note now lists matched PO item names for eyeball verification; hnxOpenPODump() added. (2) CCTV residue: stripped 8 dead cams[] arrays from module command centers (sec_cmd perimeter list kept) + doc strings updated to 'IT + Security perimeter only'. Wall Launcher KEPT on purpose — it is a GENERAL multi-monitor view launcher, not a CCTV wall; audit-plan T-62 misidentified it. (3) geo_dash lifted to the rich pattern: hero band + live site-map panel (data-driven coordinate plot with live health colour; satellite tiles flagged as Mapbox-token-dependent). // p182: worker v3.2.2 integration. Purchase Engine now subtracts open-PO on-order qty (defensive normalizer over /sos/purchase-orders — under-counts safely, never over; new On-order column + live status). Audit Trail stamps caller IP via /whoami on new entries + IP column + CSV. //  // p181: QA sweep of full inventory suite (8 views, 14 APIs, 7 modules — all clean). Inventory Command Center now LIVE: MCC_LIVE.inv_cmd computes real KPIs/AI-rows/boxes/alerts from the engine (stock-outs, reorder queue+value, dead-stock capital, nearest forecast stock-out ETA, pending requests, draft POs) replacing demo numbers. //  // p180b: CCTV wall snapshot LOADER is now a bounded connection-pool — tiles render with no src; max 4 frame.jpeg requests in-flight at once, viewport-nearest first, slot freed on load/error/8s-timeout. Fixes the initial-paint stampede where all 20-80 tiles hit the bridge simultaneously and got stuck 'connecting…'. Watchdog skips still-pending tiles so it can't pre-empt them to live. //  // p180: Demand Forecasting (spec sheet 11) — inv_forecast view. Mines demand from Item Requests + manual/CSV usage (hydroPro_inv_usage_v1); per-SKU avg use, days-of-cover, projected 30d, rec safety, stock-out ETA; 90/180/365d window; CSV import/export; audit-logged. Exposes hnxInvForecastExists (lights Active-Item override) + hnxInvForecast (Purchase Engine raises order qty to cover lead-time forecast demand + Fcst col). Inventory AI spec COMPLETE. //  // p179b: CCTV wall prefers light H.264 _sub substream per camera when it exists (snapshot+live derive from it); big/spotlight/fullscreen keep full-res. Lets many cameras stream at once without overloading the NVR. //  // p179: CCTV bridge-load fix — staggered/throttled snapshot polling (3/tick @2.2s, near-viewport only, round-robin), cap concurrent LIVE upgrades (default 6, rest stay snapshots), bridge-wide failure suppression (never blanket STREAM OFFLINE). //  // p178: AI Copilot (spec 17) — chat assistant over live inventory snapshot via cloud /ai/ask; quick commands + deep-links to Purchase Engine/Duplicate AI/Master Data/Diagnostics. Inventory spec build complete (Forecasting pending data). //  // p176: CCTV live-stream cap + rotation (Live: All/4/6/8/12/16) to protect NVR. p177: Audit Trail (spec 16) — central log of inventory changes (user/action/old->new/date/time), filter+CSV; instrumented Master Data, Categories, Purchase Engine, Duplicate AI. //  // p175: CCTV wall false-offline fix — serialize stream health-probes (1 at a time, spaced), 3-strike + 7s timeout, lock 'ok' so verification stops saturating the bridge and flipping all live tiles to STREAM OFFLINE. //  // p174: Active-Item logic (spec 05) — movement bands Active<=90 / Slow 91-180 / Dormant 181-365 / Dead >365, forecast-override hook; Item Velocity view now 4-band with Dormant KPI+filter+capital. //  // p173: Duplicate-detection AI — weighted similarity (name/desc/brand/mfr/usage) with blocking, clustering, keep-master/dismiss/AI-review; merged dups hidden from Item Files. //  // p172: Purchase Engine — reorder-point/safety-stock breaches grouped into draft POs by supplier, budget check, draft PO tracking; forecast & open-PO inputs pending. //  // p171: Item Files defaults to May-2026-modified items, deduped by name, with scope chips (May/30d/All) + dedupe toggle; shows real SOS category. //  // p170: Item Master tab in Master Data — enrich each SOS SKU with brand/supplier/manufacturer/category(incl custom)/criticality/safety-stock; overlay store hydroPro_inv_item_master_v1, search-only over 9.3k items, focus-safe. //  // p169: Categories view now pulls LIVE from SOS (each item's real category) with real counts + add/delete custom categories (assignable per-item in Item Master). //  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
-const APP_BUILD=1783968000;
+const APP_VERSION='2.61.4-v6sync';window.HNX_BUILD='v2.86-p196-v6sync';  // p196: Dashboard pass (T-68 method) — review found the shared hero (_hnxRenderDashHero) already gives all 17 dashboards the SAME rich method (module gradient + Ken Burns + aura + orbital particles + scanline + pulsing core + animated KPI chips), so the audit's stale MEDIUM labels overstated the gap. Added the one missing pattern (Sheet 6 #17, sparkline trends) to the SHARED chip method: any chip with a spark:[...] array now renders an inline 14-pt trend line (green up / red down) — instantly available to every dashboard. Wired the first real one into the Maintenance hero "Done today" chip (14-day PM-completions trend from hydroPro_recurring_completions_v1). App-only, no worker change. // p195: T-72→see T-117 — Irrigation EC/pH Watch. The Irrigation Dashboard now shows a "💧 EC / pH Watch" banner for the selected date: scans every pool/slot reading and flags out-of-range values using the SAME thresholds the room matrix uses (EC in 1.2–3.2, severe <1.0/>3.5; pH 5.5–6.5, severe <5.0/>7.0). Banner shows severe/borderline counts; "View details" opens a list grouped by GH·pool·slot where each SEVERE reading has a one-tap "Raise call" (creates an irrigation issue via createIssue → hydroPro_issues_v2) plus "Raise all severe", de-duplicated via hydroPro_irr_call_created_v1 (key = date|pool|slot|kind). Once-a-day toast when severe readings exist today. Read-only over hydroPro_irr_pool; no edits to existing irrigation code. App-only, no worker change. window.hnxIrrWatch(). // p194: T-90 — Payroll Cutoff Reminder (Accounting). The Accounting Dashboard now shows a "🗓️ Payroll Cutoffs" banner with the NEXT office cutoff (bi-monthly: period 11–25 closes the 25th, period 26–10 closes the 10th) and the NEXT labor cutoff (weekly Thu–Wed, closes Wednesday), each with the closing period and a TODAY/TOMORROW/in-N-days chip that turns amber ≤3 days / red ≤1 day. A once-a-day toast nudges when either cutoff is within 3 days so timecards get finalized on time. Pure calendar math from the fixed cycle — no stored data needed, nothing written. Labeled as period-CLOSE dates (pay date may follow). App-only, no worker change. window.hnxPayrollBanner(). // p193: T-88 completion — Contract Renewals. Added a "Contract End" date field to the 201 file (employee edit form, populate, save, detail view, default record). The HR "Regularization" card is now "HR Renewals" and its watch covers BOTH tracks: trainees hitting the 6-month probation mark (regularize) AND any employee whose contractEnd is within 45 days or already past (renew/end). Rows are tagged PROBATION (purple) or CONTRACT (cyan); contract overdue shows EXPIRED. Still alert-only (no auto status change) and read-only over hydroPro_employees. Completes the T-88 gap noted in p192. App-only, no worker change. // p192: T-86/T-88 — HR Regularization Watch (probation slice). // (p192 detail) The HR dashboard gains a "Regularization" stat card (overdue / due-soon count) that opens a watch list of TRAINEES reaching the 6-month probationary mark (PH max probation), computed from emp.dateHired + type. Each row shows hire date, the 6-month date, and an OVERDUE-Nd / in-Nd chip; overdue first. Flags trainees missing a hire date (so they can be filled in), and a "Go to 201 files" jump. Once-a-day nudge when decisions are due. NOTE: this is the data-ready slice — true contract-renewal (T-88) needs a contract-end field that the employee record does not have yet; Temporary/Contractual end dates likewise aren't stored. Read-only over hydroPro_employees; alert-only (no auto status change — regularization is a human decision). App-only, no worker change. window.hnxHRAlerts(). // p191: T-79 — PM Work-Order Lookahead (Maintenance). A new "🔧 PM Lookahead" button in the Recurring Tasks header opens a list of Maintenance-owned recurring tasks due in the NEXT 3 DAYS (predicted from the same calendar-landing schedule the hub uses — daily/weekly-Mon/monthly/quarterly/etc.). Each row shows cadence, owner, area, and a TODAY/TOMORROW/in-N-days chip, with one-tap "Create work order" (raises a maintenance issue via createIssue → hydroPro_issues_v2, board-visible + cloud-synced) and, for today's tasks, "Mark done" (markRecurringDone). "Create all" does the batch. Already-created WOs are de-duplicated via hydroPro_pm_wo_created_v1 (key = taskId+date+area) so a task is never double-raised. A once-a-day toast nudges when PMs are coming up. Read-only over RECURRING_TASKS + completions; no edits to the existing recurring engine. App-only, no worker change. window.hnxPMWorkOrders(). // p190: T-110 — Weekly Executive Summary (Management). The Manager Summary (📊 topbar button) now opens with a Cloud-AI cross-module weekly digest at the top: open issues by module + how many are critical, daily reports filed in the period, harvests due within 7 days, and beds needing replanting (overdue). "Generate now"/"Regenerate" builds it on demand over the selected date range; it AUTO-PREPARES every Monday after 7am and saves to hydroPro_weekly_summary_v1 so it is waiting for leadership (with a toast). Plain, simple language, no jargon, no bullets. Reads existing stores only (issues v2, hn_daily_reports_v1, planting log) — additive, app-only, no worker change. window.hnxWeeklySummary(). // p189: T-77 — yield capture + per-variety anomaly. The ✓ Harvested button now opens a small modal to record yield (kg, optional). Yields build a per-variety baseline (per-plant when a plant count exists, else raw kg; needs 3+ harvests). A harvest >15% below its variety baseline is flagged — instantly via a warn toast on save, and listed in a "⚠ Yield anomalies" strip + "📊 Yield by variety" panel in the Planting Log. Stays quiet until enough history exists (no false alarms). Completes Production autonomy cluster T-74/75/76/77. Extends p187/p188; app-only, no worker change. // p188: T-76 — "🔄 Ready to transplant" section in the Planting Log. A bed surfaces when it's been marked ✓ Harvested (now empty) OR is past its harvest date but not yet harvested (overdue → harvest then replant). Each shows greenhouse + bed + last variety + idle days, longest-idle first; "➕ Plant here" pre-fills the add form for that exact bed; "Dismiss" hides it. Auto-clears once a newer planting is logged for the same bed (bedKey = gh+bed, or gh+variety when no bed). Goal: no idle beds. Extends the p187 Planting Log; app-only, no worker change. // p187: T-75 FOUNDATION — Production "🌱 Planting Log" tab. Captures transplants (greenhouse + variety + date, optional bed/count/stage) into hydroPro_planting_log_v1, plus an editable variety→days-to-harvest table (hydroPro_variety_maturity_v1, seeded with hydroponic estimates). Computes each bed's EXPECTED HARVEST DATE + days-left (transplant date + maturity) sorted soonest-first with overdue/≤7d colouring — this delivers T-75's core prediction. "✓ Harvested" clears a bed (sets up T-76 transplant recommendation). Tab injected into Production like Daily Reports; both stores cloud-synced. Additive, app-only, no worker change. window.__hnxPL. // p186: T-74 autonomy rung 1 (Production daily report AUTO-DRAFT). New "🤖 Auto-draft" button in Daily Reports builds a draft report from today's OPEN issues/calls (grouped by greenhouse via GH-text parse) + today's EC/pH readings (per-pool, mapped to GH via _irrPoolToGh, ranges EC 1.2-3.2 / pH 5.5-6.5), asks Cloud AI (/ai/analyze) for a 2-4 sentence plain-language summary, and shows a REVIEW modal. Supervisor edits the summary and presses "Sign & File" → window.hnSaveReport() files it as the official report (id rpt_<date>_prod_autodraft). Nothing filed without a signature. ~7am once-per-day nudge if today isn't filed. Builds on existing hn_daily_reports_v1; additive, no existing report code changed. App-only, no worker change. window.hnxAutoDraftReport(). // p185: in-page CCTV wall — fair rotation + honest "tap to view" + load-on-demand. The bridge/NVR serves only ~6 greenhouse streams at once, so the first cameras held every live slot while the rest sat on a misleading "connecting…" forever. (1) ROTATION: every 22s the oldest live tile is cycled out to a still snapshot and the longest-waiting camera is promoted, so ALL cameras get screen time (mirrors the full-screen wall's _cctvRotate, but keeps a still frame during rest). (2) TAP TO VIEW: a tile stuck on "connecting…" >12s rewrites to "📷 TAP TO VIEW · waiting for a free slot"; tapping forces THAT camera live immediately past the cap via window.__hnxCctvLive.forceTile(). (3) Background snapshot retry already round-robins, now paired with a 20s rotation cooldown so a just-rotated tile isn't instantly re-promoted. New API: forceTile(), rotate(). App-only, no worker change. // p184: CCTV wall self-heals. (1) Each offline camera now AUTO-RETRIES on a jittered ~30s timer (capped at 6 attempts; existing serialized/throttled probes unchanged so the NVR is never hammered). (2) The bridge-offline banner re-checks every 8s while the server is down and, the instant cctv.abapardes.com.ph is reachable again, auto-reconnects EVERY condemned tile via new window.__hnxCctvLive.recover() — no tap on Re-check or on any camera needed. (3) Offline-tile message clarified to "CAMERA SERVER OFFLINE"/"STREAM OFFLINE · ↻ auto-retrying… · or tap to retry now" so it's obvious the app is handling it, not the dashboard. App-only, no worker change. // p183: (1) open-PO parser refactored into a pure, offline-testable function — window.hnxOpenPOSelfTest() proves the real AteretPaz PO #2026-21-PO0528-01 resolves to 700 on-order by BOTH name and id, a partial PO yields open-only (1000 ordered − 600 recv = 400), and closed POs are skipped; field net widened; id lookup form fixed; Purchase Engine status note now lists matched PO item names for eyeball verification; hnxOpenPODump() added. (2) CCTV residue: stripped 8 dead cams[] arrays from module command centers (sec_cmd perimeter list kept) + doc strings updated to 'IT + Security perimeter only'. Wall Launcher KEPT on purpose — it is a GENERAL multi-monitor view launcher, not a CCTV wall; audit-plan T-62 misidentified it. (3) geo_dash lifted to the rich pattern: hero band + live site-map panel (data-driven coordinate plot with live health colour; satellite tiles flagged as Mapbox-token-dependent). // p182: worker v3.2.2 integration. Purchase Engine now subtracts open-PO on-order qty (defensive normalizer over /sos/purchase-orders — under-counts safely, never over; new On-order column + live status). Audit Trail stamps caller IP via /whoami on new entries + IP column + CSV. //  // p181: QA sweep of full inventory suite (8 views, 14 APIs, 7 modules — all clean). Inventory Command Center now LIVE: MCC_LIVE.inv_cmd computes real KPIs/AI-rows/boxes/alerts from the engine (stock-outs, reorder queue+value, dead-stock capital, nearest forecast stock-out ETA, pending requests, draft POs) replacing demo numbers. //  // p180b: CCTV wall snapshot LOADER is now a bounded connection-pool — tiles render with no src; max 4 frame.jpeg requests in-flight at once, viewport-nearest first, slot freed on load/error/8s-timeout. Fixes the initial-paint stampede where all 20-80 tiles hit the bridge simultaneously and got stuck 'connecting…'. Watchdog skips still-pending tiles so it can't pre-empt them to live. //  // p180: Demand Forecasting (spec sheet 11) — inv_forecast view. Mines demand from Item Requests + manual/CSV usage (hydroPro_inv_usage_v1); per-SKU avg use, days-of-cover, projected 30d, rec safety, stock-out ETA; 90/180/365d window; CSV import/export; audit-logged. Exposes hnxInvForecastExists (lights Active-Item override) + hnxInvForecast (Purchase Engine raises order qty to cover lead-time forecast demand + Fcst col). Inventory AI spec COMPLETE. //  // p179b: CCTV wall prefers light H.264 _sub substream per camera when it exists (snapshot+live derive from it); big/spotlight/fullscreen keep full-res. Lets many cameras stream at once without overloading the NVR. //  // p179: CCTV bridge-load fix — staggered/throttled snapshot polling (3/tick @2.2s, near-viewport only, round-robin), cap concurrent LIVE upgrades (default 6, rest stay snapshots), bridge-wide failure suppression (never blanket STREAM OFFLINE). //  // p178: AI Copilot (spec 17) — chat assistant over live inventory snapshot via cloud /ai/ask; quick commands + deep-links to Purchase Engine/Duplicate AI/Master Data/Diagnostics. Inventory spec build complete (Forecasting pending data). //  // p176: CCTV live-stream cap + rotation (Live: All/4/6/8/12/16) to protect NVR. p177: Audit Trail (spec 16) — central log of inventory changes (user/action/old->new/date/time), filter+CSV; instrumented Master Data, Categories, Purchase Engine, Duplicate AI. //  // p175: CCTV wall false-offline fix — serialize stream health-probes (1 at a time, spaced), 3-strike + 7s timeout, lock 'ok' so verification stops saturating the bridge and flipping all live tiles to STREAM OFFLINE. //  // p174: Active-Item logic (spec 05) — movement bands Active<=90 / Slow 91-180 / Dormant 181-365 / Dead >365, forecast-override hook; Item Velocity view now 4-band with Dormant KPI+filter+capital. //  // p173: Duplicate-detection AI — weighted similarity (name/desc/brand/mfr/usage) with blocking, clustering, keep-master/dismiss/AI-review; merged dups hidden from Item Files. //  // p172: Purchase Engine — reorder-point/safety-stock breaches grouped into draft POs by supplier, budget check, draft PO tracking; forecast & open-PO inputs pending. //  // p171: Item Files defaults to May-2026-modified items, deduped by name, with scope chips (May/30d/All) + dedupe toggle; shows real SOS category. //  // p170: Item Master tab in Master Data — enrich each SOS SKU with brand/supplier/manufacturer/category(incl custom)/criticality/safety-stock; overlay store hydroPro_inv_item_master_v1, search-only over 9.3k items, focus-safe. //  // p169: Categories view now pulls LIVE from SOS (each item's real category) with real counts + add/delete custom categories (assignable per-item in Item Master). //  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
+const APP_BUILD=1784227200;
 const APP_BUILD_DATE='2026-05-30';
 
 // Store version in localStorage on first run
@@ -86390,6 +86392,7 @@ function _renderAcctDash(){
     <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.5;">
       <strong>💼 Accounting:</strong> Central hub for payroll, money flow, P&L, and tax. Use the sub-tabs above to drill into specific areas.
     </div>
+    ${(typeof window.hnxPayrollBanner==='function'?window.hnxPayrollBanner():'')}
     <div class="fleet-stat-row">
       <div class="fleet-stat-card"><div class="fleet-stat-label">👷 Labor Payroll (latest)</div><div class="fleet-stat-val">₱${opsTotal.toFixed(2)}</div><div class="fleet-stat-sub">${opsCt} period${opsCt===1?'':'s'} on file</div></div>
       <div class="fleet-stat-card"><div class="fleet-stat-label">🏢 Office Payroll (latest)</div><div class="fleet-stat-val">₱${officeTotal.toFixed(2)}</div><div class="fleet-stat-sub">${officeCt} period${officeCt===1?'':'s'} on file</div></div>
@@ -145574,6 +145577,214 @@ body.hnx-mobile-locked { overflow: hidden; }
 </script>
 <!-- ================= END HNX HR REGULARIZATION WATCH ================= -->
 
+<!-- ================= HNX T-90 — PAYROLL CUTOFF REMINDER (p194) ================= -->
+<script>
+(function(){
+  'use strict';
+  if(window.hnxPayrollBanner) return;
+  var NUDGE_KEY='hydroPro_payroll_nudge';
+  var SOON_DAYS=3;
+  var MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  function toast(m,k){ try{ (window.aimToast||window.showToast||window._toast||function(){})(m,k||'info'); }catch(e){} }
+  function midnight(d){ var x=new Date(d); x.setHours(0,0,0,0); return x; }
+  function daysUntil(d,today){ return Math.round((midnight(d)-midnight(today))/86400000); }
+  function fmtNice(d){ return d.getDate()+' '+MON[d.getMonth()]; }
+  function offText(n){ return n===0?'TODAY':n===1?'TOMORROW':('in '+n+' days'); }
+  function urgColor(n){ return n<=1?'#ff8a80':(n<=SOON_DAYS?'#ffcc80':'#80deea'); }
+
+  // Office payroll: bi-monthly. Periods 11–25 (closes 25th) and 26–10 (closes 10th).
+  function nextOfficeCutoff(from){
+    var t=midnight(from), y=t.getFullYear(), m=t.getMonth(), cands=[];
+    [[y,m,10],[y,m,25],[y,m+1,10],[y,m+1,25]].forEach(function(c){
+      var d=midnight(new Date(c[0],c[1],c[2])); if(d>=t) cands.push(d);
+    });
+    cands.sort(function(a,b){ return a-b; });
+    return cands[0];
+  }
+  function officePeriod(d){
+    if(d.getDate()===25) return '1st half · 11–25 '+MON[d.getMonth()];
+    var prev=new Date(d.getFullYear(), d.getMonth(), 0); // last day of previous month
+    return '2nd half · 26 '+MON[prev.getMonth()]+' – 10 '+MON[d.getMonth()];
+  }
+  // Labor payroll: weekly Thu–Wed (closes Wednesday). dow Wed = 3.
+  function nextWednesday(from){
+    var d=midnight(from); var add=(3 - d.getDay()+7)%7; d.setDate(d.getDate()+add); return d;
+  }
+
+  function snapshot(){
+    var today=midnight(new Date());
+    var off=nextOfficeCutoff(today), offD=daysUntil(off,today);
+    var lab=nextWednesday(today), labD=daysUntil(lab,today);
+    var labStart=new Date(lab); labStart.setDate(labStart.getDate()-6);
+    return { off:off, offD:offD, offPeriod:officePeriod(off), lab:lab, labD:labD, labStart:labStart };
+  }
+
+  function card(icon,title,d,nd,period,cycle){
+    var c=urgColor(nd);
+    return '<div style="flex:1;min-width:210px;border:1px solid '+c+';border-radius:10px;padding:12px 14px;background:linear-gradient(135deg,rgba(126,87,194,.10),rgba(77,208,225,.04));">'+
+      '<div style="font-size:11px;color:#9fc7bb;font-weight:700;">'+icon+' '+title+'</div>'+
+      '<div style="font-size:20px;font-weight:800;color:#e8f5e9;font-family:monospace;margin-top:2px;">'+fmtNice(d)+' <span style="font-size:12px;color:'+c+';font-weight:700;">· '+offText(nd)+'</span></div>'+
+      '<div style="font-size:11px;color:#9fc7bb;margin-top:3px;">closes: '+period+'</div>'+
+      '<div style="font-size:9.5px;color:#7aa99a;margin-top:2px;">'+cycle+'</div>'+
+    '</div>';
+  }
+
+  window.hnxPayrollBanner=function(){
+    var s=snapshot();
+    return '<div style="margin-bottom:14px;">'+
+      '<div style="font-size:12px;font-weight:800;color:#ce93d8;margin-bottom:6px;">🗓️ Payroll Cutoffs <span style="font-weight:400;color:#9fc7bb;">· auto-calculated from your cycle</span></div>'+
+      '<div style="display:flex;gap:10px;flex-wrap:wrap;">'+
+        card('🏢','Office (bi-monthly)', s.off, s.offD, s.offPeriod, 'Periods: 11–25 / 26–10')+
+        card('👷','Labor (weekly)', s.lab, s.labD, 'Thu '+fmtNice(s.labStart)+' – Wed '+fmtNice(s.lab), 'Week: Thu–Wed')+
+      '</div>'+
+      '<div style="font-size:9.5px;color:#7aa99a;margin-top:5px;">These are period-CLOSE (cutoff) dates — finalize timecards by then. Actual pay date may follow per your schedule.</div>'+
+    '</div>';
+  };
+  window.hnxPayrollCutoffs=function(){ try{ if(typeof switchView==='function') switchView('acct_dash'); }catch(e){} };
+
+  function nudge(){
+    try{
+      var t=new Date().toISOString().slice(0,10);
+      if(localStorage.getItem(NUDGE_KEY)===t) return;
+      var s=snapshot(); localStorage.setItem(NUDGE_KEY,t);
+      var bits=[];
+      if(s.offD<=SOON_DAYS) bits.push('Office '+fmtNice(s.off)+' ('+offText(s.offD)+')');
+      if(s.labD<=SOON_DAYS) bits.push('Labor '+fmtNice(s.lab)+' ('+offText(s.labD)+')');
+      if(bits.length) toast('🗓️ Payroll cutoff soon — '+bits.join(' · ')+'. Finalize timecards.','info');
+    }catch(e){}
+  }
+  setInterval(nudge, 60*60*1000);
+  setTimeout(nudge, 18000);
+  console.log('[HNX-T90] payroll cutoff reminder ready.');
+})();
+</script>
+<!-- ================= END HNX PAYROLL CUTOFF REMINDER ================= -->
+
+<!-- ================= HNX T-72 — IRRIGATION EC/pH WATCH (p195) ================= -->
+<script>
+(function(){
+  'use strict';
+  if(window.hnxIrrWatchBanner) return;
+  var CREATED_KEY='hydroPro_irr_call_created_v1';
+  var NUDGE_KEY='hydroPro_irr_nudge';
+  var _date=null, _rows=[];
+
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function toast(m,k){ try{ (window.aimToast||window.showToast||window._toast||function(){})(m,k||'info'); }catch(e){} }
+  function loadCreated(){ try{ var v=JSON.parse(localStorage.getItem(CREATED_KEY)||'{}'); return (v&&typeof v==='object')?v:{}; }catch(e){ return {}; } }
+  function saveCreated(o){ try{ localStorage.setItem(CREATED_KEY,JSON.stringify(o||{})); }catch(e){} }
+
+  function ecSev(v){ return (v<1.0||v>3.5)?'crit':((v<1.2||v>3.2)?'warn':null); }
+  function phSev(v){ return (v<5.0||v>7.0)?'crit':((v<5.5||v>6.5)?'warn':null); }
+
+  function scan(dateISO){
+    var readings={}; try{ readings=(typeof _irrLoadPoolReadings==='function')?_irrLoadPoolReadings():JSON.parse(localStorage.getItem('hydroPro_irr_pool')||'{}'); }catch(e){ readings={}; }
+    var pools=[]; try{ pools=(typeof _irrLoadPools==='function')?_irrLoadPools():[]; }catch(e){ pools=[]; }
+    var poolGh={}; pools.forEach(function(p){ poolGh[p.id]=((typeof _irrPoolToGh==='function')?_irrPoolToGh(p):null)||p.label||p.name||p.id; });
+    var day=readings[dateISO]||{};
+    var rows=[], crit=0, warn=0, poolsChecked=0;
+    Object.keys(day).forEach(function(pid){
+      var slots=day[pid]||{}, any=false;
+      Object.keys(slots).forEach(function(slot){
+        var r=slots[slot]||{}; any=true;
+        var ec=parseFloat(r.EC); if(!isNaN(ec)){ var s=ecSev(ec); if(s){ if(s==='crit')crit++; else warn++; rows.push({gh:poolGh[pid]||pid, pool:pid, slot:slot, kind:'EC', value:ec, sev:s}); } }
+        var ph=parseFloat(r.pH); if(!isNaN(ph)){ var sp=phSev(ph); if(sp){ if(sp==='crit')crit++; else warn++; rows.push({gh:poolGh[pid]||pid, pool:pid, slot:slot, kind:'pH', value:ph, sev:sp}); } }
+      });
+      if(any) poolsChecked++;
+    });
+    rows.sort(function(a,b){ if(a.sev!==b.sev) return a.sev==='crit'?-1:1; return String(a.gh).localeCompare(String(b.gh)); });
+    return { rows:rows, crit:crit, warn:warn, poolsChecked:poolsChecked, hasData:Object.keys(day).length>0 };
+  }
+
+  window.hnxIrrWatchBanner=function(dateISO){
+    dateISO=dateISO||new Date().toISOString().slice(0,10);
+    var s=scan(dateISO);
+    if(!s.hasData){
+      return '<div style="border:1px solid #2a4438;border-radius:10px;padding:11px 14px;margin-bottom:14px;background:rgba(255,255,255,.02);font-size:12px;color:#9fc7bb;">💧 EC / pH Watch · no pool readings logged for '+esc(dateISO)+'.</div>';
+    }
+    var n=s.crit+s.warn;
+    var col=s.crit>0?'#ff8a80':(n>0?'#ffcc80':'#a5d6a7');
+    var msg=n>0?(s.crit+' severe · '+s.warn+' borderline out of range'):'all readings in range 👍';
+    var btn=n>0?'<button onclick="window.hnxIrrWatch(\''+esc(dateISO)+'\')" style="background:linear-gradient(135deg,#26a69a,#00796b);border:none;color:#fff;border-radius:8px;padding:7px 13px;font-size:12px;font-weight:800;cursor:pointer;">View details</button>':'';
+    return '<div style="border:1px solid '+col+';border-radius:10px;padding:12px 14px;margin-bottom:14px;background:linear-gradient(135deg,rgba(77,208,225,.08),rgba(126,87,194,.05));display:flex;align-items:center;gap:12px;flex-wrap:wrap;">'+
+      '<div style="font-size:12px;font-weight:800;color:#80deea;">💧 EC / pH Watch</div>'+
+      '<div style="font-size:13px;color:'+col+';font-weight:700;">'+msg+'</div>'+
+      '<div style="font-size:10.5px;color:#9fc7bb;">'+s.poolsChecked+' pool(s) · '+esc(dateISO)+'</div>'+
+      '<div style="flex:1;"></div>'+btn+'</div>';
+  };
+
+  function keyOf(r){ return _date+'|'+r.pool+'|'+r.slot+'|'+r.kind; }
+  function rowHTML(r){
+    var created=loadCreated(); var k=keyOf(r); var made=created[k];
+    var sevCol=r.sev==='crit'?'#ff8a80':'#ffcc80';
+    var sevTxt=r.sev==='crit'?'SEVERE':'borderline';
+    var target=r.kind==='EC'?'1.2–3.2':'5.5–6.5';
+    var right = made ? '<span style="font-size:11px;color:#9fc7bb;white-space:nowrap;">🎫 call raised</span>'
+      : (r.sev==='crit' ? '<button onclick="window.__hnxIRR.raise(\''+esc(k)+'\')" style="background:linear-gradient(135deg,#ef5350,#b71c1c);border:none;color:#fff;border-radius:7px;padding:6px 11px;font-size:11.5px;font-weight:800;cursor:pointer;white-space:nowrap;">Raise call</button>'
+                       : '<span style="font-size:10px;color:#9fc7bb;white-space:nowrap;">monitor</span>');
+    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.06);">'+
+      '<div style="flex:1;min-width:0;">'+
+        '<div style="font-size:13.5px;color:#e8f5e9;font-weight:700;">'+esc(String(r.gh))+' <span style="color:#9fc7bb;font-weight:600;">· '+esc(r.pool)+' · '+esc(r.slot)+'</span></div>'+
+        '<div style="font-size:11px;color:'+sevCol+';margin-top:2px;">'+r.kind+' '+r.value.toFixed(1)+' — '+sevTxt+' (target '+target+')</div>'+
+      '</div>'+right+'</div>';
+  }
+  function render(){
+    var body=document.getElementById('hnxIrrBody'); if(!body) return;
+    var s=scan(_date); _rows=s.rows;
+    if(!_rows.length){ body.innerHTML='<div style="padding:22px 6px;text-align:center;color:#9fc7bb;">All EC / pH readings in range for '+esc(_date)+'. 👍</div>'; return; }
+    var severeOpen=_rows.filter(function(r){ return r.sev==='crit' && !loadCreated()[keyOf(r)]; });
+    var head='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;"><div style="font-size:11px;color:#9fc7bb;flex:1;">'+s.crit+' severe · '+s.warn+' borderline · '+esc(_date)+'</div>'+
+      (severeOpen.length?'<button onclick="window.__hnxIRR.raiseAll()" style="background:linear-gradient(135deg,#ef5350,#b71c1c);border:none;color:#fff;border-radius:7px;padding:6px 12px;font-size:11.5px;font-weight:800;cursor:pointer;">Raise all severe ('+severeOpen.length+')</button>':'')+'</div>';
+    body.innerHTML=head+_rows.map(rowHTML).join('');
+  }
+  function ensureModal(){
+    if(document.getElementById('hnxIrrOverlay')) return;
+    var o=document.createElement('div'); o.id='hnxIrrOverlay';
+    o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    o.onclick=function(e){ if(e.target===o) window.__hnxIRR.close(); };
+    o.innerHTML='<div style="width:min(620px,100%);max-height:86vh;overflow:auto;background:#0e1713;border:1px solid #1f4a44;border-radius:14px;padding:18px;box-shadow:0 18px 60px rgba(0,0,0,.5);">'+
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;"><div style="font-size:15px;font-weight:800;color:#80deea;">💧 EC / pH Out-of-Range</div><div style="flex:1;"></div>'+
+          '<button onclick="window.__hnxIRR.close()" style="background:transparent;border:1px solid rgba(255,255,255,.2);color:#9fc7bb;border-radius:8px;padding:5px 11px;font-size:13px;cursor:pointer;">Close</button></div>'+
+        '<div style="font-size:11px;color:#9fc7bb;margin-bottom:10px;">Pool readings outside target range. Severe readings can raise an irrigation call in one tap (de-duplicated). Targets: EC 1.2–3.2 · pH 5.5–6.5.</div>'+
+        '<div id="hnxIrrBody"></div></div>';
+    document.body.appendChild(o);
+  }
+  window.__hnxIRR={
+    open:function(d){ _date=d||new Date().toISOString().slice(0,10); ensureModal(); document.getElementById('hnxIrrOverlay').style.display='flex'; render(); },
+    close:function(){ var o=document.getElementById('hnxIrrOverlay'); if(o) o.style.display='none'; },
+    raise:function(k){
+      var r=_rows.filter(function(x){ return keyOf(x)===k; })[0]; if(!r) return;
+      if(typeof createIssue!=='function'){ toast('Call system unavailable.','warn'); return; }
+      var desc=r.kind+' reading '+r.value.toFixed(1)+' is out of range (target '+(r.kind==='EC'?'1.2–3.2':'5.5–6.5')+') at pool '+r.pool+', slot '+r.slot+' on '+_date+'. Flagged by EC/pH Watch.';
+      var iss=createIssue({ module:'irrigation', priority:'critical', title:'💧 '+r.kind+' out of range: '+r.gh+' ('+r.pool+')', description:desc, facilityId:(/^GH|^PRJ/.test(String(r.gh))?r.gh:null) });
+      var c=loadCreated(); c[k]=(iss&&iss.id)||'1'; saveCreated(c);
+      toast('🎫 Irrigation call raised: '+r.kind+' '+r.value.toFixed(1)+' @ '+r.gh,'info');
+      render();
+    },
+    raiseAll:function(){
+      var todo=_rows.filter(function(r){ return r.sev==='crit' && !loadCreated()[keyOf(r)]; });
+      todo.forEach(function(r){ window.__hnxIRR.raise(keyOf(r)); });
+      if(todo.length) toast('🎫 '+todo.length+' irrigation call'+(todo.length>1?'s':'')+' raised','info');
+    }
+  };
+  window.hnxIrrWatch=function(dateISO){ window.__hnxIRR.open(dateISO); };
+
+  function nudge(){
+    try{
+      var t=new Date().toISOString().slice(0,10);
+      if(localStorage.getItem(NUDGE_KEY)===t) return;
+      var s=scan(t); localStorage.setItem(NUDGE_KEY,t);
+      if(s.crit>0) toast('💧 '+s.crit+' severe EC/pH reading'+(s.crit>1?'s':'')+' out of range today — open Irrigation → EC/pH Watch','warn');
+    }catch(e){}
+  }
+  setInterval(nudge, 60*60*1000);
+  setTimeout(nudge, 20000);
+  console.log('[HNX-T72] irrigation EC/pH watch ready.');
+})();
+</script>
+<!-- ================= END HNX IRRIGATION EC/pH WATCH ================= -->
+
 <!-- ================= HNX T-09 CANONICAL DEPARTMENT REGISTRY ================= -->
 <script>
 /* ============================================================================
@@ -149246,6 +149457,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 .hnx-dh-chip:nth-child(5) { animation-delay: 0.45s; }
 .hnx-dh-chip-l { font-size: 9.5px; color: #7aa99a; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; }
 .hnx-dh-chip-v { font-size: 14px; font-weight: 800; letter-spacing: -.3px; }
+.hnx-dh-spark { margin-left: 9px; align-self: center; opacity: .92; display: block; }
 .hnx-dh-chip.ok   { border-color: rgba(38,194,129,.5);  background: rgba(38,194,129,.08); }
 .hnx-dh-chip.ok   .hnx-dh-chip-v { color: #26c281; }
 .hnx-dh-chip.warn { border-color: rgba(255,152,0,.5);   background: rgba(255,152,0,.08); }
@@ -149286,6 +149498,16 @@ body.hnx-mobile-locked { overflow: hidden; }
 
   function esc(s){ s=(s==null)?'':String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+  // Pattern 17 — inline sparkline trend (shared across all dashboard chips)
+  function sparkSVG(vals){
+    if(!vals||vals.length<2) return '';
+    var w=58,h=16,mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals),rng=(mx-mn)||1,step=w/(vals.length-1);
+    var pts=vals.map(function(v,i){ return (i*step).toFixed(1)+','+(h-((v-mn)/rng)*h).toFixed(1); }).join(' ');
+    var col=(vals[vals.length-1]>=vals[0])?'#26c281':'#ef5350';
+    return '<svg class="hnx-dh-spark" width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none">'+
+      '<polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+  }
+
   window._hnxRenderDashHero = function(cfg){
     cfg = cfg || {};
     var mod = cfg.module || 'production';
@@ -149298,11 +149520,13 @@ body.hnx-mobile-locked { overflow: hidden; }
 
     var chipsHtml = chips.map(function(c){
       var tone = c.tone || '';
+      var spark = (c.spark && c.spark.length>1) ? sparkSVG(c.spark) : '';
       return '<div class="hnx-dh-chip '+esc(tone)+'">'
         +'<div>'
           +'<div class="hnx-dh-chip-l">'+esc(c.label||'')+'</div>'
           +'<div class="hnx-dh-chip-v">'+esc(c.value||'—')+'</div>'
         +'</div>'
+        +spark
       +'</div>';
     }).join('');
 
