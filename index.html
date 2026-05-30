@@ -71543,8 +71543,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.47.1-paginate';window.HNX_BUILD='v2.86-p161-paginate';  // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry (wait+retry on worker 400+throttle). Items capped at 10k/sync, lots/shipments at 4k each, locations at 1k.
-const APP_BUILD=1781036800;
+const APP_VERSION='2.48.0-idb';window.HNX_BUILD='v2.86-p162-idb';  // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
+const APP_BUILD=1781123200;
 const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
@@ -145264,6 +145264,86 @@ body.hnx-mobile-locked { overflow: hidden; }
   function save(key, val){
     try{ localStorage.setItem(key, JSON.stringify(val)); }catch(_){}
   }
+
+  // ---------- p162-idb: IndexedDB-backed cache for large SOS arrays ----------
+  // The AteretPaz catalog (tens of thousands of items) overflows localStorage's
+  // ~5-10MB cap (QuotaExceededError). The big arrays (items/locations/lots/
+  // shipments) now live in IndexedDB — GB-scale, same-origin, browser-local,
+  // owned by this domain only. We REUSE the app's already-proven window.HNXIDB
+  // store (the one backups migrated to) to keep the patch minimal. SOS keys are
+  // prefixed hydroPro_sos_* and never collide with backup keys.
+  //
+  // Meta (hydroPro_sos_meta_v1) deliberately STAYS in localStorage: it's tiny
+  // and is read synchronously at boot for connection state, so it must not wait
+  // on async IDB hydration. getMeta/setMeta/logError below are unchanged.
+  //
+  // The public getters stay SYNCHRONOUS by serving an in-memory mirror (MEM)
+  // that is hydrated from IDB exactly once at boot (_sosHydrate).
+  var BIG_KEYS = [KEY.items, KEY.locations, KEY.lots, KEY.shipments];
+  var MEM = {};                 // in-memory mirror of the big arrays — the source getters read
+  var MEM_HYDRATED = false;     // flips true once boot hydration finishes (or gives up)
+
+  function _sosIdbOk(){ return !!(window.HNXIDB && window.HNXIDB.available); }
+
+  // Synchronous read from the in-memory mirror (NOT localStorage).
+  function memLoad(key, fallback){
+    var v = MEM[key];
+    return (v === undefined || v === null) ? fallback : v;
+  }
+  // Synchronous mirror update + fire-and-forget durable write to IndexedDB.
+  // getItems()/etc. see the new value immediately; the IDB write persists it.
+  function memSave(key, val){
+    MEM[key] = val;
+    if(_sosIdbOk()){
+      window.HNXIDB.put(key, val).catch(function(e){ logError('idb_put:'+key, e); });
+    }
+  }
+
+  // One-time migration: lift any existing hydroPro_sos_* big arrays out of
+  // localStorage into IDB, VERIFY the write landed, then free the localStorage
+  // slot (reclaiming the space that was causing QuotaExceededError).
+  function _sosMigrateToIdb(){
+    if(!_sosIdbOk()) return Promise.resolve();
+    return Promise.all(BIG_KEYS.map(function(k){
+      return window.HNXIDB.get(k).then(function(existing){
+        if(existing != null) return;            // already in IDB — leave it
+        var raw; try{ raw = localStorage.getItem(k); }catch(_){ raw = null; }
+        if(!raw) return;                          // nothing cached in localStorage
+        var parsed; try{ parsed = JSON.parse(raw); }catch(_){ parsed = null; }
+        if(parsed == null) return;
+        return window.HNXIDB.put(k, parsed)
+          .then(function(){ return window.HNXIDB.get(k); })   // verify before freeing source
+          .then(function(check){
+            if(check != null){
+              MEM[k] = parsed;
+              try{ localStorage.removeItem(k); }catch(_){}
+              try{ console.log('[HNX-SOS] migrated '+k+' → IndexedDB ('+(Array.isArray(parsed)?parsed.length+' rows':'object')+')'); }catch(_){}
+            }
+          });
+      }).catch(function(e){ logError('idb_migrate:'+k, e); });
+    }));
+  }
+
+  // Boot hydration: migrate (if needed) then load the big arrays from IDB into
+  // MEM. Async by nature, but SOS consumers run on user navigation — well after
+  // boot — so the mirror is populated by the time anything reads it. If the SOS
+  // Sync view happens to be open when hydration finishes, repaint it.
+  function _sosHydrate(){
+    if(!_sosIdbOk()){ MEM_HYDRATED = true; return Promise.resolve(); }
+    return _sosMigrateToIdb().then(function(){
+      return Promise.all(BIG_KEYS.map(function(k){
+        return window.HNXIDB.get(k).then(function(v){ if(v != null) MEM[k] = v; }).catch(function(){});
+      }));
+    }).then(function(){
+      MEM_HYDRATED = true;
+      try{
+        var sv = document.getElementById('view-admin_sos_sync');
+        if(sv && sv.classList.contains('active') && typeof renderSyncView === 'function') renderSyncView();
+      }catch(_){}
+      try{ console.log('[HNX-SOS] IndexedDB cache hydrated — items:'+((MEM[KEY.items]||[]).length)+' locations:'+((MEM[KEY.locations]||[]).length)+' lots:'+((MEM[KEY.lots]||[]).length)+' shipments:'+((MEM[KEY.shipments]||[]).length)); }catch(_){}
+    }).catch(function(e){ MEM_HYDRATED = true; logError('idb_hydrate', e); });
+  }
+
   function nowIso(){ return new Date().toISOString(); }
   function fmtAgo(iso){
     if(!iso) return 'never';
@@ -145436,19 +145516,19 @@ body.hnx-mobile-locked { overflow: hidden; }
   function fetchItems(){
     // Cap at 50 pages = 10,000 items (Cloudflare Worker subrequest budget consideration)
     return _sosFetchAllPages('/sos/items', 'items', '', 50).then(function(arr){
-      save(KEY.items, arr);
+      memSave(KEY.items, arr);
       return arr.length;
     });
   }
   function fetchLocations(){
     return _sosFetchAllPages('/sos/locations', 'locations', '', 5).then(function(arr){
-      save(KEY.locations, arr);
+      memSave(KEY.locations, arr);
       return arr.length;
     });
   }
   function fetchLots(){
     return _sosFetchAllPages('/sos/lots', 'lots', 'archived=false', 20).then(function(arr){
-      save(KEY.lots, arr);
+      memSave(KEY.lots, arr);
       return arr.length;
     });
   }
@@ -145456,7 +145536,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     // Last 30 days only — shipments grow unbounded
     var from = new Date(Date.now() - 30*86400000).toISOString().substring(0,10);
     return _sosFetchAllPages('/sos/shipments', 'shipments', 'from='+from, 20).then(function(arr){
-      save(KEY.shipments, arr);
+      memSave(KEY.shipments, arr);
       return arr.length;
     });
   }
@@ -145519,10 +145599,10 @@ body.hnx-mobile-locked { overflow: hidden; }
     connect: connect,
     disconnect: disconnect,
     sync: sync,
-    getItems:     function(){ return load(KEY.items, []); },
-    getLocations: function(){ return load(KEY.locations, []); },
-    getLots:      function(){ return load(KEY.lots, []); },
-    getShipments: function(){ return load(KEY.shipments, []); },
+    getItems:     function(){ return memLoad(KEY.items, []); },
+    getLocations: function(){ return memLoad(KEY.locations, []); },
+    getLots:      function(){ return memLoad(KEY.lots, []); },
+    getShipments: function(){ return memLoad(KEY.shipments, []); },
     getMeta:      getMeta,
     startAutoSync: startAutoSync,
     stopAutoSync:  stopAutoSync,
@@ -145680,6 +145760,10 @@ body.hnx-mobile-locked { overflow: hidden; }
     }
     renderSyncView();
   };
+
+  // Hydrate the in-memory cache from IndexedDB (and migrate any legacy
+  // localStorage SOS arrays) as early as possible at boot.
+  _sosHydrate();
 
   // Start auto-sync on load if connected
   setTimeout(function(){ if(getMeta().connected) startAutoSync(); }, 5000);
