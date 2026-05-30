@@ -5589,6 +5589,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
         </div>
         <div class="emp-field"><label class="field-label">Daily Rate Override (₱)</label><input type="number" step="0.01" class="users-input" id="empRate" placeholder="Leave empty to use level rate" title="Optional: enter a specific daily rate to override the level-based rate"></div>
         <div class="emp-field"><label class="field-label">Date Hired</label><input type="date" class="users-input" id="empDateHired"></div>
+        <div class="emp-field"><label class="field-label">Contract End <span style="color:var(--text3);font-weight:400;">(optional — fixed-term / contractual)</span></label><input type="date" class="users-input" id="empContractEnd"></div>
       </div>
 
       <!-- v2.83 — Inactive status fields (shown when status != Active) -->
@@ -11436,6 +11437,7 @@ window._HNX_LOGO_PNG='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAlgAAAGQCAYA
         '<div class="hn-rpt-today-icon">📋</div>' +
         '<div class="hn-rpt-today-meta">' + todayStatus + '</div>' +
         '<button class="hn-rpt-today-cta" onclick="window.hnAddTodayReport && window.hnAddTodayReport()">+ ' + (todayRpt ? 'Update' : 'Add') + ' today\'s report</button>' +
+        '<button class="hn-rpt-today-cta" style="margin-left:8px;background:linear-gradient(135deg,#7e57c2,#4527a0);border-color:#7e57c2;" onclick="window.hnxAutoDraftReport && window.hnxAutoDraftReport()">\uD83E\uDD16 Auto-draft</button>' +
       '</div>' +
       // Executive summary at the top — for CEO/leadership review
       (typeof window.hnRenderExecSummary === 'function' ? window.hnRenderExecSummary() : '') +
@@ -17203,6 +17205,7 @@ function renderRecurringHub(){
     <div class="section-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">🔥 Recurring Tasks Management
       <span style="font-size:11px;color:var(--text3);font-weight:400;">— ${RECURRING_TASKS.length} tasks · ${stats.due} due today · viewing <span style="color:${(MODULE_META[curModFilter]||{color:'#cfd8dc'}).color};font-weight:700;">${curModFilter==='all'?'all modules':MODULE_META[curModFilter].label}</span></span>
       <button onclick="window.hpPrintRecurringHub&&window.hpPrintRecurringHub()" style="margin-left:auto;padding:8px 16px;background:linear-gradient(180deg,#2f9d4a,#1d6b32);border:1px solid #5fe07a;border-radius:8px;color:#eafff0;font-size:13px;font-weight:800;cursor:pointer;font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;box-shadow:0 0 12px rgba(95,224,122,0.3);">🖨 Print</button>
+      <button onclick="window.hnxPMWorkOrders&&window.hnxPMWorkOrders()" style="padding:8px 16px;background:linear-gradient(180deg,#e08a2f,#a85d18);border:1px solid #ffcc80;border-radius:8px;color:#fff7ee;font-size:13px;font-weight:800;cursor:pointer;font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;box-shadow:0 0 12px rgba(255,204,128,0.25);">🔧 PM Lookahead</button>
       ${(typeof getCurrentUserLevel==='function'&&getCurrentUserLevel()>=3)?`<button onclick="window.hnxOpenAddOneTimeModal&&window.hnxOpenAddOneTimeModal()" style="padding:8px 16px;background:linear-gradient(180deg,#ab47bc,#7b1fa2);border:1px solid #ce93d8;border-radius:8px;color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;box-shadow:0 0 12px rgba(206,147,216,0.3);">⭐ Add Today's Task</button>`:''}
       <button onclick="window._hnxOpenScheduleEditor&&window._hnxOpenScheduleEditor()" style="padding:8px 16px;background:linear-gradient(180deg,#1a3a5a,#143050);border:1px solid #5ec5ff;border-radius:8px;color:#cfe8ff;font-size:13px;font-weight:800;cursor:pointer;font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;box-shadow:0 0 12px rgba(94,197,255,0.25);">⚙ Add / Edit Tasks</button>
     </div>
@@ -20172,6 +20175,8 @@ function renderMgrSummary(){
       <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px;">${days.length} day(s) of data · Generated ${new Date().toLocaleString()}</div>
     </div>
   </div>`;
+  // p190 — T-110 weekly executive summary (Cloud AI), at the top of the report
+  h+=(typeof window.hnxWeeklySummaryBox==='function'?window.hnxWeeklySummaryBox(startDate,endDate):'');
   // Exec stats
   h+=`<div class="mgr-stats">
     <div class="mgr-stat"><div class="mgr-stat-lbl">Days Covered</div><div class="mgr-stat-val">${days.length}</div></div>
@@ -21751,7 +21756,7 @@ function loadEmployees(){
       employees=SEED_EMPLOYEES.map(e=>({
         id:e.id, name:e.name, nickname:'', rate:e.rate, dept:e.dept,
         role:inferRole(e.dept), type:inferType(e.dept), title:'',
-        ghAssigned:[], dateHired:'', birthday:'', photo:'',
+        ghAssigned:[], dateHired:'', contractEnd:'', birthday:'', photo:'',
         address:'', phone:'', email:'',
         emergName:'', emergPhone:'', emergRel:'', civilStatus:'',
         sss:'', phic:'', hdmf:'', tin:'',
@@ -21820,6 +21825,7 @@ function renderHR(){
     <div class="hr-stat-card" style="cursor:pointer;" onclick="(function(){const data=employees.filter(e=>e.status==='Active'&&e.dept&&(e.dept.startsWith('PROD_')||e.dept==='APTI_REGULAR')).map(e=>({label:e.name,description:(e.position||e.type||'')+' · '+(e.dept||'?'),module:'HR · Production',priority:'info',status:'active',ageStr:e.type||'-',_onClickJS:'switchView(\\'hr_201\\')'}));openDrillDown({title:'Production Employees',subtitle:'Active employees in production departments (PROD_* + APTI_REGULAR)',scope:'custom',data:data});})()" title="Click to see all production employees"><div class="hr-stat-label">Production</div><div class="hr-stat-val">${prod}</div><div class="hr-stat-sub">GH + trainees</div></div>
     <div class="hr-stat-card" style="cursor:pointer;" onclick="(function(){const data=employees.filter(e=>e.status==='Active'&&e.type==='Regular').map(e=>({label:e.name,description:(e.position||'Regular')+' · '+(e.dept||'?'),module:'HR · Regular',priority:'info',status:'active',ageStr:'Regular',_onClickJS:'switchView(\\'hr_201\\')'}));openDrillDown({title:'Regular Employees',subtitle:'Employees on full-time regular contracts with full benefits',scope:'custom',data:data});})()" title="Click to see regular employees"><div class="hr-stat-label">Regular</div><div class="hr-stat-val">${byType.Regular||0}</div><div class="hr-stat-sub">full benefits</div></div>
     <div class="hr-stat-card" style="cursor:pointer;" onclick="(function(){const data=employees.filter(e=>e.status==='Active'&&e.type==='Trainee').map(e=>({label:e.name,description:(e.position||'Trainee')+' · '+(e.dept||'?'),module:'HR · Trainee',priority:'info',status:'in training',ageStr:'Trainee',_onClickJS:'switchView(\\'hr_201\\')'}));openDrillDown({title:'Trainees',subtitle:'Employees currently in training status',scope:'custom',data:data});})()" title="Click to see trainees"><div class="hr-stat-label">Trainees</div><div class="hr-stat-val">${byType.Trainee||0}</div><div class="hr-stat-sub">in training</div></div>
+    ${(typeof window.hnxHRRegCard==='function')?window.hnxHRRegCard():''}
     ${payrollStat}
   `;
   // ===== Pro Level distribution mini-bar =====
@@ -22162,6 +22168,7 @@ function openEmployeeModal(empId){
     document.getElementById('empRate').value=emp.rateOverride||emp.rate||'';
     onEmpLevelChange(); // refresh hint
     document.getElementById('empDateHired').value=emp.dateHired||'';
+    {const _ce=document.getElementById('empContractEnd'); if(_ce) _ce.value=emp.contractEnd||'';}
     document.getElementById('empAddress').value=emp.address||'';
     document.getElementById('empPhone').value=emp.phone||'';
     document.getElementById('empEmail').value=emp.email||'';
@@ -22201,7 +22208,7 @@ function openEmployeeModal(empId){
     delBtn.style.display='none';
     document.getElementById('empId').value=nextEmployeeId();
     document.getElementById('empId').readOnly=false;
-    ['empName','empNickname','empBirthday','empTitle','empRate','empDateHired','empAddress','empPhone','empEmail','empEmergName','empEmergPhone','empEmergRel','empSSS','empPHIC','empHDMF','empTIN','empNotes','empLastWorkingDay','empStatusReason','empNumChildren','empSpouseName'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+    ['empName','empNickname','empBirthday','empTitle','empRate','empDateHired','empContractEnd','empAddress','empPhone','empEmail','empEmergName','empEmergPhone','empEmergRel','empSSS','empPHIC','empHDMF','empTIN','empNotes','empLastWorkingDay','empStatusReason','empNumChildren','empSpouseName'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
     document.getElementById('empStatus').value='Active';
     onEmpStatusChange();
     document.getElementById('empDept').value='PROD_TRAINEES';
@@ -22501,6 +22508,7 @@ function saveEmployee(){
     rate:rateOverride||(existing&&existing.rate)||0,
     rateOverride:rateOverride||null,
     dateHired:document.getElementById('empDateHired').value,
+    contractEnd:(document.getElementById('empContractEnd')?document.getElementById('empContractEnd').value:''),
     ghAssigned,
     photo:_editingEmpPhoto||'',
     address:document.getElementById('empAddress').value.trim(),
@@ -22641,6 +22649,7 @@ function viewEmployee(id){
       ${row('Job Title',emp.title)}
       ${row('Assigned GH',ghStr)}
       ${row('Date Hired',emp.dateHired)}
+      ${emp.contractEnd?row('Contract End',emp.contractEnd):''}
       ${row('Tenure',tenure)}
     </div>
     ${(()=>{
@@ -71942,8 +71951,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.60.2-v6sync';window.HNX_BUILD='v2.86-p184-v6sync';  // p184: CCTV wall self-heals. (1) Each offline camera now AUTO-RETRIES on a jittered ~30s timer (capped at 6 attempts; existing serialized/throttled probes unchanged so the NVR is never hammered). (2) The bridge-offline banner re-checks every 8s while the server is down and, the instant cctv.abapardes.com.ph is reachable again, auto-reconnects EVERY condemned tile via new window.__hnxCctvLive.recover() — no tap on Re-check or on any camera needed. (3) Offline-tile message clarified to "CAMERA SERVER OFFLINE"/"STREAM OFFLINE · ↻ auto-retrying… · or tap to retry now" so it's obvious the app is handling it, not the dashboard. App-only, no worker change. // p183: (1) open-PO parser refactored into a pure, offline-testable function — window.hnxOpenPOSelfTest() proves the real AteretPaz PO #2026-21-PO0528-01 resolves to 700 on-order by BOTH name and id, a partial PO yields open-only (1000 ordered − 600 recv = 400), and closed POs are skipped; field net widened; id lookup form fixed; Purchase Engine status note now lists matched PO item names for eyeball verification; hnxOpenPODump() added. (2) CCTV residue: stripped 8 dead cams[] arrays from module command centers (sec_cmd perimeter list kept) + doc strings updated to 'IT + Security perimeter only'. Wall Launcher KEPT on purpose — it is a GENERAL multi-monitor view launcher, not a CCTV wall; audit-plan T-62 misidentified it. (3) geo_dash lifted to the rich pattern: hero band + live site-map panel (data-driven coordinate plot with live health colour; satellite tiles flagged as Mapbox-token-dependent). // p182: worker v3.2.2 integration. Purchase Engine now subtracts open-PO on-order qty (defensive normalizer over /sos/purchase-orders — under-counts safely, never over; new On-order column + live status). Audit Trail stamps caller IP via /whoami on new entries + IP column + CSV. //  // p181: QA sweep of full inventory suite (8 views, 14 APIs, 7 modules — all clean). Inventory Command Center now LIVE: MCC_LIVE.inv_cmd computes real KPIs/AI-rows/boxes/alerts from the engine (stock-outs, reorder queue+value, dead-stock capital, nearest forecast stock-out ETA, pending requests, draft POs) replacing demo numbers. //  // p180b: CCTV wall snapshot LOADER is now a bounded connection-pool — tiles render with no src; max 4 frame.jpeg requests in-flight at once, viewport-nearest first, slot freed on load/error/8s-timeout. Fixes the initial-paint stampede where all 20-80 tiles hit the bridge simultaneously and got stuck 'connecting…'. Watchdog skips still-pending tiles so it can't pre-empt them to live. //  // p180: Demand Forecasting (spec sheet 11) — inv_forecast view. Mines demand from Item Requests + manual/CSV usage (hydroPro_inv_usage_v1); per-SKU avg use, days-of-cover, projected 30d, rec safety, stock-out ETA; 90/180/365d window; CSV import/export; audit-logged. Exposes hnxInvForecastExists (lights Active-Item override) + hnxInvForecast (Purchase Engine raises order qty to cover lead-time forecast demand + Fcst col). Inventory AI spec COMPLETE. //  // p179b: CCTV wall prefers light H.264 _sub substream per camera when it exists (snapshot+live derive from it); big/spotlight/fullscreen keep full-res. Lets many cameras stream at once without overloading the NVR. //  // p179: CCTV bridge-load fix — staggered/throttled snapshot polling (3/tick @2.2s, near-viewport only, round-robin), cap concurrent LIVE upgrades (default 6, rest stay snapshots), bridge-wide failure suppression (never blanket STREAM OFFLINE). //  // p178: AI Copilot (spec 17) — chat assistant over live inventory snapshot via cloud /ai/ask; quick commands + deep-links to Purchase Engine/Duplicate AI/Master Data/Diagnostics. Inventory spec build complete (Forecasting pending data). //  // p176: CCTV live-stream cap + rotation (Live: All/4/6/8/12/16) to protect NVR. p177: Audit Trail (spec 16) — central log of inventory changes (user/action/old->new/date/time), filter+CSV; instrumented Master Data, Categories, Purchase Engine, Duplicate AI. //  // p175: CCTV wall false-offline fix — serialize stream health-probes (1 at a time, spaced), 3-strike + 7s timeout, lock 'ok' so verification stops saturating the bridge and flipping all live tiles to STREAM OFFLINE. //  // p174: Active-Item logic (spec 05) — movement bands Active<=90 / Slow 91-180 / Dormant 181-365 / Dead >365, forecast-override hook; Item Velocity view now 4-band with Dormant KPI+filter+capital. //  // p173: Duplicate-detection AI — weighted similarity (name/desc/brand/mfr/usage) with blocking, clustering, keep-master/dismiss/AI-review; merged dups hidden from Item Files. //  // p172: Purchase Engine — reorder-point/safety-stock breaches grouped into draft POs by supplier, budget check, draft PO tracking; forecast & open-PO inputs pending. //  // p171: Item Files defaults to May-2026-modified items, deduped by name, with scope chips (May/30d/All) + dedupe toggle; shows real SOS category. //  // p170: Item Master tab in Master Data — enrich each SOS SKU with brand/supplier/manufacturer/category(incl custom)/criticality/safety-stock; overlay store hydroPro_inv_item_master_v1, search-only over 9.3k items, focus-safe. //  // p169: Categories view now pulls LIVE from SOS (each item's real category) with real counts + add/delete custom categories (assignable per-item in Item Master). //  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
-const APP_BUILD=1783190400;
+const APP_VERSION='2.61.1-v6sync';window.HNX_BUILD='v2.86-p193-v6sync';  // p193: T-88 completion — Contract Renewals. Added a "Contract End" date field to the 201 file (employee edit form, populate, save, detail view, default record). The HR "Regularization" card is now "HR Renewals" and its watch covers BOTH tracks: trainees hitting the 6-month probation mark (regularize) AND any employee whose contractEnd is within 45 days or already past (renew/end). Rows are tagged PROBATION (purple) or CONTRACT (cyan); contract overdue shows EXPIRED. Still alert-only (no auto status change) and read-only over hydroPro_employees. Completes the T-88 gap noted in p192. App-only, no worker change. // p192: T-86/T-88 — HR Regularization Watch (probation slice). // (p192 detail) The HR dashboard gains a "Regularization" stat card (overdue / due-soon count) that opens a watch list of TRAINEES reaching the 6-month probationary mark (PH max probation), computed from emp.dateHired + type. Each row shows hire date, the 6-month date, and an OVERDUE-Nd / in-Nd chip; overdue first. Flags trainees missing a hire date (so they can be filled in), and a "Go to 201 files" jump. Once-a-day nudge when decisions are due. NOTE: this is the data-ready slice — true contract-renewal (T-88) needs a contract-end field that the employee record does not have yet; Temporary/Contractual end dates likewise aren't stored. Read-only over hydroPro_employees; alert-only (no auto status change — regularization is a human decision). App-only, no worker change. window.hnxHRAlerts(). // p191: T-79 — PM Work-Order Lookahead (Maintenance). A new "🔧 PM Lookahead" button in the Recurring Tasks header opens a list of Maintenance-owned recurring tasks due in the NEXT 3 DAYS (predicted from the same calendar-landing schedule the hub uses — daily/weekly-Mon/monthly/quarterly/etc.). Each row shows cadence, owner, area, and a TODAY/TOMORROW/in-N-days chip, with one-tap "Create work order" (raises a maintenance issue via createIssue → hydroPro_issues_v2, board-visible + cloud-synced) and, for today's tasks, "Mark done" (markRecurringDone). "Create all" does the batch. Already-created WOs are de-duplicated via hydroPro_pm_wo_created_v1 (key = taskId+date+area) so a task is never double-raised. A once-a-day toast nudges when PMs are coming up. Read-only over RECURRING_TASKS + completions; no edits to the existing recurring engine. App-only, no worker change. window.hnxPMWorkOrders(). // p190: T-110 — Weekly Executive Summary (Management). The Manager Summary (📊 topbar button) now opens with a Cloud-AI cross-module weekly digest at the top: open issues by module + how many are critical, daily reports filed in the period, harvests due within 7 days, and beds needing replanting (overdue). "Generate now"/"Regenerate" builds it on demand over the selected date range; it AUTO-PREPARES every Monday after 7am and saves to hydroPro_weekly_summary_v1 so it is waiting for leadership (with a toast). Plain, simple language, no jargon, no bullets. Reads existing stores only (issues v2, hn_daily_reports_v1, planting log) — additive, app-only, no worker change. window.hnxWeeklySummary(). // p189: T-77 — yield capture + per-variety anomaly. The ✓ Harvested button now opens a small modal to record yield (kg, optional). Yields build a per-variety baseline (per-plant when a plant count exists, else raw kg; needs 3+ harvests). A harvest >15% below its variety baseline is flagged — instantly via a warn toast on save, and listed in a "⚠ Yield anomalies" strip + "📊 Yield by variety" panel in the Planting Log. Stays quiet until enough history exists (no false alarms). Completes Production autonomy cluster T-74/75/76/77. Extends p187/p188; app-only, no worker change. // p188: T-76 — "🔄 Ready to transplant" section in the Planting Log. A bed surfaces when it's been marked ✓ Harvested (now empty) OR is past its harvest date but not yet harvested (overdue → harvest then replant). Each shows greenhouse + bed + last variety + idle days, longest-idle first; "➕ Plant here" pre-fills the add form for that exact bed; "Dismiss" hides it. Auto-clears once a newer planting is logged for the same bed (bedKey = gh+bed, or gh+variety when no bed). Goal: no idle beds. Extends the p187 Planting Log; app-only, no worker change. // p187: T-75 FOUNDATION — Production "🌱 Planting Log" tab. Captures transplants (greenhouse + variety + date, optional bed/count/stage) into hydroPro_planting_log_v1, plus an editable variety→days-to-harvest table (hydroPro_variety_maturity_v1, seeded with hydroponic estimates). Computes each bed's EXPECTED HARVEST DATE + days-left (transplant date + maturity) sorted soonest-first with overdue/≤7d colouring — this delivers T-75's core prediction. "✓ Harvested" clears a bed (sets up T-76 transplant recommendation). Tab injected into Production like Daily Reports; both stores cloud-synced. Additive, app-only, no worker change. window.__hnxPL. // p186: T-74 autonomy rung 1 (Production daily report AUTO-DRAFT). New "🤖 Auto-draft" button in Daily Reports builds a draft report from today's OPEN issues/calls (grouped by greenhouse via GH-text parse) + today's EC/pH readings (per-pool, mapped to GH via _irrPoolToGh, ranges EC 1.2-3.2 / pH 5.5-6.5), asks Cloud AI (/ai/analyze) for a 2-4 sentence plain-language summary, and shows a REVIEW modal. Supervisor edits the summary and presses "Sign & File" → window.hnSaveReport() files it as the official report (id rpt_<date>_prod_autodraft). Nothing filed without a signature. ~7am once-per-day nudge if today isn't filed. Builds on existing hn_daily_reports_v1; additive, no existing report code changed. App-only, no worker change. window.hnxAutoDraftReport(). // p185: in-page CCTV wall — fair rotation + honest "tap to view" + load-on-demand. The bridge/NVR serves only ~6 greenhouse streams at once, so the first cameras held every live slot while the rest sat on a misleading "connecting…" forever. (1) ROTATION: every 22s the oldest live tile is cycled out to a still snapshot and the longest-waiting camera is promoted, so ALL cameras get screen time (mirrors the full-screen wall's _cctvRotate, but keeps a still frame during rest). (2) TAP TO VIEW: a tile stuck on "connecting…" >12s rewrites to "📷 TAP TO VIEW · waiting for a free slot"; tapping forces THAT camera live immediately past the cap via window.__hnxCctvLive.forceTile(). (3) Background snapshot retry already round-robins, now paired with a 20s rotation cooldown so a just-rotated tile isn't instantly re-promoted. New API: forceTile(), rotate(). App-only, no worker change. // p184: CCTV wall self-heals. (1) Each offline camera now AUTO-RETRIES on a jittered ~30s timer (capped at 6 attempts; existing serialized/throttled probes unchanged so the NVR is never hammered). (2) The bridge-offline banner re-checks every 8s while the server is down and, the instant cctv.abapardes.com.ph is reachable again, auto-reconnects EVERY condemned tile via new window.__hnxCctvLive.recover() — no tap on Re-check or on any camera needed. (3) Offline-tile message clarified to "CAMERA SERVER OFFLINE"/"STREAM OFFLINE · ↻ auto-retrying… · or tap to retry now" so it's obvious the app is handling it, not the dashboard. App-only, no worker change. // p183: (1) open-PO parser refactored into a pure, offline-testable function — window.hnxOpenPOSelfTest() proves the real AteretPaz PO #2026-21-PO0528-01 resolves to 700 on-order by BOTH name and id, a partial PO yields open-only (1000 ordered − 600 recv = 400), and closed POs are skipped; field net widened; id lookup form fixed; Purchase Engine status note now lists matched PO item names for eyeball verification; hnxOpenPODump() added. (2) CCTV residue: stripped 8 dead cams[] arrays from module command centers (sec_cmd perimeter list kept) + doc strings updated to 'IT + Security perimeter only'. Wall Launcher KEPT on purpose — it is a GENERAL multi-monitor view launcher, not a CCTV wall; audit-plan T-62 misidentified it. (3) geo_dash lifted to the rich pattern: hero band + live site-map panel (data-driven coordinate plot with live health colour; satellite tiles flagged as Mapbox-token-dependent). // p182: worker v3.2.2 integration. Purchase Engine now subtracts open-PO on-order qty (defensive normalizer over /sos/purchase-orders — under-counts safely, never over; new On-order column + live status). Audit Trail stamps caller IP via /whoami on new entries + IP column + CSV. //  // p181: QA sweep of full inventory suite (8 views, 14 APIs, 7 modules — all clean). Inventory Command Center now LIVE: MCC_LIVE.inv_cmd computes real KPIs/AI-rows/boxes/alerts from the engine (stock-outs, reorder queue+value, dead-stock capital, nearest forecast stock-out ETA, pending requests, draft POs) replacing demo numbers. //  // p180b: CCTV wall snapshot LOADER is now a bounded connection-pool — tiles render with no src; max 4 frame.jpeg requests in-flight at once, viewport-nearest first, slot freed on load/error/8s-timeout. Fixes the initial-paint stampede where all 20-80 tiles hit the bridge simultaneously and got stuck 'connecting…'. Watchdog skips still-pending tiles so it can't pre-empt them to live. //  // p180: Demand Forecasting (spec sheet 11) — inv_forecast view. Mines demand from Item Requests + manual/CSV usage (hydroPro_inv_usage_v1); per-SKU avg use, days-of-cover, projected 30d, rec safety, stock-out ETA; 90/180/365d window; CSV import/export; audit-logged. Exposes hnxInvForecastExists (lights Active-Item override) + hnxInvForecast (Purchase Engine raises order qty to cover lead-time forecast demand + Fcst col). Inventory AI spec COMPLETE. //  // p179b: CCTV wall prefers light H.264 _sub substream per camera when it exists (snapshot+live derive from it); big/spotlight/fullscreen keep full-res. Lets many cameras stream at once without overloading the NVR. //  // p179: CCTV bridge-load fix — staggered/throttled snapshot polling (3/tick @2.2s, near-viewport only, round-robin), cap concurrent LIVE upgrades (default 6, rest stay snapshots), bridge-wide failure suppression (never blanket STREAM OFFLINE). //  // p178: AI Copilot (spec 17) — chat assistant over live inventory snapshot via cloud /ai/ask; quick commands + deep-links to Purchase Engine/Duplicate AI/Master Data/Diagnostics. Inventory spec build complete (Forecasting pending data). //  // p176: CCTV live-stream cap + rotation (Live: All/4/6/8/12/16) to protect NVR. p177: Audit Trail (spec 16) — central log of inventory changes (user/action/old->new/date/time), filter+CSV; instrumented Master Data, Categories, Purchase Engine, Duplicate AI. //  // p175: CCTV wall false-offline fix — serialize stream health-probes (1 at a time, spaced), 3-strike + 7s timeout, lock 'ok' so verification stops saturating the bridge and flipping all live tiles to STREAM OFFLINE. //  // p174: Active-Item logic (spec 05) — movement bands Active<=90 / Slow 91-180 / Dormant 181-365 / Dead >365, forecast-override hook; Item Velocity view now 4-band with Dormant KPI+filter+capital. //  // p173: Duplicate-detection AI — weighted similarity (name/desc/brand/mfr/usage) with blocking, clustering, keep-master/dismiss/AI-review; merged dups hidden from Item Files. //  // p172: Purchase Engine — reorder-point/safety-stock breaches grouped into draft POs by supplier, budget check, draft PO tracking; forecast & open-PO inputs pending. //  // p171: Item Files defaults to May-2026-modified items, deduped by name, with scope chips (May/30d/All) + dedupe toggle; shows real SOS category. //  // p170: Item Master tab in Master Data — enrich each SOS SKU with brand/supplier/manufacturer/category(incl custom)/criticality/safety-stock; overlay store hydroPro_inv_item_master_v1, search-only over 9.3k items, focus-safe. //  // p169: Categories view now pulls LIVE from SOS (each item's real category) with real counts + add/delete custom categories (assignable per-item in Item Master). //  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
+const APP_BUILD=1783968000;
 const APP_BUILD_DATE='2026-05-30';
 
 // Store version in localStorage on first run
@@ -144371,6 +144380,10 @@ body.hnx-mobile-locked { overflow: hidden; }
 
   function consider(tile, img, force){
     if(!enabled) return;
+    // p185 — if this tile was just rotated out to give another camera a turn,
+    // let it rest so the stale 'error' listener can't instantly re-promote it.
+    var cd = parseInt(tile.getAttribute('data-hnx-cooldown')||'0',10)||0;
+    if(cd && Date.now()-cd < 20000) return;
     var st = tile.getAttribute('data-hnxlive');
     if(st === 'live' || st === 'queued') return;
     if(!force && snapOk(img)){ tile.setAttribute('data-hnxlive','snap'); return; } // snapshot works — keep it light
@@ -144400,6 +144413,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     var live = snapToLive(snap);
     if(!live){ tile.setAttribute('data-hnxlive','snap'); return; }
     tile.setAttribute('data-hnxlive','live');
+    tile.setAttribute('data-hnxlive-at', String(Date.now()));   // p185 — rotation age
     tile.setAttribute('data-snap-orig', snap);   // preserved for the verification probe
     img.removeAttribute('data-snap');      // stop the 4s snapshot polling for this dead endpoint
     inflight++;
@@ -144570,6 +144584,111 @@ body.hnx-mobile-locked { overflow: hidden; }
     pump();
   }
 
+  // ---- p185 — fair rotation + honest "tap to view" + load-on-demand ----------
+  // The bridge/NVR can only serve a handful of greenhouse streams at once, so the
+  // first few cameras hold every live slot and the rest sit on "connecting…".
+  // Rotation cycles the live slots through ALL cameras so each gets screen time;
+  // tap-to-view lets the user force any one camera live right now (past the cap).
+  var ROTATE_MS = 22000, REST_MS = 20000, STUCK_MS = 12000;
+
+  function _wallRoots(){ return document.querySelectorAll('.itcctv-wall-grid, #itCctvWallBody'); }
+  function _liveOnes(){
+    var out=[];
+    Array.prototype.forEach.call(_wallRoots(), function(g){
+      Array.prototype.forEach.call(g.querySelectorAll('[data-hnxlive="live"]'), function(t){ out.push(t); });
+    });
+    return out;
+  }
+  function _waitingOnes(){     // snapshot tiles eligible to take a live slot
+    var out=[], now=Date.now();
+    Array.prototype.forEach.call(_wallRoots(), function(g){
+      Array.prototype.forEach.call(g.querySelectorAll('img[data-snap]'), function(img){
+        var t=img.parentNode; if(!t) return;
+        if(t.getAttribute('data-hnxlive')==='live') return;
+        var cd=parseInt(t.getAttribute('data-hnx-cooldown')||'0',10)||0;
+        if(cd && now-cd < REST_MS) return;        // still resting after its turn
+        if(!nearViewport(t)) return;              // only rotate what's on screen
+        out.push({ tile:t, img:img, since: parseInt(t.getAttribute('data-hnx-stuck')||'0',10)||now });
+      });
+    });
+    out.sort(function(a,b){ return a.since-b.since; });   // longest-waiting first
+    return out;
+  }
+
+  // Revert a live tile back to a still snapshot and rest it, freeing a slot.
+  function demote(tile){
+    if(!tile) return;
+    var ifr = tile.querySelector('iframe');
+    if(ifr && ifr.parentNode) ifr.parentNode.removeChild(ifr);
+    var snap = tile.getAttribute('data-snap-orig') || '';
+    tile.removeAttribute('data-hnxlive-at');
+    tile.removeAttribute('data-hnx-verified');
+    tile.setAttribute('data-hnxlive','snap');
+    tile.setAttribute('data-hnx-cooldown', String(Date.now()));
+    var img = tile.querySelector('img');
+    if(img && snap){
+      img.setAttribute('data-snap', snap);
+      try{ img.style.display=''; }catch(e){}
+      var off = tile.querySelector('.hnx-snap-off'); if(off) off.style.display='flex';
+      img.src = snap + (snap.indexOf('?')>=0?'&':'?') + 't=' + Date.now();   // re-fetch a still frame
+    }
+  }
+
+  function rotate(){
+    if(!enabled || document.hidden) return;
+    var cap = _wdCap();
+    var waiting = _waitingOnes();
+    if(!waiting.length) return;                 // everything fits → nothing to cycle
+    var live = _liveOnes();
+    if(live.length < cap){ pump(); return; }    // free slots → just fill them
+    // all slots busy and cameras are waiting → cycle the oldest live one out…
+    live.sort(function(a,b){ return (parseInt(a.getAttribute('data-hnxlive-at'),10)||0)-(parseInt(b.getAttribute('data-hnxlive-at'),10)||0); });
+    demote(live[0]);
+    // …and promote the camera that has waited longest.
+    var w = waiting[0];
+    w.tile.removeAttribute('data-hnx-cooldown');
+    w.tile.setAttribute('data-hnxlive','queued');
+    queue.push({ tile:w.tile, img:w.img });
+    pump();
+  }
+
+  // Tap-to-view: force ONE camera live immediately, bypassing the cap.
+  function forceTile(tile){
+    if(!tile) return;
+    tile.removeAttribute('data-hnx-cooldown');
+    tile.removeAttribute('data-hnx-stuck');
+    var img = tile.querySelector('img[data-snap]');
+    if(img){ tile.setAttribute('data-hnxlive','queued'); upgrade(tile, img); }
+    else { retryTile(tile, true); }
+  }
+
+  // Rewrite a forever-"connecting…" overlay into an honest, tappable state.
+  function _showTapToView(off, tile){
+    off.setAttribute('data-hnx-tapview','1');
+    off.innerHTML =
+      '<div style="font-size:26px;opacity:.6;line-height:1;">\uD83D\uDCF7</div>'+
+      '<div style="font-size:10.5px;font-weight:700;color:#9cc;font-family:monospace;margin-top:6px;letter-spacing:.4px;">TAP TO VIEW</div>'+
+      '<div style="font-size:8.5px;color:#5b7d70;margin-top:2px;">waiting for a free slot\u2026</div>';
+    off.style.cssText='position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0c1713;color:#9cc;pointer-events:auto;cursor:pointer;text-align:center;';
+    off.onclick=function(e){ e.stopPropagation(); e.preventDefault(); forceTile(tile); };
+  }
+  function _markStuckTiles(){
+    if(!enabled || document.hidden) return;
+    var now=Date.now();
+    Array.prototype.forEach.call(_wallRoots(), function(g){
+      Array.prototype.forEach.call(g.querySelectorAll('.hnx-snap-off'), function(off){
+        var tile=off.parentNode; if(!tile) return;
+        if(tile.getAttribute('data-hnxlive')==='live'){ tile.removeAttribute('data-hnx-stuck'); return; }
+        var visible = (off.style.display!=='none');
+        var isConnecting = visible && /connecting/i.test(off.textContent||'') && !off.getAttribute('data-hnx-tapview');
+        if(!isConnecting){ if(!visible) tile.removeAttribute('data-hnx-stuck'); return; }
+        var since=parseInt(tile.getAttribute('data-hnx-stuck')||'0',10)||0;
+        if(!since){ tile.setAttribute('data-hnx-stuck', String(now)); return; }
+        if(now-since >= STUCK_MS) _showTapToView(off, tile);   // honest state after it stalls
+      });
+    });
+  }
+
   // Re-scan whenever the wall is re-rendered (Refresh / tab switch / arrange)
   var deb;
   function kick(){ clearTimeout(deb); deb = setTimeout(scan, 120); }
@@ -144590,6 +144709,8 @@ body.hnx-mobile-locked { overflow: hidden; }
   // so also poll on a steady interval. scan() is cheap — it skips tiles already
   // handled — and pump() respects the PAR concurrency cap.
   setInterval(function(){ if(enabled){ scan(); pump(); } }, 1500);
+  setInterval(rotate, ROTATE_MS);          // p185 — fair live-slot rotation
+  setInterval(_markStuckTiles, 4000);      // p185 — honest "tap to view" for stalled tiles
   // staggered initial passes to catch the wall whenever it first appears
   setTimeout(scan, 300); setTimeout(scan, 1000); setTimeout(scan, 2500);
 
@@ -144598,13 +144719,860 @@ body.hnx-mobile-locked { overflow: hidden; }
 
   function disable(){ enabled = false; queue = []; }
 
-  window.__hnxCctvLive = { kick:kick, scan:scan, forceLive:forceLive, disable:disable, recover:recover };
+  window.__hnxCctvLive = { kick:kick, scan:scan, forceLive:forceLive, disable:disable, recover:recover, forceTile:forceTile, rotate:rotate };
   // first pass (covers the wall already on screen at load)
   kick();
   console.log('[HNX-CCTV] live-fallback active — snapshot tiles upgrade to live player on stall/error.');
 })();
 </script>
 <!-- ================= END HNX CCTV LIVE-FALLBACK PATCH ================= -->
+
+<!-- ================= HNX T-74 — DAILY REPORT AUTO-DRAFT (p186) =================
+     Autonomy rung 1 for Production. Pulls today's OPEN issues/calls (grouped by
+     greenhouse) + today's EC/pH readings, asks the Cloud AI for a short summary,
+     and shows a DRAFT the supervisor reviews and SIGNS. Nothing is filed without
+     a signature. Builds on the existing Daily Reports system (hn_daily_reports_v1,
+     window.hnSaveReport). Additive; no existing report code changed.            -->
+<script>
+(function(){
+  'use strict';
+  if(window.hnxAutoDraftReport) return;
+
+  function pad(n){ return (n<10?'0':'')+n; }
+  function todayISO(){ var d=new Date(); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function toast(msg,kind){ try{ (window.aimToast||window.showToast||window._toast||function(){})(msg,kind||'info'); }catch(e){} }
+  function ghFromText(s){ if(!s) return null; var m=String(s).match(/\bGH\s*[-_ ]?(\d{1,2})\b/i); return m?('GH'+parseInt(m[1],10)):null; }
+
+  // ---- today's open issues / calls ----
+  function gatherIssues(){
+    var issues=[]; try{ issues=(typeof loadIssues==='function'?loadIssues():[])||[]; }catch(e){}
+    return issues.filter(function(i){ return i && (i.status==='open'||i.status==='in_progress'||i.status==='ready_to_close'||!i.status); });
+  }
+
+  // ---- today's EC/pH readings, grouped by greenhouse (ranges from the irrigation module) ----
+  function gatherSensors(){
+    var out={};
+    try{
+      if(typeof _irrLoadPoolReadings!=='function' || typeof _irrLoadPools!=='function') return out;
+      var todayR=(_irrLoadPoolReadings()||{})[todayISO()]||{};
+      (_irrLoadPools()||[]).forEach(function(p){
+        var gh=(typeof _irrPoolToGh==='function'?_irrPoolToGh(p):null); if(!gh) return;
+        var r=todayR[p.id]; if(!r) return;
+        if(!out[gh]) out[gh]={ec:{ok:0,bad:0,crit:0},ph:{ok:0,bad:0,crit:0},count:0};
+        Object.keys(r).forEach(function(slot){
+          var rd=r[slot]||{}, ec=parseFloat(rd.EC), ph=parseFloat(rd.pH);
+          if(!isNaN(ec)){ out[gh].count++; if(ec<1.0||ec>3.5) out[gh].ec.crit++; else if(ec<1.2||ec>3.2) out[gh].ec.bad++; else out[gh].ec.ok++; }
+          if(!isNaN(ph)){ if(ph<5.0||ph>7.0) out[gh].ph.crit++; else if(ph<5.5||ph>6.5) out[gh].ph.bad++; else out[gh].ph.ok++; }
+        });
+      });
+    }catch(e){}
+    return out;
+  }
+
+  // ---- assemble a draft report object (matches hn_daily_reports_v1 shape) ----
+  function buildDraft(){
+    var perGH={};
+    function ensure(k){ if(!perGH[k]) perGH[k]={status:'ok',crops:[],issues:[],positives:[]}; return perGH[k]; }
+
+    gatherIssues().forEach(function(i){
+      var gh=ghFromText(i.title)||ghFromText(i.description);
+      var key=gh || (i.module? ('['+String(i.module).toUpperCase()+']') : 'General');
+      var g=ensure(key);
+      var pr=(i.priority||'warning').toLowerCase();
+      var flag = pr==='critical'?'CRITICAL':(pr==='info'?'INFO':'WARNING');
+      var txt=(i.title||'Issue')+(i.description?(' \u2014 '+i.description):'');
+      g.issues.push({ txt:txt.slice(0,300), flag:flag });
+      if(pr==='critical') g.status='crit'; else if(g.status!=='crit') g.status='warn';
+    });
+
+    var sensors=gatherSensors(), sensorLines=[];
+    Object.keys(sensors).forEach(function(gh){
+      var s=sensors[gh]; if(!s.count) return;
+      var ecBad=s.ec.crit+s.ec.bad, phBad=s.ph.crit+s.ph.bad, g=ensure(gh);
+      if(ecBad||phBad){
+        var parts=[]; if(ecBad) parts.push(ecBad+' EC out of range'); if(phBad) parts.push(phBad+' pH out of range');
+        g.issues.push({ txt:'EC/pH today: '+parts.join(', ')+' ('+s.count+' readings)', flag:(s.ec.crit||s.ph.crit)?'CRITICAL':'ROOT ZONE' });
+        if(s.ec.crit||s.ph.crit) g.status='crit'; else if(g.status!=='crit') g.status='warn';
+        sensorLines.push(gh+': '+parts.join(', '));
+      } else { g.positives.push('EC/pH all in range today ('+s.count+' readings)'); }
+    });
+
+    var supervisor='ES BA';
+    try{ var u=(typeof getCurrentUser==='function'&&getCurrentUser())||window.currentUser||null; if(u&&(u.fullname||u.username)) supervisor=u.fullname||u.username; }catch(e){}
+
+    return { id:'rpt_'+todayISO()+'_prod_autodraft', date:todayISO(), type:'production_supervisor',
+      title:'Production Supervisor Checklist (AI draft)', facility:'GH1\u2013GH10', supervisor:supervisor,
+      summary:'', _autodraft:true, _sensorLines:sensorLines, perGH:perGH };
+  }
+
+  function countAll(draft){ var n=0; Object.keys(draft.perGH).forEach(function(k){ n+=(draft.perGH[k].issues||[]).length; }); return n; }
+
+  // ---- Cloud AI summary (uses the same worker /ai/analyze as the rest of the app) ----
+  function aiSummary(draft, cb){
+    var fn=(typeof window.__hnxApi==='function')?window.__hnxApi:null;
+    if(!fn){ cb(null); return; }
+    var lines=[];
+    Object.keys(draft.perGH).forEach(function(k){
+      var g=draft.perGH[k];
+      lines.push(k+' ['+g.status+']: '+g.issues.length+' issues'+(g.positives.length?(', '+g.positives.length+' ok'):''));
+      g.issues.slice(0,6).forEach(function(it){ lines.push('  - '+it.txt); });
+    });
+    var ctx={ date:draft.date, facility:draft.facility, perGH:lines.join('\n'), sensors:draft._sensorLines.join('; ')||'no out-of-range readings' };
+    var q='You are writing a Production Supervisor daily report for a hydroponic greenhouse facility (GH1-GH10). Using ONLY the data provided, write a concise 2-4 sentence plain-language summary of today: the most important issues, which greenhouses need attention, and EC/pH status. No preamble, no markdown, no bullet points.';
+    var t=setTimeout(function(){ if(cb){ var c=cb; cb=null; c(null); } }, 15000);
+    fn('/ai/analyze',{method:'POST',body:JSON.stringify({context:ctx,question:q})})
+      .then(function(d){ clearTimeout(t); if(!cb) return; var c=cb; cb=null; c((d&&(d.answer||d.text))||(d&&d.analysis&&d.analysis.conclusion)||null); })
+      .catch(function(){ clearTimeout(t); if(!cb) return; var c=cb; cb=null; c(null); });
+  }
+
+  function closeModal(){ var o=document.getElementById('hnxAdOverlay'); if(o&&o.parentNode) o.parentNode.removeChild(o); }
+
+  function signAndFile(draft){
+    var ta=document.getElementById('hnxAdSummary'); if(ta) draft.summary=ta.value;
+    draft.title='Production Supervisor Checklist';
+    draft._autodraft=false; draft._signedBy=draft.supervisor; draft._signedAt=Date.now();
+    try{ if(typeof window.hnSaveReport==='function') window.hnSaveReport(draft); }catch(e){}
+    try{ var host=document.getElementById('hnRptPanelHost'); if(host && typeof window.buildDailyReportsPanel==='function') host.innerHTML=window.buildDailyReportsPanel(draft.id); }catch(e){}
+    closeModal();
+    toast('\u2713 Today\u2019s report signed & filed','ok');
+  }
+
+  function renderModal(draft, aiOk){
+    closeModal();
+    var perGHhtml=Object.keys(draft.perGH).map(function(k){
+      var g=draft.perGH[k];
+      var col=g.status==='crit'?'#ff8a80':g.status==='warn'?'#ffcc80':'#a5d6a7';
+      var iss=(g.issues||[]).map(function(it){ return '<li style="margin:3px 0;"><span style="color:#ffb74d;font-size:9px;font-weight:800;font-family:monospace;">'+esc(it.flag||'')+'</span> '+esc(it.txt)+'</li>'; }).join('');
+      var pos=(g.positives||[]).map(function(p){ return '<li style="margin:3px 0;color:#a5d6a7;">+ '+esc(p)+'</li>'; }).join('');
+      return '<div style="margin:8px 0;padding:8px 10px;border:1px solid rgba(255,255,255,.08);border-radius:8px;background:rgba(255,255,255,.02);">'+
+        '<div style="font-weight:800;color:'+col+';font-family:monospace;font-size:12px;">'+esc(k)+' \u00b7 '+g.status.toUpperCase()+'</div>'+
+        '<ul style="margin:5px 0 0;padding-left:16px;font-size:11.5px;color:#cfd8dc;list-style:none;">'+iss+pos+'</ul></div>';
+    }).join('') || '<div style="color:#7aa99a;font-size:12px;padding:8px;">No open issues today \u2014 a clean day. Add any notes in the summary and sign.</div>';
+
+    var o=document.createElement('div');
+    o.id='hnxAdOverlay';
+    o.style.cssText='position:fixed;inset:0;z-index:2147483600;background:rgba(0,0,0,.6);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:30px 14px;';
+    o.innerHTML=
+      '<div style="width:min(620px,96vw);background:#0e1a14;border:1px solid #2a4438;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.6);font-family:system-ui,Segoe UI,Roboto,sans-serif;color:#e8f5e9;">'+
+        '<div style="padding:14px 18px;border-bottom:1px solid #1d3328;display:flex;align-items:center;gap:10px;">'+
+          '<div style="font-size:20px;">\uD83E\uDD16</div>'+
+          '<div style="flex:1;"><div style="font-size:15px;font-weight:800;">AI draft \u00b7 today\u2019s report</div>'+
+          '<div style="font-size:11px;color:#7aa99a;font-family:monospace;">'+esc(draft.date)+' \u00b7 '+countAll(draft)+' open issues \u00b7 '+Object.keys(draft.perGH).length+' areas</div></div>'+
+          '<button onclick="window.__hnxAd.close()" style="background:transparent;border:1px solid rgba(255,255,255,.2);color:#9fc7bb;border-radius:8px;padding:6px 10px;cursor:pointer;font-weight:800;">\u2715</button>'+
+        '</div>'+
+        '<div style="padding:14px 18px;">'+
+          '<div style="font-size:11px;color:#7aa99a;margin-bottom:4px;">SUMMARY '+(aiOk?'(written by Cloud AI \u2014 edit freely)':'(Cloud AI unavailable \u2014 basic summary, edit freely)')+'</div>'+
+          '<textarea id="hnxAdSummary" style="width:100%;min-height:90px;background:#0a120d;border:1px solid #2a4438;border-radius:8px;color:#e8f5e9;padding:10px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;">'+esc(draft.summary)+'</textarea>'+
+          '<div style="font-size:11px;color:#7aa99a;margin:12px 0 4px;">WHAT THE DRAFT FOUND \u2014 today\u2019s open issues + EC/pH readings</div>'+
+          '<div style="max-height:300px;overflow:auto;">'+perGHhtml+'</div>'+
+          '<div style="font-size:10.5px;color:#5b7d70;margin-top:10px;line-height:1.5;">Built from your open calls/issues and today\u2019s EC/pH readings. Nothing is filed until you sign. Edit the summary above; to change individual lines, sign first then edit it in Daily Reports.</div>'+
+        '</div>'+
+        '<div style="padding:12px 18px;border-top:1px solid #1d3328;display:flex;gap:10px;justify-content:flex-end;">'+
+          '<button onclick="window.__hnxAd.close()" style="background:transparent;border:1px solid rgba(255,255,255,.2);color:#9fc7bb;border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:700;">Cancel</button>'+
+          '<button onclick="window.__hnxAd.sign()" style="background:linear-gradient(135deg,#66bb6a,#1f6f43);border:none;color:#fff;border-radius:8px;padding:9px 16px;cursor:pointer;font-weight:800;">\u270D\uFE0F Sign &amp; File</button>'+
+        '</div></div>';
+    document.body.appendChild(o);
+    o.addEventListener('click', function(e){ if(e.target===o) closeModal(); });
+    window.__hnxAd={ close:closeModal, sign:function(){ signAndFile(draft); } };
+  }
+
+  function openReview(){
+    var draft=buildDraft();
+    toast('\uD83E\uDD16 Building today\u2019s draft\u2026','info');
+    aiSummary(draft, function(sum){
+      draft.summary = sum || ('Auto-draft for '+draft.date+': '+countAll(draft)+' open issue(s) across '+Object.keys(draft.perGH).length+' area(s). Review, add notes, and sign.');
+      renderModal(draft, !!sum);
+    });
+  }
+
+  // ~7am nudge so a draft is ready to file in the morning (once per day, non-intrusive).
+  function morningPrep(){
+    try{
+      var today=todayISO();
+      if(localStorage.getItem('hydroPro_autodraft_prepped')===today) return;
+      if(new Date().getHours()<7) return;
+      var filed=false;
+      try{ filed=JSON.parse(localStorage.getItem('hn_daily_reports_v1')||'[]').some(function(r){ return r&&r.date===today&&!r._autodraft; }); }catch(e){}
+      localStorage.setItem('hydroPro_autodraft_prepped',today);
+      if(!filed) toast('\uD83E\uDD16 Today\u2019s report can be auto-drafted \u2014 Production \u2192 Daily Reports','info');
+    }catch(e){}
+  }
+  setInterval(morningPrep, 5*60*1000);
+  setTimeout(morningPrep, 9000);
+
+  window.hnxAutoDraftReport = openReview;
+  console.log('[HNX-T74] daily report auto-draft ready — window.hnxAutoDraftReport()');
+})();
+</script>
+<!-- ================= END HNX T-74 DAILY REPORT AUTO-DRAFT ================= -->
+
+<!-- ================= HNX T-75 FOUNDATION — PLANTING LOG (p187) =================
+     Captures what's transplanted (greenhouse + variety + date, optional bed/count)
+     and an editable variety -> days-to-harvest table, so the app can compute each
+     bed's expected harvest date (T-75) and later recommend transplants (T-76).
+     New "🌱 Planting Log" tab in Production. Stores hydroPro_planting_log_v1 +
+     hydroPro_variety_maturity_v1 (both cloud-synced). Additive.                  -->
+<script>
+(function(){
+  'use strict';
+  if(window.__hnxPL) return;
+
+  var LOG_KEY='hydroPro_planting_log_v1', MAT_KEY='hydroPro_variety_maturity_v1';
+  function pad(n){ return (n<10?'0':'')+n; }
+  function todayISO(){ var d=new Date(); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function uid(){ return 'pl_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+  function toast(m,k){ try{ (window.aimToast||window.showToast||window._toast||function(){})(m,k||'info'); }catch(e){} }
+  function val(id){ var e=document.getElementById(id); return e?(e.value||''):''; }
+
+  function loadLog(){ try{ var a=JSON.parse(localStorage.getItem(LOG_KEY)||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+  function saveLog(a){ try{ localStorage.setItem(LOG_KEY,JSON.stringify(a)); }catch(e){} }
+  function loadMaturity(){ try{ return JSON.parse(localStorage.getItem(MAT_KEY)||'{}')||{}; }catch(e){ return {}; } }
+  function saveMaturity(m){ try{ localStorage.setItem(MAT_KEY,JSON.stringify(m)); }catch(e){} }
+
+  function varieties(){ try{ if(typeof SEEDLING_VARIETIES!=='undefined'&&SEEDLING_VARIETIES.length) return SEEDLING_VARIETIES.slice(); }catch(e){} return ['CGFE','CGFR','Butter V','Romaine D','Kale','Pak Choi','Basil','Mizuna','Chicory','Wild Rocket']; }
+  function greenhouses(){ var g=[]; for(var i=1;i<=10;i++) g.push('GH'+i); try{ if(typeof NFT_GREENHOUSES!=='undefined') NFT_GREENHOUSES.forEach(function(x){ if(g.indexOf(x)<0) g.push(x); }); }catch(e){} return g; }
+
+  // default days from transplant to harvest (hydroponic estimates; user-editable)
+  function defaultMaturity(v){
+    var s=String(v||'').toLowerCase();
+    if(/kale/.test(s)) return 52;
+    if(/basil/.test(s)) return 50;
+    if(/pak|pok|choy|choi/.test(s)) return 38;
+    if(/mizuna/.test(s)) return 32;
+    if(/chicor/.test(s)) return 45;
+    if(/rocket|arugula/.test(s)) return 28;
+    if(/chard/.test(s)) return 45;
+    if(/romaine|butter|lollo|oak/.test(s)) return 33;
+    if(/^cg|^cr/.test(s)) return 32;
+    return 35;
+  }
+  function maturityFor(v){ var m=loadMaturity(); if(m[v]!=null && !isNaN(parseInt(m[v],10))) return parseInt(m[v],10); return defaultMaturity(v); }
+
+  function harvestInfo(p){
+    var mat=maturityFor(p.variety);
+    var d=new Date(p.date+'T00:00:00'); if(isNaN(d.getTime())) return null;
+    var h=new Date(d.getTime()); h.setDate(h.getDate()+mat);
+    var today=new Date(); today.setHours(0,0,0,0);
+    return { maturity:mat, harvestISO:h.getFullYear()+'-'+pad(h.getMonth()+1)+'-'+pad(h.getDate()), daysLeft:Math.round((h-today)/86400000) };
+  }
+
+  function add(){
+    var variety=val('hnxPlVar').trim();
+    if(!variety){ toast('Pick a variety first','warn'); return; }
+    var log=loadLog();
+    log.push({ id:uid(), gh:val('hnxPlGh'), variety:variety, date:val('hnxPlDate')||todayISO(),
+      bed:val('hnxPlBed').trim(), count:val('hnxPlCount')?parseInt(val('hnxPlCount'),10):null,
+      stage:val('hnxPlStage')||'transplanted', createdAt:Date.now() });
+    saveLog(log); toast('\u2713 Planting added','ok'); rerender();
+  }
+  function markHarvested(id){ var log=loadLog(); var p=log.filter(function(x){return x.id===id;})[0]; if(!p) return; p.harvestedAt=Date.now(); saveLog(log); toast('\u2713 Marked harvested','ok'); rerender(); }
+  function del(id){ if(!confirm('Delete this planting entry?')) return; saveLog(loadLog().filter(function(x){return x.id!==id;})); rerender(); }
+  function setMaturity(v,days){ var m=loadMaturity(); var n=parseInt(days,10); if(isNaN(n)||n<=0) delete m[v]; else m[v]=n; saveMaturity(m); rerender(); }
+
+  // ---- T-76: which beds are free and need replanting ----
+  function bedKey(p){ return p.bed ? (p.gh+'|'+String(p.bed).toLowerCase()) : (p.gh+'|var:'+String(p.variety).toLowerCase()); }
+  function readyList(){
+    var log=loadLog();
+    var active=log.filter(function(p){ return !p.harvestedAt; });
+    var today=new Date(); today.setHours(0,0,0,0);
+    var out=[];
+    log.forEach(function(p){
+      if(p._dismissed) return;
+      var freedAt=null, reason=null;
+      if(p.harvestedAt){ freedAt=p.harvestedAt; reason='harvested'; }
+      else { var h=harvestInfo(p); if(h && h.daysLeft<0){ var d=new Date(p.date+'T00:00:00'); if(!isNaN(d.getTime())){ freedAt=d.getTime()+h.maturity*86400000; reason='overdue'; } } }
+      if(freedAt==null) return;
+      var key=bedKey(p), base=(p.harvestedAt||(new Date(p.date+'T00:00:00')).getTime());
+      var filled=active.some(function(a){ return a.id!==p.id && bedKey(a)===key && (a.createdAt||0)>base; });
+      if(filled) return;
+      out.push({ p:p, reason:reason, idle:Math.max(0,Math.round((today.getTime()-freedAt)/86400000)) });
+    });
+    out.sort(function(a,b){ return b.idle-a.idle; });
+    return out;
+  }
+  function plantHere(id){
+    var p=loadLog().filter(function(x){return x.id===id;})[0]; if(!p) return;
+    var set=function(eid,v){ var e=document.getElementById(eid); if(e) e.value=v; };
+    set('hnxPlGh',p.gh); set('hnxPlBed',p.bed||''); set('hnxPlVar',p.variety||''); set('hnxPlDate',todayISO());
+    var f=document.getElementById('hnxPlVar'); if(f){ try{ f.scrollIntoView({behavior:'smooth',block:'center'}); }catch(e){} try{ f.focus(); }catch(e){} }
+    toast('Form filled for '+p.gh+(p.bed?(' \u00b7 '+p.bed):'')+' \u2014 check the variety, then Add','info');
+  }
+  function dismissReady(id){ var log=loadLog(); var p=log.filter(function(x){return x.id===id;})[0]; if(!p) return; p._dismissed=true; saveLog(log); rerender(); }
+  function readySection(){
+    var list=readyList(); if(!list.length) return '';
+    var rows=list.map(function(x){
+      var p=x.p, bedTxt=p.bed?(' \u00b7 '+esc(p.bed)):'';
+      var tag = x.reason==='overdue'
+        ? '<span style="font-size:9px;font-weight:800;color:#ff8a80;border:1px solid #ff8a80;border-radius:5px;padding:1px 6px;">PAST HARVEST</span>'
+        : '<span style="font-size:9px;font-weight:800;color:#ffcc80;border:1px solid #ffcc80;border-radius:5px;padding:1px 6px;">HARVESTED</span>';
+      var sub = x.reason==='overdue'
+        ? ('was '+esc(p.variety)+' \u00b7 '+x.idle+'d past harvest date \u2014 harvest then replant')
+        : ('was '+esc(p.variety)+' \u00b7 idle '+x.idle+'d since harvest');
+      return '<div style="display:grid;grid-template-columns:60px 1fr auto;gap:10px;align-items:center;padding:9px 12px;border:1px solid rgba(255,167,38,.25);border-radius:9px;background:rgba(255,167,38,.05);margin-bottom:7px;">'+
+        '<div style="font-family:monospace;font-weight:800;color:#80deea;">'+esc(p.gh)+'</div>'+
+        '<div><div style="font-weight:700;color:#e8f5e9;font-size:13px;">'+esc(p.gh)+bedTxt+' '+tag+'</div>'+
+          '<div style="font-size:11px;color:#9fc7bb;">'+sub+'</div></div>'+
+        '<div style="white-space:nowrap;text-align:right;"><button onclick="window.__hnxPL.plantHere(\''+p.id+'\')" style="background:linear-gradient(135deg,#66bb6a,#1f6f43);border:none;color:#fff;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:800;cursor:pointer;">\u2795 Plant here</button> '+
+          '<button onclick="window.__hnxPL.dismiss(\''+p.id+'\')" style="background:transparent;border:1px solid rgba(255,255,255,.2);color:#9fc7bb;border-radius:6px;padding:5px 9px;font-size:11px;cursor:pointer;">Dismiss</button></div></div>';
+    }).join('');
+    return '<div style="border:1px solid rgba(255,167,38,.35);border-radius:12px;background:rgba(255,167,38,.04);padding:12px 14px;margin-bottom:18px;">'+
+      '<div style="font-size:12px;font-weight:800;color:#ffcc80;margin-bottom:8px;">\uD83D\uDD04 Ready to transplant \u00b7 '+list.length+' bed'+(list.length>1?'s':'')+' \u2014 keep no bed idle</div>'+rows+'</div>';
+  }
+
+  function chip(n,label,col){ return '<div style="border:1px solid '+col+';border-radius:10px;padding:8px 12px;min-width:84px;"><div style="font-size:22px;font-weight:800;color:'+col+';font-family:monospace;">'+n+'</div><div style="font-size:10.5px;color:#9fc7bb;">'+label+'</div></div>'; }
+  function fld(label,inner){ return '<div style="display:flex;flex-direction:column;gap:3px;"><label style="font-size:10px;color:#7aa99a;">'+label+'</label>'+inner+'</div>'; }
+  function ist(){ return 'background:#0a120d;border:1px solid #2a4438;border-radius:7px;color:#e8f5e9;padding:7px 9px;font-size:12.5px;font-family:inherit;height:36px;box-sizing:border-box;'; }
+
+  function panelHTML(){
+    var active=loadLog().filter(function(p){ return !p.harvestedAt; });
+    var rows=active.map(function(p){ return {p:p,h:harvestInfo(p)}; }).filter(function(x){ return x.h; });
+    rows.sort(function(a,b){ return a.h.daysLeft-b.h.daysLeft; });
+    var soon=rows.filter(function(x){ return x.h.daysLeft>=0 && x.h.daysLeft<=7; }).length;
+    var overdue=rows.filter(function(x){ return x.h.daysLeft<0; }).length;
+
+    var ghOpts=greenhouses().map(function(g){ return '<option value="'+esc(g)+'">'+esc(g)+'</option>'; }).join('');
+    var varOpts=varieties().map(function(v){ return '<option value="'+esc(v)+'">'; }).join('');
+
+    var listHTML = rows.length ? rows.map(function(x){
+      var p=x.p,h=x.h;
+      var col=h.daysLeft<0?'#ff8a80':(h.daysLeft<=7?'#ffcc80':'#a5d6a7');
+      var lbl=h.daysLeft<0?('overdue '+(-h.daysLeft)+'d'):(h.daysLeft+'d left');
+      return '<div style="display:grid;grid-template-columns:60px 1fr auto;gap:10px;align-items:center;padding:9px 12px;border:1px solid rgba(255,255,255,.07);border-radius:9px;background:rgba(255,255,255,.02);margin-bottom:7px;">'+
+        '<div style="font-family:monospace;font-weight:800;color:#80deea;">'+esc(p.gh)+'</div>'+
+        '<div><div style="font-weight:700;color:#e8f5e9;font-size:13px;">'+esc(p.variety)+(p.bed?(' <span style="color:#7aa99a;font-size:11px;">\u00b7 '+esc(p.bed)+'</span>'):'')+(p.count?(' <span style="color:#7aa99a;font-size:11px;">\u00b7 '+p.count+' plants</span>'):'')+'</div>'+
+          '<div style="font-size:11px;color:#7aa99a;font-family:monospace;">planted '+esc(p.date)+' \u00b7 '+h.maturity+'d \u2192 harvest '+esc(h.harvestISO)+'</div></div>'+
+        '<div style="text-align:right;white-space:nowrap;"><div style="font-weight:800;color:'+col+';font-size:13px;">'+lbl+'</div>'+
+          '<div style="margin-top:4px;"><button onclick="window.__hnxPL.harvest(\''+p.id+'\')" style="background:linear-gradient(135deg,#66bb6a,#1f6f43);border:none;color:#fff;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer;">\u2713 Harvested</button> '+
+          '<button onclick="window.__hnxPL.del(\''+p.id+'\')" style="background:transparent;border:1px solid rgba(255,255,255,.2);color:#9fc7bb;border-radius:6px;padding:4px 7px;font-size:11px;cursor:pointer;">\uD83D\uDDD1</button></div></div>'+
+      '</div>';
+    }).join('') : '<div style="color:#7aa99a;font-size:13px;padding:14px;text-align:center;">No active plantings yet. Add one above to start tracking harvest dates.</div>';
+
+    var matMap=loadMaturity(), used={};
+    active.forEach(function(p){ used[p.variety]=1; });
+    Object.keys(matMap).forEach(function(v){ used[v]=1; });
+    var matVars=Object.keys(used); if(!matVars.length) matVars=varieties().slice(0,8);
+    var matRows=matVars.map(function(v){
+      var vj=esc(v).replace(/'/g,"\\'");
+      return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;"><div style="flex:1;font-size:12px;color:#cfd8dc;">'+esc(v)+'</div>'+
+        '<input type="number" min="1" value="'+maturityFor(v)+'" onchange="window.__hnxPL.setMat(\''+vj+'\',this.value)" style="width:64px;background:#0a120d;border:1px solid #2a4438;border-radius:6px;color:#e8f5e9;padding:5px 7px;font-size:12px;text-align:center;"><span style="font-size:11px;color:#7aa99a;">days</span></div>';
+    }).join('');
+
+    return '<div style="max-width:920px;margin:0 auto;padding:18px 16px;font-family:system-ui,Segoe UI,Roboto,sans-serif;color:#e8f5e9;">'+
+      '<div style="font-size:11px;color:#7aa99a;font-family:monospace;letter-spacing:.5px;">\uD83C\uDF31 PRODUCTION \u00b7 PLANTING LOG</div>'+
+      '<div style="font-size:22px;font-weight:800;margin:2px 0 4px;">Planting Log <span style="font-size:13px;color:#7aa99a;font-weight:600;">\u2014 harvest dates, predicted</span></div>'+
+      '<div style="font-size:12.5px;color:#9fc7bb;margin-bottom:14px;">Log what you transplant. The app counts each variety\u2019s days-to-harvest and shows when every bed is ready.</div>'+
+      '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">'+chip(rows.length,'active plantings','#80deea')+chip(soon,'harvest \u22647 days','#ffcc80')+chip(overdue,'past harvest date','#ff8a80')+'</div>'+
+      readySection()+yieldSection()+
+      '<div style="border:1px solid #2a4438;border-radius:12px;background:rgba(255,255,255,.02);padding:12px 14px;margin-bottom:18px;">'+
+        '<div style="font-size:12px;font-weight:800;color:#a5d6a7;margin-bottom:8px;">\u2795 Add a planting</div>'+
+        '<datalist id="hnxPlVarList">'+varOpts+'</datalist>'+
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">'+
+          fld('Greenhouse','<select id="hnxPlGh" style="'+ist()+'">'+ghOpts+'</select>')+
+          fld('Variety','<input id="hnxPlVar" list="hnxPlVarList" placeholder="e.g. CGFE" style="'+ist()+'width:120px;">')+
+          fld('Transplant date','<input id="hnxPlDate" type="date" value="'+todayISO()+'" style="'+ist()+'">')+
+          fld('Bed/Table (optional)','<input id="hnxPlBed" placeholder="e.g. Table A" style="'+ist()+'width:110px;">')+
+          fld('Count (optional)','<input id="hnxPlCount" type="number" min="0" placeholder="plants" style="'+ist()+'width:90px;">')+
+          fld('Stage','<select id="hnxPlStage" style="'+ist()+'"><option value="transplanted">Transplanted</option><option value="seedling">Seedling</option></select>')+
+          '<button onclick="window.__hnxPL.add()" style="background:linear-gradient(135deg,#66bb6a,#1f6f43);border:none;color:#fff;border-radius:8px;padding:9px 16px;font-weight:800;cursor:pointer;height:36px;">Add</button>'+
+        '</div></div>'+
+      '<div style="font-size:12px;font-weight:800;color:#9fc7bb;margin-bottom:8px;">\u23F1 Active plantings \u00b7 soonest harvest first</div>'+listHTML+
+      '<details style="margin-top:18px;border:1px solid #2a4438;border-radius:12px;background:rgba(255,255,255,.02);padding:10px 14px;">'+
+        '<summary style="cursor:pointer;font-size:12px;font-weight:800;color:#a5d6a7;">\uD83C\uDF93 Variety \u2192 days-to-harvest (edit to your real numbers)</summary>'+
+        '<div style="font-size:11px;color:#7aa99a;margin:6px 0 8px;">Defaults are estimates from transplant to harvest. Correct them and your harvest dates get more accurate.</div>'+matRows+
+      '</details></div>';
+  }
+
+  // ---- T-77: capture yield at harvest + per-variety baseline + anomaly ----
+  function metricOf(p){ if(!p.yieldKg) return null; if(p.count && p.count>0) return {val:p.yieldKg/p.count, mode:'perplant', unit:'kg/plant'}; return {val:p.yieldKg, mode:'raw', unit:'kg'}; }
+  function baselineFor(variety, mode, excludeId){
+    var vals=loadLog().filter(function(p){ return p.harvestedAt && p.yieldKg && p.variety===variety && p.id!==excludeId && ((mode==='perplant')?(p.count>0):!(p.count>0)); })
+      .map(function(p){ return (mode==='perplant')? (p.yieldKg/p.count) : p.yieldKg; });
+    if(!vals.length) return {n:0, avg:0};
+    return {n:vals.length, avg:vals.reduce(function(a,b){return a+b;},0)/vals.length};
+  }
+  function isAnomaly(p){ var m=metricOf(p); if(!m) return null; var b=baselineFor(p.variety,m.mode,p.id); if(b.n<3) return null; if(m.val < b.avg*0.85) return {pct:(1-m.val/b.avg)*100, baseline:b.avg, val:m.val, unit:m.unit, n:b.n}; return null; }
+
+  function closeYieldModal(){ var o=document.getElementById('hnxPlYieldModal'); if(o&&o.parentNode) o.parentNode.removeChild(o); }
+  function harvestPrompt(id){
+    var p=loadLog().filter(function(x){return x.id===id;})[0]; if(!p) return;
+    closeYieldModal();
+    var o=document.createElement('div'); o.id='hnxPlYieldModal';
+    o.style.cssText='position:fixed;inset:0;z-index:2147483600;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px;';
+    o.innerHTML='<div style="width:min(380px,94vw);background:#0e1a14;border:1px solid #2a4438;border-radius:14px;color:#e8f5e9;font-family:system-ui,Segoe UI,Roboto,sans-serif;box-shadow:0 20px 60px rgba(0,0,0,.6);">'+
+      '<div style="padding:14px 18px;border-bottom:1px solid #1d3328;font-weight:800;">Harvest '+esc(p.gh)+(p.bed?(' \u00b7 '+esc(p.bed)):'')+' \u2014 '+esc(p.variety)+'</div>'+
+      '<div style="padding:16px 18px;">'+
+        '<label style="font-size:12px;color:#9fc7bb;">Yield (kg) \u2014 optional, enables yield tracking</label>'+
+        '<input id="hnxPlYieldKg" type="number" min="0" step="0.1" inputmode="decimal" placeholder="e.g. 12.5" style="width:100%;margin-top:6px;background:#0a120d;border:1px solid #2a4438;border-radius:8px;color:#e8f5e9;padding:10px;font-size:15px;box-sizing:border-box;">'+
+        (p.count?('<div style="font-size:11px;color:#7aa99a;margin-top:6px;">'+p.count+' plants logged \u2014 yield per plant is used for the baseline.</div>'):('<div style="font-size:11px;color:#7aa99a;margin-top:6px;">Tip: a plant count on this bed makes yield comparison fairer.</div>'))+
+      '</div>'+
+      '<div style="padding:12px 18px;border-top:1px solid #1d3328;display:flex;gap:10px;justify-content:flex-end;">'+
+        '<button onclick="window.__hnxPL.confirmHarvest(\''+p.id+'\',null)" style="background:transparent;border:1px solid rgba(255,255,255,.2);color:#9fc7bb;border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:700;">Skip</button>'+
+        '<button onclick="window.__hnxPL.confirmFromInput(\''+p.id+'\')" style="background:linear-gradient(135deg,#66bb6a,#1f6f43);border:none;color:#fff;border-radius:8px;padding:9px 16px;cursor:pointer;font-weight:800;">\u2713 Save harvest</button>'+
+      '</div></div>';
+    document.body.appendChild(o);
+    o.addEventListener('click', function(e){ if(e.target===o) closeYieldModal(); });
+    setTimeout(function(){ var i=document.getElementById('hnxPlYieldKg'); if(i) i.focus(); }, 60);
+  }
+  function confirmFromInput(id){ var i=document.getElementById('hnxPlYieldKg'); var kg=i?parseFloat(i.value):NaN; confirmHarvest(id, isNaN(kg)?null:kg); }
+  function confirmHarvest(id, kg){
+    var log=loadLog(); var p=log.filter(function(x){return x.id===id;})[0]; if(!p){ closeYieldModal(); return; }
+    p.harvestedAt=Date.now(); if(kg!=null && kg>0) p.yieldKg=kg;
+    saveLog(log); closeYieldModal();
+    var an=(kg!=null&&kg>0)?isAnomaly(p):null;
+    if(an) toast('\u26A0 '+p.gh+' '+p.variety+' yield '+Math.round(an.pct)+'% below average ('+an.val.toFixed(2)+' vs '+an.baseline.toFixed(2)+' '+an.unit+')','warn');
+    else toast('\u2713 Harvest recorded'+(kg?(' \u00b7 '+kg+' kg'):''),'ok');
+    rerender();
+  }
+
+  function yieldSection(){
+    var harv=loadLog().filter(function(p){ return p.harvestedAt && p.yieldKg; });
+    if(!harv.length) return '';
+    var flags=harv.slice().sort(function(a,b){ return (b.harvestedAt||0)-(a.harvestedAt||0); }).map(function(p){ var a=isAnomaly(p); return a?{p:p,a:a}:null; }).filter(Boolean);
+    var alertHTML = flags.length ? '<div style="border:1px solid rgba(239,83,80,.4);border-radius:12px;background:rgba(239,83,80,.06);padding:12px 14px;margin-bottom:14px;">'+
+      '<div style="font-size:12px;font-weight:800;color:#ff8a80;margin-bottom:6px;">\u26A0 Yield anomalies \u00b7 '+flags.length+' below baseline</div>'+
+      flags.slice(0,8).map(function(f){ return '<div style="font-size:12px;color:#cfd8dc;padding:3px 0;">'+esc(f.p.gh)+' \u00b7 '+esc(f.p.variety)+' \u2014 <b style="color:#ff8a80;">'+Math.round(f.a.pct)+'% below avg</b> ('+f.a.val.toFixed(2)+' vs '+f.a.baseline.toFixed(2)+' '+f.a.unit+', n='+f.a.n+')</div>'; }).join('')+'</div>' : '';
+    var byVar={}; harv.forEach(function(p){ (byVar[p.variety]=byVar[p.variety]||[]).push(p); });
+    var rows=Object.keys(byVar).sort().map(function(v){
+      var pp=baselineFor(v,'perplant',''), raw=baselineFor(v,'raw',''); var b=(pp.n>=raw.n)?pp:raw; var unit=(b===pp)?'kg/plant':'kg';
+      var total=byVar[v].length; var status=b.n>=3?('avg '+b.avg.toFixed(2)+' '+unit):('building baseline ('+total+'/3)');
+      return '<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,.05);"><span style="color:#cfd8dc;">'+esc(v)+' \u00b7 '+total+' harvest'+(total>1?'s':'')+'</span><span style="color:#9fc7bb;font-family:monospace;">'+status+'</span></div>';
+    }).join('');
+    return alertHTML+'<details style="margin-top:14px;border:1px solid #2a4438;border-radius:12px;background:rgba(255,255,255,.02);padding:10px 14px;">'+
+      '<summary style="cursor:pointer;font-size:12px;font-weight:800;color:#a5d6a7;">\uD83D\uDCCA Yield by variety (baseline needs 3+ harvests)</summary>'+
+      '<div style="font-size:11px;color:#7aa99a;margin:6px 0 8px;">Baseline = average past yield per variety (per-plant when counts exist). A harvest >15% below baseline is flagged.</div>'+rows+'</details>';
+  }
+
+  function host(){ return document.getElementById('hnxPlPanelHost'); }
+  function rerender(){ var h=host(); if(h) h.innerHTML=panelHTML(); }
+
+  function curMod(){ var a=document.querySelector('.module-btn.active'); if(a){ var oc=a.getAttribute('onclick')||''; var m=oc.match(/switchModule\(['"]([^'"]+)/); if(m) return m[1]; } return window.HN_currentModule||'overview'; }
+  function injectTab(){
+    if(curMod()!=='production') return;
+    var bar=Array.prototype.slice.call(document.querySelectorAll('.module-sub-tabs')).filter(function(b){ return b.offsetParent; })[0];
+    if(!bar || bar.querySelector('.hnx-pl-tab')) return;
+    var btn=document.createElement('button');
+    btn.className='module-sub-tab hnx-pl-tab';
+    btn.innerHTML='\uD83C\uDF31 Planting Log';
+    btn.onclick=activate;
+    var anchor=bar.querySelector('.hn-rpt-tab-injected');
+    if(anchor && anchor.nextSibling) bar.insertBefore(btn,anchor.nextSibling); else bar.appendChild(btn);
+  }
+  function activate(){
+    document.querySelectorAll('.module-sub-tab').forEach(function(t){ t.classList.remove('active'); });
+    var btn=document.querySelector('.hnx-pl-tab'); if(btn) btn.classList.add('active');
+    var main=document.getElementById('appMain'); if(!main) return;
+    var h=host();
+    if(!h){ h=document.createElement('div'); h.id='hnxPlPanelHost'; h.className='view active'; main.appendChild(h); }
+    h.classList.add('active'); h.style.display='block';
+    h.innerHTML=panelHTML();
+  }
+  function deactivate(){ var h=host(); if(h){ h.classList.remove('active'); h.style.display='none'; } }
+
+  function hookSwitchers(){
+    if(window._hnxPlHooked) return;
+    if(typeof window.switchView==='function'){ var sv=window.switchView; window.switchView=function(){ deactivate(); return sv.apply(this,arguments); }; }
+    if(typeof window.switchModule==='function'){ var sm=window.switchModule; window.switchModule=function(){ deactivate(); return sm.apply(this,arguments); }; }
+    window._hnxPlHooked=true;
+  }
+  document.addEventListener('click', function(ev){ var t=ev.target.closest('.module-sub-tab'); if(!t||t.classList.contains('hnx-pl-tab')) return; deactivate(); }, true);
+
+  function tick(){ injectTab(); hookSwitchers(); }
+  [500,1300,2600,5200,10000].forEach(function(t){ setTimeout(tick,t); });
+  setInterval(tick,5000);
+
+  window.__hnxPL={ add:add, harvest:harvestPrompt, confirmHarvest:confirmHarvest, confirmFromInput:confirmFromInput, del:del, setMat:setMaturity, render:rerender, activate:activate, plantHere:plantHere, dismiss:dismissReady };
+  console.log('[HNX-T75] Planting Log foundation ready.');
+})();
+</script>
+<!-- ================= END HNX PLANTING LOG ================= -->
+
+<!-- ================= HNX T-110 — WEEKLY EXECUTIVE SUMMARY (p190) ================= -->
+<script>
+(function(){
+  'use strict';
+  if(window.hnxWeeklySummaryBox) return;
+  var SAVE_KEY='hydroPro_weekly_summary_v1';
+
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function toast(m,k){ try{ (window.aimToast||window.showToast||window._toast||function(){})(m,k||'info'); }catch(e){} }
+  function pad(n){ return (n<10?'0':'')+n; }
+
+  function loadIssuesSafe(){ try{ return (typeof loadIssues==='function'?loadIssues():[])||[]; }catch(e){ return []; } }
+  function loadReports(){ try{ return window.HN_DAILY_REPORTS || JSON.parse(localStorage.getItem('hn_daily_reports_v1')||'[]') || []; }catch(e){ return []; } }
+  function loadPlantings(){ try{ var a=JSON.parse(localStorage.getItem('hydroPro_planting_log_v1')||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+  function maturityFor(v){ try{ var m=JSON.parse(localStorage.getItem('hydroPro_variety_maturity_v1')||'{}'); if(m[v]!=null&&!isNaN(parseInt(m[v],10))) return parseInt(m[v],10); }catch(e){} var s=String(v||'').toLowerCase(); if(/kale/.test(s))return 52; if(/basil/.test(s))return 50; if(/pak|pok|choy|choi/.test(s))return 38; if(/mizuna/.test(s))return 32; if(/chicor/.test(s))return 45; if(/rocket|arugula/.test(s))return 28; if(/chard/.test(s))return 45; if(/romaine|butter|lollo|oak/.test(s))return 33; if(/^cg|^cr/.test(s))return 32; return 35; }
+  function daysLeft(p){ var d=new Date(p.date+'T00:00:00'); if(isNaN(d.getTime())) return null; var h=new Date(d.getTime()); h.setDate(h.getDate()+maturityFor(p.variety)); var t=new Date(); t.setHours(0,0,0,0); return Math.round((h-t)/86400000); }
+
+  function gather(start,end){
+    var issues=loadIssuesSafe().filter(function(i){ return i && (i.status==='open'||i.status==='in_progress'||i.status==='ready_to_close'||!i.status); });
+    var crit=issues.filter(function(i){ return (i.priority||'').toLowerCase()==='critical'; });
+    var byMod={}; issues.forEach(function(i){ var m=i.module||'other'; byMod[m]=(byMod[m]||0)+1; });
+    var topCrit=crit.slice(0,5).map(function(i){ return (i.module?('['+i.module+'] '):'')+(i.title||'issue'); });
+
+    var reports=loadReports().filter(function(r){ return r && r.date && (!start||r.date>=start) && (!end||r.date<=end); });
+    var repIssues=0; reports.forEach(function(r){ Object.keys(r.perGH||{}).forEach(function(g){ repIssues+=(((r.perGH[g]||{}).issues)||[]).length; }); });
+
+    var active=loadPlantings().filter(function(p){ return p && !p.harvestedAt; });
+    var due7=[], overdue=0;
+    active.forEach(function(p){ var dl=daysLeft(p); if(dl==null) return; if(dl<0) overdue++; else if(dl<=7) due7.push({gh:p.gh,variety:p.variety,dl:dl}); });
+    due7.sort(function(a,b){ return a.dl-b.dl; });
+
+    return {
+      openIssues:issues.length, critical:crit.length, topCritical:topCrit, byModule:byMod,
+      reportsFiled:reports.length, issuesLoggedInReports:repIssues,
+      harvestsDue7d:due7.map(function(x){ return x.gh+' '+x.variety+' ('+x.dl+'d)'; }),
+      bedsNeedingReplant:overdue,
+      nums:{ crit:crit.length, reports:reports.length, harvest:due7.length, replant:overdue }
+    };
+  }
+
+  function loadSaved(){ try{ return JSON.parse(localStorage.getItem(SAVE_KEY)||'null'); }catch(e){ return null; } }
+  function save(obj){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify(obj)); }catch(e){} }
+
+  function chip(v,l,c){ return '<div style="border:1px solid '+c+';border-radius:9px;padding:6px 10px;min-width:70px;"><div style="font-size:18px;font-weight:800;color:'+c+';font-family:monospace;">'+v+'</div><div style="font-size:9.5px;color:#9fc7bb;">'+l+'</div></div>'; }
+  function numsRow(n){
+    n=n||{};
+    return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px;">'+
+      chip(n.crit||0,'open critical',(n.crit?'#ff8a80':'#a5d6a7'))+
+      chip(n.reports||0,'reports filed','#80deea')+
+      chip(n.harvest||0,'harvest \u22647d','#ffcc80')+
+      chip(n.replant||0,'beds to replant',(n.replant?'#ffcc80':'#a5d6a7'))+'</div>';
+  }
+  function resultHTML(saved){
+    if(!saved) return '<div style="font-size:12px;color:#7aa99a;">No summary yet. Press <b>Generate now</b> to build this week\u2019s digest.</div>';
+    return numsRow(saved.nums)+'<div style="font-size:13.5px;color:#e8f5e9;line-height:1.55;white-space:pre-wrap;">'+esc(saved.text)+'</div>'+
+      '<div style="font-size:9.5px;color:#7aa99a;font-family:monospace;margin-top:8px;">Cloud AI \u00b7 '+esc(saved.period||'')+' \u00b7 generated '+new Date(saved.generatedAt||Date.now()).toLocaleString()+'</div>';
+  }
+
+  window.hnxWeeklySummaryBox=function(start,end){
+    var saved=loadSaved();
+    return '<div id="hnxWeeklyAiBox" style="border:1px solid #6a4ea0;border-radius:12px;background:linear-gradient(135deg,rgba(126,87,194,.12),rgba(77,208,225,.05));padding:14px 16px;margin-bottom:16px;">'+
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'+
+        '<div style="font-size:13px;font-weight:800;color:#ce93d8;">\uD83E\uDD16 Weekly Executive Summary</div>'+
+        '<div style="flex:1;"></div>'+
+        '<button onclick="window.hnxWeeklySummary(document.getElementById(\'mgrStart\').value,document.getElementById(\'mgrEnd\').value)" style="background:linear-gradient(135deg,#7e57c2,#4527a0);border:none;color:#fff;border-radius:8px;padding:7px 13px;font-size:12px;font-weight:800;cursor:pointer;">'+(saved?'\u21BB Regenerate':'Generate now')+'</button>'+
+      '</div>'+
+      '<div style="font-size:10.5px;color:#9fc7bb;margin:3px 0 8px;">Cross-module digest for leadership \u00b7 auto-prepared Monday after 7am</div>'+
+      '<div id="hnxWeeklyAiResult">'+resultHTML(saved)+'</div>'+
+    '</div>';
+  };
+
+  function generate(start,end,silent){
+    if(!start||!end){ var e0=new Date(); var s0=new Date(); s0.setDate(e0.getDate()-6); start=s0.getFullYear()+'-'+pad(s0.getMonth()+1)+'-'+pad(s0.getDate()); end=e0.getFullYear()+'-'+pad(e0.getMonth()+1)+'-'+pad(e0.getDate()); }
+    var data=gather(start,end);
+    if(!silent){ var bx=document.getElementById('hnxWeeklyAiResult'); if(bx) bx.innerHTML='<div style="font-size:12px;color:#9fc7bb;">\uD83E\uDD16 Generating from this week\u2019s data\u2026</div>'; }
+    var ctx={ period:start+' to '+end, openIssues:data.openIssues, criticalIssues:data.critical, topCritical:data.topCritical.join(' | ')||'none',
+      issuesByModule:data.byModule, reportsFiled:data.reportsFiled, issuesLoggedInReports:data.issuesLoggedInReports,
+      harvestsDue7d:data.harvestsDue7d.join(', ')||'none', bedsNeedingReplant:data.bedsNeedingReplant };
+    var q='You are writing the Monday weekly executive summary for the owner of a hydroponic greenhouse facility (GH1-GH10). Using ONLY the data provided, write 3 to 5 short sentences in plain, simple language: overall status, the most important issues to act on this week, what is harvesting in the next 7 days, and any beds needing replanting. No markdown, no preamble, no bullet points.';
+    function finish(text){
+      var obj={ generatedAt:Date.now(), period:start+' to '+end, text:text, nums:data.nums };
+      save(obj);
+      var b=document.getElementById('hnxWeeklyAiResult'); if(b) b.innerHTML=resultHTML(obj);
+      if(silent) toast('\uD83E\uDD16 Weekly summary ready \u2014 open Manager Summary','info');
+    }
+    var fn=(typeof window.__hnxApi==='function')?window.__hnxApi:null;
+    if(!fn){ finish('Cloud AI is offline. Key numbers this period: '+data.critical+' open critical issue(s), '+data.reportsFiled+' report(s) filed, '+data.harvestsDue7d.length+' harvest(s) due within 7 days, '+data.bedsNeedingReplant+' bed(s) needing replanting.'); return; }
+    var done=false;
+    var to=setTimeout(function(){ if(done) return; done=true; finish('(Cloud AI timed out.) '+data.critical+' open critical, '+data.reportsFiled+' reports filed, '+data.harvestsDue7d.length+' harvests due \u22647d, '+data.bedsNeedingReplant+' beds to replant.'); }, 18000);
+    fn('/ai/analyze',{method:'POST',body:JSON.stringify({context:ctx,question:q})})
+      .then(function(d){ if(done) return; done=true; clearTimeout(to); finish((d&&(d.answer||d.text))||(d&&d.analysis&&d.analysis.conclusion)||'No summary returned.'); })
+      .catch(function(){ if(done) return; done=true; clearTimeout(to); finish('Cloud AI error. Key numbers: '+data.critical+' critical, '+data.reportsFiled+' reports, '+data.harvestsDue7d.length+' harvests \u22647d, '+data.bedsNeedingReplant+' to replant.'); });
+  }
+  window.hnxWeeklySummary=function(start,end){ generate(start,end,false); };
+
+  function mondayPrep(){
+    try{
+      var now=new Date();
+      if(now.getDay()!==1 || now.getHours()<7) return;
+      var wk=now.getFullYear()+'-'+pad(now.getMonth()+1)+'-'+pad(now.getDate());
+      if(localStorage.getItem('hydroPro_weekly_prepped')===wk) return;
+      localStorage.setItem('hydroPro_weekly_prepped',wk);
+      var s=new Date(now); s.setDate(s.getDate()-6);
+      generate(s.getFullYear()+'-'+pad(s.getMonth()+1)+'-'+pad(s.getDate()), wk, true);
+    }catch(e){}
+  }
+  setInterval(mondayPrep, 10*60*1000);
+  setTimeout(mondayPrep, 12000);
+  console.log('[HNX-T110] weekly executive summary ready.');
+})();
+</script>
+<!-- ================= END HNX WEEKLY EXECUTIVE SUMMARY ================= -->
+
+<!-- ================= HNX T-79 — PM WORK-ORDER LOOKAHEAD (p191) ================= -->
+<script>
+(function(){
+  'use strict';
+  if(window.__hnxPM) return;
+  var CREATED_KEY='hydroPro_pm_wo_created_v1';
+  var NUDGE_KEY='hydroPro_pm_nudge';
+  var LOOKAHEAD=3;
+  var _rows=[];
+
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function toast(m,k){ try{ (window.aimToast||window.showToast||window._toast||function(){})(m,k||'info'); }catch(e){} }
+  function pad(n){ return (n<10?'0':'')+n; }
+  function isoOf(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+  function dowShort(d){ return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]; }
+  function loadCreated(){ try{ var v=JSON.parse(localStorage.getItem(CREATED_KEY)||'{}'); return (v&&typeof v==='object')?v:{}; }catch(e){ return {}; } }
+  function saveCreated(o){ try{ localStorage.setItem(CREATED_KEY,JSON.stringify(o||{})); }catch(e){} }
+
+  // Replicates getTodayRecurringTasks()'s calendar-landing rules for ANY date (read-only, no edits to the original).
+  function dueOnDate(dt){
+    var dow=dowShort(dt), day=dt.getDate(), month=dt.getMonth();
+    var out=[]; var tasks=window.RECURRING_TASKS||[];
+    tasks.forEach(function(t){
+      if(t.schedule&&t.schedule[dow]){
+        var ghs=(typeof expandGhRange==='function')?expandGhRange(t.schedule[dow]):[t.schedule[dow]];
+        ghs.forEach(function(g){ out.push({task:t,gh:g,label:dow}); }); return;
+      }
+      var f=t.freq;
+      if(f==='daily'||f==='daily_one_table'){ out.push({task:t,gh:'',label:'Daily'}); }
+      else if(f==='weekly'){ if(dow==='Mon') out.push({task:t,gh:'',label:'Weekly'}); }
+      else if(f==='monthly'){ if(dow==='Mon'&&day<=7) out.push({task:t,gh:'',label:'Monthly'}); }
+      else if(f==='quarterly'){ if(dow==='Mon'&&day<=7&&[0,3,6,9].indexOf(month)>=0) out.push({task:t,gh:'',label:'Quarterly'}); }
+      else if(f==='semi_annual'){ if(dow==='Mon'&&day<=7&&[3,9].indexOf(month)>=0) out.push({task:t,gh:'',label:'Semi-annual'}); }
+      else if(f==='annual'){ if(dow==='Mon'&&day<=7&&month===0) out.push({task:t,gh:'',label:'Annual'}); }
+    });
+    return out;
+  }
+  function isMaint(t){ return /maintenance/i.test(t.owner||''); }
+
+  function upcoming(daysAhead){
+    var rows=[], seen={}, created=loadCreated();
+    var today=new Date(); today.setHours(0,0,0,0);
+    for(var off=0; off<=daysAhead; off++){
+      var dt=new Date(today); dt.setDate(dt.getDate()+off); var iso=isoOf(dt);
+      dueOnDate(dt).forEach(function(r){
+        if(!isMaint(r.task)) return;                          // PM = Maintenance-owned tasks
+        var pmKey=r.task.id+'__'+iso+'__'+(r.gh||'all');
+        if(seen[pmKey]) return; seen[pmKey]=1;
+        var comp=(typeof getRecurringCompletion==='function')?getRecurringCompletion(r.task.id,r.gh,iso):null;
+        rows.push({ pmKey:pmKey, task:r.task, gh:r.gh, dueISO:iso, off:off, label:r.label,
+                    done:!!(comp&&comp.status==='done'), wo:created[pmKey]||null });
+      });
+    }
+    rows.sort(function(a,b){ return a.off-b.off; });
+    return rows;
+  }
+
+  function offText(off){ return off===0?'TODAY':off===1?'TOMORROW':('in '+off+' days'); }
+  function offColor(off){ return off===0?'#ff8a80':off===1?'#ffcc80':'#80deea'; }
+
+  function rowHTML(r){
+    var c=offColor(r.off);
+    var right;
+    if(r.done) right='<span style="color:#a5d6a7;font-weight:800;font-size:12px;">\u2713 done</span>';
+    else if(r.wo) right='<span style="color:#9fc7bb;font-size:11px;">\uD83C\uDFAB work order created</span>';
+    else {
+      right='<button onclick="window.__hnxPM.createWO(\''+r.pmKey+'\')" style="background:linear-gradient(135deg,#e08a2f,#a85d18);border:none;color:#fff;border-radius:7px;padding:6px 11px;font-size:11.5px;font-weight:800;cursor:pointer;">Create work order</button>';
+      if(r.off===0) right+=' <button onclick="window.__hnxPM.markDone(\''+r.pmKey+'\')" style="background:transparent;border:1px solid rgba(255,255,255,.25);color:#9fc7bb;border-radius:7px;padding:6px 10px;font-size:11.5px;cursor:pointer;">\u2713 Mark done</button>';
+    }
+    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.06);">'+
+      '<div style="flex:1;min-width:0;">'+
+        '<div style="font-size:13.5px;color:#e8f5e9;font-weight:700;">'+esc(r.task.name)+(r.gh?(' <span style="color:#9fc7bb;font-weight:600;">@ '+esc(r.gh)+'</span>'):'')+'</div>'+
+        '<div style="font-size:11px;color:#9fc7bb;margin-top:2px;">'+esc(r.label)+' \u00b7 owner: '+esc(r.task.owner||'\u2014')+' \u00b7 due '+esc(r.dueISO)+'</div>'+
+      '</div>'+
+      '<div style="font-size:10px;font-weight:800;color:'+c+';font-family:monospace;white-space:nowrap;">'+offText(r.off)+'</div>'+
+      '<div style="white-space:nowrap;">'+right+'</div>'+
+    '</div>';
+  }
+
+  function render(){
+    var body=document.getElementById('hnxPmBody'); if(!body) return;
+    _rows=upcoming(LOOKAHEAD);
+    var actionable=_rows.filter(function(r){ return !r.done && !r.wo; });
+    if(!_rows.length){ body.innerHTML='<div style="padding:26px 6px;text-align:center;color:#9fc7bb;">No preventive-maintenance tasks due in the next '+LOOKAHEAD+' days. \uD83D\uDC4D</div>'; return; }
+    var head='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">'+
+      '<div style="font-size:11px;color:#9fc7bb;flex:1;">'+_rows.length+' upcoming \u00b7 '+actionable.length+' without a work order</div>'+
+      (actionable.length?'<button onclick="window.__hnxPM.createAll()" style="background:linear-gradient(135deg,#e08a2f,#a85d18);border:none;color:#fff;border-radius:7px;padding:6px 12px;font-size:11.5px;font-weight:800;cursor:pointer;">Create all ('+actionable.length+')</button>':'')+'</div>';
+    body.innerHTML=head+_rows.map(rowHTML).join('');
+  }
+
+  function ensureModal(){
+    if(document.getElementById('hnxPmOverlay')) return;
+    var o=document.createElement('div');
+    o.id='hnxPmOverlay';
+    o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    o.onclick=function(e){ if(e.target===o) window.__hnxPM.close(); };
+    o.innerHTML='<div style="width:min(640px,100%);max-height:86vh;overflow:auto;background:#0e1713;border:1px solid #2a4438;border-radius:14px;padding:18px 18px 16px;box-shadow:0 18px 60px rgba(0,0,0,.5);">'+
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">'+
+          '<div style="font-size:15px;font-weight:800;color:#ffcc80;">\uD83D\uDD27 PM Work Orders</div>'+
+          '<div style="flex:1;"></div>'+
+          '<button onclick="window.__hnxPM.close()" style="background:transparent;border:1px solid rgba(255,255,255,.2);color:#9fc7bb;border-radius:8px;padding:5px 11px;font-size:13px;cursor:pointer;">Close</button>'+
+        '</div>'+
+        '<div style="font-size:11px;color:#9fc7bb;margin-bottom:10px;">Maintenance-owned recurring tasks due in the next '+LOOKAHEAD+' days, predicted from the schedule. Create the work order ahead of time so nothing is missed.</div>'+
+        '<div id="hnxPmBody"></div>'+
+      '</div>';
+    document.body.appendChild(o);
+  }
+
+  window.__hnxPM={
+    open:function(){ ensureModal(); document.getElementById('hnxPmOverlay').style.display='flex'; render(); },
+    close:function(){ var o=document.getElementById('hnxPmOverlay'); if(o) o.style.display='none'; },
+    createWO:function(pmKey){
+      var r=_rows.filter(function(x){return x.pmKey===pmKey;})[0]; if(!r) return;
+      if(typeof createIssue!=='function'){ toast('Work-order system unavailable.','warn'); return; }
+      var desc='Preventive maintenance scheduled '+offText(r.off).toLowerCase()+' ('+r.label+', owner '+(r.task.owner||'\u2014')+(r.gh?(', area '+r.gh):'')+'). Auto-detected from the recurring schedule by PM Lookahead.';
+      var iss=createIssue({ module:'maintenance', priority:(r.off<=1?'warning':'info'), title:'\uD83D\uDD27 PM: '+r.task.name+(r.gh?(' @ '+r.gh):''), description:desc, facilityId:(r.gh||null) });
+      var c=loadCreated(); c[pmKey]=(iss&&iss.id)||('1'); saveCreated(c);
+      toast('\uD83C\uDFAB Work order created for "'+r.task.name+'"','info');
+      render();
+    },
+    createAll:function(){
+      var todo=_rows.filter(function(r){ return !r.done && !r.wo; });
+      todo.forEach(function(r){ window.__hnxPM.createWO(r.pmKey); });
+      if(todo.length) toast('\uD83C\uDFAB '+todo.length+' work order'+(todo.length>1?'s':'')+' created','info');
+    },
+    markDone:function(pmKey){
+      var r=_rows.filter(function(x){return x.pmKey===pmKey;})[0]; if(!r) return;
+      if(typeof markRecurringDone==='function') markRecurringDone(r.task.id, r.gh, {note:'Marked done from PM Lookahead'});
+      toast('\u2713 Marked done: '+r.task.name,'info');
+      render();
+    }
+  };
+  window.hnxPMWorkOrders=function(){ window.__hnxPM.open(); };
+
+  function nudge(){
+    try{
+      var t=isoOf(new Date());
+      if(localStorage.getItem(NUDGE_KEY)===t) return;
+      var rows=upcoming(LOOKAHEAD).filter(function(r){ return !r.done && !r.wo; });
+      localStorage.setItem(NUDGE_KEY,t);
+      if(rows.length) toast('\uD83D\uDD27 '+rows.length+' preventive-maintenance task'+(rows.length>1?'s':'')+' due within '+LOOKAHEAD+' days \u2014 open \uD83D\uDD27 PM Lookahead in Recurring Tasks','info');
+    }catch(e){}
+  }
+  setInterval(nudge, 30*60*1000);
+  setTimeout(nudge, 14000);
+  console.log('[HNX-T79] PM work-order lookahead ready.');
+})();
+</script>
+<!-- ================= END HNX PM WORK-ORDER LOOKAHEAD ================= -->
+
+<!-- ================= HNX T-86/T-88 — HR RENEWALS WATCH (p192 probation · p193 + contract renewals) ================= -->
+<script>
+(function(){
+  'use strict';
+  if(window.__hnxHR) return;
+  var PROBATION_MONTHS=6;       // PH probationary period maximum
+  var DUE_WINDOW_DAYS=30;       // flag the regularization decision this far ahead
+  var CONTRACT_WINDOW_DAYS=45;  // flag contract renewals this far ahead
+  var NUDGE_KEY='hydroPro_hr_reg_nudge';
+
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function toast(m,k){ try{ (window.aimToast||window.showToast||window._toast||function(){})(m,k||'info'); }catch(e){} }
+  function addMonths(d,m){ var x=new Date(d.getTime()); x.setMonth(x.getMonth()+m); return x; }
+  function fmt(d){ try{ return d.toISOString().slice(0,10); }catch(e){ return '—'; } }
+
+  function loadEmps(){
+    try{ if(typeof loadEmployees==='function'){ var a=loadEmployees(); if(Array.isArray(a)) return a; } }catch(e){}
+    try{ var v=JSON.parse(localStorage.getItem('hydroPro_employees')||'[]'); return Array.isArray(v)?v:[]; }catch(e){ return []; }
+  }
+
+  // Returns {rows:[...], overdue, soon, missing}. Probationary = type 'Trainee' (PH probation), Active only.
+  function scan(){
+    var today=new Date(); today.setHours(0,0,0,0);
+    var rows=[], overdue=0, soon=0, missing=0;
+    loadEmps().forEach(function(e){
+      if(!e || e.status!=='Active') return;
+      // Probation track: Trainee → regularize at the 6-month mark
+      if((e.type||'')==='Trainee'){
+        if(!e.dateHired){ missing++; }
+        else { var d=new Date(e.dateHired);
+          if(isNaN(d.getTime())){ missing++; }
+          else { var six=addMonths(d,PROBATION_MONTHS); var days=Math.round((six-today)/86400000);
+            if(days<0||days<=DUE_WINDOW_DAYS){ if(days<0) overdue++; else soon++;
+              rows.push({ id:e.id, name:e.name||'(unnamed)', dept:e.dept||'—', kind:'probation', hired:fmt(d), sixDate:fmt(six), days:days, state:(days<0?'overdue':'soon') }); } } }
+      }
+      // Contract-renewal track: anyone (usually Contractual/Temporary) with a contract-end date
+      if(e.contractEnd){ var ce=new Date(e.contractEnd);
+        if(!isNaN(ce.getTime())){ var cd=Math.round((ce-today)/86400000);
+          if(cd<0||cd<=CONTRACT_WINDOW_DAYS){ if(cd<0) overdue++; else soon++;
+            rows.push({ id:e.id, name:e.name||'(unnamed)', dept:e.dept||'—', kind:'contract', hired:'', sixDate:fmt(ce), days:cd, state:(cd<0?'overdue':'soon') }); } } }
+    });
+    rows.sort(function(a,b){ return a.days-b.days; }); // most overdue first, then soonest
+    return { rows:rows, overdue:overdue, soon:soon, missing:missing };
+  }
+
+  // Stat card injected into the HR dashboard strip
+  window.hnxHRRegCount=function(){ var s=scan(); return s.overdue+s.soon; };
+  window.hnxHRRegCard=function(){
+    var s=scan(); var n=s.overdue+s.soon;
+    var col=s.overdue>0?'#ff8a80':(n>0?'#ffcc80':'#a5d6a7');
+    var sub=n>0?(s.overdue+' overdue · '+s.soon+' due soon'):'all clear';
+    return '<div class="hr-stat-card" style="cursor:pointer;border-left-color:'+col+';" onclick="window.hnxHRAlerts&&window.hnxHRAlerts()" title="Probation regularization + contract renewals">'+
+      '<div class="hr-stat-label">HR Renewals</div>'+
+      '<div class="hr-stat-val" style="color:'+col+';">'+n+'</div>'+
+      '<div class="hr-stat-sub">'+esc(sub)+'</div></div>';
+  };
+
+  function chip(r){
+    if(r.state==='overdue'){ var w=(r.kind==='contract')?'EXPIRED':'OVERDUE'; return '<span style="font-size:10px;font-weight:800;color:#ff8a80;font-family:monospace;white-space:nowrap;">'+w+' '+(-r.days)+'d</span>'; }
+    return '<span style="font-size:10px;font-weight:800;color:#ffcc80;font-family:monospace;white-space:nowrap;">in '+r.days+'d</span>';
+  }
+  function rowHTML(r){
+    var tag=(r.kind==='contract')
+      ? ' <span style="font-size:9px;font-weight:800;color:#80deea;border:1px solid #80deea;border-radius:5px;padding:1px 5px;">CONTRACT</span>'
+      : ' <span style="font-size:9px;font-weight:800;color:#ce93d8;border:1px solid #ce93d8;border-radius:5px;padding:1px 5px;">PROBATION</span>';
+    var line=(r.kind==='contract')
+      ? (esc(r.dept)+' · contract ends '+esc(r.sixDate))
+      : (esc(r.dept)+' · hired '+esc(r.hired)+' · 6-mo mark '+esc(r.sixDate));
+    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.06);">'+
+      '<div style="flex:1;min-width:0;">'+
+        '<div style="font-size:13.5px;color:#e8f5e9;font-weight:700;">'+esc(r.name)+tag+'</div>'+
+        '<div style="font-size:11px;color:#9fc7bb;margin-top:2px;">'+line+'</div>'+
+      '</div>'+chip(r)+'</div>';
+  }
+
+  function render(){
+    var body=document.getElementById('hnxHrBody'); if(!body) return;
+    var s=scan();
+    var foot='';
+    if(s.missing>0) foot+='<div style="font-size:11px;color:#ffcc80;margin-top:12px;">⚠ '+s.missing+' trainee'+(s.missing>1?'s':'')+' missing a hire date — add it in the 201 file so they can be tracked.</div>';
+    foot+='<div style="margin-top:12px;display:flex;gap:8px;"><button onclick="window.__hnxHR.go201()" style="background:linear-gradient(135deg,#c9a227,#8a6d12);border:none;color:#fff;border-radius:7px;padding:7px 13px;font-size:12px;font-weight:800;cursor:pointer;">Go to 201 files</button><button onclick="window.__hnxHR.close()" style="background:transparent;border:1px solid rgba(255,255,255,.2);color:#9fc7bb;border-radius:7px;padding:7px 12px;font-size:12px;cursor:pointer;">Close</button></div>';
+    if(!s.rows.length){ body.innerHTML='<div style="padding:22px 6px;text-align:center;color:#9fc7bb;">No regularization or contract decisions due soon. 👍</div>'+foot; return; }
+    body.innerHTML='<div style="font-size:11px;color:#9fc7bb;margin-bottom:4px;">'+s.overdue+' overdue · '+s.soon+' upcoming</div>'+s.rows.map(rowHTML).join('')+foot;
+  }
+
+  function ensureModal(){
+    if(document.getElementById('hnxHrOverlay')) return;
+    var o=document.createElement('div'); o.id='hnxHrOverlay';
+    o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    o.onclick=function(e){ if(e.target===o) window.__hnxHR.close(); };
+    o.innerHTML='<div style="width:min(620px,100%);max-height:86vh;overflow:auto;background:#0e1713;border:1px solid #3a3420;border-radius:14px;padding:18px;box-shadow:0 18px 60px rgba(0,0,0,.5);">'+
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">'+
+          '<div style="font-size:15px;font-weight:800;color:#ffd54f;">👤 HR Renewals Watch</div><div style="flex:1;"></div>'+
+          '<button onclick="window.__hnxHR.close()" style="background:transparent;border:1px solid rgba(255,255,255,.2);color:#9fc7bb;border-radius:8px;padding:5px 11px;font-size:13px;cursor:pointer;">Close</button>'+
+        '</div>'+
+        '<div style="font-size:11px;color:#9fc7bb;margin-bottom:10px;">Trainees reaching the '+PROBATION_MONTHS+'-month probationary mark, plus employees whose contract is ending — make the regularize / renew / end decision before the date passes.</div>'+
+        '<div id="hnxHrBody"></div></div>';
+    document.body.appendChild(o);
+  }
+
+  window.__hnxHR={
+    open:function(){ ensureModal(); document.getElementById('hnxHrOverlay').style.display='flex'; render(); },
+    close:function(){ var o=document.getElementById('hnxHrOverlay'); if(o) o.style.display='none'; },
+    go201:function(){ this.close(); try{ if(typeof switchView==='function') switchView('hr_201'); }catch(e){} }
+  };
+  window.hnxHRAlerts=function(){ window.__hnxHR.open(); };
+
+  function nudge(){
+    try{
+      var t=new Date().toISOString().slice(0,10);
+      if(localStorage.getItem(NUDGE_KEY)===t) return;
+      var s=scan(); localStorage.setItem(NUDGE_KEY,t);
+      var n=s.overdue+s.soon;
+      if(n>0) toast('👤 '+n+' HR renewal'+(n>1?'s':'')+' due'+(s.overdue?(' ('+s.overdue+' overdue)'):'')+' — see HR → HR Renewals','info');
+    }catch(e){}
+  }
+  setInterval(nudge, 60*60*1000);
+  setTimeout(nudge, 16000);
+  console.log('[HNX-T86] HR regularization watch ready.');
+})();
+</script>
+<!-- ================= END HNX HR REGULARIZATION WATCH ================= -->
 
 <!-- ================= HNX T-09 CANONICAL DEPARTMENT REGISTRY ================= -->
 <script>
