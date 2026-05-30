@@ -5849,6 +5849,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 <div class="view" id="view-inv_duplicates"><div id="invDupBody"></div></div>
 <div class="view" id="view-inv_audit"><div id="invAuditBody"></div></div>
 <div class="view" id="view-inv_copilot"><div id="invCopilotBody"></div></div>
+<div class="view" id="view-inv_forecast"><div id="invForecastRoot"></div></div>
 <div class="view" id="view-inv_categories"><div id="stubInvCategoriesBody"></div></div>
 <div class="view" id="view-inv_calls"><div id="invCallsBody"></div></div>
 <!-- Packaging -->
@@ -17546,6 +17547,80 @@ window.MCC_LIVE.irr_cmd=function(){
   return {kpis:kpis, aiRows:aiRows, boxes:boxes, alerts:alerts};
 };
 
+/* p181 · live inventory command-center — replaces inv_cmd's static demo numbers
+   with real signals from the inventory engine (stock, velocity, forecast,
+   reorder candidates, draft POs, open requests). Merged over the static config. */
+window.MCC_LIVE.inv_cmd=function(){
+  try{
+    var P='\u20b1';
+    function num(x){ return parseFloat(x)||0; }
+    function money(n){ return P+Math.round(num(n)).toLocaleString(); }
+    var stock=(typeof _invLoadStock==='function')?_invLoadStock():[];
+    var im=(typeof window.hnxInvItemMaster==='function')?window.hnxInvItemMaster():{};
+    var total=stock.length;
+
+    var out=0, below=0, deadCap=0, reorderN=0, reorderVal=0, fcCount=0, fcRisk=0, nearestETA=null, nearestName='';
+    stock.forEach(function(it){
+      var sku=String(it.sku||it.id||'');
+      var onHand=num(it.onHand), minS=num(it.minStock), cost=num(it.unitCost);
+      var safety=num((im[sku]||{}).safetyStock);
+      var target=Math.max(minS,safety);
+      if(onHand<=0) out++;
+      else if(minS>0 && onHand<=minS) below++;
+      try{ if(typeof _invClassifyVelocity==='function' && _invClassifyVelocity(it)==='dead') deadCap+=onHand*cost; }catch(e){}
+      if(target>0 && onHand<target){ reorderN++; reorderVal+=Math.max(0,target-onHand)*cost; }
+      try{
+        if(typeof window.hnxInvForecast==='function'){
+          var f=window.hnxInvForecast(sku);
+          if(f && f.avgMonthly>0){
+            fcCount++;
+            if(isFinite(f.daysCover) && f.daysCover<=f.lead){ fcRisk++; if(nearestETA==null||f.daysCover<nearestETA){ nearestETA=f.daysCover; nearestName=(it.name||sku); } }
+          }
+        }
+      }catch(e){}
+    });
+
+    var draftPOs=0, draftVal=0;
+    try{ var pos=JSON.parse(localStorage.getItem('hydroPro_inv_draft_pos_v1')||'[]')||[]; pos.forEach(function(p){ if((p.status||'draft')==='draft'){ draftPOs++; draftVal+=num(p.total); } }); }catch(e){}
+    var pend=0;
+    try{ var rq=JSON.parse(localStorage.getItem('hydroPro_inv_requests_v1')||'[]')||[]; pend=rq.filter(function(r){ return r&&/pending|await|review/i.test(String(r.status||'')); }).length; }catch(e){}
+
+    var etaTxt=nearestETA!=null?(Math.round(nearestETA)+'d ('+String(nearestName).slice(0,16)+')'):(fcCount?'clear':'no signal');
+    var crit=out;
+
+    var kpis=[
+      {l:'SKUs tracked', v:String(total), s:(below+out)+' at/below min', tone:(below+out)?'warn':'ok'},
+      {l:'Out of stock', v:String(out), s:out?'reorder now':'none', tone:out?'crit':'ok'},
+      {l:'Reorder needed', v:String(reorderN), s:reorderN?(money(reorderVal)+' to refill'):'all healthy', tone:reorderN?'warn':'ok'},
+      {l:'Draft POs', v:String(draftPOs), s:draftPOs?(money(draftVal)+' pending'):'none drafted', tone:''}
+    ];
+    var aiRows=[
+      {l:'\ud83c\udfaf Stock-out forecast', v:etaTxt, c:(nearestETA!=null?'warn':'ok')},
+      {l:'\ud83d\udce6 Reorder candidates', v:String(reorderN), c:reorderN?'warn':'ok'},
+      {l:'\ud83d\udc80 Dead-stock capital', v:money(deadCap), c:deadCap>0?'warn':'ok'},
+      {l:'\ud83d\udcdd Pending requests', v:String(pend), c:pend?'warn':'ok'},
+      {l:'\ud83d\udcca Forecast coverage', v:String(fcCount)+' SKUs', c:fcCount?'ok':''}
+    ];
+    var boxes=[
+      {i:'\ud83d\udce6', t:'Stock Health', v:total?(Math.max(0,Math.round(100-(out*5+below*1.5)))+'/100'):'\u2014', c:(out>3?'warn':'ok'), s:total+' SKUs \u00b7 '+out+' out \u00b7 '+below+' low'},
+      {i:'\u26a0\ufe0f', t:'Stock-out Risk', v:(nearestETA!=null?Math.round(nearestETA)+'d':(fcRisk?String(fcRisk):'low')), c:(nearestETA!=null&&nearestETA<=7)?'warn':'ok', s:fcRisk?(fcRisk+' SKU'+(fcRisk>1?'s':'')+' within lead time'):'no forecast at risk'},
+      {i:'\ud83d\udcb8', t:'Dead-stock Capital', v:money(deadCap), c:deadCap>0?'warn':'ok', s:'trapped in >365d no-movement'},
+      {i:'\ud83d\udd04', t:'Reorder Queue', v:String(reorderN), c:reorderN?'warn':'ok', s:reorderN?(money(reorderVal)+' to bring to target'):'all above target'},
+      {i:'\ud83c\udfaf', t:'Draft POs', v:String(draftPOs), c:'ok', s:draftPOs?(money(draftVal)+' awaiting order'):'none drafted'},
+      {i:'\ud83d\udcc8', t:'Forecast Coverage', v:String(fcCount), c:fcCount?'ok':'', s:fcCount?(fcCount+' SKUs have a demand forecast'):'feed usage / requests to build'}
+    ];
+    var alerts=[];
+    if(out) alerts.push({tone:'crit', title:out+' SKU'+(out>1?'s':'')+' out of stock', msg:'On-hand at zero \u2014 reorder immediately'});
+    if(nearestETA!=null) alerts.push({tone:nearestETA<=7?'crit':'warn', title:'Stock-out in ~'+Math.round(nearestETA)+'d', msg:String(nearestName)+' \u2014 within supplier lead time'});
+    if(reorderN) alerts.push({tone:'warn', title:reorderN+' item'+(reorderN>1?'s':'')+' below target', msg:money(reorderVal)+' to refill \u2014 see Purchase Engine'});
+    if(pend) alerts.push({tone:'warn', title:pend+' item request'+(pend>1?'s':'')+' pending', msg:'Awaiting approval in the Request module'});
+    if(!alerts.length) alerts.push({tone:'ok', title:'Inventory nominal', msg:'No stock-outs \u00b7 nothing below target \u00b7 no pending requests'});
+
+    return {kpis:kpis, aiRows:aiRows, boxes:boxes, alerts:alerts};
+  }catch(e){ console.warn('[MCC] inv_cmd live failed', e); return null; }
+};
+
+
 /* === v2.56 · SOP Vault (admin-only) — renders SOP_LIBRARY grouped by module
    Pulls from window.SOP_LIBRARY (defined in the IIFE at line ~115061).
    Admin-only gate is enforced via MODULES.admin.adminOnly + moduleHasAccess.
@@ -20605,6 +20680,7 @@ const MODULES={
       {id:'inv_duplicates',label:'🧩 Duplicate AI',perm:'viewInventory',title:'AI duplicate-detection — weighted similarity across name/desc/brand/manufacturer/usage; review, keep master, merge'},
       {id:'inv_audit',label:'🧾 Audit Trail',perm:'viewInventory',title:'Immutable log of inventory changes — who, what, old→new, date/time; filter + CSV export'},
       {id:'inv_copilot',label:'🤖 AI Copilot',perm:'viewInventory',title:'Natural-language inventory assistant over live SOS data — stockouts, reorders, dead stock, suppliers'},
+      {id:'inv_forecast',label:'📈 Forecasting',perm:'viewInventory',title:'Projected 30-day demand, days-of-cover and stock-out ETA from request signals + entered usage; items with a forecast stay Active'},
       {id:'inv_movements',label:'🔄 Movements',perm:'viewInventory'},
       {id:'inv_categories',label:'🏷️ Categories',perm:'viewInventory'}
     ]
@@ -21390,6 +21466,7 @@ function switchView(v,skipModuleCheck){
   if(v==='inv_duplicates')renderInvDuplicates();
   if(v==='inv_audit')renderInvAudit();
   if(v==='inv_copilot')renderInvCopilot();
+  if(v==='inv_forecast')renderInvForecast();
   if(v==='inv_categories')renderInvCategories();
   if(v==='inv_calls')renderInvCalls();
   if(v==='pack_washtrim'){renderWashTrim();return;}
@@ -71813,8 +71890,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.57.2-substream';window.HNX_BUILD='v2.86-p179b-substream';  // p179b: CCTV wall prefers light H.264 _sub substream per camera when it exists (snapshot+live derive from it); big/spotlight/fullscreen keep full-res. Lets many cameras stream at once without overloading the NVR. //  // p179: CCTV bridge-load fix — staggered/throttled snapshot polling (3/tick @2.2s, near-viewport only, round-robin), cap concurrent LIVE upgrades (default 6, rest stay snapshots), bridge-wide failure suppression (never blanket STREAM OFFLINE). //  // p178: AI Copilot (spec 17) — chat assistant over live inventory snapshot via cloud /ai/ask; quick commands + deep-links to Purchase Engine/Duplicate AI/Master Data/Diagnostics. Inventory spec build complete (Forecasting pending data). //  // p176: CCTV live-stream cap + rotation (Live: All/4/6/8/12/16) to protect NVR. p177: Audit Trail (spec 16) — central log of inventory changes (user/action/old->new/date/time), filter+CSV; instrumented Master Data, Categories, Purchase Engine, Duplicate AI. //  // p175: CCTV wall false-offline fix — serialize stream health-probes (1 at a time, spaced), 3-strike + 7s timeout, lock 'ok' so verification stops saturating the bridge and flipping all live tiles to STREAM OFFLINE. //  // p174: Active-Item logic (spec 05) — movement bands Active<=90 / Slow 91-180 / Dormant 181-365 / Dead >365, forecast-override hook; Item Velocity view now 4-band with Dormant KPI+filter+capital. //  // p173: Duplicate-detection AI — weighted similarity (name/desc/brand/mfr/usage) with blocking, clustering, keep-master/dismiss/AI-review; merged dups hidden from Item Files. //  // p172: Purchase Engine — reorder-point/safety-stock breaches grouped into draft POs by supplier, budget check, draft PO tracking; forecast & open-PO inputs pending. //  // p171: Item Files defaults to May-2026-modified items, deduped by name, with scope chips (May/30d/All) + dedupe toggle; shows real SOS category. //  // p170: Item Master tab in Master Data — enrich each SOS SKU with brand/supplier/manufacturer/category(incl custom)/criticality/safety-stock; overlay store hydroPro_inv_item_master_v1, search-only over 9.3k items, focus-safe. //  // p169: Categories view now pulls LIVE from SOS (each item's real category) with real counts + add/delete custom categories (assignable per-item in Item Master). //  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
-const APP_BUILD=1782592000;
+const APP_VERSION='2.59.0-invlive';window.HNX_BUILD='v2.86-p181-invlive';  // p181: QA sweep of full inventory suite (8 views, 14 APIs, 7 modules — all clean). Inventory Command Center now LIVE: MCC_LIVE.inv_cmd computes real KPIs/AI-rows/boxes/alerts from the engine (stock-outs, reorder queue+value, dead-stock capital, nearest forecast stock-out ETA, pending requests, draft POs) replacing demo numbers. //  // p180b: CCTV wall snapshot LOADER is now a bounded connection-pool — tiles render with no src; max 4 frame.jpeg requests in-flight at once, viewport-nearest first, slot freed on load/error/8s-timeout. Fixes the initial-paint stampede where all 20-80 tiles hit the bridge simultaneously and got stuck 'connecting…'. Watchdog skips still-pending tiles so it can't pre-empt them to live. //  // p180: Demand Forecasting (spec sheet 11) — inv_forecast view. Mines demand from Item Requests + manual/CSV usage (hydroPro_inv_usage_v1); per-SKU avg use, days-of-cover, projected 30d, rec safety, stock-out ETA; 90/180/365d window; CSV import/export; audit-logged. Exposes hnxInvForecastExists (lights Active-Item override) + hnxInvForecast (Purchase Engine raises order qty to cover lead-time forecast demand + Fcst col). Inventory AI spec COMPLETE. //  // p179b: CCTV wall prefers light H.264 _sub substream per camera when it exists (snapshot+live derive from it); big/spotlight/fullscreen keep full-res. Lets many cameras stream at once without overloading the NVR. //  // p179: CCTV bridge-load fix — staggered/throttled snapshot polling (3/tick @2.2s, near-viewport only, round-robin), cap concurrent LIVE upgrades (default 6, rest stay snapshots), bridge-wide failure suppression (never blanket STREAM OFFLINE). //  // p178: AI Copilot (spec 17) — chat assistant over live inventory snapshot via cloud /ai/ask; quick commands + deep-links to Purchase Engine/Duplicate AI/Master Data/Diagnostics. Inventory spec build complete (Forecasting pending data). //  // p176: CCTV live-stream cap + rotation (Live: All/4/6/8/12/16) to protect NVR. p177: Audit Trail (spec 16) — central log of inventory changes (user/action/old->new/date/time), filter+CSV; instrumented Master Data, Categories, Purchase Engine, Duplicate AI. //  // p175: CCTV wall false-offline fix — serialize stream health-probes (1 at a time, spaced), 3-strike + 7s timeout, lock 'ok' so verification stops saturating the bridge and flipping all live tiles to STREAM OFFLINE. //  // p174: Active-Item logic (spec 05) — movement bands Active<=90 / Slow 91-180 / Dormant 181-365 / Dead >365, forecast-override hook; Item Velocity view now 4-band with Dormant KPI+filter+capital. //  // p173: Duplicate-detection AI — weighted similarity (name/desc/brand/mfr/usage) with blocking, clustering, keep-master/dismiss/AI-review; merged dups hidden from Item Files. //  // p172: Purchase Engine — reorder-point/safety-stock breaches grouped into draft POs by supplier, budget check, draft PO tracking; forecast & open-PO inputs pending. //  // p171: Item Files defaults to May-2026-modified items, deduped by name, with scope chips (May/30d/All) + dedupe toggle; shows real SOS category. //  // p170: Item Master tab in Master Data — enrich each SOS SKU with brand/supplier/manufacturer/category(incl custom)/criticality/safety-stock; overlay store hydroPro_inv_item_master_v1, search-only over 9.3k items, focus-safe. //  // p169: Categories view now pulls LIVE from SOS (each item's real category) with real counts + add/delete custom categories (assignable per-item in Item Master). //  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
+const APP_BUILD=1782851200;
 const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
@@ -78050,6 +78127,7 @@ window.switchView=function(v){
     inv_duplicates:{module:'inventory',renderer:'renderInvDuplicates'},
     inv_audit:{module:'inventory',renderer:'renderInvAudit'},
     inv_copilot:{module:'inventory',renderer:'renderInvCopilot'},
+    inv_forecast:{module:'inventory',renderer:'renderInvForecast'},
     inv_matrix:{module:'inventory',renderer:'renderInvMatrix'},
     inv_expiry:{module:'inventory',renderer:'renderInvExpiry'},
     crm_master:{module:'crm',renderer:'renderCRMMaster'},
@@ -136022,15 +136100,46 @@ body.hnx-mobile-locked { overflow: hidden; }
       }catch(e){}
       return name;
     }
+    // p180b — bounded-concurrency snapshot loader (a connection pool). Tiles render
+    // with NO src; we hand src to at most _snapLoad.max at a time, viewport-nearest
+    // first, freeing a slot on load/error/timeout. Caps how many frame.jpeg requests
+    // hit the bridge at once so 20-80 tiles never stampede it on first paint.
+    var _snapLoad = { max: 4, active: 0 };
+    function _snapRoot(){ return _wallEl()||document.getElementById(_state.mount||'itCctvLiveMount'); }
+    function _snapLoadOne(im){
+      if(!im) return;
+      var b=im.getAttribute('data-snap'); if(!b){ im.removeAttribute('data-snap-pending'); return; }
+      im.setAttribute('data-snap-pending','0');            // 0 = claimed / in-flight
+      _snapLoad.active++;
+      var done=false;
+      function release(){ if(done) return; done=true; _snapLoad.active=Math.max(0,_snapLoad.active-1); im.removeAttribute('data-snap-pending'); setTimeout(_snapPumpLoad,40); }
+      im.addEventListener('load', release, {once:true});
+      im.addEventListener('error', release, {once:true});
+      setTimeout(release, 8000);                           // never let a hung request hold a slot forever
+      im.src = b+(b.indexOf('?')>=0?'&':'?')+'t='+Date.now();
+    }
+    function _snapPumpLoad(){
+      try{
+        if(document.hidden) return;
+        if(_snapLoad.active>=_snapLoad.max) return;
+        var root=_snapRoot(); if(!root) return;
+        var pend=Array.prototype.slice.call(root.querySelectorAll('img[data-snap][data-snap-pending="1"]'));
+        if(!pend.length) return;
+        var vh=window.innerHeight||document.documentElement.clientHeight, cy=vh/2;
+        pend.sort(function(a,b){ try{ var ra=a.getBoundingClientRect(),rb=b.getBoundingClientRect(); return Math.abs((ra.top+ra.bottom)/2-cy)-Math.abs((rb.top+rb.bottom)/2-cy); }catch(e){ return 0; } });
+        while(_snapLoad.active<_snapLoad.max && pend.length){ _snapLoadOne(pend.shift()); }
+      }catch(e){}
+    }
     function _snapTick(){
       try{
         if(document.hidden) return;
+        _snapPumpLoad();                       // p180b — keep feeding not-yet-loaded tiles through the pool
         var root=_wallEl()||document.getElementById(_state.mount||'itCctvLiveMount');
         if(!root) return;
         // p179 — refresh snapshots round-robin, a few per tick, only near viewport.
         // Refreshing all ~20 at once every 4s saturated the bridge and made them
         // all fail (then upgrade to live, then verify-offline). Spread the load.
-        var imgs=Array.prototype.slice.call(root.querySelectorAll('img[data-snap]'));
+        var imgs=Array.prototype.slice.call(root.querySelectorAll('img[data-snap]:not([data-snap-pending])'));
         if(!imgs.length){ _state._snapIdx=0; return; }
         var vh=window.innerHeight||document.documentElement.clientHeight;
         var vis=imgs.filter(function(im){ try{ var r=im.getBoundingClientRect(); return r.bottom>-300 && r.top<vh+300; }catch(e){ return true; } });
@@ -136043,7 +136152,7 @@ body.hnx-mobile-locked { overflow: hidden; }
         }
       }catch(e){}
     }
-    function _snapStart(){ if(_state._snapTimer) return; _state._snapTimer=setInterval(_snapTick,2200); }
+    function _snapStart(){ _snapPumpLoad(); if(_state._snapTimer) return; _state._snapTimer=setInterval(_snapTick,2200); }
 
     function nameFromUrl(u){ if(!u) return ''; var m=String(u).match(/[?&]src=([^&]+)/); if(m){ try{ return decodeURIComponent(m[1]); }catch(e){ return m[1]; } } return u; }
     /* ── v2.46.260 area tabs (camera→area map from ES BA corrected sheet) ── */
@@ -136172,7 +136281,7 @@ body.hnx-mobile-locked { overflow: hidden; }
         var gear=canEdit()?'<button onclick="event.stopPropagation();window.__itCctvGrid.connect(\''+c.id+'\')" title="Set / change stream" style="position:absolute;top:6px;right:6px;z-index:4;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;width:26px;height:26px;font-size:13px;cursor:pointer;">\u2699</button>':'';
         if(url){
           return '<div style="position:relative;background:#000;border:1px solid #1f3a30;border-radius:10px;overflow:hidden;aspect-ratio:16/9;">'+
-            '<img data-snap="'+esc(snap)+'" src="'+esc(snap)+'&t='+Date.now()+'" alt="" referrerpolicy="no-referrer" onload="var p=this.parentNode.querySelector(\'.hnx-snap-off\');if(p)p.style.display=\'none\';" onerror="var p=this.parentNode.querySelector(\'.hnx-snap-off\');if(p)p.style.display=\'flex\';" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;">'+
+            '<img data-snap="'+esc(snap)+'" data-snap-pending="1" alt="" referrerpolicy="no-referrer" onload="var p=this.parentNode.querySelector(\'.hnx-snap-off\');if(p)p.style.display=\'none\';" onerror="var p=this.parentNode.querySelector(\'.hnx-snap-off\');if(p)p.style.display=\'flex\';" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;">'+
             '<div class="hnx-snap-off" style="position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:#0c1713;color:#5b7d70;pointer-events:none;"><div style="font-size:22px;opacity:.5;">📷</div><div style="font-size:9px;font-family:monospace;">connecting…</div></div>'+
             '<div onclick="window.__itCctvGrid.full(\''+c.id+'\')" title="Tap for full screen" style="position:absolute;inset:0;z-index:3;cursor:pointer;background:transparent;"></div>'+
             gear+
@@ -144194,6 +144303,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     if(!enabled) return;
     tiles().forEach(function(j){
       var tile = j.tile, img = j.img;
+      if(img.hasAttribute('data-snap-pending')) return;  // p180b — loader still attempting the snapshot; don't pre-empt to live
       var st = tile.getAttribute('data-hnxlive');
       if(st) return;                       // already handled this tile
       tile.setAttribute('data-hnxlive','watch');
@@ -146949,14 +147059,17 @@ body.hnx-mobile-locked { overflow: hidden; }
       var e=im[sku]||{};
       var reorder=num(it.minStock);
       var safety=num(e.safetyStock);
+      var fc=null; try{ if(typeof window.hnxInvForecast==='function') fc=window.hnxInvForecast(sku); }catch(_){}
       var target=Math.max(reorder,safety);
+      // p180: when a demand forecast exists, also cover one lead-time of projected use (+ safety)
+      if(fc && fc.avgDaily>0){ var fcTarget=Math.ceil(fc.avgDaily*fc.lead)+safety; if(fcTarget>target) target=fcTarget; }
       if(target<=0) return;                       // no reorder config -> skip (keeps dead catalog out)
       var onHand=num(it.onHand);
       if(onHand>=target) return;                  // healthy
       var qty=Math.max(1, Math.ceil(target-onHand));
       var cost=num(it.unitCost);
       var sup=supName(e.supplierId) || (it.supplier||'').trim() || 'Unassigned';
-      out.push({ sku:sku, name:it.name||'', onHand:onHand, reorder:reorder, safety:safety, target:target, qty:qty, cost:cost, lineTotal:qty*cost, supplier:sup, crit:(e.criticality||'') });
+      out.push({ sku:sku, name:it.name||'', onHand:onHand, reorder:reorder, safety:safety, target:target, qty:qty, cost:cost, lineTotal:qty*cost, supplier:sup, crit:(e.criticality||''), fc:fc });
     });
     return out;
   }
@@ -146992,7 +147105,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 
     var note='<div style="font-size:11px;color:var(--text3);margin-bottom:14px;line-height:1.5;">'
       + 'Only items with a <strong>reorder point</strong> (from SOS) or a <strong>safety stock</strong> (set in Item Master) are considered \u2014 so the dead catalog stays out. '
-      + 'Order qty = target \u2212 on hand. <span style="color:#ffb300;">Forecast demand</span> and <span style="color:#ffb300;">open-PO offset</span> are pending (need 24-month usage history and SOS PO lookup).'
+      + 'Order qty = target \u2212 on hand, raised to cover one lead-time of forecast demand where a forecast exists (\u201cFcst\u201d = projected 30-day use). <span style="color:#ffb300;">Open-PO offset</span> is still pending (needs SOS PO lookup).'
       + '</div>';
 
     var body='';
@@ -147013,7 +147126,7 @@ body.hnx-mobile-locked { overflow: hidden; }
             + '<td style="text-align:right;"><input id="pq_'+safe+'_'+safeId(c.sku)+'" class="users-input" type="number" min="0" style="width:80px;text-align:right;" value="'+c.qty+'" '+(canEdit()?'':'disabled')+'></td>'
             + '<td style="text-align:right;font-family:var(--mono);font-size:11px;">'+money(c.cost)+'</td>'
             + '<td style="text-align:right;font-family:var(--mono);">'+money(c.lineTotal)+'</td>'
-            + '<td style="text-align:center;color:#ffb300;font-size:11px;" title="Forecast pending \u2014 needs usage history">\u23f3</td>'
+            + '<td style="text-align:center;font-size:11px;font-family:var(--mono);" title="Projected 30-day demand from forecast">'+(c.fc?('<span style="color:#26c281;">'+c.fc.projected+'</span>'):'<span style="color:var(--text3);">\u2014</span>')+'</td>'
             + '</tr>';
         }).join('');
         return '<div style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px;background:var(--surface);">'
@@ -147488,6 +147601,287 @@ body.hnx-mobile-locked { overflow: hidden; }
 
 </script>
 <!-- ===== END HNX AI COPILOT MODULE ===== -->
+<!-- ===== HNX FORECASTING MODULE (p180) ===== -->
+<script>
+/* ============================================================
+   p180 · Phase 11 · DEMAND FORECASTING  (AI Inventory spec sheet 11)
+   The spec's ideal inputs are 24-mo usage history, seasonality, projects &
+   maintenance plans — none of which live in SOS. So this module forecasts from
+   the two signals we DO have:
+     1. Open/past Item Requests (hydroPro_inv_requests_v1) — real demand, mined
+        and aggregated by SKU over a rolling window.
+     2. Manual / CSV usage entry  (hydroPro_inv_usage_v1) — lets the team feed in
+        real monthly consumption where they know it; overrides the request signal.
+   Outputs per SKU: avg monthly use, projected 30-day demand, days-of-cover,
+   stock-out ETA, recommended safety stock. Items with a positive forecast also
+   light up window.hnxInvForecastExists() so the Active-Item classifier keeps
+   them Active even if SOS hasn't logged a recent movement.
+   Stores: hydroPro_inv_usage_v1  (manual/CSV overrides; cloud-synced)
+   ============================================================ */
+(function(){
+  'use strict';
+  if(window.__hnxInvForecast) return;
+  var USE_KEY='hydroPro_inv_usage_v1', WIN_KEY='hydroPro_inv_fc_window_v1';
+  var P='\u20b1';
+
+  function esc(s){ s=(s==null)?'':String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function num(x){ return parseFloat(x)||0; }
+  function safeId(s){ return String(s||'').replace(/[^a-zA-Z0-9_]/g,'_'); }
+  function toast(m,t){ try{ if(typeof showToast==='function') showToast(m,t||'info'); }catch(e){} }
+  function canEdit(){ try{ return (typeof can==='function') && can('manageInventory'); }catch(e){ return false; } }
+  function push(){ try{ if(typeof hnxCloudSyncPush==='function') hnxCloudSyncPush(); }catch(e){} }
+  function stock(){ try{ return (typeof _invLoadStock==='function')?_invLoadStock():[]; }catch(e){ return []; } }
+  function audit(a,en,o,n){ try{ if(typeof window.hnxInvAudit==='function') window.hnxInvAudit(a,en,o,n); }catch(e){} }
+  function reqs(){ try{ return JSON.parse(localStorage.getItem('hydroPro_inv_requests_v1')||'[]')||[]; }catch(e){ return []; } }
+
+  // ---------- manual/CSV usage overrides ----------
+  function loadUse(){ try{ return JSON.parse(localStorage.getItem(USE_KEY)||'{}')||{}; }catch(e){ return {}; } }
+  function saveUse(o){ try{ localStorage.setItem(USE_KEY,JSON.stringify(o)); }catch(e){} push(); }
+  function loadWindow(){ try{ var v=parseInt(localStorage.getItem(WIN_KEY)||'90',10); return (v===180||v===365)?v:90; }catch(e){ return 90; } }
+  function saveWindow(d){ try{ localStorage.setItem(WIN_KEY,String(d)); }catch(e){} }
+
+  var S={ filter:'risk', q:'' };
+
+  // ---------- request-derived demand, aggregated by SKU over the window ----------
+  // Returns { SKU : {qty, months, n} } where qty = total requested in window.
+  function requestDemand(windowDays){
+    var cut=Date.now()-windowDays*86400000;
+    var byKey={};
+    reqs().forEach(function(r){
+      if(!r) return;
+      var t=new Date(r.createdAt||0).getTime(); if(isNaN(t)||t<cut) return;
+      // ignore rejected/cancelled requests as demand
+      var st=String(r.status||'').toLowerCase();
+      if(/reject|cancel|denied|void/.test(st)) return;
+      var key=String(r.itemSku||r.itemName||'').trim(); if(!key) return;
+      var rec=byKey[key]||(byKey[key]={qty:0,n:0});
+      rec.qty+=num(r.qty)||1; rec.n+=1;
+    });
+    var months=Math.max(1, windowDays/30);
+    Object.keys(byKey).forEach(function(k){ byKey[k].months=months; });
+    return byKey;
+  }
+
+  function leadDaysFor(it){
+    try{
+      if(typeof window.hnxInvSuppliers==='function'){
+        var sup=(it.supplier||'').trim();
+        var s=window.hnxInvSuppliers().filter(function(x){return (x.name||'')===sup;})[0];
+        if(s&&num(s.leadTimeDays)>0) return num(s.leadTimeDays);
+      }
+    }catch(e){}
+    return 7; // default lead time
+  }
+
+  // ---------- core: build a forecast for every SKU that has a usage signal ----------
+  // Cached per render pass keyed by window so repeated lookups are cheap at 9k items.
+  var _cache=null, _cacheKey='';
+  function buildForecasts(){
+    var win=loadWindow();
+    var key=win+'|'+localStorage.getItem(USE_KEY);
+    if(_cache && _cacheKey===key) return _cache;
+    var dem=requestDemand(win), use=loadUse(), out={};
+    stock().forEach(function(it){
+      var sku=String(it.sku||it.id||''); if(!sku) return;
+      var nm=String(it.name||'');
+      var ov=use[sku];                                  // manual/CSV monthly override
+      var d=dem[sku]||dem[nm];                           // request-derived demand
+      var avgMonthly=0, source='';
+      if(ov && num(ov.monthly)>0){ avgMonthly=num(ov.monthly); source=(ov.source==='csv'?'csv':'manual'); }
+      else if(d && d.qty>0){ avgMonthly=d.qty/d.months; source='request'; }
+      if(avgMonthly<=0) return;                          // no signal -> no forecast
+      var avgDaily=avgMonthly/30;
+      var onHand=num(it.onHand);
+      var daysCover=avgDaily>0?(onHand/avgDaily):Infinity;
+      var lead=leadDaysFor(it);
+      var recSafety=Math.ceil(avgDaily*lead);            // cover one lead time
+      var projected=Math.round(avgMonthly);             // next-30-day demand
+      var thin=(source==='request' && d && d.n<3);      // few data points -> estimate
+      out[sku]={ sku:sku, name:nm, onHand:onHand, avgMonthly:avgMonthly, avgDaily:avgDaily,
+                 daysCover:daysCover, projected:projected, recSafety:recSafety, lead:lead,
+                 source:source, n:(d?d.n:0), confidence:(source==='request'?(thin?'estimate':'modeled'):source),
+                 unit:(it.unit||''), supplier:(it.supplier||'') };
+    });
+    _cache=out; _cacheKey=key; return out;
+  }
+  function invalidate(){ _cache=null; }
+
+  // ---------- public API (consumed by velocity classifier + Purchase Engine) ----------
+  window.hnxInvForecastExists=function(sku){ if(!sku) return false; var f=buildForecasts(); return !!(f[sku] && f[sku].avgMonthly>0); };
+  window.hnxInvForecast=function(sku){ if(!sku) return null; var f=buildForecasts(); return f[sku]||null; };
+
+  // ---------- manual usage entry ----------
+  window.hnxInvSetUsage=function(sku, monthly, src){
+    if(!canEdit()){ toast('Need inventory edit permission','warn'); return; }
+    sku=String(sku||'').trim(); if(!sku) return;
+    var use=loadUse(); var old=use[sku]?use[sku].monthly:'';
+    if(num(monthly)>0){ use[sku]={monthly:num(monthly), source:src||'manual', updatedAt:new Date().toISOString()}; }
+    else { delete use[sku]; }
+    saveUse(use); invalidate();
+    audit('Usage set','Forecast · '+sku, old, num(monthly)||'(cleared)');
+    if(typeof renderInvForecast==='function') renderInvForecast();
+  };
+  window.hnxInvPromptUsage=function(sku){
+    var f=buildForecasts()[sku]; var cur=f?Math.round(f.avgMonthly):'';
+    var v=prompt('Average MONTHLY usage for '+sku+' (units/month). Leave blank to clear:', cur);
+    if(v===null) return;
+    window.hnxInvSetUsage(sku, v, 'manual');
+  };
+
+  // ---------- CSV import: columns sku,monthly  (header optional) ----------
+  window.hnxInvImportUsageCSV=function(){
+    if(!canEdit()){ toast('Need inventory edit permission','warn'); return; }
+    var inp=document.createElement('input'); inp.type='file'; inp.accept='.csv,text/csv';
+    inp.onchange=function(){
+      var file=inp.files&&inp.files[0]; if(!file) return;
+      var rd=new FileReader();
+      rd.onload=function(){
+        try{
+          var rows=String(rd.result||'').split(/\r?\n/), use=loadUse(), added=0;
+          rows.forEach(function(line){
+            if(!line.trim()) return;
+            var c=line.split(','); var sku=(c[0]||'').trim().replace(/^"|"$/g,''); var m=num((c[1]||'').trim());
+            if(!sku || /sku/i.test(sku) && isNaN(parseFloat(c[1]))) return;   // skip header
+            if(m>0){ use[sku]={monthly:m, source:'csv', updatedAt:new Date().toISOString()}; added++; }
+          });
+          saveUse(use); invalidate();
+          audit('Usage CSV import','Forecast', '', added+' SKUs');
+          toast('Imported usage for '+added+' SKUs','success');
+          if(typeof renderInvForecast==='function') renderInvForecast();
+        }catch(e){ toast('Could not read CSV','warn'); }
+      };
+      rd.readAsText(file);
+    };
+    inp.click();
+  };
+
+  // ---------- view ----------
+  window.renderInvForecast=function(){
+    var root=document.getElementById('invForecastRoot'); if(!root) return;
+    var f=buildForecasts(); var list=Object.keys(f).map(function(k){return f[k];});
+    var win=loadWindow();
+
+    // KPIs
+    var atRisk=list.filter(function(x){return x.daysCover<=x.lead;});
+    var soon=list.filter(function(x){return x.daysCover<=30;});
+    var manualN=list.filter(function(x){return x.source==='manual'||x.source==='csv';}).length;
+    var reqN=list.filter(function(x){return x.source==='request';}).length;
+    var covVals=list.filter(function(x){return isFinite(x.daysCover);}).map(function(x){return x.daysCover;});
+    var avgCov=covVals.length?Math.round(covVals.reduce(function(a,b){return a+b;},0)/covVals.length):0;
+
+    // filter + search
+    var q=(S.q||'').toLowerCase();
+    var rows=list.filter(function(x){
+      if(S.filter==='risk' && x.daysCover>x.lead) return false;
+      if(S.filter==='manual' && !(x.source==='manual'||x.source==='csv')) return false;
+      if(S.filter==='request' && x.source!=='request') return false;
+      if(q && (x.sku.toLowerCase().indexOf(q)<0 && (x.name||'').toLowerCase().indexOf(q)<0)) return false;
+      return true;
+    }).sort(function(a,b){ return a.daysCover-b.daysCover; });
+
+    var hero='';
+    try{ if(typeof _hnxRenderDashHero==='function'){ hero=_hnxRenderDashHero({module:'inventory',icon:'\ud83d\udcc8',title:'Demand Forecasting',
+      tagline:'Projects 30-day demand, days-of-cover and stock-out ETA from real request signals + any usage you feed in. Items with a live forecast stay Active.',
+      chips:[String(list.length)+' forecast', String(atRisk.length)+' at risk', win+'d window']}); } }catch(e){}
+
+    function kpi(label,val,cls){ return '<div class="pay-stat"><div class="pay-stat-label">'+label+'</div><div class="pay-stat-val'+(cls?(' '+cls):'')+'">'+val+'</div></div>'; }
+    var kpis='<div class="pay-stats" style="margin:14px 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">'
+      + kpi('\ud83d\udcca Items forecast', list.length)
+      + kpi('\u26a0 At risk (\u2264 lead)', atRisk.length, atRisk.length?'warn':'')
+      + kpi('\u23f3 Cover \u2264 30d', soon.length, soon.length?'warn':'')
+      + kpi('\ud83d\udcc5 Avg days cover', isFinite(avgCov)?avgCov:'\u2014')
+      + kpi('\u270d Manual / CSV', manualN)
+      + kpi('\ud83d\udcdd Request-derived', reqN)
+      + '</div>';
+
+    function fchip(id,label){ var on=S.filter===id; return '<button onclick="window.__hnxInvForecast.setFilter(\''+id+'\')" style="padding:6px 12px;border-radius:6px;border:1px solid '+(on?'#66bb6a':'rgba(120,160,140,.4)')+';background:'+(on?'rgba(102,187,106,.18)':'transparent')+';color:'+(on?'#9ccc65':'#9fc7bb')+';font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">'+label+'</button>'; }
+    function wchip(d){ var on=win===d; return '<button onclick="window.__hnxInvForecast.setWindow('+d+')" style="padding:5px 10px;border-radius:6px;border:1px solid '+(on?'#4aa3df':'rgba(120,160,140,.4)')+';background:'+(on?'rgba(74,163,223,.18)':'transparent')+';color:'+(on?'#7cc0f0':'#9fc7bb')+';font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">'+d+'d</button>'; }
+
+    var controls='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">'
+      + fchip('risk','\u26a0 At risk') + fchip('all','All') + fchip('manual','\u270d Manual/CSV') + fchip('request','\ud83d\udcdd Request-derived')
+      + '<span style="margin-left:6px;color:#7aa99a;font-size:11px;">Demand window:</span>' + wchip(90)+wchip(180)+wchip(365)
+      + '<span style="flex:1 1 120px;"></span>'
+      + '<input id="invFcSearch" placeholder="Search SKU / name\u2026" value="'+esc(S.q)+'" oninput="window.__hnxInvForecast.search(this.value)" style="padding:7px 10px;border-radius:7px;border:1px solid rgba(120,160,140,.35);background:#0c1713;color:#cfe;font-size:12px;min-width:160px;">'
+      + (canEdit()?('<button onclick="window.hnxInvImportUsageCSV()" style="padding:7px 12px;border-radius:7px;border:1px solid rgba(74,163,223,.5);background:rgba(74,163,223,.14);color:#7cc0f0;font-size:12px;font-weight:700;cursor:pointer;">\u2b06 Import usage CSV</button>'):'')
+      + '<button onclick="window.__hnxInvForecast.exportCSV()" style="padding:7px 12px;border-radius:7px;border:1px solid rgba(120,160,140,.4);background:transparent;color:#9fc7bb;font-size:12px;font-weight:700;cursor:pointer;">\u2b07 Export</button>'
+      + '</div>';
+
+    var body;
+    if(!list.length){
+      body='<div style="padding:40px 20px;text-align:center;color:#7aa99a;">'
+        +'<div style="font-size:34px;opacity:.5;margin-bottom:8px;">\ud83d\udcc8</div>'
+        +'<div style="font-weight:700;color:#cfe;margin-bottom:6px;">No demand signal yet</div>'
+        +'<div style="font-size:12.5px;max-width:520px;margin:0 auto 4px;">Forecasts build automatically once Item Requests start flowing (each request is a demand data point), or you can feed in known monthly usage.</div>'
+        +(canEdit()?'<div style="margin-top:12px;"><button onclick="window.hnxInvImportUsageCSV()" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(74,163,223,.5);background:rgba(74,163,223,.14);color:#7cc0f0;font-weight:700;cursor:pointer;">\u2b06 Import usage CSV (sku,monthly)</button></div>':'')
+        +'</div>';
+    } else {
+      var th='style="text-align:left;padding:8px 10px;font-size:10.5px;letter-spacing:.4px;text-transform:uppercase;color:#7aa99a;border-bottom:1px solid rgba(120,160,140,.2);white-space:nowrap;"';
+      var tr=rows.slice(0,400).map(function(x){
+        var risk=x.daysCover<=x.lead, soonF=x.daysCover<=30;
+        var cov=isFinite(x.daysCover)?(Math.round(x.daysCover)+'d'):'\u221e';
+        var covColor=risk?'#ef5350':(soonF?'#ffb300':'#26c281');
+        var eta=isFinite(x.daysCover)?new Date(Date.now()+x.daysCover*86400000).toISOString().slice(0,10):'\u2014';
+        var srcBadge={manual:'\u270d manual',csv:'\u2b06 csv',request:'\ud83d\udcdd req'}[x.source]||x.source;
+        var conf=x.confidence==='estimate'?' <span style="color:#ffb300;">(est)</span>':'';
+        var td='style="padding:8px 10px;font-size:12.5px;color:#cfe;border-bottom:1px solid rgba(120,160,140,.08);white-space:nowrap;"';
+        return '<tr>'
+          +'<td '+td+'><span style="font-family:var(--mono,monospace);color:#9fc7bb;">'+esc(x.sku)+'</span></td>'
+          +'<td style="padding:8px 10px;font-size:12.5px;color:#cfe;border-bottom:1px solid rgba(120,160,140,.08);max-width:260px;overflow:hidden;text-overflow:ellipsis;">'+esc(x.name||'\u2014')+'</td>'
+          +'<td '+td+'>'+x.onHand+' '+esc(x.unit)+'</td>'
+          +'<td '+td+'>'+(Math.round(x.avgMonthly*10)/10)+'/mo'+conf+'</td>'
+          +'<td '+td+'><span style="color:'+covColor+';font-weight:700;">'+cov+'</span></td>'
+          +'<td '+td+'>'+x.projected+'</td>'
+          +'<td '+td+'>'+x.recSafety+'</td>'
+          +'<td '+td+'><span style="color:'+(risk?'#ef5350':'#9fc7bb')+';">'+eta+'</span></td>'
+          +'<td '+td+'><span style="font-size:11px;color:#7aa99a;">'+srcBadge+'</span>'
+            +(canEdit()?' <button onclick="window.hnxInvPromptUsage(\''+esc(x.sku).replace(/'/g,"\\'")+'\')" title="Set monthly usage" style="background:none;border:none;color:#4aa3df;cursor:pointer;font-size:12px;">\u270e</button>':'')+'</td>'
+          +'</tr>';
+      }).join('');
+      var more=rows.length>400?('<div style="padding:8px 10px;color:#7aa99a;font-size:11px;">Showing first 400 of '+rows.length+' \u2014 narrow with search.</div>'):'';
+      body='<div style="overflow-x:auto;border:1px solid rgba(120,160,140,.18);border-radius:10px;">'
+        +'<table style="width:100%;border-collapse:collapse;min-width:760px;">'
+        +'<thead><tr>'
+        +'<th '+th+'>SKU</th><th '+th+'>Name</th><th '+th+'>On hand</th><th '+th+'>Avg use</th>'
+        +'<th '+th+'>Days cover</th><th '+th+'>Proj 30d</th><th '+th+'>Rec. safety</th><th '+th+'>Stock-out ETA</th><th '+th+'>Source</th>'
+        +'</tr></thead><tbody>'+tr+'</tbody></table>'+more+'</div>';
+    }
+
+    var note='<div style="margin-top:10px;font-size:11px;color:#6e8f82;line-height:1.5;">'
+      +'Forecasts use the demand signals available today \u2014 Item Requests (real pulls) and any monthly usage you enter or import. '
+      +'They are estimates, not committed plans; the \u201c(est)\u201d tag marks SKUs with fewer than 3 request data points. '
+      +'As 24-month movement history, seasonality and project/maintenance plans become available, the same view will sharpen automatically.'
+      +'</div>';
+
+    root.innerHTML=hero+kpis+controls+body+note;
+  };
+
+  window.__hnxInvForecast={
+    setFilter:function(f){ S.filter=f; renderInvForecast(); },
+    setWindow:function(d){ saveWindow(d); invalidate(); renderInvForecast(); },
+    search:function(v){ S.q=v; var root=document.getElementById('invForecastRoot'); var f=document.getElementById('invFcSearch'); var pos=f?f.selectionStart:null; renderInvForecast(); var nf=document.getElementById('invFcSearch'); if(nf){ nf.focus(); if(pos!=null){ try{ nf.setSelectionRange(pos,pos); }catch(e){} } } },
+    exportCSV:function(){
+      var f=buildForecasts(); var list=Object.keys(f).map(function(k){return f[k];}).sort(function(a,b){return a.daysCover-b.daysCover;});
+      var head=['SKU','Name','OnHand','Unit','AvgMonthly','DaysCover','Projected30d','RecSafety','LeadDays','StockoutETA','Source','Confidence'];
+      var lines=[head.join(',')];
+      list.forEach(function(x){
+        var eta=isFinite(x.daysCover)?new Date(Date.now()+x.daysCover*86400000).toISOString().slice(0,10):'';
+        function q(v){ v=(v==null)?'':String(v); return /[",\n]/.test(v)?('"'+v.replace(/"/g,'""')+'"'):v; }
+        lines.push([x.sku,x.name,x.onHand,x.unit,Math.round(x.avgMonthly*100)/100,(isFinite(x.daysCover)?Math.round(x.daysCover):''),x.projected,x.recSafety,x.lead,eta,x.source,x.confidence].map(q).join(','));
+      });
+      try{
+        var blob=new Blob([lines.join('\n')],{type:'text/csv'}); var a=document.createElement('a');
+        a.href=URL.createObjectURL(blob); a.download='hnx_demand_forecast_'+new Date().toISOString().slice(0,10)+'.csv';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        audit('Forecast export','Forecast', '', list.length+' rows');
+      }catch(e){ toast('Export failed','warn'); }
+    }
+  };
+
+  window.__hnxInvForecast._ready=true;
+})();
+</script>
+<!-- ===== END HNX FORECASTING MODULE ===== -->
+
 
 
 
