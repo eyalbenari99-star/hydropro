@@ -5844,6 +5844,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 <div class="view" id="view-inv_velocity"><div id="invVelocityBody"></div></div>
 <div class="view" id="view-inv_diagnostics"><div id="invDiagBody"></div></div>
 <div class="view" id="view-inv_requests"><div id="invRequestsBody"></div></div>
+<div class="view" id="view-inv_master"><div id="invMasterBody"></div></div>
 <div class="view" id="view-inv_categories"><div id="stubInvCategoriesBody"></div></div>
 <div class="view" id="view-inv_calls"><div id="invCallsBody"></div></div>
 <!-- Packaging -->
@@ -20595,6 +20596,7 @@ const MODULES={
       {id:'inv_velocity',label:'📊 Item Velocity',perm:'viewInventory',title:'Classify items by movement: Active / Slow Moving / Dead Stock'},
       {id:'inv_diagnostics',label:'🩺 Diagnostics',perm:'viewInventory',title:'AI Diagnostics + Inventory Health — low/out/dead/overstock, duplicate SKUs, supplier risk, health score'},
       {id:'inv_requests',label:'📝 Requests',perm:'viewInventory',title:'Item requests — raise, approve (e-signed), warehouse confirm, post back to SOS'},
+      {id:'inv_master',label:'🗂️ Master Data',perm:'viewInventory',title:'Suppliers & Brands master data — reference lists for the Item Master'},
       {id:'inv_movements',label:'🔄 Movements',perm:'viewInventory'},
       {id:'inv_categories',label:'🏷️ Categories',perm:'viewInventory'}
     ]
@@ -21232,7 +21234,7 @@ function switchView(v,skipModuleCheck){
     maint_dash:'viewMaintenance',maint_tasks:'viewMaintenance',maint_calendar:'viewMaintenance',maint_materials:'viewMaintenance',maint_ozone:'viewMaintenance',maint_ro:'viewMaintenance',maint_radio:'viewMaintenance',maint_tools:'viewMaintenance',maint_equipment:'viewMaintenance',maint_nft:'viewMaintenance',maint_parts:'viewMaintenance',maint_matrix:'viewMaintenance',maint_recurring:'viewMaintenance',maint_open_calls:'viewMaintenance',
     it_cctv:'viewMaintenance',it_radios:'viewMaintenance',it_devices:'viewMaintenance',it_prj11:'viewMaintenance',
     irr_dash:'viewIrrigation',irr_schedule:'viewIrrigation',irr_drums:'viewIrrigation',irr_nutrients:'viewIrrigation',irr_systems:'viewIrrigation',irr_smart_dose:'viewIrrigation',irr_ai_insights:'viewIrrigation',irr_predictions:'viewIrrigation',irr_recurring:'viewIrrigation',irr_open_calls:'viewIrrigation',
-    inv_dash:'viewInventory',inv_stock:'viewInventory',inv_movements:'viewInventory',inv_categories:'viewInventory',inv_velocity:'viewInventory',inv_diagnostics:'viewInventory',inv_requests:'viewInventory',
+    inv_dash:'viewInventory',inv_stock:'viewInventory',inv_movements:'viewInventory',inv_categories:'viewInventory',inv_velocity:'viewInventory',inv_diagnostics:'viewInventory',inv_requests:'viewInventory',inv_master:'viewInventory',
     pack_dash:'viewPackaging',pack_materials:'viewPackaging',pack_operations:'viewPackaging',
     log_dash:'viewLogistics',log_deliveries:'viewLogistics',log_routes:'viewLogistics',log_vehicles:'viewLogistics',log_recurring:'viewLogistics',log_open_calls:'viewLogistics',log_megabox_matrix:'viewLogistics',
     crm_dash:'viewCRM',crm_reminders:'viewCRM',crm_leads:'viewCRM',crm_customers:'viewCRM',crm_marketing:'viewCRM',crm_pipeline:'viewCRM',crm_catalog:'viewCRM',crm_quotes:'viewCRM',crm_orders:'viewCRM',crm_sales:'viewCRM',
@@ -21375,6 +21377,7 @@ function switchView(v,skipModuleCheck){
   if(v==='inv_velocity')renderInvVelocity();
   if(v==='inv_diagnostics')renderInvDiagnostics();
   if(v==='inv_requests')renderInvRequests();
+  if(v==='inv_master')renderInvMaster();
   if(v==='inv_categories')renderInvCategories();
   if(v==='inv_calls')renderInvCalls();
   if(v==='pack_washtrim'){renderWashTrim();return;}
@@ -71763,8 +71766,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.50.1-reqmod';window.HNX_BUILD='v2.86-p167-reqfix';  // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
-const APP_BUILD=1781555200;
+const APP_VERSION='2.51.0-master';window.HNX_BUILD='v2.86-p168-master';  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
+const APP_BUILD=1781641600;
 const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
@@ -146466,6 +146469,170 @@ body.hnx-mobile-locked { overflow: hidden; }
 })();
 </script>
 <!-- ===== END HNX ITEM REQUEST MODULE ===== -->
+<!-- ===== HNX MASTER DATA MODULE (p168) ===== -->
+<script>
+/* ============================================================
+   p168 · Phase 3a · MASTER DATA — Suppliers + Brands (spec sheets 03/04)
+   Reference tables HydroNexis owns. Suppliers seedable from SOS. Feeds the
+   Item Master (Phase 3b) brand/supplier dropdowns. Inventory module only.
+   Stores: hydroPro_inv_suppliers_v1 · hydroPro_inv_brands_v1 (cloud-synced).
+   ============================================================ */
+(function(){
+  'use strict';
+  if(window.__hnxInvMaster) return;
+  var SUP_KEY='hydroPro_inv_suppliers_v1', BR_KEY='hydroPro_inv_brands_v1';
+  var S={tab:'suppliers', editing:null};   // editing: null | {kind:'sup'|'br', id:'new'|<id>}
+
+  function esc(s){ s=(s==null)?'':String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function uid(p){ return p+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,6); }
+  function num(x){ return parseFloat(x)||0; }
+  function loadSup(){ try{ return JSON.parse(localStorage.getItem(SUP_KEY)||'[]'); }catch(e){ return []; } }
+  function saveSup(a){ try{ localStorage.setItem(SUP_KEY,JSON.stringify(a)); }catch(e){} push(); }
+  function loadBr(){ try{ return JSON.parse(localStorage.getItem(BR_KEY)||'[]'); }catch(e){ return []; } }
+  function saveBr(a){ try{ localStorage.setItem(BR_KEY,JSON.stringify(a)); }catch(e){} push(); }
+  function push(){ try{ if(typeof hnxCloudSyncPush==='function') hnxCloudSyncPush(); }catch(e){} }
+  function toast(m,t){ try{ if(typeof showToast==='function') showToast(m,t||'info'); }catch(e){} }
+  function canEdit(){ try{ return (typeof can==='function') && can('manageInventory'); }catch(e){ return false; } }
+  function val(id){ var el=document.getElementById(id); return el?el.value.trim():''; }
+  function sosSupplierNames(){ try{ var st=(typeof _invLoadStock==='function')?_invLoadStock():[]; var m={}; st.forEach(function(i){ var v=(i.supplier||'').trim(); if(v) m[v]=1; }); return Object.keys(m).sort(); }catch(e){ return []; } }
+
+  function scoreChip(n){ n=num(n); var c=n>=75?'#26c281':n>=50?'#ffb300':n>0?'#ef5350':'#7aa99a'; return '<span style="display:inline-block;font-family:var(--mono);font-weight:700;color:'+c+';border:1px solid '+c+';border-radius:10px;padding:1px 8px;font-size:11px;">'+(n?n:'\u2014')+'</span>'; }
+  function statusChip(s){ var on=(s||'Active')==='Active'; var c=on?'#26c281':'#7aa99a'; return '<span style="font-size:10px;font-weight:700;color:'+c+';border:1px solid '+c+';border-radius:10px;padding:1px 8px;">'+(on?'Active':'Inactive')+'</span>'; }
+
+  function render(){
+    var host=document.getElementById('invMasterBody'); if(!host) return;
+    if(!(typeof can==='function') || !can('viewInventory')){ host.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3);">Access denied \u2014 needs Inventory view permission.</div>'; return; }
+    var sup=loadSup(), br=loadBr();
+    var hero=(typeof window._hnxRenderDashHero==='function')?window._hnxRenderDashHero({
+      module:'inventory', icon:'\ud83d\uddc2\ufe0f', title:'MASTER DATA',
+      tagline:'Suppliers and brands HydroNexis owns \u2014 the reference lists the Item Master attaches to each SKU. Import suppliers straight from your SOS catalog.',
+      chips:[ {label:'Suppliers', value:String(sup.length), tone:'info'}, {label:'Brands', value:String(br.length), tone:'info'} ]
+    }):'';
+    var tabs='<div style="display:flex;gap:8px;margin:0 0 16px;flex-wrap:wrap;">'
+      + tabBtn('suppliers','\ud83d\ude9a Suppliers') + tabBtn('brands','\ud83c\udff7\ufe0f Brands')
+      + '<span style="flex:1;"></span>'
+      + '<span style="align-self:center;font-size:11px;color:var(--text3);">\ud83d\udce6 Items \u2192 next phase</span></div>';
+    host.innerHTML = hero + tabs + (S.tab==='suppliers'? renderSuppliers(sup) : renderBrands(br));
+  }
+  function tabBtn(k,l){ var on=S.tab===k; return '<button onclick="__hnxInvMaster.tab(\''+k+'\')" style="padding:8px 16px;border-radius:8px;border:1px solid '+(on?'#42a5f5':'var(--border)')+';background:'+(on?'#42a5f5':'transparent')+';color:'+(on?'#0a1612':'var(--text2)')+';font-size:13px;font-weight:700;cursor:pointer;">'+l+'</button>'; }
+
+  // ---------- SUPPLIERS ----------
+  function renderSuppliers(sup){
+    var H='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">';
+    if(canEdit()){
+      H+='<button class="btn btn-primary" onclick="__hnxInvMaster.edit(\'sup\',\'new\')">\u2795 Add supplier</button>'
+       + '<button class="btn btn-outline" onclick="__hnxInvMaster.importSos()">\u2b07 Import from SOS</button>';
+    }
+    H+='</div>';
+    if(S.editing && S.editing.kind==='sup') H+=supEditor(sup);
+    if(!sup.length) return H+'<div style="padding:40px;text-align:center;color:var(--text3);border:1px dashed var(--border);border-radius:10px;">No suppliers yet. Add one, or import from SOS.</div>';
+    var rows=sup.slice().sort(function(a,b){return (a.name||'').localeCompare(b.name||'');}).map(function(s){
+      return '<tr><td><strong>'+esc(s.name||'\u2014')+'</strong></td>'
+        + '<td style="font-size:12px;">'+esc(s.contact||'\u2014')+'</td>'
+        + '<td style="font-size:12px;color:var(--text3);">'+esc(s.email||'')+(s.phone?('<br>'+esc(s.phone)):'')+'</td>'
+        + '<td style="text-align:center;">'+scoreChip(s.score)+'</td>'
+        + '<td style="text-align:center;">'+statusChip(s.status)+'</td>'
+        + '<td style="text-align:right;white-space:nowrap;">'+(canEdit()?('<button class="btn btn-outline" style="font-size:10px;padding:3px 8px;" onclick="__hnxInvMaster.edit(\'sup\',\''+s.id+'\')">\u270f\ufe0f</button> <button class="btn btn-outline" style="font-size:10px;padding:3px 8px;color:var(--danger);" onclick="__hnxInvMaster.del(\'sup\',\''+s.id+'\')">\ud83d\uddd1</button>'):'')+'</td></tr>';
+    }).join('');
+    return H+'<div class="tool-table-wrap"><table class="cctv-inventory-table"><thead><tr><th>Supplier</th><th>Contact</th><th>Email / phone</th><th style="text-align:center;">Score</th><th style="text-align:center;">Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  }
+  function supEditor(sup){
+    var s = S.editing.id==='new' ? {id:'new',name:'',contact:'',email:'',phone:'',score:'',status:'Active',notes:''} : (sup.filter(function(x){return x.id===S.editing.id;})[0]||{id:'new'});
+    function f(label,id,v,ph,type){ return '<div style="margin-bottom:10px;"><label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">'+label+'</label><input id="'+id+'" class="users-input" style="width:100%;" type="'+(type||'text')+'" value="'+esc(v==null?'':v)+'" placeholder="'+esc(ph||'')+'"></div>'; }
+    return '<div style="border:1px solid #42a5f5;border-radius:10px;padding:14px 16px;background:rgba(66,165,245,.05);margin-bottom:16px;max-width:640px;">'
+      + '<div style="font-weight:800;margin-bottom:10px;">'+(s.id==='new'?'New supplier':'Edit supplier')+'</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'
+      + f('Supplier name *','sup_name',s.name,'Company name')
+      + f('Contact person','sup_contact',s.contact,'')
+      + f('Email','sup_email',s.email,'','email')
+      + f('Phone','sup_phone',s.phone,'')
+      + f('Reliability score (0\u2013100)','sup_score',s.score,'e.g. 80','number')
+      + '<div style="margin-bottom:10px;"><label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">Status</label><select id="sup_status" class="users-input" style="width:100%;"><option'+((s.status||'Active')==='Active'?' selected':'')+'>Active</option><option'+(s.status==='Inactive'?' selected':'')+'>Inactive</option></select></div>'
+      + '</div>'
+      + f('Notes','sup_notes',s.notes,'')
+      + '<div style="display:flex;gap:10px;margin-top:6px;"><button class="btn btn-primary" onclick="__hnxInvMaster.save(\'sup\')">Save</button><button class="btn btn-outline" onclick="__hnxInvMaster.cancel()">Cancel</button></div>'
+      + '</div>';
+  }
+
+  // ---------- BRANDS ----------
+  function renderBrands(br){
+    var H='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">';
+    if(canEdit()) H+='<button class="btn btn-primary" onclick="__hnxInvMaster.edit(\'br\',\'new\')">\u2795 Add brand</button>';
+    H+='</div>';
+    if(S.editing && S.editing.kind==='br') H+=brEditor(br);
+    if(!br.length) return H+'<div style="padding:40px;text-align:center;color:var(--text3);border:1px dashed var(--border);border-radius:10px;">No brands yet. Add one.</div>';
+    var rows=br.slice().sort(function(a,b){return (a.name||'').localeCompare(b.name||'');}).map(function(b){
+      var site=b.website?('<a href="'+esc(b.website)+'" target="_blank" rel="noopener" style="color:#42a5f5;">'+esc(b.website.replace(/^https?:\/\//,''))+'</a>'):'\u2014';
+      return '<tr><td><strong>'+esc(b.name||'\u2014')+'</strong></td>'
+        + '<td style="font-size:12px;">'+esc(b.country||'\u2014')+'</td>'
+        + '<td style="font-size:12px;">'+site+'</td>'
+        + '<td style="text-align:center;">'+statusChip(b.status)+'</td>'
+        + '<td style="text-align:right;white-space:nowrap;">'+(canEdit()?('<button class="btn btn-outline" style="font-size:10px;padding:3px 8px;" onclick="__hnxInvMaster.edit(\'br\',\''+b.id+'\')">\u270f\ufe0f</button> <button class="btn btn-outline" style="font-size:10px;padding:3px 8px;color:var(--danger);" onclick="__hnxInvMaster.del(\'br\',\''+b.id+'\')">\ud83d\uddd1</button>'):'')+'</td></tr>';
+    }).join('');
+    return H+'<div class="tool-table-wrap"><table class="cctv-inventory-table"><thead><tr><th>Brand</th><th>Country</th><th>Website</th><th style="text-align:center;">Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  }
+  function brEditor(br){
+    var b = S.editing.id==='new' ? {id:'new',name:'',country:'',website:'',status:'Active'} : (br.filter(function(x){return x.id===S.editing.id;})[0]||{id:'new'});
+    function f(label,id,v,ph){ return '<div style="margin-bottom:10px;"><label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">'+label+'</label><input id="'+id+'" class="users-input" style="width:100%;" value="'+esc(v==null?'':v)+'" placeholder="'+esc(ph||'')+'"></div>'; }
+    return '<div style="border:1px solid #42a5f5;border-radius:10px;padding:14px 16px;background:rgba(66,165,245,.05);margin-bottom:16px;max-width:560px;">'
+      + '<div style="font-weight:800;margin-bottom:10px;">'+(b.id==='new'?'New brand':'Edit brand')+'</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'
+      + f('Brand name *','br_name',b.name,'')
+      + f('Country','br_country',b.country,'')
+      + f('Website','br_website',b.website,'https://')
+      + '<div style="margin-bottom:10px;"><label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">Status</label><select id="br_status" class="users-input" style="width:100%;"><option'+((b.status||'Active')==='Active'?' selected':'')+'>Active</option><option'+(b.status==='Inactive'?' selected':'')+'>Inactive</option></select></div>'
+      + '</div>'
+      + '<div style="display:flex;gap:10px;margin-top:6px;"><button class="btn btn-primary" onclick="__hnxInvMaster.save(\'br\')">Save</button><button class="btn btn-outline" onclick="__hnxInvMaster.cancel()">Cancel</button></div>'
+      + '</div>';
+  }
+
+  // ---------- actions ----------
+  window.__hnxInvMaster = {
+    tab:function(t){ S.tab=t; S.editing=null; render(); },
+    edit:function(kind,id){ if(!canEdit()){ toast('Edit needs Inventory manage rights','warn'); return; } S.tab=(kind==='sup')?'suppliers':'brands'; S.editing={kind:kind,id:id}; render(); },
+    cancel:function(){ S.editing=null; render(); },
+    save:function(kind){
+      if(!canEdit()){ toast('No rights','warn'); return; }
+      if(kind==='sup'){
+        var name=val('sup_name'); if(!name){ toast('Supplier name required','warn'); return; }
+        var arr=loadSup(); var id=S.editing.id;
+        var rec={ id:(id==='new'?uid('sup'):id), name:name, contact:val('sup_contact'), email:val('sup_email'), phone:val('sup_phone'), score:num(val('sup_score')), status:val('sup_status')||'Active', notes:val('sup_notes') };
+        if(id==='new') arr.push(rec); else arr=arr.map(function(x){return x.id===id?rec:x;});
+        saveSup(arr); toast('\u2713 Supplier saved','info');
+      } else {
+        var bn=val('br_name'); if(!bn){ toast('Brand name required','warn'); return; }
+        var ba=loadBr(); var bid=S.editing.id;
+        var brec={ id:(bid==='new'?uid('br'):bid), name:bn, country:val('br_country'), website:val('br_website'), status:val('br_status')||'Active' };
+        if(bid==='new') ba.push(brec); else ba=ba.map(function(x){return x.id===bid?brec:x;});
+        saveBr(ba); toast('\u2713 Brand saved','info');
+      }
+      S.editing=null; render();
+    },
+    del:function(kind,id){
+      if(!canEdit()){ toast('No rights','warn'); return; }
+      if(!confirm('Delete this '+(kind==='sup'?'supplier':'brand')+'?')) return;
+      if(kind==='sup') saveSup(loadSup().filter(function(x){return x.id!==id;}));
+      else saveBr(loadBr().filter(function(x){return x.id!==id;}));
+      render();
+    },
+    importSos:function(){
+      if(!canEdit()){ toast('No rights','warn'); return; }
+      var names=sosSupplierNames(); if(!names.length){ toast('No suppliers found in SOS items','warn'); return; }
+      var arr=loadSup(); var have={}; arr.forEach(function(s){ have[(s.name||'').toLowerCase()]=1; });
+      var added=0; names.forEach(function(n){ if(!have[n.toLowerCase()]){ arr.push({id:uid('sup'),name:n,contact:'',email:'',phone:'',score:0,status:'Active',notes:'imported from SOS'}); added++; } });
+      saveSup(arr); toast(added?('\u2713 Imported '+added+' supplier'+(added>1?'s':'')+' from SOS'):'All SOS suppliers already exist','info'); render();
+    }
+  };
+
+  // expose for the Item Master (Phase 3b) + request form
+  window.hnxInvSuppliers = loadSup;
+  window.hnxInvBrands = loadBr;
+  window.renderInvMaster = function(){ render(); };
+
+})();
+</script>
+<!-- ===== END HNX MASTER DATA MODULE ===== -->
+
 
 
 <!-- ================= HNX DASHBOARD HERO PATTERN (v2.46.295) =================
