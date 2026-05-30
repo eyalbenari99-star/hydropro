@@ -59774,13 +59774,13 @@ function renderInvVelocity(){
   var sosConnected = !!(window.__hnxSos && window.__hnxSos.isConnected && window.__hnxSos.isConnected());
   // Classify
   var byVel = { active:[], slow:[], dead:[], unknown:[] };
-  stock.forEach(function(s){ byVel[_invClassifyVelocity(s)].push(s); });
+  stock.forEach(function(s){ s.__vel = _invClassifyVelocity(s); byVel[s.__vel].push(s); });   // p163b: classify ONCE (was re-classified ~26× per item during sort at scale)
   var total = stock.length;
   var filtered = (_invVelocityFilter==='all') ? stock.slice() : byVel[_invVelocityFilter].slice();
   // Sort: urgent first (dead → slow → unknown → active), then by stock value descending
   var ord = {dead:0,slow:1,unknown:2,active:3};
   filtered.sort(function(a,b){
-    var va = _invClassifyVelocity(a), vb = _invClassifyVelocity(b);
+    var va = a.__vel, vb = b.__vel;
     if(ord[va] !== ord[vb]) return ord[va]-ord[vb];
     var valA = (parseFloat(a.onHand)||0)*(parseFloat(a.unitCost)||0);
     var valB = (parseFloat(b.onHand)||0)*(parseFloat(b.unitCost)||0);
@@ -59797,7 +59797,7 @@ function renderInvVelocity(){
   }
 
   var sourceNote = sosConnected
-    ? '<span style="color:#26c281;">● Live SOS data ('+ (_invLoadStockFromSos().length) +' items)</span>'
+    ? '<span style="color:#26c281;">● Live SOS data ('+ ((window.__hnxSos&&window.__hnxSos.getItems)?window.__hnxSos.getItems().length:0) +' items)</span>'
     : '<span style="color:#ffb300;">⚠ Not connected to SOS — showing manual stock only</span>';
 
   var html =
@@ -59843,7 +59843,7 @@ function renderInvVelocity(){
        +'<thead><tr><th>Velocity</th><th>SKU</th><th>Item</th><th>Category</th><th style="text-align:right;">On Hand</th><th style="text-align:right;">Reorder</th><th>Last Activity</th><th style="text-align:right;">Stock Value</th></tr></thead>'
        +'<tbody>'
        + filtered.slice(0, 500).map(function(s){
-           var v = _invClassifyVelocity(s);
+           var v = s.__vel || _invClassifyVelocity(s);
            var vl = _invVelocityLabel(v);
            var ago = s._modified ? _timeAgoOC(s._modified) : '—';
            var val = (parseFloat(s.onHand)||0) * (parseFloat(s.unitCost)||0);
@@ -59991,6 +59991,18 @@ function renderInv(tab){
     const lowStock=stock.filter(s=>s.minStock&&parseFloat(s.onHand)<=parseFloat(s.minStock));
     const totalValue=stock.reduce((a,s)=>a+(parseFloat(s.onHand)||0)*(parseFloat(s.unitCost)||0),0);
     const last7=moves.filter(m=>(Date.now()-new Date(m.date).getTime())<7*86400000);
+    // p163b: SOS-aware KPI strip — real numbers + dead-capital + live SOS status
+    let _deadCount=0,_deadCapital=0;
+    try{ stock.forEach(function(s){ if(_invClassifyVelocity(s)==='dead'){ _deadCount++; _deadCapital+=(parseFloat(s.onHand)||0)*(parseFloat(s.unitCost)||0); } }); }catch(e){}
+    const _sos=window.__hnxSos;
+    const _sosOn=!!(_sos&&_sos.isConnected&&_sos.isConnected());
+    const _sosLoc=(_sosOn&&_sos.getLocations)?_sos.getLocations().length:0;
+    const _sosShip=(_sosOn&&_sos.getShipments)?_sos.getShipments().length:0;
+    const _sosMeta=(_sosOn&&_sos.getMeta)?_sos.getMeta():null;
+    const _sosAgo=(_sosMeta&&_sosMeta.lastSync&&typeof _timeAgoOC==='function')?_timeAgoOC(_sosMeta.lastSync):'';
+    const _srcNote=_sosOn
+      ? '<span style="color:#26c281;">● Live SOS data — '+stock.length.toLocaleString()+' items'+(_sosAgo?(' · synced '+_sosAgo):'')+'</span>'
+      : '<span style="color:#ffb300;">⚠ Not connected to SOS — manual stock only. Connect at Admin → 📦 SOS Inventory Sync.</span>';
     document.getElementById(target).innerHTML=
       ((typeof window._hnxRenderDashHero==='function') ? window._hnxRenderDashHero({
         module: 'inventory',
@@ -60005,11 +60017,13 @@ function renderInv(tab){
         ]
       }) : '') + `
       <div class="section-title">📊 Inventory Dashboard</div>
+      <div style="font-size:12px;color:var(--text2);margin:-4px 0 14px;">${_srcNote}</div>
       <div class="pay-stat-row">
         <div class="pay-stat" style="cursor:pointer;" onclick="switchView('inv_stock')" title="Click to open all stock"><div class="pay-stat-label">Total SKUs</div><div class="pay-stat-val">${stock.length}</div></div>
-        <div class="pay-stat" style="cursor:pointer;" onclick="(function(){const stock=loadInvStock();const filt=stock.filter(s=>s.minStock&&parseFloat(s.onHand)<=parseFloat(s.minStock));const data=filt.map(s=>{const need=Math.max(0,(parseFloat(s.minStock)||0)*2-(parseFloat(s.onHand)||0));const cat=(INV_CATEGORIES.find(c=>c.id===s.category)||{name:'—'}).name;return {label:(s.name||'—')+' ('+(s.sku||'no sku')+')',description:cat+' · On hand: '+(s.onHand||0)+' '+(s.unit||'')+' · Min: '+(s.minStock||0)+' · Need to reorder: '+need.toFixed(1)+' '+(s.unit||''),module:'Inventory · Low Stock',priority:parseFloat(s.onHand)<=0?'critical':'warning',status:'low',ageStr:s.onHand+' '+(s.unit||''),_onClickJS:'switchView(\\'inv_stock\\')'};});openDrillDown({title:'Low Stock Alerts',subtitle:'Items at or below their minimum stock level — reorder needed',scope:'custom',data:data});})()" title="Click to see low-stock items"><div class="pay-stat-label">⚠ Low Stock</div><div class="pay-stat-val ${lowStock.length>0?'warn':''}">${lowStock.length}</div></div>
+        <div class="pay-stat" style="cursor:pointer;" onclick="(function(){const stock=_invLoadStock();const filt=stock.filter(s=>s.minStock&&parseFloat(s.onHand)<=parseFloat(s.minStock));const data=filt.map(s=>{const need=Math.max(0,(parseFloat(s.minStock)||0)*2-(parseFloat(s.onHand)||0));const cat=(INV_CATEGORIES.find(c=>c.id===s.category)||{name:'—'}).name;return {label:(s.name||'—')+' ('+(s.sku||'no sku')+')',description:cat+' · On hand: '+(s.onHand||0)+' '+(s.unit||'')+' · Min: '+(s.minStock||0)+' · Need to reorder: '+need.toFixed(1)+' '+(s.unit||''),module:'Inventory · Low Stock',priority:parseFloat(s.onHand)<=0?'critical':'warning',status:'low',ageStr:s.onHand+' '+(s.unit||''),_onClickJS:'switchView(\\'inv_stock\\')'};});openDrillDown({title:'Low Stock Alerts',subtitle:'Items at or below their minimum stock level — reorder needed',scope:'custom',data:data});})()" title="Click to see low-stock items"><div class="pay-stat-label">⚠ Low Stock</div><div class="pay-stat-val ${lowStock.length>0?'warn':''}">${lowStock.length}</div></div>
         <div class="pay-stat" style="cursor:pointer;" onclick="switchView('inv_stock')" title="Click to open all stock"><div class="pay-stat-label">💰 Total Value</div><div class="pay-stat-val">₱${totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>
-        <div class="pay-stat" style="cursor:pointer;" onclick="switchView('inv_movements')" title="Click to see movements"><div class="pay-stat-label">📋 Movements (7d)</div><div class="pay-stat-val">${last7.length}</div></div>
+        <div class="pay-stat" style="cursor:pointer;" onclick="switchView('inv_velocity')" title="Capital trapped in dead stock — open Item Velocity"><div class="pay-stat-label">🔴 Dead Stock</div><div class="pay-stat-val ${_deadCount>0?'warn':''}">₱${_deadCapital.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>
+        ${_sosOn?`<div class="pay-stat" title="SOS storage locations"><div class="pay-stat-label">📍 Locations</div><div class="pay-stat-val">${_sosLoc}</div></div><div class="pay-stat" title="SOS shipments · last 30 days"><div class="pay-stat-label">🚚 Shipments 30d</div><div class="pay-stat-val">${_sosShip}</div></div>`:`<div class="pay-stat" style="cursor:pointer;" onclick="switchView('inv_movements')" title="Click to see movements"><div class="pay-stat-label">📋 Movements (7d)</div><div class="pay-stat-val">${last7.length}</div></div>`}
       </div>
       <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
         <button class="btn btn-primary" onclick="invOpenAddItem()">+ Add Item</button>
@@ -71543,8 +71557,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.48.1-idb';window.HNX_BUILD='v2.86-p163-partialsync';  // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
-const APP_BUILD=1781209600;
+const APP_VERSION='2.48.2-idb';window.HNX_BUILD='v2.86-p164-invdash';  // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
+const APP_BUILD=1781296000;
 const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
