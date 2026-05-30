@@ -5848,6 +5848,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 <div class="view" id="view-inv_purchase"><div id="invPurchaseBody"></div></div>
 <div class="view" id="view-inv_duplicates"><div id="invDupBody"></div></div>
 <div class="view" id="view-inv_audit"><div id="invAuditBody"></div></div>
+<div class="view" id="view-inv_copilot"><div id="invCopilotBody"></div></div>
 <div class="view" id="view-inv_categories"><div id="stubInvCategoriesBody"></div></div>
 <div class="view" id="view-inv_calls"><div id="invCallsBody"></div></div>
 <!-- Packaging -->
@@ -20603,6 +20604,7 @@ const MODULES={
       {id:'inv_purchase',label:'🛒 Purchase Engine',perm:'viewInventory',title:'Reorder-point & safety-stock breaches grouped into draft POs by supplier, with budget check'},
       {id:'inv_duplicates',label:'🧩 Duplicate AI',perm:'viewInventory',title:'AI duplicate-detection — weighted similarity across name/desc/brand/manufacturer/usage; review, keep master, merge'},
       {id:'inv_audit',label:'🧾 Audit Trail',perm:'viewInventory',title:'Immutable log of inventory changes — who, what, old→new, date/time; filter + CSV export'},
+      {id:'inv_copilot',label:'🤖 AI Copilot',perm:'viewInventory',title:'Natural-language inventory assistant over live SOS data — stockouts, reorders, dead stock, suppliers'},
       {id:'inv_movements',label:'🔄 Movements',perm:'viewInventory'},
       {id:'inv_categories',label:'🏷️ Categories',perm:'viewInventory'}
     ]
@@ -21387,6 +21389,7 @@ function switchView(v,skipModuleCheck){
   if(v==='inv_purchase')renderInvPurchase();
   if(v==='inv_duplicates')renderInvDuplicates();
   if(v==='inv_audit')renderInvAudit();
+  if(v==='inv_copilot')renderInvCopilot();
   if(v==='inv_categories')renderInvCategories();
   if(v==='inv_calls')renderInvCalls();
   if(v==='pack_washtrim'){renderWashTrim();return;}
@@ -71810,8 +71813,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.56.0-audit';window.HNX_BUILD='v2.86-p177-audit';  // p176: CCTV live-stream cap + rotation (Live: All/4/6/8/12/16) to protect NVR. p177: Audit Trail (spec 16) — central log of inventory changes (user/action/old->new/date/time), filter+CSV; instrumented Master Data, Categories, Purchase Engine, Duplicate AI. //  // p175: CCTV wall false-offline fix — serialize stream health-probes (1 at a time, spaced), 3-strike + 7s timeout, lock 'ok' so verification stops saturating the bridge and flipping all live tiles to STREAM OFFLINE. //  // p174: Active-Item logic (spec 05) — movement bands Active<=90 / Slow 91-180 / Dormant 181-365 / Dead >365, forecast-override hook; Item Velocity view now 4-band with Dormant KPI+filter+capital. //  // p173: Duplicate-detection AI — weighted similarity (name/desc/brand/mfr/usage) with blocking, clustering, keep-master/dismiss/AI-review; merged dups hidden from Item Files. //  // p172: Purchase Engine — reorder-point/safety-stock breaches grouped into draft POs by supplier, budget check, draft PO tracking; forecast & open-PO inputs pending. //  // p171: Item Files defaults to May-2026-modified items, deduped by name, with scope chips (May/30d/All) + dedupe toggle; shows real SOS category. //  // p170: Item Master tab in Master Data — enrich each SOS SKU with brand/supplier/manufacturer/category(incl custom)/criticality/safety-stock; overlay store hydroPro_inv_item_master_v1, search-only over 9.3k items, focus-safe. //  // p169: Categories view now pulls LIVE from SOS (each item's real category) with real counts + add/delete custom categories (assignable per-item in Item Master). //  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
-const APP_BUILD=1782332800;
+const APP_VERSION='2.57.2-substream';window.HNX_BUILD='v2.86-p179b-substream';  // p179b: CCTV wall prefers light H.264 _sub substream per camera when it exists (snapshot+live derive from it); big/spotlight/fullscreen keep full-res. Lets many cameras stream at once without overloading the NVR. //  // p179: CCTV bridge-load fix — staggered/throttled snapshot polling (3/tick @2.2s, near-viewport only, round-robin), cap concurrent LIVE upgrades (default 6, rest stay snapshots), bridge-wide failure suppression (never blanket STREAM OFFLINE). //  // p178: AI Copilot (spec 17) — chat assistant over live inventory snapshot via cloud /ai/ask; quick commands + deep-links to Purchase Engine/Duplicate AI/Master Data/Diagnostics. Inventory spec build complete (Forecasting pending data). //  // p176: CCTV live-stream cap + rotation (Live: All/4/6/8/12/16) to protect NVR. p177: Audit Trail (spec 16) — central log of inventory changes (user/action/old->new/date/time), filter+CSV; instrumented Master Data, Categories, Purchase Engine, Duplicate AI. //  // p175: CCTV wall false-offline fix — serialize stream health-probes (1 at a time, spaced), 3-strike + 7s timeout, lock 'ok' so verification stops saturating the bridge and flipping all live tiles to STREAM OFFLINE. //  // p174: Active-Item logic (spec 05) — movement bands Active<=90 / Slow 91-180 / Dormant 181-365 / Dead >365, forecast-override hook; Item Velocity view now 4-band with Dormant KPI+filter+capital. //  // p173: Duplicate-detection AI — weighted similarity (name/desc/brand/mfr/usage) with blocking, clustering, keep-master/dismiss/AI-review; merged dups hidden from Item Files. //  // p172: Purchase Engine — reorder-point/safety-stock breaches grouped into draft POs by supplier, budget check, draft PO tracking; forecast & open-PO inputs pending. //  // p171: Item Files defaults to May-2026-modified items, deduped by name, with scope chips (May/30d/All) + dedupe toggle; shows real SOS category. //  // p170: Item Master tab in Master Data — enrich each SOS SKU with brand/supplier/manufacturer/category(incl custom)/criticality/safety-stock; overlay store hydroPro_inv_item_master_v1, search-only over 9.3k items, focus-safe. //  // p169: Categories view now pulls LIVE from SOS (each item's real category) with real counts + add/delete custom categories (assignable per-item in Item Master). //  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
+const APP_BUILD=1782592000;
 const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
@@ -78046,6 +78049,7 @@ window.switchView=function(v){
     inv_purchase:{module:'inventory',renderer:'renderInvPurchase'},
     inv_duplicates:{module:'inventory',renderer:'renderInvDuplicates'},
     inv_audit:{module:'inventory',renderer:'renderInvAudit'},
+    inv_copilot:{module:'inventory',renderer:'renderInvCopilot'},
     inv_matrix:{module:'inventory',renderer:'renderInvMatrix'},
     inv_expiry:{module:'inventory',renderer:'renderInvExpiry'},
     crm_master:{module:'crm',renderer:'renderCRMMaster'},
@@ -136005,16 +136009,41 @@ body.hnx-mobile-locked { overflow: hidden; }
       }
       return getBase()+'/api/frame.jpeg?src='+encodeURIComponent(v);
     }
+    /* p179b — on the wall, prefer the light H.264 "_sub" substream when one exists,
+       so many cameras can stream at once without overloading the NVR. Full-res is
+       still used for the big/spotlight tile and for tap-to-fullscreen. */
+    function _subVariant(name){
+      try{
+        if(!name) return name;
+        var n=String(name);
+        if(/_sub$/i.test(n)) return n;                 // already a substream
+        var list=_state.streams||[];
+        if(list.indexOf(n+'_sub')>=0) return n+'_sub'; // sibling substream exists
+      }catch(e){}
+      return name;
+    }
     function _snapTick(){
       try{
         if(document.hidden) return;
         var root=_wallEl()||document.getElementById(_state.mount||'itCctvLiveMount');
         if(!root) return;
-        var imgs=root.querySelectorAll('img[data-snap]'); var t=Date.now();
-        Array.prototype.forEach.call(imgs,function(im){ var b=im.getAttribute('data-snap'); if(!b) return; im.src=b+(b.indexOf('?')>=0?'&':'?')+'t='+t; });
+        // p179 — refresh snapshots round-robin, a few per tick, only near viewport.
+        // Refreshing all ~20 at once every 4s saturated the bridge and made them
+        // all fail (then upgrade to live, then verify-offline). Spread the load.
+        var imgs=Array.prototype.slice.call(root.querySelectorAll('img[data-snap]'));
+        if(!imgs.length){ _state._snapIdx=0; return; }
+        var vh=window.innerHeight||document.documentElement.clientHeight;
+        var vis=imgs.filter(function(im){ try{ var r=im.getBoundingClientRect(); return r.bottom>-300 && r.top<vh+300; }catch(e){ return true; } });
+        if(!vis.length) return;
+        if(_state._snapIdx==null || _state._snapIdx>=vis.length) _state._snapIdx=0;
+        var BATCH=3, t=Date.now();
+        for(var k=0;k<BATCH;k++){
+          var im=vis[_state._snapIdx % vis.length]; _state._snapIdx++;
+          var b=im&&im.getAttribute('data-snap'); if(b) im.src=b+(b.indexOf('?')>=0?'&':'?')+'t='+t;
+        }
       }catch(e){}
     }
-    function _snapStart(){ if(_state._snapTimer) return; _state._snapTimer=setInterval(_snapTick,4000); }
+    function _snapStart(){ if(_state._snapTimer) return; _state._snapTimer=setInterval(_snapTick,2200); }
 
     function nameFromUrl(u){ if(!u) return ''; var m=String(u).match(/[?&]src=([^&]+)/); if(m){ try{ return decodeURIComponent(m[1]); }catch(e){ return m[1]; } } return u; }
     /* ── v2.46.260 area tabs (camera→area map from ES BA corrected sheet) ── */
@@ -136137,7 +136166,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 
       var tiles=shown.map(function(c){
         var url=streams[c.id]?streamUrl(streams[c.id]):'';
-        var snap=streams[c.id]?snapUrl(streams[c.id]):'';
+        var snap=streams[c.id]?snapUrl(_subVariant(streams[c.id])):'';
         var loc=esc(c.location||c.name||c.id);
         var sub=esc((c.group||'')+(c.nvrId?(' \u00b7 '+c.nvrId):''));
         var gear=canEdit()?'<button onclick="event.stopPropagation();window.__itCctvGrid.connect(\''+c.id+'\')" title="Set / change stream" style="position:absolute;top:6px;right:6px;z-index:4;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;width:26px;height:26px;font-size:13px;cursor:pointer;">\u2699</button>':'';
@@ -136512,7 +136541,7 @@ body.hnx-mobile-locked { overflow: hidden; }
         var url=streamUrl(streams[c.id]);
         media='<iframe data-cctv-src="'+esc(url)+'" allow="autoplay; fullscreen" style="position:absolute;inset:0;width:100%;height:100%;border:none;background:#000;"></iframe><div class="hnx-cctv-ph" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#0c1713;color:#3a5446;font-size:40px;pointer-events:none;">📷</div>';
       } else {
-        var snap=snapUrl(streams[c.id]);
+        var snap=snapUrl(_subVariant(streams[c.id]));
         media='<img data-snap="'+esc(snap)+'" src="'+esc(snap)+'&t='+Date.now()+'" alt="" referrerpolicy="no-referrer" onload="var p=this.parentNode.querySelector(\'.hnx-snap-off\');if(p)p.style.display=\'none\';" onerror="var p=this.parentNode.querySelector(\'.hnx-snap-off\');if(p)p.style.display=\'flex\';" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;"><div class="hnx-snap-off" style="position:absolute;inset:0;z-index:1;display:flex;align-items:center;justify-content:center;background:#0c1713;color:#5b7d70;font-size:18px;pointer-events:none;">📷</div>';
       }
       return '<div onclick="window.__itCctvGrid._wallSpot(\''+c.id+'\')" style="position:relative;background:#000;overflow:hidden;border-radius:5px;cursor:pointer;min-height:0;min-width:0;'+(extra||'')+'">'+media+
@@ -144117,6 +144146,12 @@ body.hnx-mobile-locked { overflow: hidden; }
   var SLOT_MS    = 8000;   // free a load slot after this even if iframe never fires 'load'
   var VP_MARGIN  = 400;    // px outside viewport still counted as "near"
   var enabled    = true;
+  // p179 — cap concurrent LIVE upgrades (rest stay as light snapshots) + detect
+  // bridge-wide failure so we never blanket-flip every tile to STREAM OFFLINE.
+  var _offEvents = [];
+  function _wdCap(){ try{ var v=parseInt(localStorage.getItem('hydroPro_cctv_max_live')||'6',10); return (isNaN(v)||v<=0)?6:v; }catch(e){ return 6; } }
+  function _wdLiveCount(){ try{ return document.querySelectorAll('.itcctv-wall-grid [data-hnxlive="live"], #itCctvWallBody [data-hnxlive="live"]').length; }catch(e){ return 0; } }
+  function _bridgeWide(){ var now=Date.now(); _offEvents=_offEvents.filter(function(t){ return now-t<12000; }); return _offEvents.length>=3; }
 
   var queue = [];          // tiles waiting to upgrade
   var inflight = 0;
@@ -144185,14 +144220,16 @@ body.hnx-mobile-locked { overflow: hidden; }
   function pump(){
     if(!enabled) return;
     var deferred = [];
+    var cap = _wdCap();
     while(inflight < PAR && queue.length){
+      if(_wdLiveCount() + inflight >= cap){ deferred = deferred.concat(queue); queue = []; break; } // p179 — hold extras as snapshots
       var job = queue.shift();
       if(!document.body.contains(job.tile)) continue;          // tile was re-rendered away
       if(job.tile.getAttribute('data-hnxlive') === 'live') continue;
       if(!nearViewport(job.tile)){ deferred.push(job); continue; } // wait until scrolled near
       upgrade(job.tile, job.img);
     }
-    // keep off-screen tiles waiting for a scroll
+    // keep off-screen / capped tiles waiting
     if(deferred.length) queue = deferred.concat(queue);
   }
 
@@ -144266,6 +144303,15 @@ body.hnx-mobile-locked { overflow: hidden; }
           fails++;
           if(fails >= MAX_FAILS){
             if(tile.getAttribute('data-hnx-verified') === 'ok') return;
+            // p179 — if many tiles are failing at once it's the bridge, not the
+            // camera. Don't condemn it; keep the stream and re-probe later.
+            _offEvents.push(Date.now());
+            if(_bridgeWide()){
+              tile.removeAttribute('data-hnx-verified');
+              fails = 0;
+              setTimeout(tick, 9000);
+              return;
+            }
             tile.setAttribute('data-hnx-verified','offline');
             showStreamOffline(tile);
           } else {
@@ -147326,6 +147372,122 @@ body.hnx-mobile-locked { overflow: hidden; }
 
 </script>
 <!-- ===== END HNX AUDIT TRAIL MODULE ===== -->
+<!-- ===== HNX AI COPILOT MODULE (p178) ===== -->
+<script>
+/* ============================================================
+   p178 · Phase 8 · AI COPILOT  (spec sheet 17)
+   Natural-language assistant over LIVE inventory data. Builds a compact
+   snapshot (stock, value, velocity bands, reorder needs, categories,
+   suppliers, draft POs, pending requests) and sends the question to the
+   cloud AI worker (/ai/ask). Action commands deep-link into the modules.
+   ============================================================ */
+(function(){
+  'use strict';
+  if(window.__hnxCopilot) return;
+  var _msgs=[];   // {role:'user'|'ai', text, actions:[{label,view}], pending}
+
+  function esc(s){ s=(s==null)?'':String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function num(x){ return parseFloat(x)||0; }
+  function stock(){ try{ return (typeof _invLoadStock==='function')?_invLoadStock():[]; }catch(e){ return []; } }
+  function IM(){ try{ return (typeof window.hnxInvItemMaster==='function')?window.hnxInvItemMaster():{}; }catch(e){ return {}; } }
+  function sups(){ try{ return (typeof window.hnxInvSuppliers==='function')?window.hnxInvSuppliers():[]; }catch(e){ return []; } }
+  function supName(id){ if(!id) return ''; var s=sups().filter(function(x){return x.id===id;})[0]; return s?s.name:''; }
+  function jget(k){ try{ return JSON.parse(localStorage.getItem(k)||'null'); }catch(e){ return null; } }
+
+  function buildContext(){
+    var s=stock(); var n=s.length;
+    var value=s.reduce(function(a,i){ return a+num(i.onHand)*num(i.unitCost); },0);
+    var bands={active:0,slow:0,dormant:0,dead:0,unknown:0};
+    s.forEach(function(i){ var v=(typeof _invClassifyVelocity==='function')?_invClassifyVelocity(i):'unknown'; bands[v]=(bands[v]||0)+1; });
+    var outOf=s.filter(function(i){ return num(i.onHand)<=0; }).length;
+    var im=IM(); var reorder=[];
+    s.forEach(function(i){ var e=im[i.sku]||{}; var tgt=Math.max(num(i.minStock),num(e.safetyStock)); if(tgt>0&&num(i.onHand)<tgt) reorder.push({name:i.name,onHand:num(i.onHand),target:tgt,supplier:(supName(e.supplierId)||i.supplier||'?')}); });
+    var cat={}; s.forEach(function(i){ var c=(i.sosCategory||'').trim()||'Uncategorized'; cat[c]=(cat[c]||0)+1; });
+    var topCat=Object.keys(cat).sort(function(a,b){return cat[b]-cat[a];}).slice(0,8).map(function(c){ return c+' ('+cat[c]+')'; });
+    var pos=jget('hydroPro_inv_draft_pos_v1')||[]; var drafts=pos.filter(function(p){return (p.status||'draft')==='draft';}).length;
+    var reqs=jget('hydroPro_inv_requests_v1')||[]; var pend=Array.isArray(reqs)?reqs.filter(function(r){ return r&&r.status&&/pending|await|review/i.test(r.status); }).length:0;
+    var supL=sups(); var weakSup=supL.filter(function(x){ return num(x.score)>0 && num(x.score)<50; }).map(function(x){ return x.name+' ('+num(x.score)+')'; });
+    var c='HydroNexis-AI inventory snapshot ('+new Date().toISOString().slice(0,10)+'):\n';
+    c+='Total items: '+n+'. Total stock value: PHP '+Math.round(value).toLocaleString()+'.\n';
+    c+='Movement bands (days since last movement): Active(<=90) '+bands.active+', Slow(91-180) '+bands.slow+', Dormant(181-365) '+bands.dormant+', Dead(>365) '+bands.dead+', Unknown '+bands.unknown+'.\n';
+    c+='Out of stock: '+outOf+'. Below reorder point or safety stock: '+reorder.length+'.\n';
+    if(reorder.length) c+='Top reorder needs: '+reorder.slice(0,12).map(function(r){ return r.name+' [on hand '+r.onHand+'/target '+r.target+', supplier '+r.supplier+']'; }).join('; ')+'.\n';
+    c+='Top categories: '+(topCat.join(', ')||'n/a')+'.\n';
+    c+='Open draft POs: '+drafts+'. Pending item requests: '+pend+'.\n';
+    if(weakSup.length) c+='Lower-reliability suppliers (score<50): '+weakSup.join(', ')+'.\n';
+    c+='Note: 24-month usage history and forecast demand are not yet available, so forecast-based answers should be flagged as estimates.';
+    return c;
+  }
+
+  var CMDS=[
+    {label:'\ud83d\udce6 Stockout risks', q:'What are my most urgent stockout risks right now, and which items should I reorder first? Be specific using the snapshot.', view:'inv_purchase', viewLabel:'Open Purchase Engine'},
+    {label:'\ud83d\udcc4 PO for critical items', q:'Which items are critical to reorder and roughly what should a purchase order cover? Group by supplier.', view:'inv_purchase', viewLabel:'Open Purchase Engine'},
+    {label:'\ud83e\udde9 Find duplicates', q:'Based on the snapshot, how should I approach finding and merging duplicate items? What patterns to watch for?', view:'inv_duplicates', viewLabel:'Open Duplicate AI'},
+    {label:'\ud83d\ude9a Supplier delays', q:'Which suppliers look risky or slow based on reliability, and how should I mitigate supplier delays?', view:'inv_master', viewLabel:'Open Master Data'},
+    {label:'\ud83d\udcc8 Analyze inventory', q:'Analyze my current inventory health: where is capital trapped, what is the velocity profile telling me, and what are the top 3 actions?', view:'inv_diagnostics', viewLabel:'Open Diagnostics'}
+  ];
+
+  function render(){
+    var host=document.getElementById('invCopilotBody'); if(!host) return;
+    if(!((typeof can==='function')&&can('viewInventory'))){ host.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3);">Access denied \u2014 needs Inventory view permission.</div>'; return; }
+    var hero=(typeof window._hnxRenderDashHero==='function')?window._hnxRenderDashHero({
+      module:'inventory', icon:'\ud83e\udd16', title:'AI COPILOT',
+      tagline:'Ask anything about your inventory in plain language. The copilot reads your live SOS snapshot \u2014 stock, value, velocity, reorder needs, suppliers \u2014 and answers, then points you to the right module to act.',
+      chips:[ {label:'Items', value:String(stock().length), tone:'info'}, {label:'Mode', value:'Cloud AI', tone:'ok'} ]
+    }):'';
+
+    var chips='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">'
+      + CMDS.map(function(c,i){ return '<button onclick="__hnxCopilot.cmd('+i+')" style="padding:7px 13px;border-radius:18px;border:1px solid #7e57c2;background:rgba(126,87,194,.08);color:#b39ddb;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">'+c.label+'</button>'; }).join('')
+      + '</div>';
+
+    var thread = _msgs.length ? _msgs.map(function(m){
+      if(m.role==='user'){
+        return '<div style="display:flex;justify-content:flex-end;margin:8px 0;"><div style="max-width:78%;background:#1f6f43;color:#eafff3;padding:9px 13px;border-radius:14px 14px 4px 14px;font-size:13px;line-height:1.5;">'+esc(m.text)+'</div></div>';
+      }
+      var actions = (m.actions&&m.actions.length)?('<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">'+m.actions.map(function(a){ return '<button onclick="switchView(\''+a.view+'\')" style="padding:5px 11px;border-radius:7px;border:1px solid #4dd0e1;background:rgba(77,208,225,.08);color:#4dd0e1;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">'+esc(a.label)+' \u2192</button>'; }).join('')+'</div>'):'';
+      var txt = m.pending ? '<span style="color:var(--text3);">'+esc(m.text)+'</span>' : esc(m.text).replace(/\n/g,'<br>');
+      return '<div style="display:flex;justify-content:flex-start;margin:8px 0;"><div style="max-width:82%;background:var(--surface);border:1px solid #3a2e52;color:var(--text);padding:10px 13px;border-radius:14px 14px 14px 4px;font-size:13px;line-height:1.55;">'+'<div style="font-size:10px;color:#b39ddb;font-weight:700;margin-bottom:3px;">\ud83e\udd16 Copilot'+(m.src?(' \u00b7 '+esc(m.src)):'')+'</div>'+txt+actions+'</div></div>';
+    }).join('') : '<div style="padding:24px;text-align:center;color:var(--text3);border:1px dashed var(--border);border-radius:10px;">Ask a question or tap a suggestion above. The copilot uses your live inventory snapshot.</div>';
+
+    var inputRow='<div style="display:flex;gap:8px;margin-top:14px;">'
+      + '<input id="copilotInput" class="users-input" style="flex:1;" placeholder="Ask about stock, reorders, dead stock, suppliers\u2026" onkeydown="if(event.key===\'Enter\')__hnxCopilot.send()">'
+      + '<button class="btn btn-primary" onclick="__hnxCopilot.send()">Ask</button>'
+      + (_msgs.length?'<button class="btn btn-outline" onclick="__hnxCopilot.clear()">Clear</button>':'')
+      + '</div>';
+
+    host.innerHTML = hero + chips + '<div id="copilotThread">'+thread+'</div>' + inputRow;
+    var t=document.getElementById('copilotThread'); if(t) t.scrollTop=t.scrollHeight;
+  }
+
+  function ask(q, actions){
+    if(!q) return;
+    _msgs.push({role:'user', text:q});
+    var aiMsg={role:'ai', text:'Thinking\u2026', pending:true, actions:actions||[]};
+    _msgs.push(aiMsg);
+    render();
+    var ctx=buildContext();
+    try{
+      if(typeof window.__hnxApi!=='function'){ aiMsg.text='Cloud AI isn\u2019t available in this build. Ensure the sync worker /ai endpoint is deployed.'; aiMsg.pending=false; render(); return; }
+      window.__hnxApi('/ai/ask',{method:'POST',body:JSON.stringify({context:ctx, question:q})}).then(function(r){
+        var ans = r && (r.answer || (r.analysis && [r.analysis.conclusion, r.analysis.recommendation].filter(Boolean).join(' \u2014 ')));
+        aiMsg.text = ans || 'No response from the AI.';
+        aiMsg.src = (r && r.src) || 'Cloud AI';
+        aiMsg.pending=false; render();
+      }).catch(function(e){ aiMsg.text='AI request failed: '+(e&&e.message||e)+'. Check the worker /ai/ask endpoint.'; aiMsg.pending=false; render(); });
+    }catch(e){ aiMsg.text='AI error: '+(e&&e.message||e); aiMsg.pending=false; render(); }
+  }
+
+  window.__hnxCopilot = {
+    cmd:function(i){ var c=CMDS[i]; if(!c) return; ask(c.q, c.view?[{label:c.viewLabel, view:c.view}]:[]); },
+    send:function(){ var el=document.getElementById('copilotInput'); var q=el?el.value.trim():''; if(!q) return; if(el) el.value=''; ask(q, []); },
+    clear:function(){ _msgs=[]; render(); }
+  };
+
+  window.renderInvCopilot = function(){ render(); };
+})();
+
+</script>
+<!-- ===== END HNX AI COPILOT MODULE ===== -->
 
 
 
