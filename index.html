@@ -5842,6 +5842,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 <div class="view" id="view-inv_stock"><div id="stubInvStockBody"></div></div>
 <div class="view" id="view-inv_movements"><div id="stubInvMovementsBody"></div></div>
 <div class="view" id="view-inv_velocity"><div id="invVelocityBody"></div></div>
+<div class="view" id="view-inv_diagnostics"><div id="invDiagBody"></div></div>
 <div class="view" id="view-inv_categories"><div id="stubInvCategoriesBody"></div></div>
 <div class="view" id="view-inv_calls"><div id="invCallsBody"></div></div>
 <!-- Packaging -->
@@ -20591,6 +20592,7 @@ const MODULES={
       {id:'inv_calls',label:'📞 Inventory Calls',perm:'viewInventory',title:'Inventory calls & tickets — pending approvals + open stock issues'},
       {id:'inv_stock',label:'📦 Stock',perm:'viewInventory'},
       {id:'inv_velocity',label:'📊 Item Velocity',perm:'viewInventory',title:'Classify items by movement: Active / Slow Moving / Dead Stock'},
+      {id:'inv_diagnostics',label:'🩺 Diagnostics',perm:'viewInventory',title:'AI Diagnostics + Inventory Health — low/out/dead/overstock, duplicate SKUs, supplier risk, health score'},
       {id:'inv_movements',label:'🔄 Movements',perm:'viewInventory'},
       {id:'inv_categories',label:'🏷️ Categories',perm:'viewInventory'}
     ]
@@ -21228,7 +21230,7 @@ function switchView(v,skipModuleCheck){
     maint_dash:'viewMaintenance',maint_tasks:'viewMaintenance',maint_calendar:'viewMaintenance',maint_materials:'viewMaintenance',maint_ozone:'viewMaintenance',maint_ro:'viewMaintenance',maint_radio:'viewMaintenance',maint_tools:'viewMaintenance',maint_equipment:'viewMaintenance',maint_nft:'viewMaintenance',maint_parts:'viewMaintenance',maint_matrix:'viewMaintenance',maint_recurring:'viewMaintenance',maint_open_calls:'viewMaintenance',
     it_cctv:'viewMaintenance',it_radios:'viewMaintenance',it_devices:'viewMaintenance',it_prj11:'viewMaintenance',
     irr_dash:'viewIrrigation',irr_schedule:'viewIrrigation',irr_drums:'viewIrrigation',irr_nutrients:'viewIrrigation',irr_systems:'viewIrrigation',irr_smart_dose:'viewIrrigation',irr_ai_insights:'viewIrrigation',irr_predictions:'viewIrrigation',irr_recurring:'viewIrrigation',irr_open_calls:'viewIrrigation',
-    inv_dash:'viewInventory',inv_stock:'viewInventory',inv_movements:'viewInventory',inv_categories:'viewInventory',inv_velocity:'viewInventory',
+    inv_dash:'viewInventory',inv_stock:'viewInventory',inv_movements:'viewInventory',inv_categories:'viewInventory',inv_velocity:'viewInventory',inv_diagnostics:'viewInventory',
     pack_dash:'viewPackaging',pack_materials:'viewPackaging',pack_operations:'viewPackaging',
     log_dash:'viewLogistics',log_deliveries:'viewLogistics',log_routes:'viewLogistics',log_vehicles:'viewLogistics',log_recurring:'viewLogistics',log_open_calls:'viewLogistics',log_megabox_matrix:'viewLogistics',
     crm_dash:'viewCRM',crm_reminders:'viewCRM',crm_leads:'viewCRM',crm_customers:'viewCRM',crm_marketing:'viewCRM',crm_pipeline:'viewCRM',crm_catalog:'viewCRM',crm_quotes:'viewCRM',crm_orders:'viewCRM',crm_sales:'viewCRM',
@@ -21369,6 +21371,7 @@ function switchView(v,skipModuleCheck){
   if(v==='inv_stock')renderInvStock();
   if(v==='inv_movements')renderInvMovements();
   if(v==='inv_velocity')renderInvVelocity();
+  if(v==='inv_diagnostics')renderInvDiagnostics();
   if(v==='inv_categories')renderInvCategories();
   if(v==='inv_calls')renderInvCalls();
   if(v==='pack_washtrim'){renderWashTrim();return;}
@@ -59902,6 +59905,206 @@ function invVelocityExportCSV(){
     if(typeof toast==='function') toast('✓ Exported '+(rows.length-1)+' items');
   }catch(e){ if(typeof toast==='function') toast('Export failed: '+e.message,'error'); }
 }
+// p165 · Phase 1 · Inventory Diagnostics + Health (spec sheets 12 + 13) — live SOS data
+function renderInvDiagnostics(){
+  var host = document.getElementById('invDiagBody'); if(!host) return;
+  var stock = _invLoadStock();
+  var total = stock.length;
+  var sos = window.__hnxSos;
+  var sosOn = !!(sos && sos.isConnected && sos.isConnected());
+  var sosMeta = (sosOn && sos.getMeta) ? sos.getMeta() : null;
+  var sosAgo = (sosMeta && sosMeta.lastSync) ? _timeAgoOC(sosMeta.lastSync) : '';
+  var num = function(x){ return parseFloat(x)||0; };
+  var val = function(s){ return num(s.onHand)*num(s.unitCost); };
+
+  stock.forEach(function(s){ s.__vel = _invClassifyVelocity(s); });
+  var totalValue = stock.reduce(function(a,s){ return a+val(s); },0);
+
+  // ---- DIAGNOSTICS (sheet 12) ----
+  var lowStock = stock.filter(function(s){ return num(s.minStock)>0 && num(s.onHand)>0 && num(s.onHand)<=num(s.minStock); });
+  var outStock = stock.filter(function(s){ return num(s.onHand)<=0; });
+  var dead     = stock.filter(function(s){ return s.__vel==='dead'; });
+  var deadCapital = dead.reduce(function(a,s){ return a+val(s); },0);
+  var OVER = 4;
+  var over = stock.filter(function(s){ return num(s.minStock)>0 && num(s.onHand) > num(s.minStock)*OVER; });
+  var overCapital = over.reduce(function(a,s){ return a+val(s); },0);
+
+  // duplicate SKUs — normalized-name buckets that hold >1 distinct SKU (cheap O(n) first pass; full weighted AI dedup = later)
+  var nameMap = {};
+  stock.forEach(function(s){
+    var key = String(s.name||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+    if(!key) return;
+    (nameMap[key] = nameMap[key] || []).push(s);
+  });
+  var dupGroups = Object.keys(nameMap).map(function(k){ return nameMap[k]; }).filter(function(g){
+    var skus = {}; g.forEach(function(s){ if(s.sku) skus[String(s.sku).toUpperCase()]=1; });
+    return g.length>1 && Object.keys(skus).length>1;
+  }).sort(function(a,b){ return b.length-a.length; });
+  var dupItemCount = dupGroups.reduce(function(a,g){ return a+g.length; },0);
+
+  // supplier risk — high dead+slow share
+  var supMap = {};
+  stock.forEach(function(s){
+    var sup = (String(s.supplier||'').trim()) || '(no supplier)';
+    var m = supMap[sup] || (supMap[sup]={name:sup,items:0,dead:0,slow:0,low:0,capital:0});
+    m.items++; m.capital += val(s);
+    if(s.__vel==='dead') m.dead++; else if(s.__vel==='slow') m.slow++;
+    if(num(s.minStock)>0 && num(s.onHand)<=num(s.minStock)) m.low++;
+  });
+  var suppliers = Object.keys(supMap).map(function(k){ var m=supMap[k]; m.riskPct = m.items?Math.round((m.dead+m.slow)/m.items*100):0; return m; });
+  var supplierRisk = suppliers.filter(function(m){ return m.name!=='(no supplier)' && m.items>=3 && m.riskPct>=50; }).sort(function(a,b){ return (b.riskPct-a.riskPct)||(b.capital-a.capital); });
+
+  // ---- INVENTORY HEALTH (sheet 13; live components only, renormalized) ----
+  var availPct    = total ? Math.round((total - lowStock.length - outStock.length)/total*100) : 0;
+  var activeCount = stock.filter(function(s){ return s.__vel==='active'; }).length;
+  var turnoverPct = total ? Math.round(activeCount/total*100) : 0;
+  var health      = Math.round((availPct*0.25 + turnoverPct*0.25)/0.50);   // renormalized over the 2 live components
+  var hColor      = health>=80?'#26c281':health>=60?'#ffb300':'#ef5350';
+  var hLabel      = health>=80?'HEALTHY':health>=60?'FAIR':'NEEDS ATTENTION';
+
+  // snapshot for the AI button
+  window.__invDiagSnapshot = {
+    totalItems: total, totalValuePHP: Math.round(totalValue),
+    lowStock: lowStock.length, outOfStock: outStock.length,
+    deadStock: dead.length, deadCapitalPHP: Math.round(deadCapital),
+    overstock: over.length, overstockCapitalPHP: Math.round(overCapital),
+    duplicateNameGroups: dupGroups.length, duplicateItems: dupItemCount,
+    suppliersAtRisk: supplierRisk.length,
+    healthScore: health, availabilityPct: availPct, movementActivePct: turnoverPct,
+    note: 'Forecast accuracy, supplier reliability and demand stability are not yet computed (need usage history) — health score is renormalized over the live components.'
+  };
+
+  var srcNote = sosOn
+    ? '<span style="color:#26c281;">● Live SOS data — '+total.toLocaleString()+' items'+(sosAgo?(' · synced '+sosAgo):'')+'</span>'
+    : '<span style="color:#ffb300;">⚠ Not connected to SOS — manual stock only. Connect at Admin → 📦 SOS Inventory Sync.</span>';
+
+  function dcard(icon,label,big,sub,color,onclick){
+    var click = onclick ? ' style="cursor:pointer;" onclick="'+onclick+'"' : '';
+    return '<div class="pay-stat"'+click+'><div class="pay-stat-label">'+icon+' '+label+'</div><div class="pay-stat-val" style="color:'+color+';">'+big+'</div>'+(sub?'<div style="font-size:10px;color:var(--text3);margin-top:3px;">'+sub+'</div>':'')+'</div>';
+  }
+  var P = function(n){ return '₱'+Number(n).toLocaleString(undefined,{maximumFractionDigits:0}); };
+
+  function healthRow(label,weight,statusHtml){
+    return '<tr><td>'+label+'</td><td style="text-align:right;font-family:var(--mono);color:var(--text3);">'+weight+'</td><td style="text-align:right;">'+statusHtml+'</td></tr>';
+  }
+  var live = '<span style="color:#26c281;font-weight:700;">';
+  var pend = '<span style="color:var(--text3);">⏳ ';
+
+  var html =
+    ((typeof window._hnxRenderDashHero==='function') ? window._hnxRenderDashHero({
+      module:'inventory', icon:'🩺', title:'INVENTORY DIAGNOSTICS & HEALTH',
+      tagline:'AI scans every SKU for low stock, stock-outs, dead capital, overstock, duplicate items and supplier risk — then scores overall inventory health. Tap 🧠 AI Analysis for a written read.',
+      chips:[
+        {label:'Health', value:health+'%', tone: health>=80?'ok':(health>=60?'warn':'crit')},
+        {label:'Dead capital', value:P(deadCapital), tone: deadCapital>0?'warn':''},
+        {label:'Duplicates', value:String(dupGroups.length), tone: dupGroups.length>0?'warn':''},
+        {label:'Supplier risk', value:String(supplierRisk.length), tone: supplierRisk.length>0?'warn':''}
+      ]
+    }) : '')
+   +'<div class="section-title">🩺 Inventory Diagnostics</div>'
+   +'<div style="font-size:12px;color:var(--text2);margin:-4px 0 16px;">'+srcNote+'</div>'
+
+   // Health panel
+   +'<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:stretch;margin-bottom:18px;">'
+   +'<div style="flex:0 0 200px;border:1px solid '+hColor+';border-radius:12px;background:rgba(38,194,129,.05);padding:18px;text-align:center;display:flex;flex-direction:column;justify-content:center;">'
+   +'<div style="font-size:10px;letter-spacing:.5px;color:var(--text3);font-weight:700;">INVENTORY HEALTH</div>'
+   +'<div style="font-size:48px;font-weight:800;color:'+hColor+';line-height:1;margin:6px 0;">'+health+'<span style="font-size:20px;">%</span></div>'
+   +'<div style="font-size:11px;font-weight:800;letter-spacing:.5px;color:'+hColor+';">'+hLabel+'</div>'
+   +'</div>'
+   +'<div style="flex:1;min-width:280px;border:1px solid var(--border);border-radius:12px;background:var(--surface2);padding:6px 14px;">'
+   +'<table class="cctv-inventory-table" style="width:100%;"><thead><tr><th>Component</th><th style="text-align:right;">Weight</th><th style="text-align:right;">Status</th></tr></thead><tbody>'
+   + healthRow('Stock availability', '25%', live+availPct+'%</span>')
+   + healthRow('Turnover (movement proxy)', '25%', live+turnoverPct+'%</span>')
+   + healthRow('Forecast accuracy', '20%', pend+'Phase 4 · needs 24-mo usage</span>')
+   + healthRow('Supplier reliability', '15%', pend+'Phase 2 · needs lead-time data</span>')
+   + healthRow('Demand stability', '15%', pend+'Phase 4 · needs demand history</span>')
+   +'</tbody></table>'
+   +'<div style="font-size:10px;color:var(--text3);padding:4px 4px 8px;">Score is renormalized over the live components (50% of the model). The ⏳ rows light up as later phases ship.</div>'
+   +'</div>'
+   +'</div>'
+
+   // Diagnostics grid
+   +'<div class="pay-stat-row">'
+   + dcard('⚠','Low Stock', String(lowStock.length), 'at/below reorder', lowStock.length>0?'#ffb300':'#26c281', "switchView('inv_stock')")
+   + dcard('⛔','Out of Stock', String(outStock.length), 'on-hand ≤ 0', outStock.length>0?'#ef5350':'#26c281', null)
+   + dcard('🔴','Dead Stock', String(dead.length), P(deadCapital)+' trapped', dead.length>0?'#ef5350':'#26c281', "switchView('inv_velocity')")
+   + dcard('📦','Overstock', String(over.length), P(overCapital)+' tied up', over.length>0?'#ffb300':'#26c281', null)
+   + dcard('🧬','Duplicate SKUs', String(dupGroups.length), dupItemCount+' items', dupGroups.length>0?'#ffb300':'#26c281', null)
+   + dcard('🚚','Supplier Risk', String(supplierRisk.length), 'high dead/slow share', supplierRisk.length>0?'#ef5350':'#26c281', null)
+   +'</div>'
+
+   // AI analysis
+   +'<div style="margin:18px 0;border:1px solid #7c4dff;border-radius:12px;background:rgba(124,77,255,.06);padding:14px 16px;">'
+   +'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">'
+   +'<div style="font-weight:800;color:var(--text);">🧠 AI Analysis</div>'
+   +'<button class="btn" style="background:#7c4dff;color:#fff;font-size:12px;padding:6px 14px;border-radius:8px;border:none;cursor:pointer;" onclick="hnxInvDiagAI()">Analyze inventory now</button>'
+   +'<span style="font-size:11px;color:var(--text3);">Reads the diagnostics above via your Cloud AI worker.</span>'
+   +'</div>'
+   +'<div id="invDiagAiPanel" style="font-size:12px;color:var(--text3);">Tap “Analyze inventory now” for a written monitoring / conclusion / recommendation read.</div>'
+   +'</div>';
+
+  // Duplicate items table (top 20 groups)
+  if(dupGroups.length){
+    html += '<div class="section-title" style="margin-top:20px;font-size:13px;">🧬 Possible duplicate items <span style="font-size:11px;color:var(--text3);font-weight:400;">(same name, different SKU)</span></div>'
+      +'<div class="tool-table-wrap"><table class="cctv-inventory-table"><thead><tr><th>Item name</th><th style="text-align:right;">Copies</th><th>SKUs</th><th style="text-align:right;">Total On Hand</th><th style="text-align:right;">Capital</th></tr></thead><tbody>'
+      + dupGroups.slice(0,20).map(function(g){
+          var nm = g[0].name||'—';
+          var skus = g.map(function(s){ return _escOC(s.sku||'—'); }).join(', ');
+          var onh = g.reduce(function(a,s){ return a+num(s.onHand); },0);
+          var cap = g.reduce(function(a,s){ return a+val(s); },0);
+          return '<tr><td><strong>'+_escOC(nm)+'</strong></td>'
+            +'<td style="text-align:right;font-family:var(--mono);color:#ffb300;font-weight:700;">'+g.length+'</td>'
+            +'<td style="font-family:var(--mono);font-size:11px;">'+skus+'</td>'
+            +'<td style="text-align:right;font-family:var(--mono);">'+onh.toLocaleString()+'</td>'
+            +'<td style="text-align:right;font-family:var(--mono);">'+P(cap)+'</td></tr>';
+        }).join('')
+      +'</tbody></table></div>'
+      + (dupGroups.length>20 ? '<div style="font-size:11px;color:var(--text3);margin-top:6px;">Showing top 20 of '+dupGroups.length+' duplicate-name groups.</div>' : '');
+  }
+
+  // Supplier risk table (top 15)
+  if(supplierRisk.length){
+    html += '<div class="section-title" style="margin-top:20px;font-size:13px;color:var(--warn);">🚚 Suppliers at risk <span style="font-size:11px;color:var(--text3);font-weight:400;">(≥50% of their items dead or slow)</span></div>'
+      +'<div class="tool-table-wrap"><table class="cctv-inventory-table"><thead><tr><th>Supplier</th><th style="text-align:right;">Items</th><th style="text-align:right;">Dead</th><th style="text-align:right;">Slow</th><th style="text-align:right;">Low</th><th style="text-align:right;">Risk</th><th style="text-align:right;">Capital</th></tr></thead><tbody>'
+      + supplierRisk.slice(0,15).map(function(m){
+          var rc = m.riskPct>=75?'#ef5350':'#ffb300';
+          return '<tr><td><strong>'+_escOC(m.name)+'</strong></td>'
+            +'<td style="text-align:right;font-family:var(--mono);">'+m.items+'</td>'
+            +'<td style="text-align:right;font-family:var(--mono);color:#ef5350;">'+m.dead+'</td>'
+            +'<td style="text-align:right;font-family:var(--mono);color:#ffb300;">'+m.slow+'</td>'
+            +'<td style="text-align:right;font-family:var(--mono);">'+m.low+'</td>'
+            +'<td style="text-align:right;font-family:var(--mono);color:'+rc+';font-weight:700;">'+m.riskPct+'%</td>'
+            +'<td style="text-align:right;font-family:var(--mono);">'+P(m.capital)+'</td></tr>';
+        }).join('')
+      +'</tbody></table></div>'
+      + (supplierRisk.length>15 ? '<div style="font-size:11px;color:var(--text3);margin-top:6px;">Showing top 15 of '+supplierRisk.length+' at-risk suppliers.</div>' : '');
+  }
+
+  host.innerHTML = html;
+}
+
+window.hnxInvDiagAI = function(){
+  var panel = document.getElementById('invDiagAiPanel'); if(!panel) return;
+  var snap = window.__invDiagSnapshot || {};
+  var fn = (typeof window.__hnxApi==='function') ? window.__hnxApi : (typeof api==='function'?api:null);
+  if(!fn){ panel.innerHTML = '<div style="font-size:12px;color:#ff9800;">Cloud AI isn’t connected on this device. Open the live Netlify site, or have an admin connect the cloud, then try again.</div>'; return; }
+  panel.innerHTML = '<div style="font-size:12px;color:var(--text3);">🧠 Analysing inventory diagnostics…</div>';
+  function sec(l,v,c){ if(!v) return ''; return '<div style="margin-bottom:8px;"><div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:'+(c||'#42a5f5')+';text-transform:uppercase;margin-bottom:2px;">'+l+'</div><div style="font-size:12px;color:var(--text);line-height:1.5;">'+_escOC(v)+'</div></div>'; }
+  var ctx = { module:'Inventory Diagnostics & Health', summary: snap,
+    question:'You are an inventory analyst for a hydroponic farm group. Given these inventory diagnostics, give monitoring/conclusion/recommendation. Focus on trapped capital in dead/overstock, stock-out exposure, duplicate-item cleanup and supplier concentration risk. Be specific and concise.' };
+  fn('/ai/analyze',{method:'POST',body:JSON.stringify({context:ctx})})
+    .then(function(d){
+      if(d && d.analysis){ var a=d.analysis; var _sv=String(a.severity||'').toLowerCase();
+        var sev={ok:'#4caf50',watch:'#ffb300',warn:'#26c6da',critical:'#ef5350'}[_sv]||'var(--text3)';
+        var slbl={ok:'HEALTHY',watch:'WATCH',warn:'TREND',critical:'CRITICAL'}[_sv]||(a.severity||'');
+        panel.innerHTML=(a.severity?'<div style="display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;color:'+sev+';border:1px solid '+sev+';border-radius:5px;padding:1px 7px;margin-bottom:8px;">'+slbl+'</div>':'')
+          +sec('Monitoring',a.monitoring)+sec('Conclusion',a.conclusion)+sec('Recommendation',a.recommendation,'#4caf50')+sec('Past experience',a.pastExperience,'var(--text3)')
+          +'<div style="font-size:9px;color:var(--text3);font-family:var(--mono);margin-top:4px;">Cloud AI · '+new Date(d.ts||Date.now()).toLocaleTimeString()+'</div>';
+      } else { panel.innerHTML='<div style="font-size:12px;color:#ff9800;">AI returned no analysis. Check the worker /ai/analyze route.</div>'; }
+    })
+    .catch(function(e){ panel.innerHTML='<div style="font-size:12px;color:#ef5350;">Cloud AI error: '+((e&&e.message)||'failed')+'</div>'; });
+};
+
 function _escOC(s){return (s==null?'':String(s)).replace(/[<>]/g,'');}
 function _timeAgoOC(ts){ if(!ts)return '—'; var diff=Date.now()-(+new Date(ts)); if(isNaN(diff))return '—'; var h=Math.floor(diff/3600000),d=Math.floor(h/24); if(d>0)return d+'d ago'; if(h>0)return h+'h ago'; var m=Math.floor(diff/60000); return (m>0?m:0)+'m ago'; }
 function hnxRaiseDeptCall(group,deptId){
@@ -71557,8 +71760,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.48.2-idb';window.HNX_BUILD='v2.86-p164-invdash';  // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
-const APP_BUILD=1781296000;
+const APP_VERSION='2.49.0-diag';window.HNX_BUILD='v2.86-p165-invdiag';  // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
+const APP_BUILD=1781382400;
 const APP_BUILD_DATE='2026-05-29';
 
 // Store version in localStorage on first run
