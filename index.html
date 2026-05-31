@@ -20588,7 +20588,14 @@ const MODULES={
       {id:'company_policies',label:'📁 Company Policies & Processes',perm:null,title:'Company-wide policies, SOPs, and processes organized by department. Imported from Google Drive folder structure.'}
     ]
   },
-  // =========== PAYROLL ===========
+  // =========== ACCOUNTING (opens the full-screen workspace; see Accounting Stage 2 block) ===========
+  accounting:{
+    icon:'🧮',
+    name:'ACCOUNTING',
+    description:'Accounting workspace — per company (APTI/APAC/GLHI): Dashboard, Financial Statements (BS/Income/Equity/Cash Flow/Notes), Auditor-AI, Payroll, Reports. Opens a full-screen overlay (window.hnxOpenAccounting).',
+    views:[]
+  },
+  // =========== PAYROLL (now reached only inside Accounting) ===========
   payroll:{
     icon:'💰',
     name:'PAYROLL',
@@ -71962,8 +71969,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='2.62.0-v6sync';window.HNX_BUILD='v2.86-p202-v6sync';  // p202: T-118..T-129 ACCOUNTING MODULE Stage 1. New animated Accounting Workspace (full-screen, motion hero): launch from topbar "🧮 Accounting" or the button atop both Payroll views. Import-based (deployed app can't live-pull QuickBooks): paste a QuickBooks GL export (Date,Account,Debit,Credit[,Type,Name]) → auto-builds Trial Balance + Profit&Loss + Balance Sheet, and runs Auditor-AI rules (R001 TB-balance, R030 neg cash, R040 neg inventory, R080 suspense, R081 unmapped, R030d duplicates) into a findings panel. Payroll tab links to Labor/Office cycles (payroll now lives inside Accounting). GL stored in hydroPro_acct_gl_v1 (cloud-synced). Stages next: Cash Flow, Equity, Notes, FS Pack+versioning, more rules, AI Q&A, and live-QB via worker OAuth. window.hnxOpenAccounting(). // p201: payroll banner relocation — Device Health Watch. IT Dashboard gains a "🖥 Device Health" banner from the real device daily-check data (loadDevices + loadDeviceChecks): counts devices DOWN, working-with-ISSUE, and NOT CHECKED in 7 days. "View" opens a grouped list; DOWN devices get one-tap "Raise call" (createIssue → IT board, de-duplicated via hydroPro_dev_call_created_v1 by device+check-date). Once-a-day nudge when devices are down. Honest: this reads logged daily-check status, it does not live-ping hardware (impossible offline). Read-only over device stores. App-only, no worker change. window.hnxDeviceWatch(). // p199: T-87 — Attendance Anomaly Watch. HR dashboard gains an "Attendance" card (latest-day anomaly count) opening a watch: LATE (with minutes), ABSENT (with/without reason), MISSING CLOCK-OUT (clocked in, never out on a past day), and CHRONIC LATENESS (≥3 lates in 14 days) — all from the real hydroPro_attendance store (7:00 start, no grace). "Open Attendance" jump + once-a-day nudge. Alert-only, read-only. NOTE this batch: T-99 skipped (inventory has no expiry field — "expiry" is license-only) and T-96 deferred (CRM customer/order data is largely demo) — not built on fake data. App-only, no worker change. window.hnxAttendanceWatch(). // p198: T-111/T-112 — Manager Summary now opens with (1) 🧭 Company Risk: a live cross-module risk score (0–100) per module + overall, computed from REAL signals (open/critical calls per module, severe EC/pH today, missed recurring PMs, overdue HR renewals, beds past harvest) with reasons and color bands; and (2) 🤖 Ask about your facility: a free-text box that sends a live snapshot (open/critical issues by module, reports on file, active plantings, risk scores) to Cloud AI /ai/ask and shows the answer. Both read existing stores only; no writes, no worker change. window.hnxRiskBox()/hnxAskBox()/hnxAsk(). // p197: dashboard sparkline (QC) — added a truthful 14-day sparkline trend to the QC hero "Inspections 7d" chip (daily inspection counts from _qcLoadInspections). Design rule: sparklines only go on activity-over-time chips (Maintenance done, QC inspections); snapshot chips (e.g. Inventory velocity bands, Fleet counts) are intentionally left without trend lines so the UI never implies a trend that isn't real. App-only, no worker change. // p196: dashboard sparkline kit (T-68 method) — review found the shared hero (_hnxRenderDashHero) already gives all 17 dashboards the SAME rich method (module gradient + Ken Burns + aura + orbital particles + scanline + pulsing core + animated KPI chips), so the audit's stale MEDIUM labels overstated the gap. Added the one missing pattern (Sheet 6 #17, sparkline trends) to the SHARED chip method: any chip with a spark:[...] array now renders an inline 14-pt trend line (green up / red down) — instantly available to every dashboard. Wired the first real one into the Maintenance hero "Done today" chip (14-day PM-completions trend from hydroPro_recurring_completions_v1). App-only, no worker change. // p195: T-72→see T-117 — Irrigation EC/pH Watch. The Irrigation Dashboard now shows a "💧 EC / pH Watch" banner for the selected date: scans every pool/slot reading and flags out-of-range values using the SAME thresholds the room matrix uses (EC in 1.2–3.2, severe <1.0/>3.5; pH 5.5–6.5, severe <5.0/>7.0). Banner shows severe/borderline counts; "View details" opens a list grouped by GH·pool·slot where each SEVERE reading has a one-tap "Raise call" (creates an irrigation issue via createIssue → hydroPro_issues_v2) plus "Raise all severe", de-duplicated via hydroPro_irr_call_created_v1 (key = date|pool|slot|kind). Once-a-day toast when severe readings exist today. Read-only over hydroPro_irr_pool; no edits to existing irrigation code. App-only, no worker change. window.hnxIrrWatch(). // p194: T-90 — Payroll Cutoff Reminder (Accounting). The Accounting Dashboard now shows a "🗓️ Payroll Cutoffs" banner with the NEXT office cutoff (bi-monthly: period 11–25 closes the 25th, period 26–10 closes the 10th) and the NEXT labor cutoff (weekly Thu–Wed, closes Wednesday), each with the closing period and a TODAY/TOMORROW/in-N-days chip that turns amber ≤3 days / red ≤1 day. A once-a-day toast nudges when either cutoff is within 3 days so timecards get finalized on time. Pure calendar math from the fixed cycle — no stored data needed, nothing written. Labeled as period-CLOSE dates (pay date may follow). App-only, no worker change. window.hnxPayrollBanner(). // p193: T-88 completion — Contract Renewals. Added a "Contract End" date field to the 201 file (employee edit form, populate, save, detail view, default record). The HR "Regularization" card is now "HR Renewals" and its watch covers BOTH tracks: trainees hitting the 6-month probation mark (regularize) AND any employee whose contractEnd is within 45 days or already past (renew/end). Rows are tagged PROBATION (purple) or CONTRACT (cyan); contract overdue shows EXPIRED. Still alert-only (no auto status change) and read-only over hydroPro_employees. Completes the T-88 gap noted in p192. App-only, no worker change. // p192: T-86/T-88 — HR Regularization Watch (probation slice). // (p192 detail) The HR dashboard gains a "Regularization" stat card (overdue / due-soon count) that opens a watch list of TRAINEES reaching the 6-month probationary mark (PH max probation), computed from emp.dateHired + type. Each row shows hire date, the 6-month date, and an OVERDUE-Nd / in-Nd chip; overdue first. Flags trainees missing a hire date (so they can be filled in), and a "Go to 201 files" jump. Once-a-day nudge when decisions are due. NOTE: this is the data-ready slice — true contract-renewal (T-88) needs a contract-end field that the employee record does not have yet; Temporary/Contractual end dates likewise aren't stored. Read-only over hydroPro_employees; alert-only (no auto status change — regularization is a human decision). App-only, no worker change. window.hnxHRAlerts(). // p191: T-79 — PM Work-Order Lookahead (Maintenance). A new "🔧 PM Lookahead" button in the Recurring Tasks header opens a list of Maintenance-owned recurring tasks due in the NEXT 3 DAYS (predicted from the same calendar-landing schedule the hub uses — daily/weekly-Mon/monthly/quarterly/etc.). Each row shows cadence, owner, area, and a TODAY/TOMORROW/in-N-days chip, with one-tap "Create work order" (raises a maintenance issue via createIssue → hydroPro_issues_v2, board-visible + cloud-synced) and, for today's tasks, "Mark done" (markRecurringDone). "Create all" does the batch. Already-created WOs are de-duplicated via hydroPro_pm_wo_created_v1 (key = taskId+date+area) so a task is never double-raised. A once-a-day toast nudges when PMs are coming up. Read-only over RECURRING_TASKS + completions; no edits to the existing recurring engine. App-only, no worker change. window.hnxPMWorkOrders(). // p190: T-110 — Weekly Executive Summary (Management). The Manager Summary (📊 topbar button) now opens with a Cloud-AI cross-module weekly digest at the top: open issues by module + how many are critical, daily reports filed in the period, harvests due within 7 days, and beds needing replanting (overdue). "Generate now"/"Regenerate" builds it on demand over the selected date range; it AUTO-PREPARES every Monday after 7am and saves to hydroPro_weekly_summary_v1 so it is waiting for leadership (with a toast). Plain, simple language, no jargon, no bullets. Reads existing stores only (issues v2, hn_daily_reports_v1, planting log) — additive, app-only, no worker change. window.hnxWeeklySummary(). // p189: T-77 — yield capture + per-variety anomaly. The ✓ Harvested button now opens a small modal to record yield (kg, optional). Yields build a per-variety baseline (per-plant when a plant count exists, else raw kg; needs 3+ harvests). A harvest >15% below its variety baseline is flagged — instantly via a warn toast on save, and listed in a "⚠ Yield anomalies" strip + "📊 Yield by variety" panel in the Planting Log. Stays quiet until enough history exists (no false alarms). Completes Production autonomy cluster T-74/75/76/77. Extends p187/p188; app-only, no worker change. // p188: T-76 — "🔄 Ready to transplant" section in the Planting Log. A bed surfaces when it's been marked ✓ Harvested (now empty) OR is past its harvest date but not yet harvested (overdue → harvest then replant). Each shows greenhouse + bed + last variety + idle days, longest-idle first; "➕ Plant here" pre-fills the add form for that exact bed; "Dismiss" hides it. Auto-clears once a newer planting is logged for the same bed (bedKey = gh+bed, or gh+variety when no bed). Goal: no idle beds. Extends the p187 Planting Log; app-only, no worker change. // p187: T-75 FOUNDATION — Production "🌱 Planting Log" tab. Captures transplants (greenhouse + variety + date, optional bed/count/stage) into hydroPro_planting_log_v1, plus an editable variety→days-to-harvest table (hydroPro_variety_maturity_v1, seeded with hydroponic estimates). Computes each bed's EXPECTED HARVEST DATE + days-left (transplant date + maturity) sorted soonest-first with overdue/≤7d colouring — this delivers T-75's core prediction. "✓ Harvested" clears a bed (sets up T-76 transplant recommendation). Tab injected into Production like Daily Reports; both stores cloud-synced. Additive, app-only, no worker change. window.__hnxPL. // p186: T-74 autonomy rung 1 (Production daily report AUTO-DRAFT). New "🤖 Auto-draft" button in Daily Reports builds a draft report from today's OPEN issues/calls (grouped by greenhouse via GH-text parse) + today's EC/pH readings (per-pool, mapped to GH via _irrPoolToGh, ranges EC 1.2-3.2 / pH 5.5-6.5), asks Cloud AI (/ai/analyze) for a 2-4 sentence plain-language summary, and shows a REVIEW modal. Supervisor edits the summary and presses "Sign & File" → window.hnSaveReport() files it as the official report (id rpt_<date>_prod_autodraft). Nothing filed without a signature. ~7am once-per-day nudge if today isn't filed. Builds on existing hn_daily_reports_v1; additive, no existing report code changed. App-only, no worker change. window.hnxAutoDraftReport(). // p185: in-page CCTV wall — fair rotation + honest "tap to view" + load-on-demand. The bridge/NVR serves only ~6 greenhouse streams at once, so the first cameras held every live slot while the rest sat on a misleading "connecting…" forever. (1) ROTATION: every 22s the oldest live tile is cycled out to a still snapshot and the longest-waiting camera is promoted, so ALL cameras get screen time (mirrors the full-screen wall's _cctvRotate, but keeps a still frame during rest). (2) TAP TO VIEW: a tile stuck on "connecting…" >12s rewrites to "📷 TAP TO VIEW · waiting for a free slot"; tapping forces THAT camera live immediately past the cap via window.__hnxCctvLive.forceTile(). (3) Background snapshot retry already round-robins, now paired with a 20s rotation cooldown so a just-rotated tile isn't instantly re-promoted. New API: forceTile(), rotate(). App-only, no worker change. // p184: CCTV wall self-heals. (1) Each offline camera now AUTO-RETRIES on a jittered ~30s timer (capped at 6 attempts; existing serialized/throttled probes unchanged so the NVR is never hammered). (2) The bridge-offline banner re-checks every 8s while the server is down and, the instant cctv.abapardes.com.ph is reachable again, auto-reconnects EVERY condemned tile via new window.__hnxCctvLive.recover() — no tap on Re-check or on any camera needed. (3) Offline-tile message clarified to "CAMERA SERVER OFFLINE"/"STREAM OFFLINE · ↻ auto-retrying… · or tap to retry now" so it's obvious the app is handling it, not the dashboard. App-only, no worker change. // p183: (1) open-PO parser refactored into a pure, offline-testable function — window.hnxOpenPOSelfTest() proves the real AteretPaz PO #2026-21-PO0528-01 resolves to 700 on-order by BOTH name and id, a partial PO yields open-only (1000 ordered − 600 recv = 400), and closed POs are skipped; field net widened; id lookup form fixed; Purchase Engine status note now lists matched PO item names for eyeball verification; hnxOpenPODump() added. (2) CCTV residue: stripped 8 dead cams[] arrays from module command centers (sec_cmd perimeter list kept) + doc strings updated to 'IT + Security perimeter only'. Wall Launcher KEPT on purpose — it is a GENERAL multi-monitor view launcher, not a CCTV wall; audit-plan T-62 misidentified it. (3) geo_dash lifted to the rich pattern: hero band + live site-map panel (data-driven coordinate plot with live health colour; satellite tiles flagged as Mapbox-token-dependent). // p182: worker v3.2.2 integration. Purchase Engine now subtracts open-PO on-order qty (defensive normalizer over /sos/purchase-orders — under-counts safely, never over; new On-order column + live status). Audit Trail stamps caller IP via /whoami on new entries + IP column + CSV. //  // p181: QA sweep of full inventory suite (8 views, 14 APIs, 7 modules — all clean). Inventory Command Center now LIVE: MCC_LIVE.inv_cmd computes real KPIs/AI-rows/boxes/alerts from the engine (stock-outs, reorder queue+value, dead-stock capital, nearest forecast stock-out ETA, pending requests, draft POs) replacing demo numbers. //  // p180b: CCTV wall snapshot LOADER is now a bounded connection-pool — tiles render with no src; max 4 frame.jpeg requests in-flight at once, viewport-nearest first, slot freed on load/error/8s-timeout. Fixes the initial-paint stampede where all 20-80 tiles hit the bridge simultaneously and got stuck 'connecting…'. Watchdog skips still-pending tiles so it can't pre-empt them to live. //  // p180: Demand Forecasting (spec sheet 11) — inv_forecast view. Mines demand from Item Requests + manual/CSV usage (hydroPro_inv_usage_v1); per-SKU avg use, days-of-cover, projected 30d, rec safety, stock-out ETA; 90/180/365d window; CSV import/export; audit-logged. Exposes hnxInvForecastExists (lights Active-Item override) + hnxInvForecast (Purchase Engine raises order qty to cover lead-time forecast demand + Fcst col). Inventory AI spec COMPLETE. //  // p179b: CCTV wall prefers light H.264 _sub substream per camera when it exists (snapshot+live derive from it); big/spotlight/fullscreen keep full-res. Lets many cameras stream at once without overloading the NVR. //  // p179: CCTV bridge-load fix — staggered/throttled snapshot polling (3/tick @2.2s, near-viewport only, round-robin), cap concurrent LIVE upgrades (default 6, rest stay snapshots), bridge-wide failure suppression (never blanket STREAM OFFLINE). //  // p178: AI Copilot (spec 17) — chat assistant over live inventory snapshot via cloud /ai/ask; quick commands + deep-links to Purchase Engine/Duplicate AI/Master Data/Diagnostics. Inventory spec build complete (Forecasting pending data). //  // p176: CCTV live-stream cap + rotation (Live: All/4/6/8/12/16) to protect NVR. p177: Audit Trail (spec 16) — central log of inventory changes (user/action/old->new/date/time), filter+CSV; instrumented Master Data, Categories, Purchase Engine, Duplicate AI. //  // p175: CCTV wall false-offline fix — serialize stream health-probes (1 at a time, spaced), 3-strike + 7s timeout, lock 'ok' so verification stops saturating the bridge and flipping all live tiles to STREAM OFFLINE. //  // p174: Active-Item logic (spec 05) — movement bands Active<=90 / Slow 91-180 / Dormant 181-365 / Dead >365, forecast-override hook; Item Velocity view now 4-band with Dormant KPI+filter+capital. //  // p173: Duplicate-detection AI — weighted similarity (name/desc/brand/mfr/usage) with blocking, clustering, keep-master/dismiss/AI-review; merged dups hidden from Item Files. //  // p172: Purchase Engine — reorder-point/safety-stock breaches grouped into draft POs by supplier, budget check, draft PO tracking; forecast & open-PO inputs pending. //  // p171: Item Files defaults to May-2026-modified items, deduped by name, with scope chips (May/30d/All) + dedupe toggle; shows real SOS category. //  // p170: Item Master tab in Master Data — enrich each SOS SKU with brand/supplier/manufacturer/category(incl custom)/criticality/safety-stock; overlay store hydroPro_inv_item_master_v1, search-only over 9.3k items, focus-safe. //  // p169: Categories view now pulls LIVE from SOS (each item's real category) with real counts + add/delete custom categories (assignable per-item in Item Master). //  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
-const APP_BUILD=1784745600;
+const APP_VERSION='2.62.0-v6sync';window.HNX_BUILD='v2.86-p203-v6sync';  // p203: ACCOUNTING Stage 2 — Accounting is now a real MENU module (Finance group) and the standalone Payroll module was REMOVED (Payroll lives inside Accounting). New full-screen workspace is multi-company: pick APTI/APAC/GLHI, each with mirrored tabs Dashboard · Financial Statements (Balance Sheet/Income/Changes in Equity/Cash Flow + 16 editable Notes, PFRS-for-SEs, ₱, audit-draft format like the APAC PDF) · Auditor-AI (R001 balance, R030 neg cash, R040 neg inventory, R050 cross-statement tie-out, +GL R080/R081) · Payroll (Labor weekly / Office bi-monthly) · Reports (Cash Position / BIR Alphalist / Payroll report). APTI is the active build; APAC+GLHI share identical empty tabs. FS numbers entered in-app, saved per company in hydroPro_acct_fs_v1 (cloud-synced), filled later. window.hnxOpenAccounting(). // p202: T-118..T-129 ACCOUNTING MODULE Stage 1. New animated Accounting Workspace (full-screen, motion hero): launch from topbar "🧮 Accounting" or the button atop both Payroll views. Import-based (deployed app can't live-pull QuickBooks): paste a QuickBooks GL export (Date,Account,Debit,Credit[,Type,Name]) → auto-builds Trial Balance + Profit&Loss + Balance Sheet, and runs Auditor-AI rules (R001 TB-balance, R030 neg cash, R040 neg inventory, R080 suspense, R081 unmapped, R030d duplicates) into a findings panel. Payroll tab links to Labor/Office cycles (payroll now lives inside Accounting). GL stored in hydroPro_acct_gl_v1 (cloud-synced). Stages next: Cash Flow, Equity, Notes, FS Pack+versioning, more rules, AI Q&A, and live-QB via worker OAuth. window.hnxOpenAccounting(). // p201: payroll banner relocation — Device Health Watch. IT Dashboard gains a "🖥 Device Health" banner from the real device daily-check data (loadDevices + loadDeviceChecks): counts devices DOWN, working-with-ISSUE, and NOT CHECKED in 7 days. "View" opens a grouped list; DOWN devices get one-tap "Raise call" (createIssue → IT board, de-duplicated via hydroPro_dev_call_created_v1 by device+check-date). Once-a-day nudge when devices are down. Honest: this reads logged daily-check status, it does not live-ping hardware (impossible offline). Read-only over device stores. App-only, no worker change. window.hnxDeviceWatch(). // p199: T-87 — Attendance Anomaly Watch. HR dashboard gains an "Attendance" card (latest-day anomaly count) opening a watch: LATE (with minutes), ABSENT (with/without reason), MISSING CLOCK-OUT (clocked in, never out on a past day), and CHRONIC LATENESS (≥3 lates in 14 days) — all from the real hydroPro_attendance store (7:00 start, no grace). "Open Attendance" jump + once-a-day nudge. Alert-only, read-only. NOTE this batch: T-99 skipped (inventory has no expiry field — "expiry" is license-only) and T-96 deferred (CRM customer/order data is largely demo) — not built on fake data. App-only, no worker change. window.hnxAttendanceWatch(). // p198: T-111/T-112 — Manager Summary now opens with (1) 🧭 Company Risk: a live cross-module risk score (0–100) per module + overall, computed from REAL signals (open/critical calls per module, severe EC/pH today, missed recurring PMs, overdue HR renewals, beds past harvest) with reasons and color bands; and (2) 🤖 Ask about your facility: a free-text box that sends a live snapshot (open/critical issues by module, reports on file, active plantings, risk scores) to Cloud AI /ai/ask and shows the answer. Both read existing stores only; no writes, no worker change. window.hnxRiskBox()/hnxAskBox()/hnxAsk(). // p197: dashboard sparkline (QC) — added a truthful 14-day sparkline trend to the QC hero "Inspections 7d" chip (daily inspection counts from _qcLoadInspections). Design rule: sparklines only go on activity-over-time chips (Maintenance done, QC inspections); snapshot chips (e.g. Inventory velocity bands, Fleet counts) are intentionally left without trend lines so the UI never implies a trend that isn't real. App-only, no worker change. // p196: dashboard sparkline kit (T-68 method) — review found the shared hero (_hnxRenderDashHero) already gives all 17 dashboards the SAME rich method (module gradient + Ken Burns + aura + orbital particles + scanline + pulsing core + animated KPI chips), so the audit's stale MEDIUM labels overstated the gap. Added the one missing pattern (Sheet 6 #17, sparkline trends) to the SHARED chip method: any chip with a spark:[...] array now renders an inline 14-pt trend line (green up / red down) — instantly available to every dashboard. Wired the first real one into the Maintenance hero "Done today" chip (14-day PM-completions trend from hydroPro_recurring_completions_v1). App-only, no worker change. // p195: T-72→see T-117 — Irrigation EC/pH Watch. The Irrigation Dashboard now shows a "💧 EC / pH Watch" banner for the selected date: scans every pool/slot reading and flags out-of-range values using the SAME thresholds the room matrix uses (EC in 1.2–3.2, severe <1.0/>3.5; pH 5.5–6.5, severe <5.0/>7.0). Banner shows severe/borderline counts; "View details" opens a list grouped by GH·pool·slot where each SEVERE reading has a one-tap "Raise call" (creates an irrigation issue via createIssue → hydroPro_issues_v2) plus "Raise all severe", de-duplicated via hydroPro_irr_call_created_v1 (key = date|pool|slot|kind). Once-a-day toast when severe readings exist today. Read-only over hydroPro_irr_pool; no edits to existing irrigation code. App-only, no worker change. window.hnxIrrWatch(). // p194: T-90 — Payroll Cutoff Reminder (Accounting). The Accounting Dashboard now shows a "🗓️ Payroll Cutoffs" banner with the NEXT office cutoff (bi-monthly: period 11–25 closes the 25th, period 26–10 closes the 10th) and the NEXT labor cutoff (weekly Thu–Wed, closes Wednesday), each with the closing period and a TODAY/TOMORROW/in-N-days chip that turns amber ≤3 days / red ≤1 day. A once-a-day toast nudges when either cutoff is within 3 days so timecards get finalized on time. Pure calendar math from the fixed cycle — no stored data needed, nothing written. Labeled as period-CLOSE dates (pay date may follow). App-only, no worker change. window.hnxPayrollBanner(). // p193: T-88 completion — Contract Renewals. Added a "Contract End" date field to the 201 file (employee edit form, populate, save, detail view, default record). The HR "Regularization" card is now "HR Renewals" and its watch covers BOTH tracks: trainees hitting the 6-month probation mark (regularize) AND any employee whose contractEnd is within 45 days or already past (renew/end). Rows are tagged PROBATION (purple) or CONTRACT (cyan); contract overdue shows EXPIRED. Still alert-only (no auto status change) and read-only over hydroPro_employees. Completes the T-88 gap noted in p192. App-only, no worker change. // p192: T-86/T-88 — HR Regularization Watch (probation slice). // (p192 detail) The HR dashboard gains a "Regularization" stat card (overdue / due-soon count) that opens a watch list of TRAINEES reaching the 6-month probationary mark (PH max probation), computed from emp.dateHired + type. Each row shows hire date, the 6-month date, and an OVERDUE-Nd / in-Nd chip; overdue first. Flags trainees missing a hire date (so they can be filled in), and a "Go to 201 files" jump. Once-a-day nudge when decisions are due. NOTE: this is the data-ready slice — true contract-renewal (T-88) needs a contract-end field that the employee record does not have yet; Temporary/Contractual end dates likewise aren't stored. Read-only over hydroPro_employees; alert-only (no auto status change — regularization is a human decision). App-only, no worker change. window.hnxHRAlerts(). // p191: T-79 — PM Work-Order Lookahead (Maintenance). A new "🔧 PM Lookahead" button in the Recurring Tasks header opens a list of Maintenance-owned recurring tasks due in the NEXT 3 DAYS (predicted from the same calendar-landing schedule the hub uses — daily/weekly-Mon/monthly/quarterly/etc.). Each row shows cadence, owner, area, and a TODAY/TOMORROW/in-N-days chip, with one-tap "Create work order" (raises a maintenance issue via createIssue → hydroPro_issues_v2, board-visible + cloud-synced) and, for today's tasks, "Mark done" (markRecurringDone). "Create all" does the batch. Already-created WOs are de-duplicated via hydroPro_pm_wo_created_v1 (key = taskId+date+area) so a task is never double-raised. A once-a-day toast nudges when PMs are coming up. Read-only over RECURRING_TASKS + completions; no edits to the existing recurring engine. App-only, no worker change. window.hnxPMWorkOrders(). // p190: T-110 — Weekly Executive Summary (Management). The Manager Summary (📊 topbar button) now opens with a Cloud-AI cross-module weekly digest at the top: open issues by module + how many are critical, daily reports filed in the period, harvests due within 7 days, and beds needing replanting (overdue). "Generate now"/"Regenerate" builds it on demand over the selected date range; it AUTO-PREPARES every Monday after 7am and saves to hydroPro_weekly_summary_v1 so it is waiting for leadership (with a toast). Plain, simple language, no jargon, no bullets. Reads existing stores only (issues v2, hn_daily_reports_v1, planting log) — additive, app-only, no worker change. window.hnxWeeklySummary(). // p189: T-77 — yield capture + per-variety anomaly. The ✓ Harvested button now opens a small modal to record yield (kg, optional). Yields build a per-variety baseline (per-plant when a plant count exists, else raw kg; needs 3+ harvests). A harvest >15% below its variety baseline is flagged — instantly via a warn toast on save, and listed in a "⚠ Yield anomalies" strip + "📊 Yield by variety" panel in the Planting Log. Stays quiet until enough history exists (no false alarms). Completes Production autonomy cluster T-74/75/76/77. Extends p187/p188; app-only, no worker change. // p188: T-76 — "🔄 Ready to transplant" section in the Planting Log. A bed surfaces when it's been marked ✓ Harvested (now empty) OR is past its harvest date but not yet harvested (overdue → harvest then replant). Each shows greenhouse + bed + last variety + idle days, longest-idle first; "➕ Plant here" pre-fills the add form for that exact bed; "Dismiss" hides it. Auto-clears once a newer planting is logged for the same bed (bedKey = gh+bed, or gh+variety when no bed). Goal: no idle beds. Extends the p187 Planting Log; app-only, no worker change. // p187: T-75 FOUNDATION — Production "🌱 Planting Log" tab. Captures transplants (greenhouse + variety + date, optional bed/count/stage) into hydroPro_planting_log_v1, plus an editable variety→days-to-harvest table (hydroPro_variety_maturity_v1, seeded with hydroponic estimates). Computes each bed's EXPECTED HARVEST DATE + days-left (transplant date + maturity) sorted soonest-first with overdue/≤7d colouring — this delivers T-75's core prediction. "✓ Harvested" clears a bed (sets up T-76 transplant recommendation). Tab injected into Production like Daily Reports; both stores cloud-synced. Additive, app-only, no worker change. window.__hnxPL. // p186: T-74 autonomy rung 1 (Production daily report AUTO-DRAFT). New "🤖 Auto-draft" button in Daily Reports builds a draft report from today's OPEN issues/calls (grouped by greenhouse via GH-text parse) + today's EC/pH readings (per-pool, mapped to GH via _irrPoolToGh, ranges EC 1.2-3.2 / pH 5.5-6.5), asks Cloud AI (/ai/analyze) for a 2-4 sentence plain-language summary, and shows a REVIEW modal. Supervisor edits the summary and presses "Sign & File" → window.hnSaveReport() files it as the official report (id rpt_<date>_prod_autodraft). Nothing filed without a signature. ~7am once-per-day nudge if today isn't filed. Builds on existing hn_daily_reports_v1; additive, no existing report code changed. App-only, no worker change. window.hnxAutoDraftReport(). // p185: in-page CCTV wall — fair rotation + honest "tap to view" + load-on-demand. The bridge/NVR serves only ~6 greenhouse streams at once, so the first cameras held every live slot while the rest sat on a misleading "connecting…" forever. (1) ROTATION: every 22s the oldest live tile is cycled out to a still snapshot and the longest-waiting camera is promoted, so ALL cameras get screen time (mirrors the full-screen wall's _cctvRotate, but keeps a still frame during rest). (2) TAP TO VIEW: a tile stuck on "connecting…" >12s rewrites to "📷 TAP TO VIEW · waiting for a free slot"; tapping forces THAT camera live immediately past the cap via window.__hnxCctvLive.forceTile(). (3) Background snapshot retry already round-robins, now paired with a 20s rotation cooldown so a just-rotated tile isn't instantly re-promoted. New API: forceTile(), rotate(). App-only, no worker change. // p184: CCTV wall self-heals. (1) Each offline camera now AUTO-RETRIES on a jittered ~30s timer (capped at 6 attempts; existing serialized/throttled probes unchanged so the NVR is never hammered). (2) The bridge-offline banner re-checks every 8s while the server is down and, the instant cctv.abapardes.com.ph is reachable again, auto-reconnects EVERY condemned tile via new window.__hnxCctvLive.recover() — no tap on Re-check or on any camera needed. (3) Offline-tile message clarified to "CAMERA SERVER OFFLINE"/"STREAM OFFLINE · ↻ auto-retrying… · or tap to retry now" so it's obvious the app is handling it, not the dashboard. App-only, no worker change. // p183: (1) open-PO parser refactored into a pure, offline-testable function — window.hnxOpenPOSelfTest() proves the real AteretPaz PO #2026-21-PO0528-01 resolves to 700 on-order by BOTH name and id, a partial PO yields open-only (1000 ordered − 600 recv = 400), and closed POs are skipped; field net widened; id lookup form fixed; Purchase Engine status note now lists matched PO item names for eyeball verification; hnxOpenPODump() added. (2) CCTV residue: stripped 8 dead cams[] arrays from module command centers (sec_cmd perimeter list kept) + doc strings updated to 'IT + Security perimeter only'. Wall Launcher KEPT on purpose — it is a GENERAL multi-monitor view launcher, not a CCTV wall; audit-plan T-62 misidentified it. (3) geo_dash lifted to the rich pattern: hero band + live site-map panel (data-driven coordinate plot with live health colour; satellite tiles flagged as Mapbox-token-dependent). // p182: worker v3.2.2 integration. Purchase Engine now subtracts open-PO on-order qty (defensive normalizer over /sos/purchase-orders — under-counts safely, never over; new On-order column + live status). Audit Trail stamps caller IP via /whoami on new entries + IP column + CSV. //  // p181: QA sweep of full inventory suite (8 views, 14 APIs, 7 modules — all clean). Inventory Command Center now LIVE: MCC_LIVE.inv_cmd computes real KPIs/AI-rows/boxes/alerts from the engine (stock-outs, reorder queue+value, dead-stock capital, nearest forecast stock-out ETA, pending requests, draft POs) replacing demo numbers. //  // p180b: CCTV wall snapshot LOADER is now a bounded connection-pool — tiles render with no src; max 4 frame.jpeg requests in-flight at once, viewport-nearest first, slot freed on load/error/8s-timeout. Fixes the initial-paint stampede where all 20-80 tiles hit the bridge simultaneously and got stuck 'connecting…'. Watchdog skips still-pending tiles so it can't pre-empt them to live. //  // p180: Demand Forecasting (spec sheet 11) — inv_forecast view. Mines demand from Item Requests + manual/CSV usage (hydroPro_inv_usage_v1); per-SKU avg use, days-of-cover, projected 30d, rec safety, stock-out ETA; 90/180/365d window; CSV import/export; audit-logged. Exposes hnxInvForecastExists (lights Active-Item override) + hnxInvForecast (Purchase Engine raises order qty to cover lead-time forecast demand + Fcst col). Inventory AI spec COMPLETE. //  // p179b: CCTV wall prefers light H.264 _sub substream per camera when it exists (snapshot+live derive from it); big/spotlight/fullscreen keep full-res. Lets many cameras stream at once without overloading the NVR. //  // p179: CCTV bridge-load fix — staggered/throttled snapshot polling (3/tick @2.2s, near-viewport only, round-robin), cap concurrent LIVE upgrades (default 6, rest stay snapshots), bridge-wide failure suppression (never blanket STREAM OFFLINE). //  // p178: AI Copilot (spec 17) — chat assistant over live inventory snapshot via cloud /ai/ask; quick commands + deep-links to Purchase Engine/Duplicate AI/Master Data/Diagnostics. Inventory spec build complete (Forecasting pending data). //  // p176: CCTV live-stream cap + rotation (Live: All/4/6/8/12/16) to protect NVR. p177: Audit Trail (spec 16) — central log of inventory changes (user/action/old->new/date/time), filter+CSV; instrumented Master Data, Categories, Purchase Engine, Duplicate AI. //  // p175: CCTV wall false-offline fix — serialize stream health-probes (1 at a time, spaced), 3-strike + 7s timeout, lock 'ok' so verification stops saturating the bridge and flipping all live tiles to STREAM OFFLINE. //  // p174: Active-Item logic (spec 05) — movement bands Active<=90 / Slow 91-180 / Dormant 181-365 / Dead >365, forecast-override hook; Item Velocity view now 4-band with Dormant KPI+filter+capital. //  // p173: Duplicate-detection AI — weighted similarity (name/desc/brand/mfr/usage) with blocking, clustering, keep-master/dismiss/AI-review; merged dups hidden from Item Files. //  // p172: Purchase Engine — reorder-point/safety-stock breaches grouped into draft POs by supplier, budget check, draft PO tracking; forecast & open-PO inputs pending. //  // p171: Item Files defaults to May-2026-modified items, deduped by name, with scope chips (May/30d/All) + dedupe toggle; shows real SOS category. //  // p170: Item Master tab in Master Data — enrich each SOS SKU with brand/supplier/manufacturer/category(incl custom)/criticality/safety-stock; overlay store hydroPro_inv_item_master_v1, search-only over 9.3k items, focus-safe. //  // p169: Categories view now pulls LIVE from SOS (each item's real category) with real counts + add/delete custom categories (assignable per-item in Item Master). //  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
+const APP_BUILD=1784832000;
 const APP_BUILD_DATE='2026-05-30';
 
 // Store version in localStorage on first run
@@ -127200,7 +127207,8 @@ body.hnx-mobile-locked { overflow: hidden; }
 (function(){
   var GROUPS=[
     {label:'Executive',keys:['overview','reports']},
-    {label:'Operations',keys:['production','hr','payroll','maintenance','it','irrigation','inventory','packaging','logistics','security','quality','fleet']},
+    {label:'Finance',keys:['accounting']},
+    {label:'Operations',keys:['production','hr','maintenance','it','irrigation','inventory','packaging','logistics','security','quality','fleet']},
     {label:'Customer',keys:['crm']},
     {label:'Admin',keys:['licenses','projects','admin']}
   ];
@@ -127216,7 +127224,7 @@ body.hnx-mobile-locked { overflow: hidden; }
       var rows='';
       g.keys.forEach(function(k){
         var mod=MODULES[k];if(!mod)return;
-        if(typeof canView==='function'){try{if(!canView(k))return;}catch(e){}}
+        if(k!=='accounting' && typeof canView==='function'){try{if(!canView(k))return;}catch(e){}}
         if(f && (mod.name||'').toLowerCase().indexOf(f)<0 && k.indexOf(f)<0)return;
         shown++;
         rows+='<div class="hnx-mod-item'+(k===cur?' active':'')+'" onclick="hnxPickModule(\''+k+'\')">'
@@ -127231,6 +127239,7 @@ body.hnx-mobile-locked { overflow: hidden; }
   };
   window.hnxPickModule=function(k){
     hnxCloseModulePicker();
+    if(k==='accounting'){ if(typeof window.hnxOpenAccounting==='function') window.hnxOpenAccounting(); return; }
     if(typeof switchModule==='function')switchModule(k);
   };
   window.hnxSyncModulePicker=function(modId){
@@ -146146,49 +146155,172 @@ body.hnx-mobile-locked { overflow: hidden; }
 </script>
 <!-- ================= END HNX DEVICE HEALTH WATCH ================= -->
 
-<!-- ================= HNX T-118..T-129 — ACCOUNTING WORKSPACE (Stage 1, p202) ================= -->
+<!-- ================= HNX T-118..T-132 — ACCOUNTING WORKSPACE (Stage 2, multi-company FS) ================= -->
 <style>
 @keyframes hnxaccKen{0%{transform:scale(1) translate(0,0)}50%{transform:scale(1.08) translate(-1.5%,-1%)}100%{transform:scale(1) translate(0,0)}}
 @keyframes hnxaccAura{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:.85;transform:scale(1.06)}}
 @keyframes hnxaccSpin{to{transform:rotate(360deg)}}
 .hnxacc-tab{padding:9px 14px;border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;color:#bfe3d6;background:transparent;border:1px solid transparent;white-space:nowrap}
 .hnxacc-tab.active{background:linear-gradient(135deg,#1d7a5f,#0c5b46);color:#fff;border-color:#2ecc9b}
-.hnxacc-tile{flex:1;min-width:150px;border:1px solid #244;border-radius:12px;padding:14px;background:linear-gradient(135deg,rgba(46,204,155,.07),rgba(66,165,245,.04))}
-.hnxacc-tile .v{font-size:22px;font-weight:800;font-family:monospace;letter-spacing:-.5px}
+.hnxacc-sub{padding:6px 11px;border-radius:8px;font-size:11.5px;font-weight:700;cursor:pointer;color:#9fc7bb;background:rgba(255,255,255,.03);border:1px solid #1d4a3c;white-space:nowrap}
+.hnxacc-sub.active{background:#123a2d;color:#7defc0;border-color:#2ecc9b}
+.hnxacc-co{padding:8px 16px;border-radius:10px;font-size:12.5px;font-weight:800;cursor:pointer;color:#cfe;background:rgba(255,255,255,.04);border:1px solid #244;white-space:nowrap}
+.hnxacc-co.active{background:linear-gradient(135deg,#0e7d5d,#0a4f3c);color:#fff;border-color:#2ecc9b;box-shadow:0 0 0 1px rgba(46,204,155,.3)}
+.hnxacc-tile{flex:1;min-width:140px;border:1px solid #244;border-radius:12px;padding:14px;background:linear-gradient(135deg,rgba(46,204,155,.07),rgba(66,165,245,.04))}
+.hnxacc-tile .v{font-size:20px;font-weight:800;font-family:monospace;letter-spacing:-.5px}
 .hnxacc-tile .l{font-size:10.5px;color:#9fc7bb;margin-top:2px}
-.hnxacc-th{font-size:10.5px;color:#9fc7bb;text-transform:uppercase;text-align:left;padding:6px 8px;border-bottom:1px solid #244}
-.hnxacc-td{font-size:12.5px;color:#e8f5e9;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05)}
+.hnxfs-row{display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.hnxfs-lbl{flex:1;font-size:12.5px;color:#dceee6}
+.hnxfs-lbl.ind{padding-left:18px;color:#bcd}
+.hnxfs-head{font-size:11px;letter-spacing:1px;font-weight:800;color:#7defc0;text-transform:uppercase;margin:12px 0 2px;border-bottom:1px solid #1d4a3c;padding-bottom:3px}
+.hnxfs-num{width:120px;text-align:right;font-family:monospace;font-size:12.5px;background:#0a120d;border:1px solid #244;border-radius:6px;color:#e8f5e9;padding:4px 7px}
+.hnxfs-num:focus{border-color:#2ecc9b;outline:none}
+.hnxfs-num[readonly]{background:transparent;border-color:transparent;color:#fff;font-weight:800}
+.hnxfs-col{width:120px;text-align:right;font-size:10px;color:#9fc7bb;text-transform:uppercase}
+.hnxnote-h{font-size:13px;font-weight:800;color:#7defc0;margin:14px 0 4px}
+.hnxnote-t{width:100%;min-height:90px;background:#0a120d;border:1px solid #244;border-radius:8px;color:#e8f5e9;padding:9px;font-size:12px;line-height:1.5;font-family:inherit}
+.hnxnote-t:focus{border-color:#2ecc9b;outline:none}
 </style>
 <script>
 (function(){
   'use strict';
   if(window.hnxOpenAccounting) return;
-  var GL_KEY='hydroPro_acct_gl_v1', META_KEY='hydroPro_acct_meta_v1';
-  var _tab='dashboard';
+  var GL_KEY='hydroPro_acct_gl_v1', META_KEY='hydroPro_acct_meta_v1', FS_KEY='hydroPro_acct_fs_v1';
+
+  var COMPANIES=[
+    {id:'APTI',name:'AteretPaz Technologies Inc.',tin:'009276042-0000'},
+    {id:'APAC',name:'Aba Pardes AgriTech Corp.',tin:''},
+    {id:'GLHI',name:'Gur Lavi Holdings Inc.',tin:''}
+  ];
+  var _co='APTI', _tab='dashboard', _fsTab='bs', _repTab='cash', _stmtYearCur='2025', _stmtYearPri='2024';
 
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function toast(m,k){ try{ (window.aimToast||window.showToast||window._toast||function(){})(m,k||'info'); }catch(e){} }
-  function money(n){ n=n||0; return (n<0?'-':'')+'₱'+Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function money(n){ n=Number(n)||0; return (n<0?'-':'')+'₱'+Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
   function loadGL(){ try{ var v=JSON.parse(localStorage.getItem(GL_KEY)||'[]'); return Array.isArray(v)?v:[]; }catch(e){ return []; } }
-  function saveGL(a){ try{ localStorage.setItem(GL_KEY,JSON.stringify(a||[])); localStorage.setItem(META_KEY,JSON.stringify({built:Date.now(),rows:(a||[]).length})); }catch(e){} }
-  function meta(){ try{ return JSON.parse(localStorage.getItem(META_KEY)||'null'); }catch(e){ return null; } }
+  function metaGL(){ try{ return JSON.parse(localStorage.getItem(META_KEY)||'null'); }catch(e){ return null; } }
 
-  // ---------- engine (verified offline) ----------
-  function num(s){ if(s==null)return 0; s=String(s).replace(/\(/g,'-').replace(/\)/g,'').replace(/[,$₱ ]/g,''); var n=parseFloat(s); return isNaN(n)?0:n; }
-  function parseGL(text){
-    var rows=[], lines=String(text||'').split(/\r?\n/).filter(function(l){return l.trim();});
-    if(!lines.length) return rows;
-    var delim=lines[0].indexOf('\t')>=0?'\t':',';
-    var hasHeader=/date|account|debit|credit/i.test(lines[0]);
-    var idx={date:0,account:1,debit:2,credit:3,type:-1,name:-1};
-    if(hasHeader){ lines[0].split(delim).forEach(function(c,i){ c=c.trim().toLowerCase();
-      if(/date/.test(c))idx.date=i; else if(/account/.test(c))idx.account=i;
-      else if(/debit|^dr$/.test(c))idx.debit=i; else if(/credit|^cr$/.test(c))idx.credit=i;
-      else if(/type|class/.test(c))idx.type=i; else if(/(name|payee|memo|desc)/.test(c)&&idx.name<0)idx.name=i; }); }
-    for(var i=hasHeader?1:0;i<lines.length;i++){ var c=lines[i].split(delim); var acct=(c[idx.account]||'').trim(); if(!acct) continue;
-      rows.push({date:(c[idx.date]||'').trim(),account:acct,debit:num(c[idx.debit]),credit:num(c[idx.credit]),type:idx.type>=0?(c[idx.type]||'').trim():'',name:idx.name>=0?(c[idx.name]||'').trim():''}); }
-    return rows;
+  // ----- FS per-company store -----
+  function loadFS(){ try{ var v=JSON.parse(localStorage.getItem(FS_KEY)||'{}'); return (v&&typeof v==='object')?v:{}; }catch(e){ return {}; } }
+  function saveFS(o){ try{ localStorage.setItem(FS_KEY,JSON.stringify(o||{})); }catch(e){} }
+  function coData(){ var all=loadFS(); if(!all[_co]) all[_co]={num:{},notes:{}}; if(!all[_co].num)all[_co].num={}; if(!all[_co].notes)all[_co].notes={}; return all; }
+  function getNum(key){ var all=loadFS(); return (all[_co]&&all[_co].num&&all[_co].num[key]!=null)?all[_co].num[key]:''; }
+  function setNumKey(key,val){ var all=coData(); var n=parseFloat(String(val).replace(/[,₱ ]/g,'')); all[_co].num[key]=isNaN(n)?'':n; saveFS(all); _recalc(); }
+  function getNote(id){ var all=loadFS(); var v=(all[_co]&&all[_co].notes&&all[_co].notes[id]!=null)?all[_co].notes[id]:null; return v==null?defaultNote(id):v; }
+  function setNoteKey(id,val){ var all=coData(); all[_co].notes[id]=val; saveFS(all); }
+
+  // ====================== Financial Statement specs ======================
+  // Each line: {k:key|null, l:label, t:'head'|'in'|'calc', ind:bool, f:function(g){...} for calc}
+  function N(k){ var v=getNum(k); return (typeof v==='number')?v:0; }
+  var BS_LINES=[
+    {t:'head',l:'ASSETS'},
+    {t:'head2',l:'Current Assets'},
+    {k:'bs_cash',l:'Cash',ind:1,t:'in'},
+    {k:'bs_recv',l:'Receivables – net',ind:1,t:'in'},
+    {k:'bs_inv',l:'Inventories',ind:1,t:'in'},
+    {k:'bs_prep',l:'Prepayments',ind:1,t:'in'},
+    {k:'bs_adv',l:'Advances to related parties',ind:1,t:'in'},
+    {k:'bs_tca',l:'Total Current Assets',t:'calc',f:function(s){return ['bs_cash','bs_recv','bs_inv','bs_prep','bs_adv'].reduce(function(a,x){return a+N(x+s);},0);}},
+    {t:'head2',l:'Non-current Assets'},
+    {k:'bs_ppe',l:'Property and equipment – net',ind:1,t:'in'},
+    {k:'bs_ta',l:'TOTAL ASSETS',t:'calc',f:function(s){return N('bs_tca'+s)+N('bs_ppe'+s);}},
+    {t:'head',l:'LIABILITIES AND EQUITY'},
+    {t:'head2',l:'Current Liabilities'},
+    {k:'bs_ap',l:'Trade and other payables',ind:1,t:'in'},
+    {k:'bs_itp',l:'Income tax payable',ind:1,t:'in'},
+    {k:'bs_loan',l:'Loans payable',ind:1,t:'in'},
+    {k:'bs_tl',l:'Total Liabilities',t:'calc',f:function(s){return ['bs_ap','bs_itp','bs_loan'].reduce(function(a,x){return a+N(x+s);},0);}},
+    {t:'head2',l:'Equity'},
+    {k:'bs_cap',l:'Capital stock',ind:1,t:'in'},
+    {k:'bs_re',l:'Retained earnings',ind:1,t:'in'},
+    {k:'bs_te',l:'Total Equity',t:'calc',f:function(s){return N('bs_cap'+s)+N('bs_re'+s);}},
+    {k:'bs_tle',l:'TOTAL LIABILITIES AND EQUITY',t:'calc',f:function(s){return N('bs_tl'+s)+N('bs_te'+s);}}
+  ];
+  var IS_LINES=[
+    {k:'is_sales',l:'SALES',t:'in'},
+    {k:'is_cogs',l:'COST OF SALES',t:'in'},
+    {k:'is_gp',l:'GROSS INCOME',t:'calc',f:function(s){return N('is_sales'+s)-N('is_cogs'+s);}},
+    {k:'is_admin',l:'ADMINISTRATIVE EXPENSES',t:'in'},
+    {k:'is_other',l:'OTHER INCOME',t:'in'},
+    {k:'is_ibt',l:'INCOME BEFORE INCOME TAX',t:'calc',f:function(s){return N('is_gp'+s)-N('is_admin'+s)+N('is_other'+s);}},
+    {k:'is_tax',l:'PROVISION FOR INCOME TAX',t:'in'},
+    {k:'is_ni',l:'NET INCOME',t:'calc',f:function(s){return N('is_ibt'+s)-N('is_tax'+s);}}
+  ];
+  var CF_LINES=[
+    {t:'head',l:'CASH FLOWS FROM OPERATING ACTIVITIES'},
+    {k:'cf_ibt',l:'Income before tax',ind:1,t:'in'},
+    {k:'cf_dep',l:'Adjustments: Depreciation',ind:1,t:'in'},
+    {k:'cf_bad',l:'Adjustments: Bad debts expense',ind:1,t:'in'},
+    {k:'cf_int',l:'Adjustments: Interest income',ind:1,t:'in'},
+    {k:'cf_obwc',l:'Operating income before working capital changes',t:'calc',f:function(s){return N('cf_ibt'+s)+N('cf_dep'+s)+N('cf_bad'+s)+N('cf_int'+s);}},
+    {k:'cf_wcr',l:'Decrease (increase) in receivables',ind:1,t:'in'},
+    {k:'cf_wcp',l:'Decrease (increase) in prepayments',ind:1,t:'in'},
+    {k:'cf_wci',l:'Decrease (increase) in inventories',ind:1,t:'in'},
+    {k:'cf_wcap',l:'Increase (decrease) in payables',ind:1,t:'in'},
+    {k:'cf_nco',l:'Net cash provided by operations',t:'calc',f:function(s){return N('cf_obwc'+s)+N('cf_wcr'+s)+N('cf_wcp'+s)+N('cf_wci'+s)+N('cf_wcap'+s);}},
+    {k:'cf_intr',l:'Interest received',ind:1,t:'in'},
+    {k:'cf_taxp',l:'Income tax paid',ind:1,t:'in'},
+    {k:'cf_noa',l:'Net cash provided by operating activities',t:'calc',f:function(s){return N('cf_nco'+s)+N('cf_intr'+s)+N('cf_taxp'+s);}},
+    {t:'head',l:'CASH FLOWS FROM INVESTING ACTIVITIES'},
+    {k:'cf_inv1',l:'Acquisitions of property and equipment',ind:1,t:'in'},
+    {k:'cf_nia',l:'Net cash used in investing activities',t:'calc',f:function(s){return N('cf_inv1'+s);}},
+    {t:'head',l:'CASH FLOWS FROM FINANCING ACTIVITIES'},
+    {k:'cf_fin1',l:'Payments to / from related parties',ind:1,t:'in'},
+    {k:'cf_fin2',l:'Proceeds from / (repayment of) loans',ind:1,t:'in'},
+    {k:'cf_nfa',l:'Net cash used in financing activities',t:'calc',f:function(s){return N('cf_fin1'+s)+N('cf_fin2'+s);}},
+    {k:'cf_ndc',l:'NET INCREASE (DECREASE) IN CASH',t:'calc',f:function(s){return N('cf_noa'+s)+N('cf_nia'+s)+N('cf_nfa'+s);}},
+    {k:'cf_beg',l:'CASH AT BEGINNING OF YEAR',ind:0,t:'in'},
+    {k:'cf_end',l:'CASH AT END OF YEAR',t:'calc',f:function(s){return N('cf_ndc'+s)+N('cf_beg'+s);}}
+  ];
+  var SCE_LINES=[
+    {k:'sce_cap_beg',l:'Capital stock — beginning',t:'in'},
+    {k:'sce_cap_mov',l:'Capital stock — movement',t:'in'},
+    {k:'sce_cap_end',l:'Capital stock — ending',t:'calc',f:function(s){return N('sce_cap_beg'+s)+N('sce_cap_mov'+s);}},
+    {k:'sce_re_beg',l:'Retained earnings — beginning',t:'in'},
+    {k:'sce_re_ni',l:'Net income for the year',t:'in'},
+    {k:'sce_re_div',l:'Dividends / other movements',t:'in'},
+    {k:'sce_re_end',l:'Retained earnings — ending',t:'calc',f:function(s){return N('sce_re_beg'+s)+N('sce_re_ni'+s)+N('sce_re_div'+s);}},
+    {k:'sce_te',l:'TOTAL EQUITY',t:'calc',f:function(s){return N('sce_cap_end'+s)+N('sce_re_end'+s);}}
+  ];
+
+  // ====================== Default note text ======================
+  function defaultNote(id){
+    var co=COMPANIES.filter(function(c){return c.id===_co;})[0]||{};
+    var D={
+      n1:'1. General\n\n'+co.name+' ("the Company") is a stock corporation registered with the Securities and Exchange Commission (SEC) under SEC Registration No. ____ on ____. The primary purpose of the Company is [state primary purpose]. The secondary purpose is [state secondary purpose].\n\nThe registered office address and place of business of the Company is at [address].\n\nThe Company\'s financial statements as of and for the year ended December 31, '+_stmtYearCur+', were authorized for issue on ____.'
+        +(co.tin?('\n\nTIN: '+co.tin):''),
+      n2:'2. Financial Reporting Framework, Basis of Preparation and Summary of Significant Accounting Policies\n\n2.1 Statement of Compliance — The financial statements have been prepared in compliance with the Philippine Financial Reporting Standards for Small Entities (PFRS for SEs).\n\n2.2 Basis of Preparation — Prepared on a historical cost basis, except for certain financial instruments measured at amortized cost and inventories at the lower of cost and market value.\n\n2.3 Functional and Presentation Currency — Philippine Peso (₱); amounts in the nearest peso.\n\n2.6 Cash — Cash includes cash in bank which earns interest at the prevailing bank deposit rate.\n2.7 Receivables — Non-derivative financial assets at amortized cost less allowance for impairment.\n2.8 Advances to Related Parties — Non-interest bearing, no definite due dates, at amortized cost less settlements.\n2.9 Inventories — At lower of cost (FIFO) and market value.\n2.10 Property and Equipment — At cost less accumulated depreciation and impairment; fully depreciated assets retained until no longer in use.\n2.13 Trade and Other Payables — Obligations on normal credit terms, do not bear interest.\n2.16 Capital Stock — At par value of issued and fully paid shares.\n2.17 Retained Earnings — Cumulative results per the statement of income.\n2.18 Revenue & Expense Recognition — Sale of produce recognized when sold and billed; interest income on a time-proportion basis; expenses on utilization/incurrence.\n2.19 Income Taxes — Current and deferred; current at amounts expected to be paid using enacted rates.\n2.20 Related Party Transactions — A transfer of resources, services or obligations between related parties.\n\n[Edit / expand the full policy text to match the auditor draft.]',
+      n3:'3. Cash\n\nThis account consists of cash in bank amounting to ₱____ and ₱____ in '+_stmtYearCur+' and '+_stmtYearPri+', respectively. Interest income earned amounted to ₱____ and ₱____ (see Note 13).',
+      n9:'9. Related Party Disclosures\n\nThe Company\'s transactions with related parties consist mainly of [advances / cost of sales / etc.]. There have been no guarantees provided or received for related party balances. Key management personnel are considered related parties.\n\n[List related parties and net transactions / outstanding balances.]',
+      n15:'15. Supplementary Information Required Under Revenue Regulations No. 15-2010\n\n15.1 VAT — [details]\n15.2 Taxes on Importation — [details]\n15.3 Excise Tax — [details]\n15.4 Taxes and Licenses — ₱____ business permit / local taxes for '+_stmtYearCur+'.\n15.5 Documentary Stamp Taxes — [details]\n15.6 Withholding Taxes — [details]\n15.7 Deficiency Tax Assessment — The Company has no pending deficiency tax assessment or tax case.',
+      n16:'16. Supplementary Information Required Under Revenue Regulations No. 34-2020\n\nRR 34-2020 prescribes guidelines on the submission of BIR Form 1709 and transfer pricing documentation (TPD) for related party transactions. The Company [is / is not] required to prepare and submit TPD as it [did / did not] meet the materiality thresholds under Section 3 of RR 34-2020.'
+    };
+    return D[id]||'';
   }
+  // notes list: numeric notes (tables) + text notes
+  var TEXT_NOTES=[
+    {id:'n1',t:'Note 1 — General (company identity)'},
+    {id:'n2',t:'Note 2 — Significant Accounting Policies'},
+    {id:'n3',t:'Note 3 — Cash'},
+    {id:'n9',t:'Note 9 — Related Party Disclosures'},
+    {id:'n15',t:'Note 15 — Supplementary Info (RR 15-2010)'},
+    {id:'n16',t:'Note 16 — Supplementary Info (RR 34-2020)'}
+  ];
+  // numeric note tables: each {id,title,rows:[{k,l}]}
+  var NUM_NOTES=[
+    {id:'n4',title:'Note 4 — Receivables – net',rows:[{k:'n4_trade',l:'Trade receivables'},{k:'n4_allow',l:'Less: Allowance for bad debts'},{k:'n4_net',l:'Receivables – net'}]},
+    {id:'n5',title:'Note 5 — Inventories',rows:[{k:'n5_beg',l:'Inventories, January 1'},{k:'n5_pur',l:'Purchases'},{k:'n5_cos',l:'Cost of Sales'},{k:'n5_end',l:'Inventories, December 31'}]},
+    {id:'n6',title:'Note 6 — Prepayments',rows:[{k:'n6_cwt',l:'Creditable withholding tax'}]},
+    {id:'n7',title:'Note 7 — Property and Equipment – net',rows:[{k:'n7_cost',l:'Cost'},{k:'n7_accdep',l:'Accumulated depreciation'},{k:'n7_net',l:'Net book value'}]},
+    {id:'n8',title:'Note 8 — Trade and Other Payables',rows:[{k:'n8_adv',l:'Advances from customers'},{k:'n8_oth',l:'Other payables'}]},
+    {id:'n10',title:'Note 10 — Capital Stock',rows:[{k:'n10_auth',l:'Authorized capital'},{k:'n10_sub',l:'Subscribed'},{k:'n10_recv',l:'Subscription receivable'},{k:'n10_paid',l:'Paid-up capital'}]},
+    {id:'n11',title:'Note 11 — Sales',rows:[{k:'n11_sales',l:'Total sales'}]},
+    {id:'n12',title:'Note 12 — Administrative Expenses',rows:[{k:'n12_tax',l:'Taxes and licenses'},{k:'n12_bad',l:'Bad debts expense'},{k:'n12_dep',l:'Depreciation expense'}]},
+    {id:'n13',title:'Note 13 — Other Income',rows:[{k:'n13_int',l:'Interest income'}]},
+    {id:'n14',title:'Note 14 — Income Taxes',rows:[{k:'n14_ibt',l:'Net income before tax'},{k:'n14_perm',l:'Permanent differences'},{k:'n14_ti',l:'Taxable income'},{k:'n14_due',l:'Tax due'}]}
+  ];
+
+  // ====================== Auditor-AI engine (GL-based, kept) ======================
   function classify(acct,type){ var t=(type||'').toLowerCase(), n=(acct||'').toLowerCase();
     if(/income|revenue|sales/.test(t)||/revenue|sales|income/.test(n))return 'Income';
     if(/expense|cogs|cost/.test(t)||/expense|cogs|cost|salary|wage|rent|utilit|fuel|repair|deprec/.test(n))return 'Expense';
@@ -146200,19 +146332,10 @@ body.hnx-mobile-locked { overflow: hidden; }
   function trialBalance(gl){ var m={};
     gl.forEach(function(r){ if(!m[r.account])m[r.account]={account:r.account,debit:0,credit:0,type:r.type||''}; m[r.account].debit+=r.debit; m[r.account].credit+=r.credit; if(r.type&&!m[r.account].type)m[r.account].type=r.type; });
     var rows=Object.keys(m).map(function(k){ var a=m[k]; a.ending=a.debit-a.credit; a.cls=classify(a.account,a.type); return a; });
-    rows.sort(function(a,b){return a.account.localeCompare(b.account);});
     var td=rows.reduce(function(s,r){return s+r.debit;},0), tc=rows.reduce(function(s,r){return s+r.credit;},0);
     return {rows:rows,totalDebit:td,totalCredit:tc,balanced:Math.abs(td-tc)<0.01};
   }
-  function pnl(tb){ var inc=0,exp=0,lines=[];
-    tb.rows.forEach(function(r){ if(r.cls==='Income'){inc+=(-r.ending);lines.push({a:r.account,amt:-r.ending,cls:'Income'});} else if(r.cls==='Expense'){exp+=r.ending;lines.push({a:r.account,amt:r.ending,cls:'Expense'});} });
-    return {income:inc,expense:exp,net:inc-exp,lines:lines};
-  }
-  function bs(tb){ var as=[],li=[],eq=[],ta=0,tl=0,te=0;
-    tb.rows.forEach(function(r){ if(r.cls==='Asset'){as.push(r);ta+=r.ending;} else if(r.cls==='Liability'){li.push(r);tl+=(-r.ending);} else if(r.cls==='Equity'){eq.push(r);te+=(-r.ending);} });
-    return {assets:as,liab:li,equity:eq,totalAssets:ta,totalLiab:tl,totalEquity:te};
-  }
-  function audit(gl,tb){ var f=[];
+  function auditGL(gl,tb){ var f=[];
     if(!tb.balanced) f.push({rule:'R001',sev:'Critical',msg:'Trial balance is off by '+money(tb.totalDebit-tb.totalCredit)+'. Debits ≠ Credits.'});
     tb.rows.forEach(function(r){ var n=r.account.toLowerCase();
       if(/cash|bank/.test(n)&&r.ending<-0.01) f.push({rule:'R030',sev:'Warning',msg:'Negative cash/bank: '+r.account+' = '+money(r.ending)});
@@ -146220,109 +146343,192 @@ body.hnx-mobile-locked { overflow: hidden; }
       if(/suspense|uncategor|ask my accountant/.test(n)&&Math.abs(r.ending)>0.01) f.push({rule:'R080',sev:'Critical',msg:'Suspense / uncategorised balance: '+r.account+' = '+money(r.ending)});
       if(r.cls==='Unmapped'&&Math.abs(r.ending)>0.01) f.push({rule:'R081',sev:'Warning',msg:'Unmapped account carries a balance: '+r.account+' = '+money(r.ending)});
     });
-    var seen={};
-    gl.forEach(function(r){ var amt=r.debit||r.credit; if(amt){ var k=r.date+'|'+r.account+'|'+amt; seen[k]=(seen[k]||0)+1; } });
-    Object.keys(seen).forEach(function(k){ if(seen[k]>1){ var p=k.split('|'); f.push({rule:'R030d',sev:'Warning',msg:'Possible duplicate ×'+seen[k]+': '+p[1]+' '+money(parseFloat(p[2]))+(p[0]?(' on '+p[0]):'')}); } });
     return f;
   }
-  function kpis(){ var gl=loadGL(); if(!gl.length) return null; var tb=trialBalance(gl); var p=pnl(tb); var b=bs(tb);
-    function sumWhere(re){ var s=0; tb.rows.forEach(function(r){ if(re.test(r.account.toLowerCase())) s+=r.ending; }); return s; }
-    return { net:p.net, income:p.income, expense:p.expense, cash:sumWhere(/cash|bank/), ar:sumWhere(/receivable/), ap:-sumWhere(/payable/),
-             findings:audit(gl,tb), balanced:tb.balanced, totalAssets:b.totalAssets, totalLiab:b.totalLiab, totalEquity:b.totalEquity, accounts:tb.rows.length, glRows:gl.length };
+  // FS-level audit rules (run on the entered template)
+  function auditFS(){
+    var f=[];
+    var taC=N('bs_ta_cur'), tleC=N('bs_tle_cur');
+    if(Math.abs(taC-tleC)>0.5 && (taC||tleC)) f.push({rule:'R001',sev:'Critical',msg:'Balance Sheet does not balance ('+_stmtYearCur+'): Total Assets '+money(taC)+' ≠ Liabilities+Equity '+money(tleC)+'.'});
+    if(N('bs_cash_cur')<0) f.push({rule:'R030',sev:'Warning',msg:'Negative cash on the Balance Sheet ('+_stmtYearCur+').'});
+    if(N('bs_inv_cur')<0) f.push({rule:'R040',sev:'Critical',msg:'Negative inventory on the Balance Sheet ('+_stmtYearCur+').'});
+    var niIS=N('is_ni_cur'), niSCE=N('sce_re_ni_cur');
+    if(niSCE && Math.abs(niIS-niSCE)>0.5) f.push({rule:'R050',sev:'Warning',msg:'Net income on Income Statement ('+money(niIS)+') differs from Changes in Equity ('+money(niSCE)+').'});
+    var endCF=N('cf_end_cur'), cashBS=N('bs_cash_cur');
+    if(endCF && cashBS && Math.abs(endCF-cashBS)>0.5) f.push({rule:'R050',sev:'Warning',msg:'Cash end-of-year on Cash Flow ('+money(endCF)+') differs from Balance Sheet cash ('+money(cashBS)+').'});
+    return f;
   }
 
-  // ---------- UI ----------
+  // ====================== UI helpers ======================
   function tile(v,l,col){ return '<div class="hnxacc-tile"><div class="v" style="color:'+(col||'#2ecc9b')+'">'+v+'</div><div class="l">'+esc(l)+'</div></div>'; }
-  function table(head,rowsHtml){ return '<table style="width:100%;border-collapse:collapse;margin-top:6px;"><thead><tr>'+head.map(function(h){return '<th class="hnxacc-th">'+esc(h)+'</th>';}).join('')+'</tr></thead><tbody>'+rowsHtml+'</tbody></table>'; }
 
-  function hero(k){
-    var net=k?k.net:0, col=net>=0?'#2ecc9b':'#ff6b6b';
-    return '<div style="position:relative;overflow:hidden;border-radius:16px;border:1px solid #1d6a52;padding:22px 24px;margin-bottom:16px;min-height:120px;background:#08130e;">'+
+  function hero(){
+    var co=COMPANIES.filter(function(c){return c.id===_co;})[0]||{};
+    return '<div style="position:relative;overflow:hidden;border-radius:16px;border:1px solid #1d6a52;padding:20px 22px;margin-bottom:14px;min-height:108px;background:#08130e;">'+
       '<div style="position:absolute;inset:0;background:linear-gradient(120deg,#0d3b2e,#0a5f47 45%,#093a59);animation:hnxaccKen 26s ease-in-out infinite;"></div>'+
-      '<div style="position:absolute;width:260px;height:260px;right:-60px;top:-90px;border-radius:50%;background:radial-gradient(circle,rgba(46,204,155,.5),transparent 70%);animation:hnxaccAura 7s ease-in-out infinite;"></div>'+
-      '<div style="position:absolute;right:30px;top:24px;width:74px;height:74px;border-radius:50%;border:2px dashed rgba(255,255,255,.25);animation:hnxaccSpin 18s linear infinite;display:flex;align-items:center;justify-content:center;font-size:30px;">🧮</div>'+
+      '<div style="position:absolute;width:240px;height:240px;right:-60px;top:-80px;border-radius:50%;background:radial-gradient(circle,rgba(46,204,155,.5),transparent 70%);animation:hnxaccAura 7s ease-in-out infinite;"></div>'+
+      '<div style="position:absolute;right:28px;top:22px;width:66px;height:66px;border-radius:50%;border:2px dashed rgba(255,255,255,.25);animation:hnxaccSpin 18s linear infinite;display:flex;align-items:center;justify-content:center;font-size:28px;">🧮</div>'+
       '<div style="position:relative;">'+
-        '<div style="font-size:10px;letter-spacing:2px;color:#9fe7d0;font-weight:800;">HYDRONEXIS-AI · ACCOUNTING · LIVE</div>'+
-        '<div style="font-size:22px;font-weight:900;color:#fff;margin-top:2px;">Finance Command Center</div>'+
-        (k? '<div style="font-size:13px;color:#bfe3d6;margin-top:4px;">Net result <b style="color:'+col+'">'+money(net)+'</b> · '+k.accounts+' accounts · '+k.glRows+' GL lines'+(k.balanced?' · <span style="color:#2ecc9b">TB balanced ✓</span>':' · <span style="color:#ff6b6b">TB off ✗</span>')+'</div>'
-            : '<div style="font-size:13px;color:#bfe3d6;margin-top:4px;">No data yet — go to <b>Import</b> and paste your QuickBooks GL to begin.</div>')+
+        '<div style="font-size:10px;letter-spacing:2px;color:#9fe7d0;font-weight:800;">HYDRONEXIS-AI · ACCOUNTING · PHILIPPINES</div>'+
+        '<div style="font-size:21px;font-weight:900;color:#fff;margin-top:2px;">'+esc(co.name||_co)+'</div>'+
+        '<div style="font-size:12.5px;color:#bfe3d6;margin-top:3px;">Financial statements · Auditor-AI · Payroll · Reports'+(co.tin?(' · TIN '+co.tin):'')+'</div>'+
       '</div></div>';
   }
 
-  function renderDashboard(){
-    var k=kpis();
-    var h=hero(k);
-    if(!k){ return h+'<div style="text-align:center;color:#9fc7bb;padding:30px;">Paste your QuickBooks <b>General Ledger</b> export in the Import tab — the statements and Auditor‑AI build automatically.</div>'; }
-    var crit=k.findings.filter(function(f){return f.sev==='Critical';}).length;
-    h+='<div style="display:flex;gap:10px;flex-wrap:wrap;">'+
-      tile(money(k.income),'Income','#42a5f5')+tile(money(k.expense),'Expenses','#ffb74d')+
-      tile(money(k.net),'Net result',k.net>=0?'#2ecc9b':'#ff6b6b')+tile(money(k.cash),'Cash & bank',k.cash>=0?'#2ecc9b':'#ff6b6b')+
-      tile(money(k.ar),'Receivables','#80deea')+tile(money(k.ap),'Payables','#ce93d8')+
-      tile(String(k.findings.length),'Audit flags',crit?'#ff6b6b':(k.findings.length?'#ffb74d':'#2ecc9b'))+'</div>';
-    var m=meta();
-    h+='<div style="font-size:10px;color:#7aa99a;margin-top:10px;">'+(m&&m.built?('Built from import on '+new Date(m.built).toLocaleString()):'')+'</div>';
-    return h;
-  }
-  function renderImport(){
-    var m=meta();
-    return '<div style="font-size:13px;color:#bfe3d6;margin-bottom:8px;">Paste your QuickBooks <b>General Ledger / Transaction Detail</b> export below (CSV or tab‑separated). Columns: <b>Date, Account, Debit, Credit</b> (optional <b>Type</b>, <b>Name</b>). First row can be a header.</div>'+
-      '<textarea id="hnxaccInput" placeholder="Date,Account,Debit,Credit,Type&#10;2026-05-01,Sales Revenue,0,10000,Income&#10;2026-05-02,Cash in Bank,8000,0,Asset" style="width:100%;height:200px;background:#0a120d;border:1px solid #244;border-radius:10px;color:#e8f5e9;padding:12px;font-family:monospace;font-size:12px;"></textarea>'+
-      '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">'+
-        '<button onclick="window.__hnxACC.build()" style="background:linear-gradient(135deg,#1d7a5f,#0c5b46);border:none;color:#fff;border-radius:9px;padding:10px 18px;font-weight:800;cursor:pointer;">⚙ Build statements</button>'+
-        '<button onclick="window.__hnxACC.clear()" style="background:transparent;border:1px solid #a55;color:#ffb4b4;border-radius:9px;padding:10px 14px;cursor:pointer;">Clear data</button>'+
-        (m&&m.rows?'<span style="font-size:11px;color:#9fc7bb;align-self:center;">Loaded: '+m.rows+' GL lines</span>':'')+
-      '</div>';
-  }
-  function renderStatements(){
-    var gl=loadGL(); if(!gl.length) return '<div style="color:#9fc7bb;padding:20px;text-align:center;">Import GL first.</div>';
-    var tb=trialBalance(gl), p=pnl(tb), b=bs(tb);
-    var sub='<div style="display:flex;gap:6px;margin-bottom:10px;">'+
-      ['tb','pl','bs'].map(function(s){ var lbl={tb:'Trial Balance',pl:'Profit & Loss',bs:'Balance Sheet'}[s]; return '<button onclick="window.__hnxACC.stmt(\''+s+'\')" class="hnxacc-tab'+((window.__hnxACC._stmt||'tb')===s?' active':'')+'">'+lbl+'</button>'; }).join('')+'</div>';
-    var body='', cur=window.__hnxACC._stmt||'tb';
-    if(cur==='tb'){
-      body=table(['Account','Type','Debit','Credit','Ending'], tb.rows.map(function(r){ return '<tr><td class="hnxacc-td">'+esc(r.account)+'</td><td class="hnxacc-td" style="color:#9fc7bb">'+esc(r.cls)+'</td><td class="hnxacc-td" style="text-align:right;font-family:monospace">'+money(r.debit)+'</td><td class="hnxacc-td" style="text-align:right;font-family:monospace">'+money(r.credit)+'</td><td class="hnxacc-td" style="text-align:right;font-family:monospace">'+money(r.ending)+'</td></tr>'; }).join('')+'<tr><td class="hnxacc-td" colspan="2"><b>TOTAL</b></td><td class="hnxacc-td" style="text-align:right;font-family:monospace"><b>'+money(tb.totalDebit)+'</b></td><td class="hnxacc-td" style="text-align:right;font-family:monospace"><b>'+money(tb.totalCredit)+'</b></td><td class="hnxacc-td" style="text-align:right;color:'+(tb.balanced?'#2ecc9b':'#ff6b6b')+'"><b>'+(tb.balanced?'BALANCED':'OFF '+money(tb.totalDebit-tb.totalCredit))+'</b></td></tr>');
-    } else if(cur==='pl'){
-      var inc=p.lines.filter(function(x){return x.cls==='Income';}), exp=p.lines.filter(function(x){return x.cls==='Expense';});
-      body='<div style="font-size:12px;color:#9fe7d0;font-weight:800;margin:6px 0 2px;">Income</div>'+table(['Account','Amount'],inc.map(function(x){return '<tr><td class="hnxacc-td">'+esc(x.a)+'</td><td class="hnxacc-td" style="text-align:right;font-family:monospace">'+money(x.amt)+'</td></tr>';}).join(''))+
-        '<div style="font-size:12px;color:#ffd0a0;font-weight:800;margin:12px 0 2px;">Expenses</div>'+table(['Account','Amount'],exp.map(function(x){return '<tr><td class="hnxacc-td">'+esc(x.a)+'</td><td class="hnxacc-td" style="text-align:right;font-family:monospace">'+money(x.amt)+'</td></tr>';}).join(''))+
-        '<div style="margin-top:12px;font-size:15px;font-weight:900;color:'+(p.net>=0?'#2ecc9b':'#ff6b6b')+';">Net result: '+money(p.net)+'</div>';
-    } else {
-      function blk(title,rows,total,sign){ return '<div style="font-size:12px;color:#9fe7d0;font-weight:800;margin:8px 0 2px;">'+title+'</div>'+table(['Account','Amount'],rows.map(function(r){return '<tr><td class="hnxacc-td">'+esc(r.account)+'</td><td class="hnxacc-td" style="text-align:right;font-family:monospace">'+money(sign*r.ending)+'</td></tr>';}).join(''))+'<div style="text-align:right;font-size:12px;color:#bfe3d6;font-weight:800;">Total '+title+': '+money(total)+'</div>'; }
-      body=blk('Assets',b.assets,b.totalAssets,1)+blk('Liabilities',b.liab,b.totalLiab,-1)+blk('Equity',b.equity,b.totalEquity,-1)+
-        '<div style="margin-top:10px;font-size:13px;color:'+((Math.abs(b.totalAssets-(b.totalLiab+b.totalEquity))<0.01)?'#2ecc9b':'#ffb74d')+';">Assets '+money(b.totalAssets)+' vs Liab+Equity '+money(b.totalLiab+b.totalEquity)+'</div>';
-    }
-    return sub+body;
-  }
-  function renderAudit(){
-    var gl=loadGL(); if(!gl.length) return '<div style="color:#9fc7bb;padding:20px;text-align:center;">Import GL first.</div>';
-    var tb=trialBalance(gl), f=audit(gl,tb);
-    var crit=f.filter(function(x){return x.sev==='Critical';}), warn=f.filter(function(x){return x.sev==='Warning';});
-    var h='<div style="display:flex;gap:10px;margin-bottom:12px;">'+tile(String(crit.length),'Critical','#ff6b6b')+tile(String(warn.length),'Warnings','#ffb74d')+tile(f.length?'CHECK':'CLEAN',f.length?'review needed':'all checks pass',f.length?'#ffb74d':'#2ecc9b')+'</div>';
-    if(!f.length) return h+'<div style="text-align:center;color:#2ecc9b;padding:20px;">✓ No issues found by the Auditor‑AI rule set.</div>';
-    h+=f.map(function(x){ var c=x.sev==='Critical'?'#ff6b6b':'#ffb74d'; return '<div style="display:flex;gap:10px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.06);"><div style="font-size:9.5px;font-weight:800;color:'+c+';border:1px solid '+c+';border-radius:5px;padding:1px 6px;height:fit-content;white-space:nowrap;">'+x.rule+'</div><div style="font-size:12.5px;color:#e8f5e9;">'+esc(x.msg)+'</div></div>'; }).join('');
-    return h;
-  }
-  function renderPayroll(){
-    return '<div style="font-size:13px;color:#bfe3d6;margin-bottom:12px;">Payroll now lives inside Accounting. Open a cycle:</div>'+
-      '<div style="display:flex;gap:10px;flex-wrap:wrap;">'+
-        '<button onclick="window.__hnxACC.goPay(\'payroll_ops\')" style="background:linear-gradient(135deg,#1d7a5f,#0c5b46);border:none;color:#fff;border-radius:10px;padding:14px 20px;font-weight:800;cursor:pointer;">👷 Labor Payroll — Weekly</button>'+
-        '<button onclick="window.__hnxACC.goPay(\'payroll_office\')" style="background:linear-gradient(135deg,#1565c0,#0d3b66);border:none;color:#fff;border-radius:10px;padding:14px 20px;font-weight:800;cursor:pointer;">🏢 Office Payroll — Bi‑monthly</button>'+
-      '</div>'+
-      '<div style="font-size:11px;color:#7aa99a;margin-top:14px;">Cutoff reminders show at the top of each payroll view (Office 11–25 / 26–10 · Labor Thu–Wed).</div>';
+  // company selector bar
+  function coBar(){
+    return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">'+
+      COMPANIES.map(function(c){ return '<div class="hnxacc-co'+(c.id===_co?' active':'')+'" onclick="window.__hnxACC.setco(\''+c.id+'\')">'+(c.id==='APTI'?'🏢 ':c.id==='APAC'?'🌱 ':'🏛 ')+c.id+' — '+esc(c.name.split(' ')[0])+(c.id==='APTI'?' ★':'')+'</div>'; }).join('')+
+      '</div><div style="font-size:10.5px;color:#7aa99a;margin:-6px 0 12px;">★ AteretPaz (APTI) is the active build. APAC & GLHI share the same tabs — fill later.</div>';
   }
 
+  // ---------- Dashboard ----------
+  function renderDashboard(){
+    var h=hero();
+    var ni=N('is_ni_cur'), ta=N('bs_ta_cur'), cash=N('bs_cash_cur'), sales=N('is_sales_cur');
+    var fsAudit=auditFS();
+    h+='<div style="display:flex;gap:10px;flex-wrap:wrap;">'+
+      tile(money(sales),'Sales ('+_stmtYearCur+')','#42a5f5')+
+      tile(money(ni),'Net income',ni>=0?'#2ecc9b':'#ff6b6b')+
+      tile(money(ta),'Total assets','#80deea')+
+      tile(money(cash),'Cash',cash>=0?'#2ecc9b':'#ff6b6b')+
+      tile(String(fsAudit.length),'FS audit flags',fsAudit.length?'#ffb74d':'#2ecc9b')+'</div>';
+    h+='<div style="margin-top:14px;font-size:12.5px;color:#bfe3d6;">Open <b>Financial Statements</b> to fill the audit-style draft (Balance Sheet · Income · Equity · Cash Flow · Notes), then <b>Auditor-AI</b> to check it before submission.</div>';
+    h+='<div style="margin-top:8px;font-size:11px;color:#7aa99a;">Tip: numbers you type are saved per company and cloud-synced automatically.</div>';
+    return h;
+  }
+
+  // ---------- Financial Statements ----------
+  function fsLineHtml(line){
+    if(line.t==='head') return '<div class="hnxfs-head" style="font-size:12px;color:#9fe7d0;margin-top:14px;">'+esc(line.l)+'</div>';
+    if(line.t==='head2') return '<div style="font-size:11.5px;font-weight:700;color:#bcd;margin:8px 0 1px;">'+esc(line.l)+'</div>';
+    var cur='', pri='';
+    if(line.t==='calc'){
+      cur='<input class="hnxfs-num" readonly id="fsv_'+line.k+'_cur" value="'+money(line.f('_cur'))+'">';
+      pri='<input class="hnxfs-num" readonly id="fsv_'+line.k+'_pri" value="'+money(line.f('_pri'))+'">';
+    } else {
+      cur='<input class="hnxfs-num" inputmode="decimal" value="'+(getNum(line.k+'_cur')===''?'':getNum(line.k+'_cur'))+'" onchange="window.__hnxACC.num(\''+line.k+'_cur\',this.value)" oninput="window.__hnxACC.num(\''+line.k+'_cur\',this.value)">';
+      pri='<input class="hnxfs-num" inputmode="decimal" value="'+(getNum(line.k+'_pri')===''?'':getNum(line.k+'_pri'))+'" onchange="window.__hnxACC.num(\''+line.k+'_pri\',this.value)" oninput="window.__hnxACC.num(\''+line.k+'_pri\',this.value)">';
+    }
+    var bold=(line.t==='calc')?'font-weight:800;color:#fff;':'';
+    return '<div class="hnxfs-row"><div class="hnxfs-lbl'+(line.ind?' ind':'')+'" style="'+bold+'">'+esc(line.l)+'</div>'+cur+pri+'</div>';
+  }
+  function fsColHead(){ return '<div class="hnxfs-row" style="border-bottom:1px solid #1d4a3c;"><div class="hnxfs-lbl"></div><div class="hnxfs-col">'+_stmtYearCur+'</div><div class="hnxfs-col">'+_stmtYearPri+'</div></div>'; }
+
+  function renderFS(){
+    var subs=[['bs','Balance Sheet'],['is','Income'],['sce','Changes in Equity'],['cf','Cash Flow'],['notes','Notes']];
+    var bar='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">'+subs.map(function(s){return '<div class="hnxacc-sub'+(_fsTab===s[0]?' active':'')+'" onclick="window.__hnxACC.fst(\''+s[0]+'\')">'+s[1]+'</div>';}).join('')+'</div>';
+    var title='', lines=null, body='';
+    if(_fsTab==='bs'){ title='STATEMENTS OF FINANCIAL POSITION'; lines=BS_LINES; }
+    else if(_fsTab==='is'){ title='STATEMENTS OF INCOME'; lines=IS_LINES; }
+    else if(_fsTab==='sce'){ title='STATEMENT OF CHANGES IN EQUITY'; lines=SCE_LINES; }
+    else if(_fsTab==='cf'){ title='STATEMENTS OF CASH FLOWS (indirect)'; lines=CF_LINES; }
+    if(lines){
+      var co=COMPANIES.filter(function(c){return c.id===_co;})[0]||{};
+      body='<div style="text-align:center;margin-bottom:6px;"><div style="font-weight:900;color:#fff;font-size:13px;">'+esc((co.name||_co).toUpperCase())+'</div>'+
+        '<div style="font-size:11px;color:#9fc7bb;">'+title+'</div>'+
+        '<div style="font-size:10px;color:#7aa99a;">For the years ended December 31, '+_stmtYearCur+' and '+_stmtYearPri+' · (Amounts in Philippine Peso)</div></div>';
+      body+=fsColHead()+lines.map(fsLineHtml).join('');
+      if(_fsTab==='bs') body+='<div id="hnxfsBalNote" style="margin-top:8px;font-size:11px;color:#9fc7bb;"></div>';
+    } else {
+      body=renderNotes();
+    }
+    return bar+'<div style="max-width:680px;">'+body+'</div>';
+  }
+
+  function renderNotes(){
+    var h='<div style="font-size:12px;color:#bfe3d6;margin-bottom:8px;">Disclosure-ready notes — edit freely. Text notes carry standard PFRS-for-SEs defaults; numeric notes mirror the audit draft. Saved per company.</div>';
+    // text notes
+    TEXT_NOTES.forEach(function(n){
+      h+='<div class="hnxnote-h">'+esc(n.t)+'</div>'+
+         '<textarea class="hnxnote-t" onchange="window.__hnxACC.note(\''+n.id+'\',this.value)">'+esc(getNote(n.id))+'</textarea>';
+    });
+    // numeric notes
+    NUM_NOTES.forEach(function(n){
+      h+='<div class="hnxnote-h">'+esc(n.title)+'</div>';
+      h+='<div style="max-width:520px;">'+fsColHead();
+      n.rows.forEach(function(r){
+        h+='<div class="hnxfs-row"><div class="hnxfs-lbl">'+esc(r.l)+'</div>'+
+          '<input class="hnxfs-num" inputmode="decimal" value="'+(getNum(r.k+'_cur')===''?'':getNum(r.k+'_cur'))+'" onchange="window.__hnxACC.num(\''+r.k+'_cur\',this.value)">'+
+          '<input class="hnxfs-num" inputmode="decimal" value="'+(getNum(r.k+'_pri')===''?'':getNum(r.k+'_pri'))+'" onchange="window.__hnxACC.num(\''+r.k+'_pri\',this.value)"></div>';
+      });
+      h+='</div>';
+    });
+    return h;
+  }
+
+  // ---------- Auditor-AI ----------
+  function renderAudit(){
+    var fsF=auditFS();
+    var gl=loadGL(); var glF=[]; var tb=null;
+    if(gl.length){ tb=trialBalance(gl); glF=auditGL(gl,tb); }
+    var all=fsF.concat(glF);
+    var crit=all.filter(function(x){return x.sev==='Critical';}), warn=all.filter(function(x){return x.sev==='Warning';});
+    var h='<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;">'+tile(String(crit.length),'Critical','#ff6b6b')+tile(String(warn.length),'Warnings','#ffb74d')+tile(all.length?'CHECK':'CLEAN',all.length?'review needed':'all checks pass',all.length?'#ffb74d':'#2ecc9b')+'</div>';
+    h+='<div style="font-size:11px;color:#7aa99a;margin-bottom:8px;">Rules run on the '+esc(_co)+' Financial Statements you typed'+(gl.length?(' + the imported GL ('+gl.length+' lines)'):'')+'. Active: R001 balance, R030 neg cash, R040 neg inventory, R050 cross-statement tie-out, R080/R081 suspense/unmapped (GL).</div>';
+    if(!all.length) return h+'<div style="text-align:center;color:#2ecc9b;padding:20px;">✓ No issues found. Fill more lines to run additional checks.</div>';
+    h+=all.map(function(x){ var c=x.sev==='Critical'?'#ff6b6b':'#ffb74d'; return '<div style="display:flex;gap:10px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.06);"><div style="font-size:9.5px;font-weight:800;color:'+c+';border:1px solid '+c+';border-radius:5px;padding:1px 6px;height:fit-content;white-space:nowrap;">'+x.rule+'</div><div style="font-size:12.5px;color:#e8f5e9;">'+esc(x.msg)+'</div></div>'; }).join('');
+    h+='<div style="margin-top:14px;"><button onclick="window.__hnxACC.askAI()" style="background:linear-gradient(135deg,#1565c0,#0d3b66);border:none;color:#fff;border-radius:9px;padding:10px 16px;font-weight:800;cursor:pointer;">🤖 Ask Cloud AI to explain these findings</button></div><div id="hnxaccAIout" style="margin-top:10px;"></div>';
+    return h;
+  }
+
+  // ---------- Payroll ----------
+  function renderPayroll(){
+    return '<div style="font-size:13px;color:#bfe3d6;margin-bottom:12px;">Payroll for <b>'+esc(_co)+'</b>. Open a cycle:</div>'+
+      '<div style="display:flex;gap:10px;flex-wrap:wrap;">'+
+        '<button onclick="window.__hnxACC.goPay(\'payroll_ops\')" style="background:linear-gradient(135deg,#1d7a5f,#0c5b46);border:none;color:#fff;border-radius:10px;padding:14px 20px;font-weight:800;cursor:pointer;">👷 Labor Payroll — Weekly (Thu–Wed)</button>'+
+        '<button onclick="window.__hnxACC.goPay(\'payroll_office\')" style="background:linear-gradient(135deg,#1565c0,#0d3b66);border:none;color:#fff;border-radius:10px;padding:14px 20px;font-weight:800;cursor:pointer;">🏢 Office Payroll — Bi-monthly (11–25 / 26–10)</button>'+
+        '<button onclick="window.__hnxACC.goPay(\'payroll_history\')" style="background:transparent;border:1px solid #2a6;color:#bfe3d6;border-radius:10px;padding:14px 18px;font-weight:700;cursor:pointer;">📊 History</button>'+
+      '</div>'+
+      '<div style="font-size:11px;color:#7aa99a;margin-top:14px;">Cutoff reminders appear at the top of each payroll view. Payroll now lives only inside Accounting (the standalone module was removed).</div>';
+  }
+
+  // ---------- Reports ----------
+  function renderReports(){
+    var subs=[['cash','💵 Cash Position'],['alpha','🧾 BIR Alphalist'],['pay','💰 Payroll Report']];
+    var bar='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">'+subs.map(function(s){return '<div class="hnxacc-sub'+(_repTab===s[0]?' active':'')+'" onclick="window.__hnxACC.rept(\''+s[0]+'\')">'+s[1]+'</div>';}).join('')+'</div>';
+    var body='';
+    function card(title,desc){
+      return '<div style="border:1px solid #244;border-radius:12px;padding:16px;background:rgba(46,204,155,.05);">'+
+        '<div style="font-size:14px;font-weight:800;color:#7defc0;margin-bottom:4px;">'+title+'</div>'+
+        '<div style="font-size:12.5px;color:#bfe3d6;line-height:1.5;">'+desc+'</div>'+
+        '<div style="margin-top:10px;font-size:11px;color:#7aa99a;">Upload area / structured table — wired in the next stage. Your uploaded file is the template for this report.</div></div>';
+    }
+    if(_repTab==='cash') body=card('Cash Position Report','Multi-bank balances by company (BPI · BDO · DBP · Robinsons · EastWest · PayPal · USD). Source: <i>Cash_Position_Report.xlsx</i> — Bank Balance Summary.');
+    else if(_repTab==='alpha') body=card('BIR Alphalist (1604C)','Alphabetical list of employees with gross compensation, 13th-month, de minimis and tax withheld — for BIR filing. Source: <i>Alphalist_2025.xlsx</i>.');
+    else body=card('Payroll Report','Period payroll summary (Labor weekly + Office bi-monthly) with SSS / 1601C / govt schedules. Source: <i>ADMIN_Payroll.xlsx</i> + the Payroll tab.');
+    return bar+body;
+  }
+
+  // ====================== shell ======================
   function renderBody(){
     var el=document.getElementById('hnxaccBody'); if(!el) return;
-    el.innerHTML = _tab==='dashboard'?renderDashboard():_tab==='import'?renderImport():_tab==='statements'?renderStatements():_tab==='audit'?renderAudit():renderPayroll();
+    var inner='';
+    if(_tab==='dashboard') inner=renderDashboard();
+    else if(_tab==='fs') inner=renderFS();
+    else if(_tab==='audit') inner=renderAudit();
+    else if(_tab==='payroll') inner=renderPayroll();
+    else if(_tab==='reports') inner=renderReports();
+    el.innerHTML=coBar()+inner;
+    if(_tab==='fs'&&_fsTab==='bs') _recalc();
   }
+  function _recalc(){
+    [BS_LINES,IS_LINES,SCE_LINES,CF_LINES].forEach(function(arr){
+      arr.forEach(function(line){ if(line.t==='calc'){ ['_cur','_pri'].forEach(function(s){ var el=document.getElementById('fsv_'+line.k+s); if(el) el.value=money(line.f(s)); }); } });
+    });
+    var bn=document.getElementById('hnxfsBalNote');
+    if(bn){ var d=N('bs_ta_cur')-N('bs_tle_cur'); bn.innerHTML=Math.abs(d)<0.5?'<span style="color:#2ecc9b;">✓ Balance Sheet balances for '+_stmtYearCur+'.</span>':'<span style="color:#ffb74d;">⚠ Off by '+money(d)+' ('+_stmtYearCur+') — Assets vs Liabilities+Equity.</span>'; }
+  }
+  function paintTabs(){ var c=document.getElementById('hnxaccTabs'); if(!c) return; Array.prototype.forEach.call(c.children,function(ch){ ch.classList.toggle('active', ch.getAttribute('data-t')===_tab); }); }
+
   function ensure(){
     if(document.getElementById('hnxaccOverlay')) return;
     var o=document.createElement('div'); o.id='hnxaccOverlay';
     o.style.cssText='position:fixed;inset:0;background:rgba(4,10,8,.94);z-index:100000;display:none;flex-direction:column;padding:0;';
-    var tabs=[['dashboard','📊 Dashboard'],['import','📥 Import'],['statements','📑 Statements'],['audit','🛡 Auditor‑AI'],['payroll','💰 Payroll']];
+    var tabs=[['dashboard','📊 Dashboard'],['fs','📑 Financial Statements'],['audit','🛡 Auditor-AI'],['payroll','💰 Payroll'],['reports','📂 Reports']];
     o.innerHTML='<div style="display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid #1d4a3c;background:#06120d;">'+
         '<div style="font-size:16px;font-weight:900;color:#2ecc9b;">🧮 Accounting</div>'+
-        '<div style="font-size:10px;color:#7aa99a;">Stage 1 · QuickBooks‑import</div><div style="flex:1;"></div>'+
+        '<div style="font-size:10px;color:#7aa99a;">Stage 2 · multi-company FS · PFRS for SEs</div><div style="flex:1;"></div>'+
         '<button onclick="window.__hnxACC.close()" style="background:transparent;border:1px solid rgba(255,255,255,.25);color:#bfe3d6;border-radius:9px;padding:7px 14px;font-size:13px;cursor:pointer;">✕ Close</button>'+
       '</div>'+
       '<div id="hnxaccTabs" style="display:flex;gap:6px;padding:10px 18px;overflow-x:auto;border-bottom:1px solid #143a2e;background:#081710;">'+
@@ -146330,20 +146536,28 @@ body.hnx-mobile-locked { overflow: hidden; }
       '<div id="hnxaccBody" style="flex:1;overflow:auto;padding:18px 20px;max-width:1100px;width:100%;margin:0 auto;"></div>';
     document.body.appendChild(o);
   }
-  function paintTabs(){ var c=document.getElementById('hnxaccTabs'); if(!c) return; Array.prototype.forEach.call(c.children,function(ch){ ch.classList.toggle('active', ch.getAttribute('data-t')===_tab); }); }
 
   window.__hnxACC={
-    _stmt:'tb',
     open:function(){ ensure(); document.getElementById('hnxaccOverlay').style.display='flex'; _tab='dashboard'; paintTabs(); renderBody(); },
     close:function(){ var o=document.getElementById('hnxaccOverlay'); if(o) o.style.display='none'; },
     tab:function(t){ _tab=t; paintTabs(); renderBody(); },
-    stmt:function(s){ this._stmt=s; renderBody(); },
-    build:function(){ var ta=document.getElementById('hnxaccInput'); if(!ta){return;} var gl=parseGL(ta.value); if(!gl.length){ toast('No valid GL rows found — check the columns.','warn'); return; } saveGL(gl); toast('✓ Built from '+gl.length+' GL lines','info'); _tab='dashboard'; paintTabs(); renderBody(); },
-    clear:function(){ saveGL([]); try{localStorage.removeItem(META_KEY);}catch(e){} toast('Accounting data cleared','info'); renderBody(); },
-    goPay:function(v){ this.close(); try{ if(typeof switchView==='function') switchView(v); }catch(e){} }
+    setco:function(c){ _co=c; renderBody(); },
+    fst:function(t){ _fsTab=t; renderBody(); },
+    rept:function(t){ _repTab=t; renderBody(); },
+    num:function(k,v){ setNumKey(k,v); },
+    note:function(id,v){ setNoteKey(id,v); },
+    goPay:function(v){ this.close(); try{ if(typeof switchView==='function') switchView(v); }catch(e){} },
+    askAI:async function(){
+      var out=document.getElementById('hnxaccAIout'); if(out) out.innerHTML='<div style="color:#9fc7bb;font-size:12px;">🤖 Asking Cloud AI…</div>';
+      var f=auditFS(); var ctx='Company '+_co+' financial statement self-check findings: '+(f.length?f.map(function(x){return x.rule+' '+x.sev+': '+x.msg;}).join(' | '):'none');
+      try{
+        if(typeof window.hnxCloudAsk==='function'){ var a=await window.hnxCloudAsk(ctx+' — explain in simple words what to fix.'); if(out) out.innerHTML='<div style="font-size:12.5px;color:#e8f5e9;white-space:pre-wrap;border:1px solid #245;border-radius:8px;padding:10px;background:#0a160f;">'+esc(a||'No response.')+'</div>'; return; }
+      }catch(e){}
+      if(out) out.innerHTML='<div style="color:#ffb74d;font-size:12px;">Cloud AI not reachable here — findings above are from the local rule set.</div>';
+    }
   };
   window.hnxOpenAccounting=function(){ window.__hnxACC.open(); };
-  console.log('[HNX-ACCT] Accounting workspace (Stage 1) ready.');
+  console.log('[HNX-ACCT] Accounting workspace (Stage 2, multi-company FS) ready.');
 })();
 </script>
 <!-- ================= END HNX ACCOUNTING WORKSPACE ================= -->
