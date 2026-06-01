@@ -5495,6 +5495,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
       <option value="all">Show All</option>
     </select>
     <button class="btn btn-primary" onclick="openEmployeeModal()">➕ Add Employee</button>
+    <button class="btn btn-outline" onclick="hnxJobPositionCheck()" title="List active employees with no job position">⚠ Missing job</button>
     <button class="btn btn-outline" onclick="exportHR()" title="Download employee list">⬇ Export</button>
     <button class="btn btn-outline" onclick="document.getElementById('hrImportFile').click()" title="Import employees from JSON">⬆ Import</button>
     <input type="file" id="hrImportFile" accept=".json" style="display:none;" onchange="importHR(this)">
@@ -5577,7 +5578,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
             <option>Other</option>
           </select>
         </div>
-        <div class="emp-field"><label class="field-label">Job Title / Position</label><input type="text" class="users-input" id="empTitle" placeholder="e.g. Greenhouse Worker"></div>
+        <div class="emp-field"><label class="field-label">Job Title / Position *</label><select class="users-input" id="empTitle" onchange="hnxEmpTitlePick(this)"></select></div>
         <div class="emp-field"><label class="field-label">🎓 Pro Level</label>
           <select class="users-input" id="empLevel" onchange="onEmpLevelChange()" title="Production proficiency level (1-5). Sets the daily rate based on level rates configured in 🌱 Production → 🎓 Training → 💰 Level Rates.">
             <option value="1">L1 — Trainee / Sanitation</option>
@@ -21838,6 +21839,7 @@ function renderHR(){
     <div class="hr-stat-card" style="cursor:pointer;" onclick="(function(){const data=employees.filter(e=>e.status==='Active'&&e.type==='Trainee').map(e=>({label:e.name,description:(e.position||'Trainee')+' · '+(e.dept||'?'),module:'HR · Trainee',priority:'info',status:'in training',ageStr:'Trainee',_onClickJS:'switchView(\\'hr_201\\')'}));openDrillDown({title:'Trainees',subtitle:'Employees currently in training status',scope:'custom',data:data});})()" title="Click to see trainees"><div class="hr-stat-label">Trainees</div><div class="hr-stat-val">${byType.Trainee||0}</div><div class="hr-stat-sub">in training</div></div>
     ${(typeof window.hnxHRRegCard==='function')?window.hnxHRRegCard():''}
     ${(typeof window.hnxAttCard==='function')?window.hnxAttCard():''}
+    ${(typeof window.hnxJobCard==='function')?window.hnxJobCard():''}
     ${payrollStat}
   `;
   // ===== Pro Level distribution mini-bar =====
@@ -22129,6 +22131,87 @@ function escapeHtml(s){
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
+/* ===== HNX p272 JOB POSITION DROPDOWN (injected) ===== */
+function hnxPosStd(){return ['Driver','Helper','Greenhouse Worker','Production Technician','Production Specialist','QC Inspector','Irrigation Technician','Packaging Staff','Warehouse Staff','Logistics Coordinator','Maintenance Technician','Electrician','Security Guard','Admin Staff','Accountant','Bookkeeper','HR Officer','Purchaser','IT Staff','Team Leader','Supervisor','Department Manager','Manager'];}
+function hnxLoadPositions(){try{var a=JSON.parse(localStorage.getItem('hydroPro_hr_positions_v1')||'[]');if(Array.isArray(a)&&a.length)return a;}catch(e){}return null;}
+function hnxSavePositions(a){try{localStorage.setItem('hydroPro_hr_positions_v1',JSON.stringify(a));}catch(e){}}
+function hnxAllPositions(){
+  var set={},out=[];
+  function push(t){if(t==null)return;t=String(t).trim();if(!t||t==='__ADDPOS__')return;var k=t.toLowerCase();if(!set[k]){set[k]=1;out.push(t);}}
+  var stored=hnxLoadPositions();
+  if(stored)stored.forEach(push); else hnxPosStd().forEach(push);
+  try{var emps=(typeof employees!=='undefined'&&employees)?employees:JSON.parse(localStorage.getItem('hydroPro_employees')||'[]');emps.forEach(function(e){push(e&&(e.title||e.position));});}catch(e){}
+  out.sort(function(a,b){return a.localeCompare(b);});
+  return out;
+}
+function hnxFillEmpTitleSelect(selected){
+  var sel=document.getElementById('empTitle');if(!sel||sel.tagName!=='SELECT')return;
+  selected=(selected==null?'':String(selected)).trim();
+  var list=hnxAllPositions();
+  if(selected&&!list.some(function(p){return p.toLowerCase()===selected.toLowerCase();})){list.push(selected);list.sort(function(a,b){return a.localeCompare(b);});}
+  var html='<option value="">\u2014 select job \u2014</option>';
+  for(var i=0;i<list.length;i++){var p=list[i];html+='<option value="'+p.replace(/"/g,'&quot;')+'"'+(selected&&selected.toLowerCase()===p.toLowerCase()?' selected':'')+'>'+p.replace(/</g,'&lt;')+'</option>';}
+  html+='<option value="__ADDPOS__">\u2795 Add new job\u2026</option>';
+  sel.innerHTML=html;
+}
+function hnxEmpTitlePick(sel){
+  if(!sel)return;
+  if(sel.value==='__ADDPOS__'){
+    var t=prompt('New job title / position:','');
+    if(t&&t.trim()){t=t.trim();var list=hnxAllPositions();if(!list.some(function(p){return p.toLowerCase()===t.toLowerCase();})){list.push(t);hnxSavePositions(list);}hnxFillEmpTitleSelect(t);}
+    else{hnxFillEmpTitleSelect('');}
+  }
+}
+/* ===== END HNX p272 ===== */
+/* ===== HNX p273 MISSING JOB CHECK (injected) ===== */
+function hnxJobPositionCheck(){
+  var emps;
+  try{emps=(typeof employees!=='undefined'&&employees)?employees:JSON.parse(localStorage.getItem('hydroPro_employees')||'[]');}catch(e){emps=[];}
+  function inactive(e){var st=((e&&e.status)||'Active').toString().toLowerCase();return /(resign|terminat|released|archived|inactive|former|separated)/.test(st);}
+  var missing=emps.filter(function(e){var t=((e&&(e.title||e.position))||'').toString().trim();return !inactive(e)&&!t;});
+  missing.sort(function(a,b){return (((a&&a.name)||'')+'').localeCompare(((b&&b.name)||'')+'');});
+  var old=document.getElementById('hnxJobPosOverlay'); if(old)old.remove();
+  function esc(x){return (x==null?'':String(x)).replace(/[<>&]/g,function(c){return c==='<'?'&lt;':c==='>'?'&gt;':'&amp;';});}
+  var ov=document.createElement('div'); ov.id='hnxJobPosOverlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  var rows;
+  if(!missing.length){
+    rows='<div style="padding:18px;color:#7fff7f;font-size:14px;">\u2705 All active employees have a job position.</div>';
+  } else {
+    rows=missing.map(function(e){
+      var dept=e.dept?(' \u00b7 '+esc(e.dept)):'';
+      return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border-bottom:1px solid #1d2a1d;">'+
+        '<div><div style="color:#e8f5e9;font-size:13px;font-weight:600;">'+esc(e.name||e.id||'(no name)')+'</div>'+
+        '<div style="color:#88aa99;font-size:11px;font-family:monospace;">'+esc(e.id||'')+dept+'</div></div>'+
+        '<button class="hnxFixJobBtn" data-empid="'+esc(e.id||'')+'" style="background:#1f7a3a;color:#fff;border:0;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;white-space:nowrap;">Open &amp; fix</button>'+
+        '</div>';
+    }).join('');
+  }
+  ov.innerHTML='<div style="background:#0f1a0f;border:2px solid #4caf50;border-radius:12px;max-width:520px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;">'+
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #1d2a1d;">'+
+      '<div style="color:#7fff7f;font-size:16px;font-weight:800;">\u26a0 Missing job position'+(missing.length?' ('+missing.length+')':'')+'</div>'+
+      '<button id="hnxJobPosClose" style="background:transparent;color:#aaa;border:1px solid #444;border-radius:6px;padding:4px 10px;cursor:pointer;">\u2715</button>'+
+    '</div><div style="overflow:auto;">'+rows+'</div></div>';
+  ov.addEventListener('click',function(ev){if(ev.target===ov)ov.remove();});
+  document.body.appendChild(ov);
+  var cl=document.getElementById('hnxJobPosClose'); if(cl)cl.onclick=function(){ov.remove();};
+  var btns=ov.querySelectorAll('.hnxFixJobBtn');
+  for(var i=0;i<btns.length;i++){(function(b){b.onclick=function(){var id=b.getAttribute('data-empid');ov.remove();if(typeof openEmployeeModal==='function')openEmployeeModal(id);};})(btns[i]);}
+}
+/* ===== END HNX p273 ===== */
+/* ===== HNX p274 MISSING-JOB HR CARD (injected) ===== */
+window.hnxJobCard=function(){
+  var emps; try{emps=(typeof employees!=='undefined'&&employees)?employees:[];}catch(e){emps=[];}
+  function inactive(e){var st=((e&&e.status)||'Active').toString().toLowerCase();return /(resign|terminat|released|archived|inactive|former|separated)/.test(st);}
+  var n=emps.filter(function(e){var t=((e&&(e.title||e.position))||'').toString().trim();return !inactive(e)&&!t;}).length;
+  var col=n>0?'#ffcc80':'#a5d6a7';
+  var sub=n>0?'tap to fix':'all set';
+  return '<div class="hr-stat-card" style="cursor:pointer;border-left-color:'+col+';" onclick="window.hnxJobPositionCheck&&window.hnxJobPositionCheck()" title="Active employees with no job position">'+
+    '<div class="hr-stat-label">Missing Job</div>'+
+    '<div class="hr-stat-val" style="color:'+col+';">'+n+'</div>'+
+    '<div class="hr-stat-sub">'+sub+'</div></div>';
+};
+/* ===== END HNX p274 ===== */
 function openEmployeeModal(empId){
   if(!can('manageHR')){showToast('Only Admin and Supervisor can edit employees','warn');return;}
   _editingEmpId=empId||null;
@@ -22169,7 +22252,7 @@ function openEmployeeModal(empId){
     document.getElementById('empDept').value=emp.dept||'OTHER';
     document.getElementById('empRole').value=emp.role||'Worker';
     document.getElementById('empType').value=emp.type||'Regular';
-    document.getElementById('empTitle').value=emp.title||'';
+    hnxFillEmpTitleSelect(emp.title||'');
     // v2.84 — Manages department
     if(dm)dm.value=emp.deptManages||'';
     // Load Pro Level from Training certs (separate storage)
@@ -22226,6 +22309,7 @@ function openEmployeeModal(empId){
     document.getElementById('empDept').value='PROD_TRAINEES';
     document.getElementById('empRole').value='Worker';
     document.getElementById('empType').value='Trainee';
+    hnxFillEmpTitleSelect('');
     document.getElementById('empCivilStatus').value='';
     document.getElementById('empLevel').value='1'; // New employees start at L1
     onEmpLevelChange();
@@ -22507,6 +22591,8 @@ function saveEmployee(){
   if(isProd&&(role==='Worker'||role==='Team Leader')&&ghAssigned.length!==1){
     if(!confirm(`${role}s in production usually work in exactly ONE greenhouse. Currently ${ghAssigned.length} selected. Save anyway?`))return;
   }
+  var _titleVal=(document.getElementById('empTitle').value||'').trim();
+  if(!_titleVal||_titleVal==='__ADDPOS__'){showToast('Job Title / Position is required — pick a job or add a new one','warn');return;}
   // Get existing rec to preserve old rate as base if no override
   const existing=_editingEmpId?employees.find(e=>e.id===_editingEmpId):null;
   const rec={
@@ -22515,7 +22601,7 @@ function saveEmployee(){
     birthday:document.getElementById('empBirthday').value,
     status:document.getElementById('empStatus').value,
     dept,role,type,
-    title:document.getElementById('empTitle').value.trim(),
+    title:_titleVal,
     // Keep `rate` as legacy field — only set if explicitly entered, otherwise preserve original
     rate:rateOverride||(existing&&existing.rate)||0,
     rateOverride:rateOverride||null,
@@ -71969,8 +72055,8 @@ function toggleWallFullscreen(){
 
 // ===================== APP VERSION & AUTO-UPDATE =====================
 // APP_VERSION is updated on each build — users will be prompted when a new build is detected
-const APP_VERSION='3.23.0-fleetai2';window.HNX_BUILD='v2.86-p266-fleetai2';  // p266: (A) FLEET BY-PERSON \u2014 Fleet-AI gets a \ud83d\udc64 By-person / \ud83d\uddc2 All toggle; By-person groups every vehicle under its person-in-charge (Eyal, Jerry, Antonio, Doc Amy\u2026) with per-person PMS/registration overdue+soon counts. (B) OPEX \u2192 BOOKS \u2014 Admin Costs tab gets \ud83d\udcd2 Post to books: every unposted admin/fleet cost becomes a balanced journal entry (Dr category expense / Cr Cash) in the APTI accounting journal (hydroPro_acct_je_v1), so admin OPEX flows into Trial Balance / P&L; de-duplicated via cost.postedJE, '\ud83d\udcd2 in books' marker on posted rows.  // p265: FLEET-AI — new 🚛 Fleet-AI tab in Admin. Loads the REAL ATERETPAZ fleet from the registration/PMS sheet (10 registered vehicles + e-bikes) via one tap; tracks the 6-month PMS cycle + annual LTO registration per vehicle (last/next/cost, color chips, ✅ PMS-done and ↻ renewed advance the cycle and log to Admin OPEX); per-vehicle PHOTO upload (own photos, no stock); animated dark/neon cards (sheen, grid, pulse-on-overdue, freshness bar); fleet KPIs + indicative annual budget; fleet-wide PMS & registration SCHEDULE list; CSV export. Fleet PMS/registration overdue+due-soon now feed the global Admin alerts. New store hydroPro_admin_fleet_v1 (cloud-synced). window.__hnxFLEET.  // p264: ADMIN-AI Phase-2 — (A) usage/odometer maintenance (service-every-km + current-km → next-due-km; due logic picks worse of time vs km; Update-km + odometer-at-service prompt); (B) Admin Costs / OPEX tab (auto-captures license-renewal + asset-service costs, manual entries, YTD total + by-category + 6-month bars, CSV hand-off to Accounting); (C) 📝 Steps on licenses & assets (local checklist + Cloud-AI site-specific renewal/service steps). New store hydroPro_admin_costs_v1 (cloud-synced).  // p263: ADMIN-AI MODULE (Administration) — Head of Administration & Operations: Licenses & Permits register (auto status/expiry alerts, renew), Fleet & Assets maintenance (interval->next-due, log service, reg/insurance expiry), Recurring Admin tasks (due-today + mark done), Employee Requirements matrix over the live HR list (Form 201/NBI/medical etc.), live Alerts feed (acknowledge), Ask Admin-AI (local data answer + Cloud AI /ai/ask), and a Monthly Admin Audit (figures + Cloud AI summary, save/print). Self-contained IIFE window.__hnxADMINAI / hnxOpenAdminAI(); first tab inside the Admin module; all hydroPro_admin_* keys (cloud-synced). No demo data.  // p262: QUICK LAUNCH — Accountant-AI dashboard now has a one-tap grid of all 40+ report tools (grouped: statements, books, cash, registers, AR/AP, tax, analysis, close), via window.__hnxACC.qrep. // p261: NOTES PRINTOUT — FS Print pack adds 'Print notes to FS' (all 16 disclosure notes, text + numeric, both years, light/PDF). // p260: KEY RATIOS TREND — FS Comparison now appends 14 key ratios current vs prior with trend arrows. // p259: FS PRINT 2-YEAR — FS Print pack adds 'Print with prior year' (current + prior columns on every statement). // p258: FS COMPARISON — Reports: Income Statement + Balance Sheet current vs prior + change, on screen. // p257: MONTHLY P&L (entries) — Reports: income/expenses/net per month from journal entries + bar + CSV. // p256: FS PRINT / PDF PACK — Reports: opens a clean light-themed print page with all 4 statements (Position/Income/Equity/Cash Flows) for the year, Save-as-PDF ready. // p255: AUDIT-READY EXPORT — Reports: one combined CSV stacking COA + journal + trial balance + OR/purchase/DV registers + fixed assets + 1601-C, each under a section header. // p254: YEAR-END CLOSE — Reports: automatic tie-out checks (TB balanced, books balance, all JE balanced, group consolidated) + manual close checklist with progress. // p253: TAX DASHBOARD — Reports: VAT payable, 2307 EWT, 1601-C and income-tax estimate together on one screen + indicative total. // p252: 1601-C COMPENSATION WITHHOLDING — Reports: 12-month table (taxable/non-taxable comp + tax withheld) + totals + CSV. // p251: INCOME TAX ESTIMATE — Reports: RCIT (rate × net income) vs MCIT (2% of gross) from entries, tax due = higher. // p250: SAWT / 2307 SUMMARY — Reports: totals per payee from the Withholding Tax tool + CSV. // p249: VAT 2550 AUTO-FILL — 'Auto-fill from registers' button sums the OR + Purchase registers into the VAT tool. // p248: CONSOLIDATED STATEMENTS — Reports: every company's P&L + Balance Sheet side-by-side + GROUP total + balance check, from journal entries. // p247: CHECK / DISBURSEMENT VOUCHER log — Reports: DV no/payee/particulars/check no/bank/status + CSV. // p246: PURCHASE / BILLS REGISTER — Reports: AP + input-VAT register + CSV. // p245: SALES INVOICE / OR REGISTER — Reports: log of issued invoices/ORs (no/date/customer/amount/VAT/status) + totals + CSV. // p244: CASH COUNT — Reports: peso-denomination count sheet vs book = over/short. // p243: FIXED ASSET REGISTER — Reports: straight-line accumulated dep + net book value + CSV. // p242: POST ACCOUNT → JOURNAL — Reports: turn a Cash & Accounts account's transactions into balanced journal entries (counter = Suspense to reclassify). // p241: STATEMENTS PACK (from entries) — Reports: Income Statement + Balance Sheet + Trial Balance on one screen, combined Pack CSV. // p240: CHART OF ACCOUNTS — Reports → Chart of Accounts: standard accounts (code/name/type), add/rename/remove + reset-to-standard + CSV; Journal Entries account box AUTO-COMPLETES from it (datalist) and Income & Position classification reads its types automatically (coaTypeFor). // p239: COA store + autocomplete + COA-aware classification. // p238: INCOME & POSITION FROM ENTRIES — Reports → classify each account once (asset/liab/equity/income/expense, auto-guessed), then P&L (income-expense) + Balance Sheet check (Assets = Liab + Equity + Net income) compute automatically from the journal (hydroPro_acct_coa_v1). // p237: GENERAL LEDGER — Reports → per-account postings from the journal with running balance + CSV. // p236: TRIAL BALANCE (FROM ENTRIES) — Reports → aggregates Journal Entry lines by account into Debit/Credit columns with in-balance check + CSV. // p235: JOURNAL ENTRIES — Reports → Journal Entries: add entries (date/memo) with debit/credit lines, per-entry balanced check, grand Dr/Cr totals, add/delete lines & entries, CSV (hydroPro_acct_je_v1, cloud-synced). // p234: BIR TAX CALENDAR — Reports → BIR Tax Calendar: common PH forms (0619-E,1601-C,2550M/Q,1601-EQ,1701/1702 etc.) with next-due dates for monthly forms + standard-rule text, ≤3d/≤7d highlight, verify-with-BIR disclaimer. // p233: CUSTOMER PROFITABILITY — paste customer,revenue,cost → margin + margin% ranked, totals, CSV. // p232: LOAN / AMORTIZATION — principal,rate,term → monthly payment, full amortization schedule (interest/principal/balance), total interest, CSV. // p231: PER-ACCOUNT QB/BOOKS COMPARE — each account's transaction panel has 'Compare with QuickBooks / books': paste (or auto-fill when wired) the QB/book lines, auto-matches against the statement transactions by amount, and flags 'On statement, MISSING in QB' (red) and 'In QB, not on statement' (amber) with CSV export. Completes the find-the-difference/missing workflow on the app side. // p230: PDF STATEMENT IMPORT — each account's transaction panel has '📄 Import PDF statement': lazy-loads pdf.js, extracts text lines, parses date/description/amount, and shows a tick-to-import REVIEW list; selected lines drop into the transaction table (then editable + document-checkable + reconciled vs statement). Heuristic parser, user reviews before import. // p229: PER-ACCOUNT TRANSACTION MATRIX — each Cash & Accounts card expands to the month's transactions (date/description/amount), a DOCUMENT ✓ checkbox on EVERY line, opening + statement-ending balances, and a live computed-vs-statement difference with BALANCED/OFF status + docs count; add/paste/delete rows, CSV export (hydroPro_acct_acctxn_v1, cloud-synced). // p228: CASH & ACCOUNTS — Reports → Cash Position upgraded: editable accounts for ANY company incl Petty Cash + Credit Cards (add/rename/remove), MONTH-END + TO-DATE balances, 'All documents on file' checkbox + Reconciled marker (matches/diff) per account, separate Cash&Bank vs Credit-Card totals + Net, one-tap 'Reconcile →' to the statement matcher, CSV export (hydroPro_acct_accounts_v1, cloud-synced; migrates old cash balances). // p227: DEPRECIATION SCHEDULE (straight-line: cost/salvage/life → annual, accumulated, NBV). // p226: WITHHOLDING TAX (EWT/BIR 2307: payee,base,rate% → EWT + net, rate reference). // p225: SALES TREND (monthly sales → total/avg + bar chart with growth arrows). All in Reports, paste-driven, CSV export, cloud-synced. // p224: EXPENSE BREAKDOWN — Reports → Expense Breakdown: paste category,amount → ranked bars + % of total + CSV. // p223: 13-WEEK CASH FLOW FORECAST — Reports → Cash Flow Forecast: opening cash + weekly expected in/out → running balance, lowest-projected cash-gap warning, bar chart, CSV (hydroPro_acct_cff_v1). // p222: AP AGING — new Reports → AP Aging (payables): same buckets/tiles/chart/table as AR Aging but for what you owe vendors, CSV export (hydroPro_acct_apaging_v1, cloud-synced). // p221: AR AGING — new Reports → AR Aging: paste receivables (customer, due date, amount), buckets into Current/1-30/31-60/61-90/90+ as of a chosen date, with per-bucket KPI tiles, bar chart, per-customer table + totals, CSV export (hydroPro_acct_aging_v1, cloud-synced). // p220: VAT / BIR 2550 — new Reports → VAT/BIR 2550: enter vatable/exempt/zero-rated sales + vatable & capital purchases + carry-over, computes Output VAT vs Input VAT and net VAT payable / excess credit (12%), 'Use FS sales' prefill + CSV export (hydroPro_acct_vat_v1, cloud-synced). // p219: BANK RECONCILIATION — new Reports → Bank Reconciliation: paste bank statement + book/GL lines, auto-matches by amount, lists outstanding items each side, computes per-bank vs per-book adjusted balances + difference with RECONCILED/NOT-BALANCED status, CSV export (hydroPro_acct_recon_v1, cloud-synced). // p218: rebuilt the dashboard 'Full structure' map to match what is ACTUALLY built — now shows all 7 sections incl. Accountant-AI, the Matrices section (AR, AP, P&L Monthly, Bank & Credit Card, Assets & Liabilities, Inventory, Projects), Health Score, Budget vs Actual, Financial Ratios, Ask-the-books. // p217: FINANCIAL HEALTH SCORE — a 0-100 dial on the Accountant-AI dashboard (conic gauge) rolling up ratio grades minus audit flags, with Excellent/Good/Fair/Needs-work band and good/watch/poor + audit-flag breakdown. // p216: ratios now show PRIOR-YEAR + YoY trend arrow (current vs prior, ▲/▼). // p215: FINANCIAL RATIOS — new Reports → Financial Ratios: 14 ratios across Liquidity / Leverage / Profitability / Efficiency, each color-graded good/watch/poor, computed live from the current-year statements (fills automatically once APTI Trial Balance is auto-mapped to the FS). CSV export included. // p214: NAV IS NOW 100% DROP BOXES — added a COMPANY dropdown (APTI/APAC/GLHI), removed the old company chip row + note, and hid every leftover chip sub-tab bar (Labor/Office/History/Rates&Tax, FS subs, the 7 matrix chips, auditor & reports subs). Only the cascading COMPANY ▾ → SECTION ▾ → SUB-TAB ▾ → SUB-SUB ▾ dropdowns remain. // p213: CSV EXPORT + BUDGET — (1) 'Export CSV' on the Matrices tab downloads the current matrix; (2) new Reports → Budget vs Actual: type an annual budget per Income line, actuals pull from the Income statement, variance + on-track status compute automatically, with CSV export (hydroPro_acct_budget_v1, cloud-synced). // p212: ACCOUNTING NAV IS NOW REAL DROP BOXES — native <select> dropdowns, cascading SECTION ▾ → SUB-TAB ▾ → SUB-SUB ▾ (e.g. Financial Statements → Statements → Balance Sheet; Matrices → Performance/Position → P&L). Replaces the chip menu so it matches the other modules' dropdown style. In-view chips still work and stay in sync. // p211: DROPDOWN NAV — the Accounting top bar is now a dropdown menu. Each top item (Financial Statements, Matrices, Auditor-AI, Payroll, Reports) opens a dropdown of its sub-tabs; Financial Statements and Matrices also have grouped sub-sub-tabs (tap a group to expand: Statements; Receivables/Payables; Performance/Position). Active item is highlighted; in-view chips stay in sync. // p210: VISIBILITY + EQUITY LINK — (1) Sample Preview toggle on the Matrices tab fills every QB matrix with clearly-labeled EXAMPLE data (12-month grid, sparklines, status, Analyze) so the finished module is visible before the live QuickBooks feed is wired; a bold banner makes clear it is not real data; (2) Accountant-AI dashboard now shows a QuickBooks setup checklist (per report: data loaded / wired / needs Make scenario / no QB) so progress is visible; (3) Changes-in-Equity 'Auto-link from Income & prior year' button. // p209: AUDITOR-AI NOTES ENGINE + MORE RULES + ALL-COMPANY VIEW — (1) FS Notes: each text note (and 'AI draft all') can be drafted by Cloud AI from the company's own numbers, shown for review with one-tap Insert (saves via setNoteKey, cloud-synced); (2) Auditor-AI rules R090 (admin-expense spike >30% vs prior), R041 (PPE but no depreciation) and negative-equity now compute live from the typed FS; rules screen marks R041/R090 LIVE; (3) Accountant-AI dashboard now shows an all-companies side-by-side comparison (Sales / Net income / Total assets / Cash) from each company's FS. // p208: ACCOUNTING REPORTS + PROJECT DASHBOARD + FINALIZE GATE — (1) Projects matrix now opens with a Project Dashboard: KPI tiles (count, total budget, total actual, over-budget) + per-project budget-vs-actual bars; (2) Reports made real: Cash Position is an editable multi-bank table with live total (hydroPro_acct_cash_v1), and BIR Alphalist + Payroll Report accept pasted CSV/Excel rows and render a live table (hydroPro_acct_csv_v1) — all per company, cloud-synced; (3) FS Pack 'Final' is now gated — blocked while any Critical Auditor-AI finding is open. // p207: ACCOUNTING SUITE COMPLETE — (1) 12-month QuickBooks pull: 'Pull 12 months' calls QB month-by-month and builds a REAL monthly matrix grid with per-row sparklines + Total + Status (works for any report whose Make scenario is wired; honest fail message otherwise); (2) report-specific parsers (parseProfitLoss, parseBalanceSheet, parseGeneric for AR/AP/GL/CF); (3) Projects matrix — full manual budget-vs-actual (12 months, variance, status), add/edit/delete, cloud-synced (hydroPro_acct_projects_v1); (4) FS Pack — assembled submission-ready pack (KPIs + 4 statements + notes) with Draft/For-Auditor/Final stamp (hydroPro_acct_fspack_v1) + Print/PDF; (5) Auditor-AI 'Ask the books' Q&A over FS + findings via Cloud AI. Monthly store hydroPro_acct_qb_monthly_v1. // p206: ACCOUNTING SUITE — new Accountant-AI dashboard + 7 AI matrices (AR/AP/P&L/Bank&CC/Assets&Liab/Inventory/Projects) sharing ONE template (12-month grid, Status, Trend, Analyze-This-Box per-cell Cloud-AI), a Year/Date picker on QB pulls, Trial-Balance→FS auto-fill (draft mapping), and P&L + Balance-Sheet parsers. All inside the Accounting workspace IIFE (window.__hnxACC). QB matrices are pull-ready and light up automatically as each Make scenario is wired; until then they show 'ready — waiting for QB scenario' (no fake numbers). // p203: ACCOUNTING Stage 2 — Accounting is now a real MENU module (Finance group) and the standalone Payroll module was REMOVED (Payroll lives inside Accounting). New full-screen workspace is multi-company: pick APTI/APAC/GLHI, each with mirrored tabs Dashboard · Financial Statements (Balance Sheet/Income/Changes in Equity/Cash Flow + 16 editable Notes, PFRS-for-SEs, ₱, audit-draft format like the APAC PDF) · Auditor-AI (R001 balance, R030 neg cash, R040 neg inventory, R050 cross-statement tie-out, +GL R080/R081) · Payroll (Labor weekly / Office bi-monthly) · Reports (Cash Position / BIR Alphalist / Payroll report). APTI is the active build; APAC+GLHI share identical empty tabs. FS numbers entered in-app, saved per company in hydroPro_acct_fs_v1 (cloud-synced), filled later. window.hnxOpenAccounting(). // p202: T-118..T-129 ACCOUNTING MODULE Stage 1. New animated Accounting Workspace (full-screen, motion hero): launch from topbar "🧮 Accounting" or the button atop both Payroll views. Import-based (deployed app can't live-pull QuickBooks): paste a QuickBooks GL export (Date,Account,Debit,Credit[,Type,Name]) → auto-builds Trial Balance + Profit&Loss + Balance Sheet, and runs Auditor-AI rules (R001 TB-balance, R030 neg cash, R040 neg inventory, R080 suspense, R081 unmapped, R030d duplicates) into a findings panel. Payroll tab links to Labor/Office cycles (payroll now lives inside Accounting). GL stored in hydroPro_acct_gl_v1 (cloud-synced). Stages next: Cash Flow, Equity, Notes, FS Pack+versioning, more rules, AI Q&A, and live-QB via worker OAuth. window.hnxOpenAccounting(). // p201: payroll banner relocation — Device Health Watch. IT Dashboard gains a "🖥 Device Health" banner from the real device daily-check data (loadDevices + loadDeviceChecks): counts devices DOWN, working-with-ISSUE, and NOT CHECKED in 7 days. "View" opens a grouped list; DOWN devices get one-tap "Raise call" (createIssue → IT board, de-duplicated via hydroPro_dev_call_created_v1 by device+check-date). Once-a-day nudge when devices are down. Honest: this reads logged daily-check status, it does not live-ping hardware (impossible offline). Read-only over device stores. App-only, no worker change. window.hnxDeviceWatch(). // p199: T-87 — Attendance Anomaly Watch. HR dashboard gains an "Attendance" card (latest-day anomaly count) opening a watch: LATE (with minutes), ABSENT (with/without reason), MISSING CLOCK-OUT (clocked in, never out on a past day), and CHRONIC LATENESS (≥3 lates in 14 days) — all from the real hydroPro_attendance store (7:00 start, no grace). "Open Attendance" jump + once-a-day nudge. Alert-only, read-only. NOTE this batch: T-99 skipped (inventory has no expiry field — "expiry" is license-only) and T-96 deferred (CRM customer/order data is largely demo) — not built on fake data. App-only, no worker change. window.hnxAttendanceWatch(). // p198: T-111/T-112 — Manager Summary now opens with (1) 🧭 Company Risk: a live cross-module risk score (0–100) per module + overall, computed from REAL signals (open/critical calls per module, severe EC/pH today, missed recurring PMs, overdue HR renewals, beds past harvest) with reasons and color bands; and (2) 🤖 Ask about your facility: a free-text box that sends a live snapshot (open/critical issues by module, reports on file, active plantings, risk scores) to Cloud AI /ai/ask and shows the answer. Both read existing stores only; no writes, no worker change. window.hnxRiskBox()/hnxAskBox()/hnxAsk(). // p197: dashboard sparkline (QC) — added a truthful 14-day sparkline trend to the QC hero "Inspections 7d" chip (daily inspection counts from _qcLoadInspections). Design rule: sparklines only go on activity-over-time chips (Maintenance done, QC inspections); snapshot chips (e.g. Inventory velocity bands, Fleet counts) are intentionally left without trend lines so the UI never implies a trend that isn't real. App-only, no worker change. // p196: dashboard sparkline kit (T-68 method) — review found the shared hero (_hnxRenderDashHero) already gives all 17 dashboards the SAME rich method (module gradient + Ken Burns + aura + orbital particles + scanline + pulsing core + animated KPI chips), so the audit's stale MEDIUM labels overstated the gap. Added the one missing pattern (Sheet 6 #17, sparkline trends) to the SHARED chip method: any chip with a spark:[...] array now renders an inline 14-pt trend line (green up / red down) — instantly available to every dashboard. Wired the first real one into the Maintenance hero "Done today" chip (14-day PM-completions trend from hydroPro_recurring_completions_v1). App-only, no worker change. // p195: T-72→see T-117 — Irrigation EC/pH Watch. The Irrigation Dashboard now shows a "💧 EC / pH Watch" banner for the selected date: scans every pool/slot reading and flags out-of-range values using the SAME thresholds the room matrix uses (EC in 1.2–3.2, severe <1.0/>3.5; pH 5.5–6.5, severe <5.0/>7.0). Banner shows severe/borderline counts; "View details" opens a list grouped by GH·pool·slot where each SEVERE reading has a one-tap "Raise call" (creates an irrigation issue via createIssue → hydroPro_issues_v2) plus "Raise all severe", de-duplicated via hydroPro_irr_call_created_v1 (key = date|pool|slot|kind). Once-a-day toast when severe readings exist today. Read-only over hydroPro_irr_pool; no edits to existing irrigation code. App-only, no worker change. window.hnxIrrWatch(). // p194: T-90 — Payroll Cutoff Reminder (Accounting). The Accounting Dashboard now shows a "🗓️ Payroll Cutoffs" banner with the NEXT office cutoff (bi-monthly: period 11–25 closes the 25th, period 26–10 closes the 10th) and the NEXT labor cutoff (weekly Thu–Wed, closes Wednesday), each with the closing period and a TODAY/TOMORROW/in-N-days chip that turns amber ≤3 days / red ≤1 day. A once-a-day toast nudges when either cutoff is within 3 days so timecards get finalized on time. Pure calendar math from the fixed cycle — no stored data needed, nothing written. Labeled as period-CLOSE dates (pay date may follow). App-only, no worker change. window.hnxPayrollBanner(). // p193: T-88 completion — Contract Renewals. Added a "Contract End" date field to the 201 file (employee edit form, populate, save, detail view, default record). The HR "Regularization" card is now "HR Renewals" and its watch covers BOTH tracks: trainees hitting the 6-month probation mark (regularize) AND any employee whose contractEnd is within 45 days or already past (renew/end). Rows are tagged PROBATION (purple) or CONTRACT (cyan); contract overdue shows EXPIRED. Still alert-only (no auto status change) and read-only over hydroPro_employees. Completes the T-88 gap noted in p192. App-only, no worker change. // p192: T-86/T-88 — HR Regularization Watch (probation slice). // (p192 detail) The HR dashboard gains a "Regularization" stat card (overdue / due-soon count) that opens a watch list of TRAINEES reaching the 6-month probationary mark (PH max probation), computed from emp.dateHired + type. Each row shows hire date, the 6-month date, and an OVERDUE-Nd / in-Nd chip; overdue first. Flags trainees missing a hire date (so they can be filled in), and a "Go to 201 files" jump. Once-a-day nudge when decisions are due. NOTE: this is the data-ready slice — true contract-renewal (T-88) needs a contract-end field that the employee record does not have yet; Temporary/Contractual end dates likewise aren't stored. Read-only over hydroPro_employees; alert-only (no auto status change — regularization is a human decision). App-only, no worker change. window.hnxHRAlerts(). // p191: T-79 — PM Work-Order Lookahead (Maintenance). A new "🔧 PM Lookahead" button in the Recurring Tasks header opens a list of Maintenance-owned recurring tasks due in the NEXT 3 DAYS (predicted from the same calendar-landing schedule the hub uses — daily/weekly-Mon/monthly/quarterly/etc.). Each row shows cadence, owner, area, and a TODAY/TOMORROW/in-N-days chip, with one-tap "Create work order" (raises a maintenance issue via createIssue → hydroPro_issues_v2, board-visible + cloud-synced) and, for today's tasks, "Mark done" (markRecurringDone). "Create all" does the batch. Already-created WOs are de-duplicated via hydroPro_pm_wo_created_v1 (key = taskId+date+area) so a task is never double-raised. A once-a-day toast nudges when PMs are coming up. Read-only over RECURRING_TASKS + completions; no edits to the existing recurring engine. App-only, no worker change. window.hnxPMWorkOrders(). // p190: T-110 — Weekly Executive Summary (Management). The Manager Summary (📊 topbar button) now opens with a Cloud-AI cross-module weekly digest at the top: open issues by module + how many are critical, daily reports filed in the period, harvests due within 7 days, and beds needing replanting (overdue). "Generate now"/"Regenerate" builds it on demand over the selected date range; it AUTO-PREPARES every Monday after 7am and saves to hydroPro_weekly_summary_v1 so it is waiting for leadership (with a toast). Plain, simple language, no jargon, no bullets. Reads existing stores only (issues v2, hn_daily_reports_v1, planting log) — additive, app-only, no worker change. window.hnxWeeklySummary(). // p189: T-77 — yield capture + per-variety anomaly. The ✓ Harvested button now opens a small modal to record yield (kg, optional). Yields build a per-variety baseline (per-plant when a plant count exists, else raw kg; needs 3+ harvests). A harvest >15% below its variety baseline is flagged — instantly via a warn toast on save, and listed in a "⚠ Yield anomalies" strip + "📊 Yield by variety" panel in the Planting Log. Stays quiet until enough history exists (no false alarms). Completes Production autonomy cluster T-74/75/76/77. Extends p187/p188; app-only, no worker change. // p188: T-76 — "🔄 Ready to transplant" section in the Planting Log. A bed surfaces when it's been marked ✓ Harvested (now empty) OR is past its harvest date but not yet harvested (overdue → harvest then replant). Each shows greenhouse + bed + last variety + idle days, longest-idle first; "➕ Plant here" pre-fills the add form for that exact bed; "Dismiss" hides it. Auto-clears once a newer planting is logged for the same bed (bedKey = gh+bed, or gh+variety when no bed). Goal: no idle beds. Extends the p187 Planting Log; app-only, no worker change. // p187: T-75 FOUNDATION — Production "🌱 Planting Log" tab. Captures transplants (greenhouse + variety + date, optional bed/count/stage) into hydroPro_planting_log_v1, plus an editable variety→days-to-harvest table (hydroPro_variety_maturity_v1, seeded with hydroponic estimates). Computes each bed's EXPECTED HARVEST DATE + days-left (transplant date + maturity) sorted soonest-first with overdue/≤7d colouring — this delivers T-75's core prediction. "✓ Harvested" clears a bed (sets up T-76 transplant recommendation). Tab injected into Production like Daily Reports; both stores cloud-synced. Additive, app-only, no worker change. window.__hnxPL. // p186: T-74 autonomy rung 1 (Production daily report AUTO-DRAFT). New "🤖 Auto-draft" button in Daily Reports builds a draft report from today's OPEN issues/calls (grouped by greenhouse via GH-text parse) + today's EC/pH readings (per-pool, mapped to GH via _irrPoolToGh, ranges EC 1.2-3.2 / pH 5.5-6.5), asks Cloud AI (/ai/analyze) for a 2-4 sentence plain-language summary, and shows a REVIEW modal. Supervisor edits the summary and presses "Sign & File" → window.hnSaveReport() files it as the official report (id rpt_<date>_prod_autodraft). Nothing filed without a signature. ~7am once-per-day nudge if today isn't filed. Builds on existing hn_daily_reports_v1; additive, no existing report code changed. App-only, no worker change. window.hnxAutoDraftReport(). // p185: in-page CCTV wall — fair rotation + honest "tap to view" + load-on-demand. The bridge/NVR serves only ~6 greenhouse streams at once, so the first cameras held every live slot while the rest sat on a misleading "connecting…" forever. (1) ROTATION: every 22s the oldest live tile is cycled out to a still snapshot and the longest-waiting camera is promoted, so ALL cameras get screen time (mirrors the full-screen wall's _cctvRotate, but keeps a still frame during rest). (2) TAP TO VIEW: a tile stuck on "connecting…" >12s rewrites to "📷 TAP TO VIEW · waiting for a free slot"; tapping forces THAT camera live immediately past the cap via window.__hnxCctvLive.forceTile(). (3) Background snapshot retry already round-robins, now paired with a 20s rotation cooldown so a just-rotated tile isn't instantly re-promoted. New API: forceTile(), rotate(). App-only, no worker change. // p184: CCTV wall self-heals. (1) Each offline camera now AUTO-RETRIES on a jittered ~30s timer (capped at 6 attempts; existing serialized/throttled probes unchanged so the NVR is never hammered). (2) The bridge-offline banner re-checks every 8s while the server is down and, the instant cctv.abapardes.com.ph is reachable again, auto-reconnects EVERY condemned tile via new window.__hnxCctvLive.recover() — no tap on Re-check or on any camera needed. (3) Offline-tile message clarified to "CAMERA SERVER OFFLINE"/"STREAM OFFLINE · ↻ auto-retrying… · or tap to retry now" so it's obvious the app is handling it, not the dashboard. App-only, no worker change. // p183: (1) open-PO parser refactored into a pure, offline-testable function — window.hnxOpenPOSelfTest() proves the real AteretPaz PO #2026-21-PO0528-01 resolves to 700 on-order by BOTH name and id, a partial PO yields open-only (1000 ordered − 600 recv = 400), and closed POs are skipped; field net widened; id lookup form fixed; Purchase Engine status note now lists matched PO item names for eyeball verification; hnxOpenPODump() added. (2) CCTV residue: stripped 8 dead cams[] arrays from module command centers (sec_cmd perimeter list kept) + doc strings updated to 'IT + Security perimeter only'. Wall Launcher KEPT on purpose — it is a GENERAL multi-monitor view launcher, not a CCTV wall; audit-plan T-62 misidentified it. (3) geo_dash lifted to the rich pattern: hero band + live site-map panel (data-driven coordinate plot with live health colour; satellite tiles flagged as Mapbox-token-dependent). // p182: worker v3.2.2 integration. Purchase Engine now subtracts open-PO on-order qty (defensive normalizer over /sos/purchase-orders — under-counts safely, never over; new On-order column + live status). Audit Trail stamps caller IP via /whoami on new entries + IP column + CSV. //  // p181: QA sweep of full inventory suite (8 views, 14 APIs, 7 modules — all clean). Inventory Command Center now LIVE: MCC_LIVE.inv_cmd computes real KPIs/AI-rows/boxes/alerts from the engine (stock-outs, reorder queue+value, dead-stock capital, nearest forecast stock-out ETA, pending requests, draft POs) replacing demo numbers. //  // p180b: CCTV wall snapshot LOADER is now a bounded connection-pool — tiles render with no src; max 4 frame.jpeg requests in-flight at once, viewport-nearest first, slot freed on load/error/8s-timeout. Fixes the initial-paint stampede where all 20-80 tiles hit the bridge simultaneously and got stuck 'connecting…'. Watchdog skips still-pending tiles so it can't pre-empt them to live. //  // p180: Demand Forecasting (spec sheet 11) — inv_forecast view. Mines demand from Item Requests + manual/CSV usage (hydroPro_inv_usage_v1); per-SKU avg use, days-of-cover, projected 30d, rec safety, stock-out ETA; 90/180/365d window; CSV import/export; audit-logged. Exposes hnxInvForecastExists (lights Active-Item override) + hnxInvForecast (Purchase Engine raises order qty to cover lead-time forecast demand + Fcst col). Inventory AI spec COMPLETE. //  // p179b: CCTV wall prefers light H.264 _sub substream per camera when it exists (snapshot+live derive from it); big/spotlight/fullscreen keep full-res. Lets many cameras stream at once without overloading the NVR. //  // p179: CCTV bridge-load fix — staggered/throttled snapshot polling (3/tick @2.2s, near-viewport only, round-robin), cap concurrent LIVE upgrades (default 6, rest stay snapshots), bridge-wide failure suppression (never blanket STREAM OFFLINE). //  // p178: AI Copilot (spec 17) — chat assistant over live inventory snapshot via cloud /ai/ask; quick commands + deep-links to Purchase Engine/Duplicate AI/Master Data/Diagnostics. Inventory spec build complete (Forecasting pending data). //  // p176: CCTV live-stream cap + rotation (Live: All/4/6/8/12/16) to protect NVR. p177: Audit Trail (spec 16) — central log of inventory changes (user/action/old->new/date/time), filter+CSV; instrumented Master Data, Categories, Purchase Engine, Duplicate AI. //  // p175: CCTV wall false-offline fix — serialize stream health-probes (1 at a time, spaced), 3-strike + 7s timeout, lock 'ok' so verification stops saturating the bridge and flipping all live tiles to STREAM OFFLINE. //  // p174: Active-Item logic (spec 05) — movement bands Active<=90 / Slow 91-180 / Dormant 181-365 / Dead >365, forecast-override hook; Item Velocity view now 4-band with Dormant KPI+filter+capital. //  // p173: Duplicate-detection AI — weighted similarity (name/desc/brand/mfr/usage) with blocking, clustering, keep-master/dismiss/AI-review; merged dups hidden from Item Files. //  // p172: Purchase Engine — reorder-point/safety-stock breaches grouped into draft POs by supplier, budget check, draft PO tracking; forecast & open-PO inputs pending. //  // p171: Item Files defaults to May-2026-modified items, deduped by name, with scope chips (May/30d/All) + dedupe toggle; shows real SOS category. //  // p170: Item Master tab in Master Data — enrich each SOS SKU with brand/supplier/manufacturer/category(incl custom)/criticality/safety-stock; overlay store hydroPro_inv_item_master_v1, search-only over 9.3k items, focus-safe. //  // p169: Categories view now pulls LIVE from SOS (each item's real category) with real counts + add/delete custom categories (assignable per-item in Item Master). //  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
-const APP_BUILD=1790361600;
+const APP_VERSION='3.27.6-logperson';window.HNX_BUILD='v2.86-p276-logperson';  // p276: LOGBOOK DRIVER/HELPER PER ENTRY — the GPS Daily Report (logbook) Daily Summary now has \ud83d\ude97 Driver and \ud83e\uddd1\u200d\ud83d\udd27 Helper dropdowns at the top, sourced from the HR roster (active staff whose job is driver / helper). Each defaults to the truck's assigned Driver/Helper (shown as 'from truck') and, once changed, is saved ONTO that day's report (driverId/helperId on hydroPro_gps_reports). Fleet-AI (p275) already reads r.driverId||vehicle.driverId, so picking who actually drove that day makes the per-driver / per-helper km/L efficiency accurate per day even when people swap trucks. window._gpsPersonSelect.  // p275: FLEET-AI EFFICIENCY — the standalone Fleet module gets a \ud83e\udd16 Fleet-AI button (on the dashboard logbook header + the Vehicles toolbar) that opens a Driver & Helper Efficiency panel: for Today / This Month / Year-to-Date / All it reads the daily GPS logbook (hydroPro_gps_reports: ODO out/in + fill-up liters + ₱/L), credits each truck's trips to its assigned Driver and Helper (or the person recorded on the entry, if set), and ranks both groups by km/L (total KM ÷ total liters) with medals, trips, KM, liters, a vs-best bar and the group average — so each driver and helper is compared to the others. Read-only over the logbook + vehicle assignments; no worker change. window.hnxFleetAI.  // p274: MISSING-JOB HR CARD — HR Dashboard stats row gains a 'Missing Job' card (count of ACTIVE employees with no job position; amber when >0, green when all set); tapping opens the same fix-list. window.hnxJobCard.  // p273: MISSING-JOB CHECK — Employees screen gets a '⚠ Missing job' button listing every ACTIVE employee with no job position; each row has 'Open & fix' that opens their 201 record (where the job is now a required dropdown). window.hnxJobPositionCheck.  // p272: EMPLOYEE JOB POSITION REQUIRED — the 201 employee form's 'Job Title / Position' is now a REQUIRED dropdown listing all jobs (standard seed + every title already in use) with a '➕ Add new job' option saved to a managed list (hydroPro_hr_positions_v1); saving an employee without a job is blocked. Feeds the Fleet Driver/Helper filters. window.hnxFillEmpTitleSelect / hnxEmpTitlePick.  // p271: FLEET LOGBOOK DRIVER+HELPER — the dashboard 'Today's GPS reports' logbook table and the vehicles CSV export now show/record BOTH Driver and Helper, resolved from the HR/Payroll roster (driver no longer goes blank after the p270 source switch; helper column added).  // p270: FLEET DRIVER + HELPER — Fleet > Vehicles now has SEPARATE Driver and Helper dropdowns, both pulled LIVE from the HR/Payroll roster (hydroPro_employees + hydroPro_hr_employees merged) filtered by HR job title (driver / helper). Each has a '➕ Add new' that prompts a name, creates the person in HR/Payroll (position Driver/Helper, dept Logistics, status Active) and assigns them. Already-assigned people are never dropped; the read-only dashboard table also shows Driver + Helper resolved from HR. New vehicle field helperId. window.fleetPickPerson / fleetAddPerson.  // p269: FLEET GPS & FUEL \u2014 Fleet-AI now has 3 sub-tabs (\ud83d\ude97 Vehicles / \u26fd Daily log & fuel / \ud83d\udce1 GPS). Daily log captures ODO out/in + fuel L + \u20b1/L into auto distance, fuel cost, km/L (ODO-in also updates the vehicle odometer for km-based PMS); month KPIs (distance, fuel cost, avg km/L), an EFFICIENCY RANKING of trucks by km/L, recent-log table + CSV (store hydroPro_admin_fleet_daily_v1). GPS tab: per-vehicle device-ID mapping + Sync GPS now that pulls positions/odometer through the Worker proxy /gps/positions (mirrors the SOS proxy) and updates odometer + last fix; honest status + provider-pending note. Single-file app can't run the docs' Postgres/Python services \u2014 same outcomes computed client-side; live GPS needs the Worker /gps/positions route + provider details.  // p268: FIX — Fleet-AI card() had an operator-precedence bug (A+bar?X:''+rest) that collapsed every vehicle card to just the freshness bar, hiding the photo, PMS/registration grid, action buttons and km chip. Wrapped the ternary in parentheses so full cards render. (Cards were affected since p265; hero/KPIs/schedule/by-person headers were unaffected.)  // p267: (1) OPEX\u2192BOOKS MAPPING \u2014 Admin Costs \u2699 Accounts panel maps each OPEX category (Licenses/Maintenance/Vehicle/Cleaning/Utilities/Supplies/Other) + paid-from(credit) to a REAL account picked from the APTI Chart of Accounts (hydroPro_acct_coalist_v1); \ud83d\udcd2 Post to books now debits the mapped expense + credits the mapped cash account so entries classify against your real chart. Map saved in hydroPro_admin_opex_acctmap_v1. (2) FLEET KM \u2014 Fleet-AI cards gain optional odometer/km: \ud83e\udded km button sets current odometer + \u2018service every N km\u2019; cards show +km-left / km-OVERDUE chip; logging PMS prompts odometer; edit sets the km interval (time-based 6-mo cycle stays primary).  // p266: (A) FLEET BY-PERSON \u2014 Fleet-AI gets a \ud83d\udc64 By-person / \ud83d\uddc2 All toggle; By-person groups every vehicle under its person-in-charge (Eyal, Jerry, Antonio, Doc Amy\u2026) with per-person PMS/registration overdue+soon counts. (B) OPEX \u2192 BOOKS \u2014 Admin Costs tab gets \ud83d\udcd2 Post to books: every unposted admin/fleet cost becomes a balanced journal entry (Dr category expense / Cr Cash) in the APTI accounting journal (hydroPro_acct_je_v1), so admin OPEX flows into Trial Balance / P&L; de-duplicated via cost.postedJE, '\ud83d\udcd2 in books' marker on posted rows.  // p265: FLEET-AI — new 🚛 Fleet-AI tab in Admin. Loads the REAL ATERETPAZ fleet from the registration/PMS sheet (10 registered vehicles + e-bikes) via one tap; tracks the 6-month PMS cycle + annual LTO registration per vehicle (last/next/cost, color chips, ✅ PMS-done and ↻ renewed advance the cycle and log to Admin OPEX); per-vehicle PHOTO upload (own photos, no stock); animated dark/neon cards (sheen, grid, pulse-on-overdue, freshness bar); fleet KPIs + indicative annual budget; fleet-wide PMS & registration SCHEDULE list; CSV export. Fleet PMS/registration overdue+due-soon now feed the global Admin alerts. New store hydroPro_admin_fleet_v1 (cloud-synced). window.__hnxFLEET.  // p264: ADMIN-AI Phase-2 — (A) usage/odometer maintenance (service-every-km + current-km → next-due-km; due logic picks worse of time vs km; Update-km + odometer-at-service prompt); (B) Admin Costs / OPEX tab (auto-captures license-renewal + asset-service costs, manual entries, YTD total + by-category + 6-month bars, CSV hand-off to Accounting); (C) 📝 Steps on licenses & assets (local checklist + Cloud-AI site-specific renewal/service steps). New store hydroPro_admin_costs_v1 (cloud-synced).  // p263: ADMIN-AI MODULE (Administration) — Head of Administration & Operations: Licenses & Permits register (auto status/expiry alerts, renew), Fleet & Assets maintenance (interval->next-due, log service, reg/insurance expiry), Recurring Admin tasks (due-today + mark done), Employee Requirements matrix over the live HR list (Form 201/NBI/medical etc.), live Alerts feed (acknowledge), Ask Admin-AI (local data answer + Cloud AI /ai/ask), and a Monthly Admin Audit (figures + Cloud AI summary, save/print). Self-contained IIFE window.__hnxADMINAI / hnxOpenAdminAI(); first tab inside the Admin module; all hydroPro_admin_* keys (cloud-synced). No demo data.  // p262: QUICK LAUNCH — Accountant-AI dashboard now has a one-tap grid of all 40+ report tools (grouped: statements, books, cash, registers, AR/AP, tax, analysis, close), via window.__hnxACC.qrep. // p261: NOTES PRINTOUT — FS Print pack adds 'Print notes to FS' (all 16 disclosure notes, text + numeric, both years, light/PDF). // p260: KEY RATIOS TREND — FS Comparison now appends 14 key ratios current vs prior with trend arrows. // p259: FS PRINT 2-YEAR — FS Print pack adds 'Print with prior year' (current + prior columns on every statement). // p258: FS COMPARISON — Reports: Income Statement + Balance Sheet current vs prior + change, on screen. // p257: MONTHLY P&L (entries) — Reports: income/expenses/net per month from journal entries + bar + CSV. // p256: FS PRINT / PDF PACK — Reports: opens a clean light-themed print page with all 4 statements (Position/Income/Equity/Cash Flows) for the year, Save-as-PDF ready. // p255: AUDIT-READY EXPORT — Reports: one combined CSV stacking COA + journal + trial balance + OR/purchase/DV registers + fixed assets + 1601-C, each under a section header. // p254: YEAR-END CLOSE — Reports: automatic tie-out checks (TB balanced, books balance, all JE balanced, group consolidated) + manual close checklist with progress. // p253: TAX DASHBOARD — Reports: VAT payable, 2307 EWT, 1601-C and income-tax estimate together on one screen + indicative total. // p252: 1601-C COMPENSATION WITHHOLDING — Reports: 12-month table (taxable/non-taxable comp + tax withheld) + totals + CSV. // p251: INCOME TAX ESTIMATE — Reports: RCIT (rate × net income) vs MCIT (2% of gross) from entries, tax due = higher. // p250: SAWT / 2307 SUMMARY — Reports: totals per payee from the Withholding Tax tool + CSV. // p249: VAT 2550 AUTO-FILL — 'Auto-fill from registers' button sums the OR + Purchase registers into the VAT tool. // p248: CONSOLIDATED STATEMENTS — Reports: every company's P&L + Balance Sheet side-by-side + GROUP total + balance check, from journal entries. // p247: CHECK / DISBURSEMENT VOUCHER log — Reports: DV no/payee/particulars/check no/bank/status + CSV. // p246: PURCHASE / BILLS REGISTER — Reports: AP + input-VAT register + CSV. // p245: SALES INVOICE / OR REGISTER — Reports: log of issued invoices/ORs (no/date/customer/amount/VAT/status) + totals + CSV. // p244: CASH COUNT — Reports: peso-denomination count sheet vs book = over/short. // p243: FIXED ASSET REGISTER — Reports: straight-line accumulated dep + net book value + CSV. // p242: POST ACCOUNT → JOURNAL — Reports: turn a Cash & Accounts account's transactions into balanced journal entries (counter = Suspense to reclassify). // p241: STATEMENTS PACK (from entries) — Reports: Income Statement + Balance Sheet + Trial Balance on one screen, combined Pack CSV. // p240: CHART OF ACCOUNTS — Reports → Chart of Accounts: standard accounts (code/name/type), add/rename/remove + reset-to-standard + CSV; Journal Entries account box AUTO-COMPLETES from it (datalist) and Income & Position classification reads its types automatically (coaTypeFor). // p239: COA store + autocomplete + COA-aware classification. // p238: INCOME & POSITION FROM ENTRIES — Reports → classify each account once (asset/liab/equity/income/expense, auto-guessed), then P&L (income-expense) + Balance Sheet check (Assets = Liab + Equity + Net income) compute automatically from the journal (hydroPro_acct_coa_v1). // p237: GENERAL LEDGER — Reports → per-account postings from the journal with running balance + CSV. // p236: TRIAL BALANCE (FROM ENTRIES) — Reports → aggregates Journal Entry lines by account into Debit/Credit columns with in-balance check + CSV. // p235: JOURNAL ENTRIES — Reports → Journal Entries: add entries (date/memo) with debit/credit lines, per-entry balanced check, grand Dr/Cr totals, add/delete lines & entries, CSV (hydroPro_acct_je_v1, cloud-synced). // p234: BIR TAX CALENDAR — Reports → BIR Tax Calendar: common PH forms (0619-E,1601-C,2550M/Q,1601-EQ,1701/1702 etc.) with next-due dates for monthly forms + standard-rule text, ≤3d/≤7d highlight, verify-with-BIR disclaimer. // p233: CUSTOMER PROFITABILITY — paste customer,revenue,cost → margin + margin% ranked, totals, CSV. // p232: LOAN / AMORTIZATION — principal,rate,term → monthly payment, full amortization schedule (interest/principal/balance), total interest, CSV. // p231: PER-ACCOUNT QB/BOOKS COMPARE — each account's transaction panel has 'Compare with QuickBooks / books': paste (or auto-fill when wired) the QB/book lines, auto-matches against the statement transactions by amount, and flags 'On statement, MISSING in QB' (red) and 'In QB, not on statement' (amber) with CSV export. Completes the find-the-difference/missing workflow on the app side. // p230: PDF STATEMENT IMPORT — each account's transaction panel has '📄 Import PDF statement': lazy-loads pdf.js, extracts text lines, parses date/description/amount, and shows a tick-to-import REVIEW list; selected lines drop into the transaction table (then editable + document-checkable + reconciled vs statement). Heuristic parser, user reviews before import. // p229: PER-ACCOUNT TRANSACTION MATRIX — each Cash & Accounts card expands to the month's transactions (date/description/amount), a DOCUMENT ✓ checkbox on EVERY line, opening + statement-ending balances, and a live computed-vs-statement difference with BALANCED/OFF status + docs count; add/paste/delete rows, CSV export (hydroPro_acct_acctxn_v1, cloud-synced). // p228: CASH & ACCOUNTS — Reports → Cash Position upgraded: editable accounts for ANY company incl Petty Cash + Credit Cards (add/rename/remove), MONTH-END + TO-DATE balances, 'All documents on file' checkbox + Reconciled marker (matches/diff) per account, separate Cash&Bank vs Credit-Card totals + Net, one-tap 'Reconcile →' to the statement matcher, CSV export (hydroPro_acct_accounts_v1, cloud-synced; migrates old cash balances). // p227: DEPRECIATION SCHEDULE (straight-line: cost/salvage/life → annual, accumulated, NBV). // p226: WITHHOLDING TAX (EWT/BIR 2307: payee,base,rate% → EWT + net, rate reference). // p225: SALES TREND (monthly sales → total/avg + bar chart with growth arrows). All in Reports, paste-driven, CSV export, cloud-synced. // p224: EXPENSE BREAKDOWN — Reports → Expense Breakdown: paste category,amount → ranked bars + % of total + CSV. // p223: 13-WEEK CASH FLOW FORECAST — Reports → Cash Flow Forecast: opening cash + weekly expected in/out → running balance, lowest-projected cash-gap warning, bar chart, CSV (hydroPro_acct_cff_v1). // p222: AP AGING — new Reports → AP Aging (payables): same buckets/tiles/chart/table as AR Aging but for what you owe vendors, CSV export (hydroPro_acct_apaging_v1, cloud-synced). // p221: AR AGING — new Reports → AR Aging: paste receivables (customer, due date, amount), buckets into Current/1-30/31-60/61-90/90+ as of a chosen date, with per-bucket KPI tiles, bar chart, per-customer table + totals, CSV export (hydroPro_acct_aging_v1, cloud-synced). // p220: VAT / BIR 2550 — new Reports → VAT/BIR 2550: enter vatable/exempt/zero-rated sales + vatable & capital purchases + carry-over, computes Output VAT vs Input VAT and net VAT payable / excess credit (12%), 'Use FS sales' prefill + CSV export (hydroPro_acct_vat_v1, cloud-synced). // p219: BANK RECONCILIATION — new Reports → Bank Reconciliation: paste bank statement + book/GL lines, auto-matches by amount, lists outstanding items each side, computes per-bank vs per-book adjusted balances + difference with RECONCILED/NOT-BALANCED status, CSV export (hydroPro_acct_recon_v1, cloud-synced). // p218: rebuilt the dashboard 'Full structure' map to match what is ACTUALLY built — now shows all 7 sections incl. Accountant-AI, the Matrices section (AR, AP, P&L Monthly, Bank & Credit Card, Assets & Liabilities, Inventory, Projects), Health Score, Budget vs Actual, Financial Ratios, Ask-the-books. // p217: FINANCIAL HEALTH SCORE — a 0-100 dial on the Accountant-AI dashboard (conic gauge) rolling up ratio grades minus audit flags, with Excellent/Good/Fair/Needs-work band and good/watch/poor + audit-flag breakdown. // p216: ratios now show PRIOR-YEAR + YoY trend arrow (current vs prior, ▲/▼). // p215: FINANCIAL RATIOS — new Reports → Financial Ratios: 14 ratios across Liquidity / Leverage / Profitability / Efficiency, each color-graded good/watch/poor, computed live from the current-year statements (fills automatically once APTI Trial Balance is auto-mapped to the FS). CSV export included. // p214: NAV IS NOW 100% DROP BOXES — added a COMPANY dropdown (APTI/APAC/GLHI), removed the old company chip row + note, and hid every leftover chip sub-tab bar (Labor/Office/History/Rates&Tax, FS subs, the 7 matrix chips, auditor & reports subs). Only the cascading COMPANY ▾ → SECTION ▾ → SUB-TAB ▾ → SUB-SUB ▾ dropdowns remain. // p213: CSV EXPORT + BUDGET — (1) 'Export CSV' on the Matrices tab downloads the current matrix; (2) new Reports → Budget vs Actual: type an annual budget per Income line, actuals pull from the Income statement, variance + on-track status compute automatically, with CSV export (hydroPro_acct_budget_v1, cloud-synced). // p212: ACCOUNTING NAV IS NOW REAL DROP BOXES — native <select> dropdowns, cascading SECTION ▾ → SUB-TAB ▾ → SUB-SUB ▾ (e.g. Financial Statements → Statements → Balance Sheet; Matrices → Performance/Position → P&L). Replaces the chip menu so it matches the other modules' dropdown style. In-view chips still work and stay in sync. // p211: DROPDOWN NAV — the Accounting top bar is now a dropdown menu. Each top item (Financial Statements, Matrices, Auditor-AI, Payroll, Reports) opens a dropdown of its sub-tabs; Financial Statements and Matrices also have grouped sub-sub-tabs (tap a group to expand: Statements; Receivables/Payables; Performance/Position). Active item is highlighted; in-view chips stay in sync. // p210: VISIBILITY + EQUITY LINK — (1) Sample Preview toggle on the Matrices tab fills every QB matrix with clearly-labeled EXAMPLE data (12-month grid, sparklines, status, Analyze) so the finished module is visible before the live QuickBooks feed is wired; a bold banner makes clear it is not real data; (2) Accountant-AI dashboard now shows a QuickBooks setup checklist (per report: data loaded / wired / needs Make scenario / no QB) so progress is visible; (3) Changes-in-Equity 'Auto-link from Income & prior year' button. // p209: AUDITOR-AI NOTES ENGINE + MORE RULES + ALL-COMPANY VIEW — (1) FS Notes: each text note (and 'AI draft all') can be drafted by Cloud AI from the company's own numbers, shown for review with one-tap Insert (saves via setNoteKey, cloud-synced); (2) Auditor-AI rules R090 (admin-expense spike >30% vs prior), R041 (PPE but no depreciation) and negative-equity now compute live from the typed FS; rules screen marks R041/R090 LIVE; (3) Accountant-AI dashboard now shows an all-companies side-by-side comparison (Sales / Net income / Total assets / Cash) from each company's FS. // p208: ACCOUNTING REPORTS + PROJECT DASHBOARD + FINALIZE GATE — (1) Projects matrix now opens with a Project Dashboard: KPI tiles (count, total budget, total actual, over-budget) + per-project budget-vs-actual bars; (2) Reports made real: Cash Position is an editable multi-bank table with live total (hydroPro_acct_cash_v1), and BIR Alphalist + Payroll Report accept pasted CSV/Excel rows and render a live table (hydroPro_acct_csv_v1) — all per company, cloud-synced; (3) FS Pack 'Final' is now gated — blocked while any Critical Auditor-AI finding is open. // p207: ACCOUNTING SUITE COMPLETE — (1) 12-month QuickBooks pull: 'Pull 12 months' calls QB month-by-month and builds a REAL monthly matrix grid with per-row sparklines + Total + Status (works for any report whose Make scenario is wired; honest fail message otherwise); (2) report-specific parsers (parseProfitLoss, parseBalanceSheet, parseGeneric for AR/AP/GL/CF); (3) Projects matrix — full manual budget-vs-actual (12 months, variance, status), add/edit/delete, cloud-synced (hydroPro_acct_projects_v1); (4) FS Pack — assembled submission-ready pack (KPIs + 4 statements + notes) with Draft/For-Auditor/Final stamp (hydroPro_acct_fspack_v1) + Print/PDF; (5) Auditor-AI 'Ask the books' Q&A over FS + findings via Cloud AI. Monthly store hydroPro_acct_qb_monthly_v1. // p206: ACCOUNTING SUITE — new Accountant-AI dashboard + 7 AI matrices (AR/AP/P&L/Bank&CC/Assets&Liab/Inventory/Projects) sharing ONE template (12-month grid, Status, Trend, Analyze-This-Box per-cell Cloud-AI), a Year/Date picker on QB pulls, Trial-Balance→FS auto-fill (draft mapping), and P&L + Balance-Sheet parsers. All inside the Accounting workspace IIFE (window.__hnxACC). QB matrices are pull-ready and light up automatically as each Make scenario is wired; until then they show 'ready — waiting for QB scenario' (no fake numbers). // p203: ACCOUNTING Stage 2 — Accounting is now a real MENU module (Finance group) and the standalone Payroll module was REMOVED (Payroll lives inside Accounting). New full-screen workspace is multi-company: pick APTI/APAC/GLHI, each with mirrored tabs Dashboard · Financial Statements (Balance Sheet/Income/Changes in Equity/Cash Flow + 16 editable Notes, PFRS-for-SEs, ₱, audit-draft format like the APAC PDF) · Auditor-AI (R001 balance, R030 neg cash, R040 neg inventory, R050 cross-statement tie-out, +GL R080/R081) · Payroll (Labor weekly / Office bi-monthly) · Reports (Cash Position / BIR Alphalist / Payroll report). APTI is the active build; APAC+GLHI share identical empty tabs. FS numbers entered in-app, saved per company in hydroPro_acct_fs_v1 (cloud-synced), filled later. window.hnxOpenAccounting(). // p202: T-118..T-129 ACCOUNTING MODULE Stage 1. New animated Accounting Workspace (full-screen, motion hero): launch from topbar "🧮 Accounting" or the button atop both Payroll views. Import-based (deployed app can't live-pull QuickBooks): paste a QuickBooks GL export (Date,Account,Debit,Credit[,Type,Name]) → auto-builds Trial Balance + Profit&Loss + Balance Sheet, and runs Auditor-AI rules (R001 TB-balance, R030 neg cash, R040 neg inventory, R080 suspense, R081 unmapped, R030d duplicates) into a findings panel. Payroll tab links to Labor/Office cycles (payroll now lives inside Accounting). GL stored in hydroPro_acct_gl_v1 (cloud-synced). Stages next: Cash Flow, Equity, Notes, FS Pack+versioning, more rules, AI Q&A, and live-QB via worker OAuth. window.hnxOpenAccounting(). // p201: payroll banner relocation — Device Health Watch. IT Dashboard gains a "🖥 Device Health" banner from the real device daily-check data (loadDevices + loadDeviceChecks): counts devices DOWN, working-with-ISSUE, and NOT CHECKED in 7 days. "View" opens a grouped list; DOWN devices get one-tap "Raise call" (createIssue → IT board, de-duplicated via hydroPro_dev_call_created_v1 by device+check-date). Once-a-day nudge when devices are down. Honest: this reads logged daily-check status, it does not live-ping hardware (impossible offline). Read-only over device stores. App-only, no worker change. window.hnxDeviceWatch(). // p199: T-87 — Attendance Anomaly Watch. HR dashboard gains an "Attendance" card (latest-day anomaly count) opening a watch: LATE (with minutes), ABSENT (with/without reason), MISSING CLOCK-OUT (clocked in, never out on a past day), and CHRONIC LATENESS (≥3 lates in 14 days) — all from the real hydroPro_attendance store (7:00 start, no grace). "Open Attendance" jump + once-a-day nudge. Alert-only, read-only. NOTE this batch: T-99 skipped (inventory has no expiry field — "expiry" is license-only) and T-96 deferred (CRM customer/order data is largely demo) — not built on fake data. App-only, no worker change. window.hnxAttendanceWatch(). // p198: T-111/T-112 — Manager Summary now opens with (1) 🧭 Company Risk: a live cross-module risk score (0–100) per module + overall, computed from REAL signals (open/critical calls per module, severe EC/pH today, missed recurring PMs, overdue HR renewals, beds past harvest) with reasons and color bands; and (2) 🤖 Ask about your facility: a free-text box that sends a live snapshot (open/critical issues by module, reports on file, active plantings, risk scores) to Cloud AI /ai/ask and shows the answer. Both read existing stores only; no writes, no worker change. window.hnxRiskBox()/hnxAskBox()/hnxAsk(). // p197: dashboard sparkline (QC) — added a truthful 14-day sparkline trend to the QC hero "Inspections 7d" chip (daily inspection counts from _qcLoadInspections). Design rule: sparklines only go on activity-over-time chips (Maintenance done, QC inspections); snapshot chips (e.g. Inventory velocity bands, Fleet counts) are intentionally left without trend lines so the UI never implies a trend that isn't real. App-only, no worker change. // p196: dashboard sparkline kit (T-68 method) — review found the shared hero (_hnxRenderDashHero) already gives all 17 dashboards the SAME rich method (module gradient + Ken Burns + aura + orbital particles + scanline + pulsing core + animated KPI chips), so the audit's stale MEDIUM labels overstated the gap. Added the one missing pattern (Sheet 6 #17, sparkline trends) to the SHARED chip method: any chip with a spark:[...] array now renders an inline 14-pt trend line (green up / red down) — instantly available to every dashboard. Wired the first real one into the Maintenance hero "Done today" chip (14-day PM-completions trend from hydroPro_recurring_completions_v1). App-only, no worker change. // p195: T-72→see T-117 — Irrigation EC/pH Watch. The Irrigation Dashboard now shows a "💧 EC / pH Watch" banner for the selected date: scans every pool/slot reading and flags out-of-range values using the SAME thresholds the room matrix uses (EC in 1.2–3.2, severe <1.0/>3.5; pH 5.5–6.5, severe <5.0/>7.0). Banner shows severe/borderline counts; "View details" opens a list grouped by GH·pool·slot where each SEVERE reading has a one-tap "Raise call" (creates an irrigation issue via createIssue → hydroPro_issues_v2) plus "Raise all severe", de-duplicated via hydroPro_irr_call_created_v1 (key = date|pool|slot|kind). Once-a-day toast when severe readings exist today. Read-only over hydroPro_irr_pool; no edits to existing irrigation code. App-only, no worker change. window.hnxIrrWatch(). // p194: T-90 — Payroll Cutoff Reminder (Accounting). The Accounting Dashboard now shows a "🗓️ Payroll Cutoffs" banner with the NEXT office cutoff (bi-monthly: period 11–25 closes the 25th, period 26–10 closes the 10th) and the NEXT labor cutoff (weekly Thu–Wed, closes Wednesday), each with the closing period and a TODAY/TOMORROW/in-N-days chip that turns amber ≤3 days / red ≤1 day. A once-a-day toast nudges when either cutoff is within 3 days so timecards get finalized on time. Pure calendar math from the fixed cycle — no stored data needed, nothing written. Labeled as period-CLOSE dates (pay date may follow). App-only, no worker change. window.hnxPayrollBanner(). // p193: T-88 completion — Contract Renewals. Added a "Contract End" date field to the 201 file (employee edit form, populate, save, detail view, default record). The HR "Regularization" card is now "HR Renewals" and its watch covers BOTH tracks: trainees hitting the 6-month probation mark (regularize) AND any employee whose contractEnd is within 45 days or already past (renew/end). Rows are tagged PROBATION (purple) or CONTRACT (cyan); contract overdue shows EXPIRED. Still alert-only (no auto status change) and read-only over hydroPro_employees. Completes the T-88 gap noted in p192. App-only, no worker change. // p192: T-86/T-88 — HR Regularization Watch (probation slice). // (p192 detail) The HR dashboard gains a "Regularization" stat card (overdue / due-soon count) that opens a watch list of TRAINEES reaching the 6-month probationary mark (PH max probation), computed from emp.dateHired + type. Each row shows hire date, the 6-month date, and an OVERDUE-Nd / in-Nd chip; overdue first. Flags trainees missing a hire date (so they can be filled in), and a "Go to 201 files" jump. Once-a-day nudge when decisions are due. NOTE: this is the data-ready slice — true contract-renewal (T-88) needs a contract-end field that the employee record does not have yet; Temporary/Contractual end dates likewise aren't stored. Read-only over hydroPro_employees; alert-only (no auto status change — regularization is a human decision). App-only, no worker change. window.hnxHRAlerts(). // p191: T-79 — PM Work-Order Lookahead (Maintenance). A new "🔧 PM Lookahead" button in the Recurring Tasks header opens a list of Maintenance-owned recurring tasks due in the NEXT 3 DAYS (predicted from the same calendar-landing schedule the hub uses — daily/weekly-Mon/monthly/quarterly/etc.). Each row shows cadence, owner, area, and a TODAY/TOMORROW/in-N-days chip, with one-tap "Create work order" (raises a maintenance issue via createIssue → hydroPro_issues_v2, board-visible + cloud-synced) and, for today's tasks, "Mark done" (markRecurringDone). "Create all" does the batch. Already-created WOs are de-duplicated via hydroPro_pm_wo_created_v1 (key = taskId+date+area) so a task is never double-raised. A once-a-day toast nudges when PMs are coming up. Read-only over RECURRING_TASKS + completions; no edits to the existing recurring engine. App-only, no worker change. window.hnxPMWorkOrders(). // p190: T-110 — Weekly Executive Summary (Management). The Manager Summary (📊 topbar button) now opens with a Cloud-AI cross-module weekly digest at the top: open issues by module + how many are critical, daily reports filed in the period, harvests due within 7 days, and beds needing replanting (overdue). "Generate now"/"Regenerate" builds it on demand over the selected date range; it AUTO-PREPARES every Monday after 7am and saves to hydroPro_weekly_summary_v1 so it is waiting for leadership (with a toast). Plain, simple language, no jargon, no bullets. Reads existing stores only (issues v2, hn_daily_reports_v1, planting log) — additive, app-only, no worker change. window.hnxWeeklySummary(). // p189: T-77 — yield capture + per-variety anomaly. The ✓ Harvested button now opens a small modal to record yield (kg, optional). Yields build a per-variety baseline (per-plant when a plant count exists, else raw kg; needs 3+ harvests). A harvest >15% below its variety baseline is flagged — instantly via a warn toast on save, and listed in a "⚠ Yield anomalies" strip + "📊 Yield by variety" panel in the Planting Log. Stays quiet until enough history exists (no false alarms). Completes Production autonomy cluster T-74/75/76/77. Extends p187/p188; app-only, no worker change. // p188: T-76 — "🔄 Ready to transplant" section in the Planting Log. A bed surfaces when it's been marked ✓ Harvested (now empty) OR is past its harvest date but not yet harvested (overdue → harvest then replant). Each shows greenhouse + bed + last variety + idle days, longest-idle first; "➕ Plant here" pre-fills the add form for that exact bed; "Dismiss" hides it. Auto-clears once a newer planting is logged for the same bed (bedKey = gh+bed, or gh+variety when no bed). Goal: no idle beds. Extends the p187 Planting Log; app-only, no worker change. // p187: T-75 FOUNDATION — Production "🌱 Planting Log" tab. Captures transplants (greenhouse + variety + date, optional bed/count/stage) into hydroPro_planting_log_v1, plus an editable variety→days-to-harvest table (hydroPro_variety_maturity_v1, seeded with hydroponic estimates). Computes each bed's EXPECTED HARVEST DATE + days-left (transplant date + maturity) sorted soonest-first with overdue/≤7d colouring — this delivers T-75's core prediction. "✓ Harvested" clears a bed (sets up T-76 transplant recommendation). Tab injected into Production like Daily Reports; both stores cloud-synced. Additive, app-only, no worker change. window.__hnxPL. // p186: T-74 autonomy rung 1 (Production daily report AUTO-DRAFT). New "🤖 Auto-draft" button in Daily Reports builds a draft report from today's OPEN issues/calls (grouped by greenhouse via GH-text parse) + today's EC/pH readings (per-pool, mapped to GH via _irrPoolToGh, ranges EC 1.2-3.2 / pH 5.5-6.5), asks Cloud AI (/ai/analyze) for a 2-4 sentence plain-language summary, and shows a REVIEW modal. Supervisor edits the summary and presses "Sign & File" → window.hnSaveReport() files it as the official report (id rpt_<date>_prod_autodraft). Nothing filed without a signature. ~7am once-per-day nudge if today isn't filed. Builds on existing hn_daily_reports_v1; additive, no existing report code changed. App-only, no worker change. window.hnxAutoDraftReport(). // p185: in-page CCTV wall — fair rotation + honest "tap to view" + load-on-demand. The bridge/NVR serves only ~6 greenhouse streams at once, so the first cameras held every live slot while the rest sat on a misleading "connecting…" forever. (1) ROTATION: every 22s the oldest live tile is cycled out to a still snapshot and the longest-waiting camera is promoted, so ALL cameras get screen time (mirrors the full-screen wall's _cctvRotate, but keeps a still frame during rest). (2) TAP TO VIEW: a tile stuck on "connecting…" >12s rewrites to "📷 TAP TO VIEW · waiting for a free slot"; tapping forces THAT camera live immediately past the cap via window.__hnxCctvLive.forceTile(). (3) Background snapshot retry already round-robins, now paired with a 20s rotation cooldown so a just-rotated tile isn't instantly re-promoted. New API: forceTile(), rotate(). App-only, no worker change. // p184: CCTV wall self-heals. (1) Each offline camera now AUTO-RETRIES on a jittered ~30s timer (capped at 6 attempts; existing serialized/throttled probes unchanged so the NVR is never hammered). (2) The bridge-offline banner re-checks every 8s while the server is down and, the instant cctv.abapardes.com.ph is reachable again, auto-reconnects EVERY condemned tile via new window.__hnxCctvLive.recover() — no tap on Re-check or on any camera needed. (3) Offline-tile message clarified to "CAMERA SERVER OFFLINE"/"STREAM OFFLINE · ↻ auto-retrying… · or tap to retry now" so it's obvious the app is handling it, not the dashboard. App-only, no worker change. // p183: (1) open-PO parser refactored into a pure, offline-testable function — window.hnxOpenPOSelfTest() proves the real AteretPaz PO #2026-21-PO0528-01 resolves to 700 on-order by BOTH name and id, a partial PO yields open-only (1000 ordered − 600 recv = 400), and closed POs are skipped; field net widened; id lookup form fixed; Purchase Engine status note now lists matched PO item names for eyeball verification; hnxOpenPODump() added. (2) CCTV residue: stripped 8 dead cams[] arrays from module command centers (sec_cmd perimeter list kept) + doc strings updated to 'IT + Security perimeter only'. Wall Launcher KEPT on purpose — it is a GENERAL multi-monitor view launcher, not a CCTV wall; audit-plan T-62 misidentified it. (3) geo_dash lifted to the rich pattern: hero band + live site-map panel (data-driven coordinate plot with live health colour; satellite tiles flagged as Mapbox-token-dependent). // p182: worker v3.2.2 integration. Purchase Engine now subtracts open-PO on-order qty (defensive normalizer over /sos/purchase-orders — under-counts safely, never over; new On-order column + live status). Audit Trail stamps caller IP via /whoami on new entries + IP column + CSV. //  // p181: QA sweep of full inventory suite (8 views, 14 APIs, 7 modules — all clean). Inventory Command Center now LIVE: MCC_LIVE.inv_cmd computes real KPIs/AI-rows/boxes/alerts from the engine (stock-outs, reorder queue+value, dead-stock capital, nearest forecast stock-out ETA, pending requests, draft POs) replacing demo numbers. //  // p180b: CCTV wall snapshot LOADER is now a bounded connection-pool — tiles render with no src; max 4 frame.jpeg requests in-flight at once, viewport-nearest first, slot freed on load/error/8s-timeout. Fixes the initial-paint stampede where all 20-80 tiles hit the bridge simultaneously and got stuck 'connecting…'. Watchdog skips still-pending tiles so it can't pre-empt them to live. //  // p180: Demand Forecasting (spec sheet 11) — inv_forecast view. Mines demand from Item Requests + manual/CSV usage (hydroPro_inv_usage_v1); per-SKU avg use, days-of-cover, projected 30d, rec safety, stock-out ETA; 90/180/365d window; CSV import/export; audit-logged. Exposes hnxInvForecastExists (lights Active-Item override) + hnxInvForecast (Purchase Engine raises order qty to cover lead-time forecast demand + Fcst col). Inventory AI spec COMPLETE. //  // p179b: CCTV wall prefers light H.264 _sub substream per camera when it exists (snapshot+live derive from it); big/spotlight/fullscreen keep full-res. Lets many cameras stream at once without overloading the NVR. //  // p179: CCTV bridge-load fix — staggered/throttled snapshot polling (3/tick @2.2s, near-viewport only, round-robin), cap concurrent LIVE upgrades (default 6, rest stay snapshots), bridge-wide failure suppression (never blanket STREAM OFFLINE). //  // p178: AI Copilot (spec 17) — chat assistant over live inventory snapshot via cloud /ai/ask; quick commands + deep-links to Purchase Engine/Duplicate AI/Master Data/Diagnostics. Inventory spec build complete (Forecasting pending data). //  // p176: CCTV live-stream cap + rotation (Live: All/4/6/8/12/16) to protect NVR. p177: Audit Trail (spec 16) — central log of inventory changes (user/action/old->new/date/time), filter+CSV; instrumented Master Data, Categories, Purchase Engine, Duplicate AI. //  // p175: CCTV wall false-offline fix — serialize stream health-probes (1 at a time, spaced), 3-strike + 7s timeout, lock 'ok' so verification stops saturating the bridge and flipping all live tiles to STREAM OFFLINE. //  // p174: Active-Item logic (spec 05) — movement bands Active<=90 / Slow 91-180 / Dormant 181-365 / Dead >365, forecast-override hook; Item Velocity view now 4-band with Dormant KPI+filter+capital. //  // p173: Duplicate-detection AI — weighted similarity (name/desc/brand/mfr/usage) with blocking, clustering, keep-master/dismiss/AI-review; merged dups hidden from Item Files. //  // p172: Purchase Engine — reorder-point/safety-stock breaches grouped into draft POs by supplier, budget check, draft PO tracking; forecast & open-PO inputs pending. //  // p171: Item Files defaults to May-2026-modified items, deduped by name, with scope chips (May/30d/All) + dedupe toggle; shows real SOS category. //  // p170: Item Master tab in Master Data — enrich each SOS SKU with brand/supplier/manufacturer/category(incl custom)/criticality/safety-stock; overlay store hydroPro_inv_item_master_v1, search-only over 9.3k items, focus-safe. //  // p169: Categories view now pulls LIVE from SOS (each item's real category) with real counts + add/delete custom categories (assignable per-item in Item Master). //  // p168 · Phase 3a: Master Data (Inventory → 🗂️) — Suppliers + Brands CRUD (reference tables the Item Master will attach to each SKU); suppliers importable from SOS; supplier reliability score; inventory-only, gated by viewInventory. //   // p166 · Phase 2: Item Request module (Inventory → 📝 Requests). Raise from any module via hnxRaiseItemRequest(); all approved fields + conditional logic; live SOS item picker / location & supplier dropdowns; 14-dept (+General) need-dept; threshold approval chain with e-signature; warehouse 'Confirm issued' gate → 201-file write for employee assets → SOS post-back (auto via worker /sos/create-* with manual SOS-ref fallback). Pairs with worker v3.2.0-soswrite (deploy separately + SOS write scope). // p165 · Phase 1 of AI Inventory spec: new inv_diagnostics view — 6 diagnostics (low/out/dead/overstock, duplicate SKUs, supplier risk) + Inventory Health score (live components now, data-dependent ones marked for later phases) + 🧠 AI Analysis wired to worker /ai/analyze. All from live SOS data. // p164: inv_dash KPI strip refactored — real numbers throughout, fixed broken loadInvStock() click, added Dead-Stock trapped-capital cell + live SOS Locations/Shipments cells + sync-freshness note (manual Movements fallback when disconnected). Item Velocity classification memoized (classify once vs ~26×/item during sort) so it scales cleanly to 9k+ items. // p163: sync resilience — _sosFetchAllPages now PRESERVES partial progress (a single timed-out/aborted/throttled page no longer discards every page already fetched; the old behavior reverted the endpoint to its last good save, leaving items stuck at 200). Items per-page timeout raised to 60s (deep-offset SOS pages are slow). App-only; worker untouched. // p162: SOS cache moved localStorage → IndexedDB (reuses window.HNXIDB, GB-scale). Big arrays (items/locations/lots/shipments) served from synchronous in-memory mirror hydrated at boot; one-time migration lifts existing hydroPro_sos_* arrays out of localStorage and frees the slots. Fixes QuotaExceededError on large (AteretPaz) catalogs. Meta stays in localStorage. App-only change; worker untouched. // p161: app-side SOS pagination — loops through pages with ?start=1, ?start=201, etc. until done. Fixes 200-item cap. Adds in-app throttle retry. Items capped at 10k/sync, lots/shipments 4k, locations 1k.
+const APP_BUILD=1791225600;
 const APP_BUILD_DATE='2026-06-01';
 
 // Store version in localStorage on first run
@@ -74495,13 +74581,15 @@ function renderFleetDashboard(){
   if(!veh.length){
     html+=`<div class="fleet-empty">No vehicles yet. Go to <strong>🚐 Vehicles</strong> to add your first one.</div>`;
   } else {
-    html+=`<div class="fleet-table-wrap"><table class="fleet-table"><thead><tr><th>Vehicle</th><th>Plate</th><th>Driver</th><th>Status</th><th>Fuel</th><th>GPS Position</th></tr></thead><tbody>`;
+    html+=`<div class="fleet-table-wrap"><table class="fleet-table"><thead><tr><th>Vehicle</th><th>Plate</th><th>Driver</th><th>Helper</th><th>Status</th><th>Fuel</th><th>GPS Position</th></tr></thead><tbody>`;
     veh.forEach(v=>{
-      const d=drv.find(x=>x.id===v.driverId);
+      const d=_fleetEmpById(v.driverId)||drv.find(x=>x.id===v.driverId);
+      const h=_fleetEmpById(v.helperId);
       html+=`<tr>
         <td><strong>${_esc(v.name||'—')}</strong><div style="font-size:10px;color:var(--text3);">${_esc(v.type||'')}</div></td>
         <td style="font-family:var(--mono);">${_esc(v.plate||'—')}</td>
         <td>${d?_esc(d.name):'<span style="color:var(--text3);">—</span>'}</td>
+        <td>${h?_esc(h.name):'<span style="color:var(--text3);">—</span>'}</td>
         <td>${_statusCell(v.status)}</td>
         <td>${_fuelCell(v)}</td>
         <td>${_fleetCoordsCell(v)}</td>
@@ -74524,7 +74612,8 @@ function renderFleetDashboard(){
 
     html+=`<div style="margin:24px 0 12px;display:flex;align-items:center;gap:10px;">
       <span class="section-title" style="margin:0;">📍 GPS Daily Reports — Today (${today})</span>
-      <button class="btn btn-outline" style="margin-left:auto;padding:5px 12px;font-size:11px;" onclick="if(typeof switchView==='function')switchView('fleet_gps')">Open Logbook →</button>
+      <button class="btn btn-outline" style="margin-left:auto;padding:5px 12px;font-size:11px;" onclick="hnxFleetAI()">🤖 Fleet-AI</button>
+      <button class="btn btn-outline" style="padding:5px 12px;font-size:11px;" onclick="if(typeof switchView==='function')switchView('fleet_gps')">Open Logbook →</button>
       ${todaysReports.length?`<button class="btn btn-outline" style="padding:5px 12px;font-size:11px;" onclick="exportGpsDailyExcel('${today}')">📊 Excel</button>`:''}
     </div>
     <div class="fleet-stat-row">
@@ -74539,10 +74628,11 @@ function renderFleetDashboard(){
       html+=`<div class="fleet-empty">No GPS reports logged today yet. Click <strong>Open Logbook →</strong> above to enter today's trips.</div>`;
     } else {
       html+=`<div class="fleet-table-wrap"><table class="fleet-table">
-        <thead><tr><th>Vehicle</th><th>Plate</th><th>Driver</th><th>Stops</th><th>ODO Out</th><th>ODO In</th><th>Total KM</th><th>Liters</th><th>KM/L</th><th>Dash Cam</th><th></th></tr></thead><tbody>`;
+        <thead><tr><th>Vehicle</th><th>Plate</th><th>Driver</th><th>Helper</th><th>Stops</th><th>ODO Out</th><th>ODO In</th><th>Total KM</th><th>Liters</th><th>KM/L</th><th>Dash Cam</th><th></th></tr></thead><tbody>`;
       todaysReports.forEach(r=>{
         const v=veh.find(x=>x.id===r.vehicleId)||{};
-        const d=drv.find(x=>x.id===v.driverId);
+        const d=_fleetEmpById(v.driverId)||drv.find(x=>x.id===v.driverId);
+        const h=_fleetEmpById(v.helperId);
         const odoOutN=Number(r.odoOut),odoInN=Number(r.odoIn);
         const km=(!isNaN(odoOutN)&&!isNaN(odoInN)&&odoInN>=odoOutN)?(odoInN-odoOutN):null;
         const liters=Number(r.fillUpLiters);
@@ -74551,6 +74641,7 @@ function renderFleetDashboard(){
           <td><strong>${_esc(v.name||'—')}</strong></td>
           <td style="font-family:var(--mono);">${_esc(v.plate||'—')}</td>
           <td>${d?_esc(d.name):'<span style="color:var(--text3);">—</span>'}</td>
+          <td>${h?_esc(h.name):'<span style="color:var(--text3);">—</span>'}</td>
           <td><span style="font-family:var(--mono);font-weight:700;">${(r.stops||[]).length}</span> stops</td>
           <td style="font-family:var(--mono);">${r.odoOut==null?'—':r.odoOut}</td>
           <td style="font-family:var(--mono);">${r.odoIn==null?'—':r.odoIn}</td>
@@ -74620,26 +74711,76 @@ function renderFleetDashboard(){
 
   el.innerHTML=html;
 }
+/* ===== HNX p270 FLEET DRIVER+HELPER (injected) ===== */
+function _fleetReadArr(k){try{var v=JSON.parse(localStorage.getItem(k)||'[]');return Array.isArray(v)?v:[];}catch(e){return [];}}
+function _fleetEmployees(){
+  var a=_fleetReadArr('hydroPro_employees'),b=_fleetReadArr('hydroPro_hr_employees');
+  var byId={},order=[];
+  function key(o){if(!o||typeof o!=='object')return null;if(o.id!=null&&String(o.id).trim()!=='')return 'id:'+String(o.id).trim().toLowerCase();if(o.name!=null&&String(o.name).trim()!=='')return 'nm:'+String(o.name).trim().toLowerCase();return null;}
+  function add(o){var k=key(o);if(!k)return;if(!byId[k]){byId[k]=Object.assign({},o);order.push(k);}else{byId[k]=Object.assign({},o,byId[k]);}}
+  a.forEach(add);b.forEach(add);
+  return order.map(function(k){return byId[k];});
+}
+function _fleetTitle(e){return ((e&&(e.position||e.title||e.role||e.jobTitle||e.designation))||'').toString().toLowerCase();}
+function _fleetIsActive(e){var st=((e&&e.status)||'active').toString().toLowerCase();return !/(inactive|terminat|resign|former|left|separated|ended)/.test(st);}
+function _fleetIsDriver(e){return _fleetTitle(e).indexOf('driver')>=0;}
+function _fleetIsHelper(e){var t=_fleetTitle(e);return t.indexOf('helper')>=0||t.indexOf('pahinante')>=0;}
+function _fleetPersonOptions(emps,role,currentId){
+  var match=role==='driver'?_fleetIsDriver:_fleetIsHelper;
+  var list=emps.filter(function(e){return _fleetIsActive(e)&&match(e);});
+  if(currentId&&!list.some(function(e){return String(e.id)===String(currentId);})){
+    var cur=emps.find(function(e){return String(e.id)===String(currentId);});
+    if(cur)list=[cur].concat(list);
+  }
+  list.sort(function(x,y){return ((x&&x.name)||'').localeCompare((y&&y.name)||'');});
+  var opts='<option value="">\u2014 none \u2014</option>';
+  for(var i=0;i<list.length;i++){var e=list[i];opts+='<option value="'+_esc(String(e.id))+'"'+(String(currentId)===String(e.id)?' selected':'')+'>'+_esc(e.name||'(unnamed)')+'</option>';}
+  opts+='<option value="__ADD__">\u2795 Add new '+role+'\u2026</option>';
+  return opts;
+}
+window.fleetPickPerson=function(vehId,field,sel){
+  if(!sel)return;
+  if(sel.value==='__ADD__'){fleetAddPerson(vehId,field,field==='driverId'?'driver':'helper');return;}
+  if(typeof updFV==='function')updFV(vehId,field,sel.value);
+};
+window.fleetAddPerson=function(vehId,field,role){
+  var nm=prompt('New '+role+' name (will be added to HR / Payroll):','');
+  if(!nm||!nm.trim()){if(typeof renderFleetVehicles==='function')renderFleetVehicles();return;}
+  nm=nm.trim();
+  var id='emp_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  var pos=role==='driver'?'Driver':'Helper';
+  var rec={id:id,name:nm,position:pos,dept:'Logistics',status:'Active',rate:0,createdAt:Date.now(),source:'fleet'};
+  var E=_fleetReadArr('hydroPro_employees');E.push(Object.assign({},rec));try{localStorage.setItem('hydroPro_employees',JSON.stringify(E));}catch(e){}
+  var H=_fleetReadArr('hydroPro_hr_employees');H.push(Object.assign({},rec));try{localStorage.setItem('hydroPro_hr_employees',JSON.stringify(H));}catch(e){}
+  if(typeof loadFVeh==='function'&&typeof saveFVeh==='function'){var veh=loadFVeh();var v=veh.find(function(x){return x.id===vehId;});if(v){v[field]=id;saveFVeh(veh);}}
+  if(typeof _toast==='function')_toast(pos+' "'+nm+'" added to HR/Payroll & assigned','ok');
+  if(typeof renderFleetVehicles==='function')renderFleetVehicles();
+  if(typeof renderFleetDashboard==='function')renderFleetDashboard();
+};
+function _fleetEmpById(id){if(!id)return null;var emps=_fleetEmployees();return emps.find(function(x){return String(x.id)===String(id);})||null;}
+/* ===== END HNX p270 ===== */
 function renderFleetVehicles(){
   const el=document.getElementById('stubFleetVehiclesBody')||document.getElementById('view-fleet_vehicles');
   if(!el)return;
-  const veh=loadFVeh(),drv=loadFDrv();
+  const veh=loadFVeh(),drv=loadFDrv(),emps=_fleetEmployees();
   let html=`<div class="section-title">🚐 Fleet Vehicles</div>
     <div class="fleet-toolbar">
       <button class="btn btn-primary" onclick="addFleetVehicle()">➕ Add Vehicle</button>
-      <span style="margin-left:auto;font-size:11px;color:var(--text3);">Click any field to edit · 📍 to update GPS · 🗑 to delete</span>
+      <button class="btn btn-outline" style="margin-left:auto;padding:5px 12px;font-size:11px;" onclick="hnxFleetAI()">🤖 Fleet-AI</button><span style="font-size:11px;color:var(--text3);">Click any field to edit · 📍 to update GPS · 🗑 to delete</span>
     </div>`;
   if(!veh.length){html+=`<div class="fleet-empty">No vehicles yet. Click "Add Vehicle" to get started.</div>`;}
   else {
-    html+=`<div class="fleet-table-wrap"><table class="fleet-table"><thead><tr><th>Name</th><th>Plate</th><th>Type</th><th>Driver</th><th>Status</th><th>Fuel %</th><th>GPS</th><th>Actions</th></tr></thead><tbody>`;
+    html+=`<div class="fleet-table-wrap"><table class="fleet-table"><thead><tr><th>Name</th><th>Plate</th><th>Type</th><th>Driver</th><th>Helper</th><th>Status</th><th>Fuel %</th><th>GPS</th><th>Actions</th></tr></thead><tbody>`;
     veh.forEach(v=>{
-      const drvOpts='<option value="">— none —</option>'+drv.map(d=>`<option value="${d.id}" ${v.driverId===d.id?'selected':''}>${_esc(d.name)}</option>`).join('');
+      const drvOpts=_fleetPersonOptions(emps,'driver',v.driverId);
+      const hlpOpts=_fleetPersonOptions(emps,'helper',v.helperId);
       const stOpts=['active','idle','maint','offline'].map(s=>`<option value="${s}" ${v.status===s?'selected':''}>${s}</option>`).join('');
       html+=`<tr>
         <td><input class="call-input" style="padding:5px 7px;font-size:12px;" value="${_esc(v.name||'')}" onchange="updFV('${v.id}','name',this.value)"></td>
         <td><input class="call-input" style="padding:5px 7px;font-size:12px;font-family:var(--mono);" value="${_esc(v.plate||'')}" onchange="updFV('${v.id}','plate',this.value)"></td>
         <td><input class="call-input" style="padding:5px 7px;font-size:12px;" value="${_esc(v.type||'')}" placeholder="e.g. pickup" onchange="updFV('${v.id}','type',this.value)"></td>
-        <td><select class="call-select" style="padding:5px 7px;font-size:12px;" onchange="updFV('${v.id}','driverId',this.value)">${drvOpts}</select></td>
+        <td><select class="call-select" style="padding:5px 7px;font-size:12px;" onchange="fleetPickPerson('${v.id}','driverId',this)">${drvOpts}</select></td>
+        <td><select class="call-select" style="padding:5px 7px;font-size:12px;" onchange="fleetPickPerson('${v.id}','helperId',this)">${hlpOpts}</select></td>
         <td><select class="call-select" style="padding:5px 7px;font-size:12px;" onchange="updFV('${v.id}','status',this.value)">${stOpts}</select></td>
         <td><input class="call-input" type="number" min="0" max="100" style="padding:5px 7px;font-size:12px;width:80px;" value="${v.fuel==null?'':v.fuel}" onchange="updFV('${v.id}','fuel',this.value)"></td>
         <td>${_fleetCoordsCell(v)}</td>
@@ -74851,6 +74992,102 @@ function _computeGpsStops(stops){
   return out;
 }
 
+/* ===== HNX p275 FLEET-AI (driver & helper efficiency) ===== */
+window.__hnxFAIPeriod=window.__hnxFAIPeriod||'month';
+window.hnxFleetAI=function(p){ if(p)window.__hnxFAIPeriod=p; _hnxFAIensure(); _hnxFAIrender(); var o=document.getElementById('hnxFAIOverlay'); if(o)o.style.display='flex'; };
+function _hnxFAIensure(){
+  if(document.getElementById('hnxFAIOverlay'))return;
+  var o=document.createElement('div'); o.id='hnxFAIOverlay';
+  o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100000;display:flex;align-items:center;justify-content:center;padding:14px;';
+  o.addEventListener('click',function(e){if(e.target===o)o.style.display='none';});
+  o.innerHTML='<div style="width:min(900px,100%);max-height:88vh;display:flex;flex-direction:column;background:#0b140f;border:1px solid #1f4a44;border-radius:14px;overflow:hidden;box-shadow:0 18px 60px rgba(0,0,0,.55);">'+
+    '<div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid #163a35;background:linear-gradient(135deg,#0f2a22,#0b140f);">'+
+      '<div style="font-size:16px;font-weight:800;color:#7fffd4;">\ud83e\udd16 Fleet-AI \u2014 Driver &amp; Helper Efficiency</div><div style="flex:1;"></div>'+
+      '<button id="hnxFAIClose" style="background:transparent;border:1px solid rgba(255,255,255,.2);color:#9fc7bb;border-radius:8px;padding:5px 11px;font-size:13px;cursor:pointer;">\u2715</button>'+
+    '</div>'+
+    '<div id="hnxFAITabs" style="display:flex;gap:6px;padding:10px 14px;border-bottom:1px solid #163a35;flex-wrap:wrap;"></div>'+
+    '<div id="hnxFAIBody" style="overflow:auto;padding:14px 16px;"></div>'+
+  '</div>';
+  document.body.appendChild(o);
+  var cl=document.getElementById('hnxFAIClose'); if(cl)cl.onclick=function(){o.style.display='none';};
+}
+function _hnxFAIperiods(){return [['today','Today'],['month','This Month'],['ytd','Year-to-Date'],['all','All time']];}
+function _hnxFAIinRange(date,period){
+  if(!date)return false; var now=new Date();
+  var ym=now.toISOString().slice(0,7), ymd=now.toISOString().slice(0,10), y=String(now.getFullYear());
+  if(period==='today')return date===ymd;
+  if(period==='month')return String(date).slice(0,7)===ym;
+  if(period==='ytd')return String(date).slice(0,4)===y;
+  return true;
+}
+function _hnxFAIcompute(period){
+  var reports={}; try{reports=loadGpsReports()||{};}catch(e){reports={};}
+  var veh=[]; try{veh=loadFVeh()||[];}catch(e){veh=[];}
+  var vById={}; veh.forEach(function(v){vById[v.id]=v;});
+  var D={},H={};
+  function acc(map,id,km,liters,cost){ if(!id)return; var m=map[id]||(map[id]={id:id,trips:0,km:0,liters:0,cost:0}); m.trips++; m.km+=km; m.liters+=liters; m.cost+=cost; }
+  Object.keys(reports).forEach(function(k){
+    var r=reports[k]; if(!r||!_hnxFAIinRange(r.date,period))return;
+    var oo=Number(r.odoOut),oi=Number(r.odoIn);
+    var km=(!isNaN(oo)&&!isNaN(oi)&&oi>=oo)?(oi-oo):0;
+    var liters=Number(r.fillUpLiters); if(isNaN(liters)||liters<0)liters=0;
+    var per=Number(r.perLiter); var cost=(liters>0&&!isNaN(per))?liters*per:0;
+    if(km<=0&&liters<=0)return;
+    var v=vById[r.vehicleId]||{};
+    var did=r.driverId||v.driverId||''; var hid=r.helperId||v.helperId||'';
+    acc(D,did,km,liters,cost); acc(H,hid,km,liters,cost);
+  });
+  function finalize(map){
+    var arr=Object.keys(map).map(function(id){var m=map[id]; m.kmL=(m.liters>0&&m.km>0)?(m.km/m.liters):null; return m;});
+    arr.sort(function(a,b){ if(a.kmL==null&&b.kmL==null)return b.km-a.km; if(a.kmL==null)return 1; if(b.kmL==null)return -1; return b.kmL-a.kmL; });
+    return arr;
+  }
+  return {drivers:finalize(D),helpers:finalize(H)};
+}
+function _hnxFAInameOf(id){
+  try{var e=_fleetEmpById(id); if(e)return e.name||id;}catch(_){ }
+  if(typeof loadFDrv==='function'){try{var d=loadFDrv().find(function(x){return String(x.id)===String(id);}); if(d)return d.name;}catch(_){}}
+  return id||'\u2014';
+}
+function _hnxFAItable(title,emoji,rows){
+  function esc(x){return (x==null?'':String(x)).replace(/[<>&]/g,function(c){return c==='<'?'&lt;':c==='>'?'&gt;':'&amp;';});}
+  if(!rows.length)return '<div style="margin-bottom:18px;"><div style="font-size:13px;font-weight:800;color:#7fffd4;margin-bottom:6px;">'+emoji+' '+title+'</div><div style="color:#9fc7bb;font-size:12px;padding:8px 0;">No trips with data in this period.</div></div>';
+  var withKmL=rows.filter(function(m){return m.kmL!=null;});
+  var best=withKmL.length?withKmL[0].kmL:0;
+  var avg=withKmL.length?(withKmL.reduce(function(s,m){return s+m.kmL;},0)/withKmL.length):0;
+  function kmlColor(v){return v==null?'#9fc7bb':(v<3?'#ff8a80':(v<5?'#ffcc80':'#a5d6a7'));}
+  var cols='28px 1fr 50px 66px 60px 74px 1.3fr';
+  var head='<div style="display:grid;grid-template-columns:'+cols+';gap:8px;font-size:10px;color:#7f9b93;text-transform:uppercase;letter-spacing:.5px;padding:4px 0;border-bottom:1px solid #163a35;"><div>#</div><div>Name</div><div style="text-align:right;">Trips</div><div style="text-align:right;">KM</div><div style="text-align:right;">Liters</div><div style="text-align:right;">km/L</div><div>vs best</div></div>';
+  var body=rows.map(function(m,i){
+    var nm=esc(_hnxFAInameOf(m.id));
+    var kml=m.kmL==null?'\u2014':m.kmL.toFixed(2);
+    var col=kmlColor(m.kmL);
+    var pct=(best>0&&m.kmL!=null)?Math.max(4,Math.round(m.kmL/best*100)):0;
+    var bar='<div style="background:#16241f;border-radius:5px;height:12px;overflow:hidden;"><div style="height:100%;width:'+pct+'%;background:'+col+';"></div></div>';
+    var medal=i===0?'\ud83e\udd47':(i===1?'\ud83e\udd48':(i===2?'\ud83e\udd49':String(i+1)));
+    return '<div style="display:grid;grid-template-columns:'+cols+';gap:8px;align-items:center;font-size:12.5px;color:#e8f5e9;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);">'+
+      '<div style="font-weight:800;">'+medal+'</div>'+
+      '<div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+nm+'</div>'+
+      '<div style="text-align:right;font-family:monospace;">'+m.trips+'</div>'+
+      '<div style="text-align:right;font-family:monospace;">'+m.km.toFixed(0)+'</div>'+
+      '<div style="text-align:right;font-family:monospace;">'+m.liters.toFixed(1)+'</div>'+
+      '<div style="text-align:right;font-family:monospace;font-weight:800;color:'+col+';">'+kml+'</div>'+
+      bar+
+    '</div>';
+  }).join('');
+  var avgLine=withKmL.length?('<div style="font-size:11px;color:#9fc7bb;margin-top:6px;">Group average: <b style="color:#e8f5e9;">'+avg.toFixed(2)+' km/L</b> \u00b7 most efficient on top</div>'):'';
+  return '<div style="margin-bottom:20px;"><div style="font-size:13px;font-weight:800;color:#7fffd4;margin-bottom:6px;">'+emoji+' '+title+' ('+rows.length+')</div>'+head+body+avgLine+'</div>';
+}
+function _hnxFAIrender(){
+  var tabsEl=document.getElementById('hnxFAITabs'); var body=document.getElementById('hnxFAIBody'); if(!tabsEl||!body)return;
+  var per=window.__hnxFAIPeriod||'month';
+  tabsEl.innerHTML=_hnxFAIperiods().map(function(p){ var on=p[0]===per; return '<button onclick="hnxFleetAI(\''+p[0]+'\')" style="background:'+(on?'linear-gradient(135deg,#1f9d76,#0e5e46)':'#13231d')+';color:'+(on?'#fff':'#9fc7bb')+';border:1px solid '+(on?'#2bd49b':'#1f4a44')+';border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">'+p[1]+'</button>'; }).join('');
+  var data=_hnxFAIcompute(per);
+  var html=_hnxFAItable('Drivers','\ud83d\ude97',data.drivers)+_hnxFAItable('Helpers','\ud83e\uddd1\u200d\ud83d\udd27',data.helpers);
+  html+='<div style="font-size:11px;color:#7f9b93;margin-top:6px;line-height:1.5;border-top:1px solid #163a35;padding-top:10px;">km/L = total KM (ODO in \u2212 out) \u00f7 total fuel liters from the daily logbook for the period. Trips are credited to each truck\u2019s assigned Driver / Helper (or the person recorded on the entry, if set). Fill in ODO + liters in the Logbook for these numbers to grow.</div>';
+  body.innerHTML=html;
+}
+
 function renderFleetGps(){
   // Look for the stub container; if not present, create one
   let view=document.getElementById('view-fleet_gps');
@@ -74985,6 +75222,8 @@ function renderFleetGps(){
   html+=`<div style="margin-top:14px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;">
     <div style="font-family:var(--mono);font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;">📋 Daily Summary</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px 18px;">
+      ${_gpsPersonSelect('driverId','driver',r,_gpsSelVehId)}
+      ${_gpsPersonSelect('helperId','helper',r,_gpsSelVehId)}
       <div>
         <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">ODO Out (start)</div>
         <input type="number" class="call-input" style="font-family:var(--mono);" value="${r.odoOut==null?'':r.odoOut}" oninput="updGpsReportField('odoOut',this.value)">
@@ -75090,6 +75329,27 @@ function updGpsStop(idx,field,val){
   // For simplicity, full re-render
   if(field==='timeIn'||field==='timeOut'||field==='km')renderFleetGps();
 }
+/* ===== HNX p276 LOGBOOK DRIVER/HELPER PICKER ===== */
+function _gpsPersonSelect(field,role,r,vehId){
+  var emps=[]; try{emps=_fleetEmployees()||[];}catch(e){emps=[];}
+  var veh={}; try{veh=(loadFVeh()||[]).find(function(v){return v.id===vehId;})||{};}catch(e){veh={};}
+  var cur=(r&&r[field]!=null&&r[field]!=='')?r[field]:(veh[field]||'');
+  var match=emps.filter(function(e){try{return _fleetIsActive(e)&&(role==='driver'?_fleetIsDriver(e):_fleetIsHelper(e));}catch(_){return false;}});
+  if(cur&&!match.some(function(e){return String(e.id)===String(cur);})){
+    var ce=emps.find(function(e){return String(e.id)===String(cur);}); if(ce)match=[ce].concat(match);
+  }
+  var label=role==='driver'?'\ud83d\ude97 Driver':'\ud83e\uddd1\u200d\ud83d\udd27 Helper';
+  var opts='<option value="">\u2014 none \u2014</option>';
+  opts+=match.map(function(e){
+    var t=''; try{t=_fleetTitle?_fleetTitle(e):'';}catch(_){t='';}
+    var sel=String(e.id)===String(cur)?' selected':'';
+    return '<option value="'+e.id+'"'+sel+'>'+_esc(e.name||String(e.id))+(t?(' ('+_esc(t)+')'):'')+'</option>';
+  }).join('');
+  var fromVeh=(!(r&&r[field]!=null&&r[field]!=='')&&veh[field])?' <span style="color:var(--text3);font-size:9px;">(from truck)</span>':'';
+  return '<div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">'+label+fromVeh+'</div>'+
+    '<select class="call-select" onchange="updGpsReportField(\''+field+'\',this.value)">'+opts+'</select></div>';
+}
+
 function updGpsReportField(field,val){
   const r=getGpsReport(_gpsSelDate,_gpsSelVehId,true);
   if(['odoOut','odoIn','fillUpLiters','perLiter'].includes(field))r[field]=val===''?null:Number(val);
@@ -75912,9 +76172,9 @@ function _exportModuleReportXlsx(moduleId){
   }
   if(moduleId==='logistics'){
     const veh=loadFVeh();
-    const r=[['Name','Plate','Type','Driver','Status','Fuel %','Lat','Lng']];
+    const r=[['Name','Plate','Type','Driver','Helper','Status','Fuel %','Lat','Lng']];
     const drv=loadFDrv();
-    veh.forEach(v=>{const d=drv.find(x=>x.id===v.driverId);r.push([v.name||'',v.plate||'',v.type||'',d?d.name:'',v.status||'',v.fuel==null?'':v.fuel,v.lat||'',v.lng||'']);});
+    veh.forEach(v=>{const d=_fleetEmpById(v.driverId)||drv.find(x=>x.id===v.driverId);const h=_fleetEmpById(v.helperId);r.push([v.name||'',v.plate||'',v.type||'',d?d.name:'',h?h.name:'',v.status||'',v.fuel==null?'':v.fuel,v.lat||'',v.lng||'']);});
     XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(r),'Fleet');
   }
   XLSX.writeFile(wb,`${moduleId}-Daily-Report-${today}.xlsx`);
@@ -156300,9 +156560,9 @@ body.hnx-mobile-locked { overflow: hidden; }
     var headTotal='<div style="background:linear-gradient(135deg,#1a1530,#0e0c18);border:1px solid #3a2f66;border-radius:12px;padding:16px 18px;margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">'+
       '<div><div style="font-size:11px;color:#b39ddb;">Admin OPEX \u00b7 '+yr+'</div><div style="font-size:28px;font-weight:800;color:#fff;font-family:var(--mono,monospace);">'+peso(roll.total)+'</div></div>'+
       '<div style="font-size:11px;color:var(--text3,#90a4ae);flex:1;min-width:160px;">'+roll.count+' cost entries \u00b7 auto-captured from license renewals and asset services, plus manual entries. \ud83d\udcd2 Post to books writes balanced entries into the APTI accounting journal (Accounting \u2192 Journal Entries); \u2b07 CSV for a manual import.</div>'+
-      '<span style="display:flex;gap:6px;">'+btn('\u2b07 CSV','window.__hnxADMINAI.exportCost()')+btn('\ud83d\udcd2 Post to books','window.__hnxADMINAI.postOpexToBooks()','primary')+'</span>'+
+      '<span style="display:flex;gap:6px;">'+btn('\u2b07 CSV','window.__hnxADMINAI.exportCost()')+btn('\ud83d\udcd2 Post to books','window.__hnxADMINAI.postOpexToBooks()','primary')+btn('\u2699 Accounts','window.__hnxADMINAI.toggleOpexMap()')+'</span>'+
     '</div>';
-    return add + headTotal + (catCards?sectionTitle('By category'):'') + catCards + (monthBars?sectionTitle('Last 6 months'):'') + monthBars + sectionTitle('Cost log') + table;
+    return add + headTotal + (AA._opexMapOpen?AA.opexMapPanel():'') + (catCards?sectionTitle('By category'):'') + catCards + (monthBars?sectionTitle('Last 6 months'):'') + monthBars + sectionTitle('Cost log') + table;
   };
   AA.addCost=function(){
     function v(id){ var e=document.getElementById(id); return e?(e.value||'').trim():''; }
@@ -156316,16 +156576,66 @@ body.hnx-mobile-locked { overflow: hidden; }
     L(KEY.cost,[]).forEach(function(e){ rows.push([e.date,e.category,e.desc,e.amount,e.ref,e.by]); });
     downloadCSV('admin_opex_costs.csv',rows);
   };
+  /* ===== HNX p267 · OPEX → APTI account mapping (reads real Chart of Accounts) ===== */
+  AA._opexMapOpen=false;
+  AA.toggleOpexMap=function(){ AA._opexMapOpen=!AA._opexMapOpen; AA.render(); };
+  AA.opexAccts=function(){
+    var names=[], byName={};
+    try{ var cl=JSON.parse(localStorage.getItem('hydroPro_acct_coalist_v1')||'{}')||{}; var arr=(cl.APTI&&cl.APTI.accounts)||[]; arr.forEach(function(a){ if(a&&a.name&&!byName[a.name]){ names.push({name:a.name,type:a.type||''}); byName[a.name]=1; } }); }catch(e){}
+    if(!names.length){ [['Cost of Sales','expense'],['Salaries & Wages','expense'],['Utilities','expense'],['Rent','expense'],['Depreciation','expense'],['Supplies','expense'],['Other Expenses','expense'],['Cash','asset'],['Cash in Bank','asset'],['Accounts Payable','liability']].forEach(function(p){ names.push({name:p[0],type:p[1]}); }); }
+    return names;
+  };
+  AA.opexMapGet=function(){
+    var DEF={'Licenses':'Taxes & Licenses','Maintenance':'Repairs & Maintenance','Vehicle':'Repairs & Maintenance - Vehicles','Cleaning / Recurring':'Repairs & Maintenance','Utilities':'Utilities','Supplies':'Supplies','Other':'Other Expenses'};
+    var m=null; try{ m=JSON.parse(localStorage.getItem('hydroPro_admin_opex_acctmap_v1')||'null'); }catch(e){}
+    if(!m||typeof m!=='object') m={};
+    if(!m.exp||typeof m.exp!=='object') m.exp={};
+    Object.keys(DEF).forEach(function(k){ if(!m.exp[k]) m.exp[k]=DEF[k]; });
+    if(!m.cash) m.cash='Cash';
+    return m;
+  };
+  AA.setOpexMap=function(kind,key,val){
+    var m=AA.opexMapGet();
+    if(kind==='cash'){ m.cash=val; } else { m.exp[key]=val; }
+    try{ localStorage.setItem('hydroPro_admin_opex_acctmap_v1',JSON.stringify(m)); }catch(e){}
+  };
+  AA.opexMapPanel=function(){
+    var accts=AA.opexAccts(); var m=AA.opexMapGet();
+    var cats=['Licenses','Maintenance','Vehicle','Cleaning / Recurring','Utilities','Supplies','Other'];
+    function optsFor(sel,expFirst){
+      var list=accts.slice(); var have={}; list.forEach(function(a){have[a.name]=1;});
+      if(sel&&!have[sel]) list.unshift({name:sel,type:''});
+      if(expFirst){ var ex=list.filter(function(a){return a.type==='expense';}); var ot=list.filter(function(a){return a.type!=='expense';}); list=ex.concat(ot); }
+      return list.map(function(a){ return '<option value="'+esc(a.name)+'"'+(a.name===sel?' selected':'')+'>'+esc(a.name)+(a.type?(' \u00b7 '+a.type):'')+'</option>'; }).join('');
+    }
+    var rows=cats.map(function(c){
+      return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">'+
+        '<span style="font-size:12px;color:var(--text2,#b0b0b0);width:135px;">'+esc(c)+'</span>'+
+        '<span style="color:var(--text3,#90a4ae);">\u2192</span>'+
+        '<select onchange="window.__hnxADMINAI.setOpexMap(\'exp\',\''+c.replace(/'/g,'&#39;')+'\',this.value)" style="flex:1;min-width:0;background:var(--surface2,#12121a);border:1px solid var(--border);color:var(--text,#e0e0e0);border-radius:7px;padding:6px 8px;font-size:12px;">'+optsFor(m.exp[c],true)+'</select>'+
+      '</div>';
+    }).join('');
+    return '<div style="background:var(--surface,#16161e);border:1px solid #3a2f66;border-radius:12px;padding:14px 16px;margin-bottom:14px;">'+
+      '<div style="font-size:13px;font-weight:800;color:'+ACC+';margin-bottom:4px;">\u2699 Map OPEX categories \u2192 APTI accounts</div>'+
+      '<div style="font-size:11px;color:var(--text3,#90a4ae);margin-bottom:10px;">Each category posts as a debit to the chosen expense account, credited to the paid-from account. The list comes from your APTI Chart of Accounts (open Accounting \u2192 Chart of Accounts to edit it). Saved automatically.</div>'+
+      rows+
+      '<div style="display:flex;align-items:center;gap:10px;padding:9px 0 2px;">'+
+        '<span style="font-size:12px;color:var(--text2,#b0b0b0);width:135px;">Paid from (credit)</span>'+
+        '<span style="color:var(--text3,#90a4ae);">\u2192</span>'+
+        '<select onchange="window.__hnxADMINAI.setOpexMap(\'cash\',\'\',this.value)" style="flex:1;min-width:0;background:var(--surface2,#12121a);border:1px solid var(--border);color:var(--text,#e0e0e0);border-radius:7px;padding:6px 8px;font-size:12px;">'+optsFor(m.cash,false)+'</select>'+
+      '</div>'+
+    '</div>';
+  };
   AA.postOpexToBooks=function(){
     var costs=L(KEY.cost,[]); var pend=costs.filter(function(c){ return !c.postedJE && (Number(c.amount)||0)>0; });
     if(!pend.length){ toast('No unposted costs to send to the books','info'); return; }
     if(!confirm('Post '+pend.length+' admin cost(s) to the APTI accounting journal as balanced entries (Dr expense / Cr Cash)?')) return;
     var je={}; try{ je=JSON.parse(localStorage.getItem('hydroPro_acct_je_v1')||'{}')||{}; }catch(e){ je={}; }
     if(!je.APTI) je.APTI={entries:[]}; if(!je.APTI.entries) je.APTI.entries=[];
-    var acctFor={Licenses:'Taxes & Licenses', Maintenance:'Repairs & Maintenance', Vehicle:'Repairs & Maintenance - Vehicles', 'Cleaning / Recurring':'Repairs & Maintenance', Utilities:'Utilities Expense', Supplies:'Supplies Expense', Other:'Other Administrative Expense'};
+    var _m=AA.opexMapGet(); var acctFor=_m.exp; var cashAcct=_m.cash||'Cash';
     var n=0;
     pend.forEach(function(c){ var amt=Number(c.amount)||0; if(amt<=0)return; var exp=acctFor[c.category]||'Administrative Expense';
-      je.APTI.entries.push({id:'adm_'+c.id, date:c.date||todayISO(), memo:(c.desc||c.category)+' (Admin-AI)', lines:[ {id:uid('jl'),account:exp,debit:amt,credit:0}, {id:uid('jl'),account:'Cash',debit:0,credit:amt} ]});
+      je.APTI.entries.push({id:'adm_'+c.id, date:c.date||todayISO(), memo:(c.desc||c.category)+' (Admin-AI)', lines:[ {id:uid('jl'),account:exp,debit:amt,credit:0}, {id:uid('jl'),account:cashAcct,debit:0,credit:amt} ]});
       c.postedJE=true; n++; });
     try{ localStorage.setItem('hydroPro_acct_je_v1',JSON.stringify(je)); }catch(e){}
     S(KEY.cost,costs); auditLog('admin_opex_post', n+' entries to APTI journal');
@@ -156510,6 +156820,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     if(d<0) return {k:'over',tone:'crit',label:'OVERDUE '+Math.abs(d)+'d',du:d};
     if(d<=30) return {k:'soon',tone:'warn',label:'due in '+d+'d',du:d};
     return {k:'ok',tone:'ok',label:'due '+fmtDate(v.regDue),du:d}; };
+  FL.kmStatus=function(v){ var iv=Number(v.kmInterval)||0; if(!iv) return null; var odo=Number(v.odometer)||0; var last=Number(v.lastServiceKm)||0; var next=last+iv; var left=next-odo; var tn=left<=0?'crit':(left<=500?'warn':'ok'); return {iv:iv,odo:odo,next:next,left:left,tone:tn}; };
   FL.health=function(v){ if(!v.pmsDue||!v.lastPMS) return null; var total=(v.pmsCycle||6)*30; var left=daysUntil(v.pmsDue); var pct=Math.max(0,Math.min(100,Math.round(left/total*100))); return pct; };
 
   // ---- KPIs ----
@@ -156545,7 +156856,7 @@ body.hnx-mobile-locked { overflow: hidden; }
         '</div>'+
         '<label style="cursor:pointer;flex-shrink:0;" title="Upload a photo of this vehicle"><span style="font-size:11px;color:'+ACC+';border:1px solid '+ACC+'66;border-radius:6px;padding:3px 7px;">\ud83d\udcf7</span><input type="file" accept="image/*" style="display:none;" onchange="window.__hnxFLEET.onPhoto(\''+v.id+'\',event)"></label>'+
       '</div>'+
-      bar?('<div style="padding:0 14px;">'+bar+'</div>'):''+
+      (bar?('<div style="padding:0 14px;">'+bar+'</div>'):'')+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:#2e2748;margin:12px 0 0;border-top:1px solid #2e2748;">'+
         '<div style="background:#120f22;padding:11px 13px;">'+
           '<div style="font-size:9px;color:#8a83b0;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">\ud83d\udd27 PMS (6-mo)</div>'+
@@ -156558,10 +156869,13 @@ body.hnx-mobile-locked { overflow: hidden; }
           (v.regDue?'<div style="margin-top:7px;"><button onclick="window.__hnxFLEET.renewReg(\''+v.id+'\')" style="background:transparent;border:1px solid '+ACC+'66;color:'+ACC+';border-radius:6px;padding:4px 9px;font-size:11px;font-weight:700;cursor:pointer;">\u21bb Renewed</button></div>':'')+
         '</div>'+
       '</div>'+
-      '<div style="display:flex;gap:8px;padding:9px 14px;align-items:center;">'+
+      '<div style="display:flex;gap:8px;padding:9px 14px;align-items:center;flex-wrap:wrap;">'+
         '<button onclick="window.__hnxFLEET.edit(\''+v.id+'\')" style="background:transparent;border:1px solid #2e2748;color:#9b93c4;border-radius:6px;padding:3px 9px;font-size:11px;cursor:pointer;">\u270e Edit</button>'+
+        '<button onclick="window.__hnxFLEET.updateKm(\''+v.id+'\')" style="background:transparent;border:1px solid #2e2748;color:#9b93c4;border-radius:6px;padding:3px 9px;font-size:11px;cursor:pointer;">\ud83e\udded km</button>'+
         '<button onclick="window.__hnxFLEET.del(\''+v.id+'\')" style="background:transparent;border:1px solid #ef535055;color:#ef5350;border-radius:6px;padding:3px 9px;font-size:11px;cursor:pointer;">\ud83d\uddd1</button>'+
-        '<span style="flex:1;"></span>'+(v.purchase?'<span style="font-size:9px;color:#6f6890;">since '+esc(v.purchase)+'</span>':'')+
+        '<span style="flex:1;"></span>'+
+        (FL.kmStatus(v)?(function(){var kk=FL.kmStatus(v);return chip((kk.left<=0?('km OVERDUE '+Math.abs(kk.left)):('+'+kk.left+' km'))+' \u00b7 odo '+kk.odo.toLocaleString(),kk.tone);})():'')+
+        (v.purchase?'<span style="font-size:9px;color:#6f6890;margin-left:8px;">since '+esc(v.purchase)+'</span>':'')+
       '</div>'+
     '</div>';
   }
@@ -156585,6 +156899,10 @@ body.hnx-mobile-locked { overflow: hidden; }
         '<button onclick="window.__hnxFLEET.loadReal()" style="background:linear-gradient(135deg,#7c4dff,#5e35b1);border:none;color:#fff;border-radius:10px;padding:11px 20px;font-size:14px;font-weight:800;cursor:pointer;">\ud83d\udce5 Load my real fleet</button>'+
       '</div>';
     }
+    var SUB=FL.sub||'cards';
+    var subnav=FL.subnav(SUB);
+    if(SUB==='fuel') return subnav+FL.fuelHtml();
+    if(SUB==='gps')  return subnav+FL.gpsHtml();
     var k=FL.kpis();
     var hero='<div style="position:relative;overflow:hidden;border-radius:16px;padding:18px 20px;margin-bottom:14px;background:radial-gradient(130% 150% at 100% 0%,rgba(124,77,255,.4),rgba(14,12,24,.2)),linear-gradient(135deg,#16122a,#0c0a16);border:1px solid #3a2f66;">'+
       '<div class="aaflt-grid"></div>'+
@@ -156636,7 +156954,7 @@ body.hnx-mobile-locked { overflow: hidden; }
         '</div>';
       }).join('')+'</div>' : '<div style="text-align:center;padding:24px;color:#8a83b0;font-size:12px;border:1px dashed #2e2748;border-radius:12px;">No PMS or registration events in the next 9 months.</div>';
 
-    return hero + kgrid +
+    return subnav + hero + kgrid +
       '<div style="display:flex;align-items:center;gap:10px;margin:6px 0 12px;flex-wrap:wrap;"><div style="font-size:15px;font-weight:800;color:#fff;">\ud83d\ude97 Vehicles</div><span style="font-size:11px;color:#8a83b0;">tap \ud83d\udcf7 to add a photo</span><span style="margin-left:auto;display:flex;gap:6px;">'+        '<button onclick="window.__hnxFLEET.setMode(\'cards\')" style="background:'+(FL.mode!=='person'?'#7c4dff':'var(--surface2,#16161e)')+';color:'+(FL.mode!=='person'?'#fff':'#cfc6ff')+';border:1px solid #2e2748;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:700;cursor:pointer;">\ud83d\uddc2 All</button>'+        '<button onclick="window.__hnxFLEET.setMode(\'person\')" style="background:'+(FL.mode==='person'?'#7c4dff':'var(--surface2,#16161e)')+';color:'+(FL.mode==='person'?'#fff':'#cfc6ff')+';border:1px solid #2e2748;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:700;cursor:pointer;">\ud83d\udc64 By person</button>'+        '<button onclick="window.__hnxFLEET.exportCSV()" style="background:var(--surface2,#16161e);border:1px solid #2e2748;color:#cfc6ff;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:700;cursor:pointer;">\u2b07 CSV</button>'+      '</span></div>'+
       cards +
       '<div style="font-size:15px;font-weight:800;color:#fff;margin:20px 0 12px;">\ud83d\udcc5 PMS &amp; registration schedule</div>'+ schH;
@@ -156648,6 +156966,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     var when=prompt('PMS done on (YYYY-MM-DD):',todayISO()); if(when==null)return; when=(when||todayISO()).trim();
     var cost=prompt('PMS cost \u20b1 (logged to OPEX, blank to skip):', v.pmsCost||''); 
     v.lastPMS=when; v.pmsDue=addMonths(when, v.pmsCycle||6);
+    if((Number(v.kmInterval)||0)>0){ var odoNow=prompt('Odometer at this service (km), blank to skip:', v.odometer||''); if(odoNow!=null&&odoNow!==''){ v.odometer=Number(odoNow)||v.odometer; v.lastServiceKm=Number(odoNow)||v.lastServiceKm; } }
     if(cost!=null&&cost!==''){ v.pmsCost=Number(cost)||v.pmsCost; logCost('Vehicle','PMS: '+v.name, cost, v.id); }
     FL.save(f); toast('PMS logged \u00b7 next due '+fmtDate(v.pmsDue),'ok'); if(window.__hnxADMINAI)window.__hnxADMINAI.render();
   };
@@ -156670,6 +156989,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     }; img.onerror=function(){ var f=FL.load(); var v=f.filter(function(x){return x.id===id;})[0]; if(v){ v.photo=r.result; FL.save(f); if(window.__hnxADMINAI)window.__hnxADMINAI.render(); } }; img.src=r.result; };
     r.readAsDataURL(file);
   };
+  FL.updateKm=function(id){ var f=FL.load(); var v=f.filter(function(x){return x.id===id;})[0]; if(!v)return; var odo=prompt('Current odometer (km) for '+v.name+':', v.odometer||''); if(odo==null)return; v.odometer=Number(odo)||0; var iv=prompt('Service every how many km? (blank/0 = time-only):', v.kmInterval||''); if(iv!=null) v.kmInterval=Number(iv)||0; if((Number(v.kmInterval)||0)>0 && !(Number(v.lastServiceKm)||0)){ var ls=prompt('Odometer at last service (km):', v.odometer||''); if(ls!=null) v.lastServiceKm=Number(ls)||0; } FL.save(f); toast('Odometer updated','ok'); if(window.__hnxADMINAI)window.__hnxADMINAI.render(); };
   FL.del=function(id){ if(!confirm('Remove this vehicle from the fleet?'))return; FL.save(FL.load().filter(function(x){return x.id!==id;})); toast('Removed','ok'); if(window.__hnxADMINAI)window.__hnxADMINAI.render(); };
   FL.edit=function(id){
     var f=FL.load(); var v=f.filter(function(x){return x.id===id;})[0]; if(!v)return;
@@ -156678,6 +156998,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     var person=prompt('Person in charge:',v.person||''); if(person!=null)v.person=person.trim();
     var pms=prompt('Next PMS due (YYYY-MM-DD, blank=none):',v.pmsDue||''); if(pms!=null)v.pmsDue=pms.trim();
     var reg=prompt('Next registration due (YYYY-MM-DD, blank=none):',v.regDue||''); if(reg!=null)v.regDue=reg.trim();
+    var km=prompt('Service every how many km? (0/blank = time-only):', v.kmInterval||''); if(km!=null) v.kmInterval=Number(km)||0;
     FL.save(f); toast('Saved','ok'); if(window.__hnxADMINAI)window.__hnxADMINAI.render();
   };
   FL.add=function(){
@@ -156706,6 +157027,153 @@ body.hnx-mobile-locked { overflow: hidden; }
     document.head.appendChild(s);
   };
 
+  /* ===== HNX p269 · FLEET GPS & FUEL (daily ODO/fuel stats + GPS sync) ===== */
+  var FK_DAILY='hydroPro_admin_fleet_daily_v1';
+  FL.sub='cards';
+  FL.setSub=function(s){ FL.sub=s; if(window.__hnxADMINAI)window.__hnxADMINAI.render(); };
+  FL._gpsStatus='';
+  FL.dailyLoad=function(){ return L(FK_DAILY,[]); };
+  FL.dailySaveArr=function(a){ S(FK_DAILY,a); };
+
+  FL.subnav=function(SUB){
+    function b(id,lbl){ var on=(SUB===id); return '<button onclick="window.__hnxFLEET.setSub(\''+id+'\')" style="background:'+(on?'#7c4dff':'transparent')+';color:'+(on?'#fff':'#cbb8ff')+';border:1px solid '+(on?'#7c4dff':'#3a2f66')+';border-radius:9px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;">'+lbl+'</button>'; }
+    return '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">'+b('cards','\ud83d\ude97 Vehicles')+b('fuel','\u26fd Daily log & fuel')+b('gps','\ud83d\udce1 GPS')+'</div>';
+  };
+
+  // ---- compute one daily entry ----
+  function dailyCalc(o){
+    var oo=Number(o.odoOut)||0, oi=Number(o.odoIn)||0;
+    var dist=(oo&&oi&&oi>=oo)?(oi-oo):(Number(o.dist)||0);
+    var fl=Number(o.fuelL)||0, pr=Number(o.pricePerL)||0;
+    var cost=(o.fuelCost!=null&&o.fuelCost!=='')?Number(o.fuelCost):(fl&&pr?fl*pr:0);
+    var kpl=(dist&&fl)?(dist/fl):0;
+    return {dist:dist,fuelCost:cost,kmPerL:kpl};
+  }
+  FL.dailySaveForm=function(){
+    function gv(id){ var el=document.getElementById(id); return el?el.value:''; }
+    var vid=gv('aaFuelVeh'); var f=FL.load(); var v=f.filter(function(x){return x.id===vid;})[0];
+    if(!v){ toast('Pick a vehicle','warn'); return; }
+    var date=gv('aaFuelDate')||todayISO();
+    var rec={ id:uid('dl'), vid:vid, plate:v.plate||'', name:v.name||'', date:date,
+      odoOut:Number(gv('aaFuelOdoOut'))||0, odoIn:Number(gv('aaFuelOdoIn'))||0,
+      fuelL:Number(gv('aaFuelL'))||0, pricePerL:Number(gv('aaFuelPrice'))||0,
+      fuelCost:gv('aaFuelCost'), source:'manual', note:'', at:Date.now() };
+    var c=dailyCalc(rec); rec.dist=c.dist; rec.fuelCost=c.fuelCost; rec.kmPerL=c.kmPerL;
+    if(!rec.dist && !rec.fuelL){ toast('Enter ODO out/in or fuel litres','warn'); return; }
+    var arr=FL.dailyLoad(); arr.push(rec); FL.dailySaveArr(arr);
+    // feed odometer (so km-based PMS uses the latest reading)
+    if(rec.odoIn && rec.odoIn>(Number(v.odometer)||0)){ v.odometer=rec.odoIn; FL.save(f); }
+    toast('Daily log saved'+(rec.kmPerL?(' \u00b7 '+rec.kmPerL.toFixed(2)+' km/L'):''),'ok');
+    if(window.__hnxADMINAI)window.__hnxADMINAI.render();
+  };
+  FL.dailyDel=function(id){ if(!confirm('Delete this daily log?'))return; FL.dailySaveArr(FL.dailyLoad().filter(function(x){return x.id!==id;})); toast('Deleted','ok'); if(window.__hnxADMINAI)window.__hnxADMINAI.render(); };
+  FL.exportDaily=function(){ var rows=[['Date','Vehicle','Plate','ODO out','ODO in','Distance km','Fuel L','Price/L','Fuel cost','km/L']];
+    FL.dailyLoad().slice().sort(function(a,b){return a.date<b.date?1:-1;}).forEach(function(e){ rows.push([e.date,e.name,e.plate,e.odoOut,e.odoIn,e.dist,e.fuelL,e.pricePerL,e.fuelCost,(Number(e.kmPerL)||0).toFixed(2)]); });
+    downloadCSV('fleet_daily_fuel.csv',rows); };
+
+  FL.fuelHtml=function(){
+    var f=FL.load(); var all=FL.dailyLoad(); var mon=todayISO().slice(0,7);
+    var inMon=all.filter(function(e){return (e.date||'').slice(0,7)===mon;});
+    var sumDist=0,sumFuel=0,sumCost=0; inMon.forEach(function(e){ sumDist+=Number(e.dist)||0; sumFuel+=Number(e.fuelL)||0; sumCost+=Number(e.fuelCost)||0; });
+    var avgKpl=sumFuel?(sumDist/sumFuel):0;
+    function kpi(label,val,sub,tn){ var c=tone(tn); return '<div style="background:rgba(20,18,34,.7);border:1px solid #2e2748;border-radius:12px;padding:13px 15px;"><div style="font-size:24px;font-weight:800;color:'+c+';font-family:var(--mono,monospace);line-height:1;">'+esc(val)+'</div><div style="font-size:11px;color:#d6cffb;font-weight:700;margin-top:6px;">'+esc(label)+'</div>'+(sub?'<div style="font-size:10px;color:#8a83b0;margin-top:2px;">'+esc(sub)+'</div>':'')+'</div>'; }
+    var kgrid='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px;">'+
+      kpi('Distance this month',Math.round(sumDist).toLocaleString()+' km','from daily logs','info')+
+      kpi('Fuel cost this month',peso(sumCost),Math.round(sumFuel).toLocaleString()+' L','warn')+
+      kpi('Avg efficiency',(avgKpl?avgKpl.toFixed(2):'\u2014')+' km/L','fleet-wide','ok')+
+      kpi('Daily logs',String(inMon.length),mon,'muted')+'</div>';
+    // entry form
+    var vopts=f.map(function(v){ return '<option value="'+v.id+'">'+esc(v.name)+(v.plate?(' \u00b7 '+v.plate):'')+'</option>'; }).join('');
+    function fld(lbl,id,ph,type){ return '<div><div style="font-size:11px;color:#9b93c4;margin-bottom:3px;">'+lbl+'</div><input id="'+id+'" '+(type?('type="'+type+'" '):'')+'inputmode="decimal" placeholder="'+(ph||'')+'" style="width:100%;background:var(--surface2,#12121a);border:1px solid #2e2748;color:#fff;border-radius:7px;padding:7px 9px;font-size:13px;box-sizing:border-box;"'+(type==='date'?(' value="'+todayISO()+'"'):'')+'></div>'; }
+    var form='<div style="background:linear-gradient(160deg,#171328,#0e0b18);border:1px solid #2e2748;border-radius:14px;padding:16px;margin-bottom:16px;">'+
+      '<div style="font-size:14px;font-weight:800;color:#fff;margin-bottom:12px;">\u26fd Log a vehicle day (ODO + fuel)</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;">'+
+        '<div><div style="font-size:11px;color:#9b93c4;margin-bottom:3px;">Vehicle</div><select id="aaFuelVeh" style="width:100%;background:var(--surface2,#12121a);border:1px solid #2e2748;color:#fff;border-radius:7px;padding:7px 9px;font-size:13px;box-sizing:border-box;">'+vopts+'</select></div>'+
+        fld('Date','aaFuelDate','',"date")+
+        fld('ODO out (km)','aaFuelOdoOut','start')+
+        fld('ODO in (km)','aaFuelOdoIn','end')+
+        fld('Fuel litres','aaFuelL','L')+
+        fld('Price / L \u20b1','aaFuelPrice','\u20b1/L')+
+        fld('Fuel cost \u20b1 (auto)','aaFuelCost','blank = L\u00d7price')+
+      '</div>'+
+      '<div style="margin-top:12px;"><button onclick="window.__hnxFLEET.dailySaveForm()" style="background:linear-gradient(135deg,#7c4dff,#5e35b1);border:none;color:#fff;border-radius:9px;padding:9px 18px;font-size:14px;font-weight:800;cursor:pointer;">\ud83d\udcbe Save daily log</button>'+
+      '<span style="font-size:11px;color:#8a83b0;margin-left:12px;">Distance &amp; km/L compute automatically; ODO-in also updates the vehicle odometer.</span></div>'+
+    '</div>';
+    // by-vehicle ranking this month
+    var byV={}; inMon.forEach(function(e){ var k=e.vid||e.name; if(!byV[k])byV[k]={name:e.name,plate:e.plate,dist:0,fuel:0,cost:0}; byV[k].dist+=Number(e.dist)||0; byV[k].fuel+=Number(e.fuelL)||0; byV[k].cost+=Number(e.fuelCost)||0; });
+    var ranks=Object.keys(byV).map(function(k){ var r=byV[k]; r.kpl=r.fuel?(r.dist/r.fuel):0; return r; }).sort(function(a,b){ return b.kpl-a.kpl; });
+    var maxKpl=ranks.reduce(function(m,r){return Math.max(m,r.kpl);},0)||1;
+    var rankH = ranks.length ? '<div style="background:rgba(20,18,34,.6);border:1px solid #2e2748;border-radius:12px;overflow:hidden;margin-bottom:16px;">'+
+      ranks.map(function(r,i){ var w=Math.round(r.kpl/maxKpl*100); var tn=i===0?'ok':(r.kpl>=avgKpl?'info':'warn');
+        return '<div style="padding:10px 13px;border-bottom:1px solid #221d38;">'+
+          '<div style="display:flex;align-items:center;gap:8px;"><span style="font-size:12px;color:#8a83b0;width:18px;">#'+(i+1)+'</span>'+
+          '<span style="flex:1;font-size:13px;color:#fff;font-weight:600;">'+esc(r.name)+(r.plate?(' <span style=\"font-size:10px;color:#9b93c4;\">'+esc(r.plate)+'</span>'):'')+'</span>'+
+          '<span style="font-size:13px;font-weight:800;color:'+tone(tn)+';font-family:var(--mono,monospace);">'+(r.kpl?r.kpl.toFixed(2):'\u2014')+' km/L</span></div>'+
+          '<div style="height:6px;background:#15122a;border-radius:4px;overflow:hidden;margin-top:6px;"><div style="height:100%;width:'+w+'%;background:linear-gradient(90deg,'+tone(tn)+',#7c4dff);"></div></div>'+
+          '<div style="font-size:10px;color:#8a83b0;margin-top:4px;">'+Math.round(r.dist).toLocaleString()+' km \u00b7 '+Math.round(r.fuel).toLocaleString()+' L \u00b7 '+peso(r.cost)+'</div>'+
+        '</div>';
+      }).join('')+'</div>' : '<div style="text-align:center;padding:22px;color:#8a83b0;font-size:12px;border:1px dashed #2e2748;border-radius:12px;margin-bottom:16px;">No daily logs this month yet \u2014 add one above.</div>';
+    // recent log table
+    var recent=all.slice().sort(function(a,b){return a.date<b.date?1:-1;}).slice(0,60);
+    var tbl = recent.length ? '<div style="overflow-x:auto;background:rgba(20,18,34,.6);border:1px solid #2e2748;border-radius:12px;"><table style="width:100%;border-collapse:collapse;min-width:620px;font-size:12px;"><thead><tr style="background:#15122a;color:#9b93c4;">'+
+      ['Date','Vehicle','Dist km','Fuel L','\u20b1/L','Cost','km/L',''].map(function(h){return '<th style="padding:8px 10px;text-align:left;font-size:11px;">'+h+'</th>';}).join('')+'</tr></thead><tbody>'+
+      recent.map(function(e){ return '<tr style="border-top:1px solid #221d38;color:#e8e6f5;">'+
+        '<td style="padding:7px 10px;font-family:var(--mono,monospace);color:#9b93c4;">'+esc(e.date)+'</td>'+
+        '<td style="padding:7px 10px;">'+esc(e.name||'')+(e.plate?(' <span style=\"font-size:10px;color:#9b93c4;\">'+esc(e.plate)+'</span>'):'')+'</td>'+
+        '<td style="padding:7px 10px;">'+(e.dist?Math.round(e.dist).toLocaleString():'\u2014')+'</td>'+
+        '<td style="padding:7px 10px;">'+(e.fuelL||'\u2014')+'</td>'+
+        '<td style="padding:7px 10px;">'+(e.pricePerL?peso(e.pricePerL):'\u2014')+'</td>'+
+        '<td style="padding:7px 10px;">'+(e.fuelCost?peso(e.fuelCost):'\u2014')+'</td>'+
+        '<td style="padding:7px 10px;font-weight:700;color:#26c281;">'+(e.kmPerL?Number(e.kmPerL).toFixed(2):'\u2014')+'</td>'+
+        '<td style="padding:7px 10px;text-align:right;"><button onclick="window.__hnxFLEET.dailyDel(\''+e.id+'\')" style="background:transparent;border:1px solid #ef535055;color:#ef5350;border-radius:6px;padding:2px 7px;font-size:10px;cursor:pointer;">\ud83d\uddd1</button></td>'+
+      '</tr>'; }).join('')+'</tbody></table></div>' : '';
+    return kgrid+form+
+      '<div style="display:flex;align-items:center;gap:10px;margin:4px 0 10px;"><div style="font-size:15px;font-weight:800;color:#fff;">\ud83c\udfc6 Efficiency ranking (this month)</div><span style="font-size:11px;color:#8a83b0;">higher km/L = better</span></div>'+rankH+
+      '<div style="display:flex;align-items:center;gap:10px;margin:4px 0 10px;"><div style="font-size:15px;font-weight:800;color:#fff;">\ud83d\udcd3 Recent daily logs</div><span style="margin-left:auto;"><button onclick="window.__hnxFLEET.exportDaily()" style="background:var(--surface2,#16161e);border:1px solid #2e2748;color:#cfc6ff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">\u2b07 CSV</button></span></div>'+tbl;
+  };
+
+  // ---- GPS ----
+  FL.setDeviceId=function(id,val){ var f=FL.load(); var v=f.filter(function(x){return x.id===id;})[0]; if(!v)return; v.gpsDeviceId=(val||'').trim(); FL.save(f); };
+  FL.syncGps=function(){
+    if(typeof window.__hnxApi!=='function'){ FL._gpsStatus='Cloud not connected \u2014 sign in to the Worker first.'; toast('Cloud not connected','warn'); if(window.__hnxADMINAI)window.__hnxADMINAI.render(); return; }
+    FL._gpsStatus='Syncing\u2026'; toast('Syncing GPS\u2026','info'); if(window.__hnxADMINAI)window.__hnxADMINAI.render();
+    var pr; try{ pr=window.__hnxApi('/gps/positions'); }catch(e){ pr=null; }
+    if(!pr||!pr.then){ FL._gpsStatus='GPS endpoint not available.'; if(window.__hnxADMINAI)window.__hnxADMINAI.render(); return; }
+    pr.then(function(resp){
+      var list=(resp&&(resp.positions||resp.devices||resp.data||resp.list))||(Array.isArray(resp)?resp:[]);
+      if(!Array.isArray(list)||!list.length){ FL._gpsStatus='Connected, but no positions returned. (Worker /gps/positions reachable; provider mapping may still be pending.)'; if(window.__hnxADMINAI)window.__hnxADMINAI.render(); return; }
+      var f=FL.load(); var byDev={}; f.forEach(function(v){ if(v.gpsDeviceId) byDev[String(v.gpsDeviceId)]=v; });
+      var n=0; list.forEach(function(p){ var dev=String(p.deviceId||p.device_id||p.id||p.imei||''); var v=byDev[dev]; if(!v)return;
+        var odo=Number(p.odo||p.odometer||p.odo_km||0)||0; if(odo) v.odometer=odo;
+        v.lastGps={ts:(p.ts||p.time||p.timestamp||''),lat:(p.lat||p.latitude),lon:(p.lon||p.longitude),speed:(p.speed||p.speed_kmh||0),odo:odo}; n++; });
+      FL.save(f); FL._gpsStatus=n?('Synced '+n+' vehicle(s) at '+new Date().toLocaleTimeString()):'Connected, but no device IDs matched. Set each vehicle\u2019s GPS device ID below.';
+      toast(n?('GPS: updated '+n+' vehicle(s)'):'GPS: no matching device IDs','ok'); if(window.__hnxADMINAI)window.__hnxADMINAI.render();
+    }).catch(function(e){ FL._gpsStatus='Not connected \u2014 the Worker has no /gps/positions route yet (or provider not wired). '+((e&&e.message)||''); toast('GPS sync failed \u2014 worker route not deployed','warn'); if(window.__hnxADMINAI)window.__hnxADMINAI.render(); });
+  };
+  FL.gpsHtml=function(){
+    var f=FL.load();
+    var status=FL._gpsStatus||'Not synced yet. Set each vehicle\u2019s GPS device ID, then press Sync.';
+    var head='<div style="background:radial-gradient(130% 150% at 100% 0%,rgba(124,77,255,.35),rgba(14,12,24,.2)),linear-gradient(135deg,#16122a,#0c0a16);border:1px solid #3a2f66;border-radius:14px;padding:16px 18px;margin-bottom:14px;">'+
+      '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;"><div style="font-size:30px;">\ud83d\udce1</div>'+
+      '<div style="flex:1;min-width:180px;"><div style="font-size:16px;font-weight:800;color:#fff;">Live GPS sync</div><div style="font-size:12px;color:#cbb8ff;margin-top:2px;">Pulls positions/odometer through your Worker proxy <code style="color:#b39dff;">/gps/positions</code> and maps them to vehicles by device ID.</div></div>'+
+      '<button onclick="window.__hnxFLEET.syncGps()" style="background:linear-gradient(135deg,#7c4dff,#5e35b1);border:none;color:#fff;border-radius:9px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;">\ud83d\udce1 Sync GPS now</button></div>'+
+      '<div style="font-size:11px;color:#9b93c4;margin-top:10px;padding-top:10px;border-top:1px solid #2e2748;">\ud83d\udce1 '+esc(status)+'</div>'+
+    '</div>';
+    var note='<div style="background:rgba(255,179,0,.08);border:1px solid #ffb30055;border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:12px;color:#ffd599;">A static web app can\u2019t call a GPS provider directly (browser CORS + your token would be exposed). The connection runs through the Worker. To finish wiring it I need your GPS provider\u2019s name, API URL, auth type, and a sample position JSON \u2014 then the Worker\u2019s <code>/gps/positions</code> route returns normalised positions and this screen lights up live.</div>';
+    var rows=f.map(function(v){
+      var g=v.lastGps||null;
+      return '<tr style="border-top:1px solid #221d38;color:#e8e6f5;">'+
+        '<td style="padding:8px 10px;">'+esc(v.name)+(v.plate?(' <span style=\"font-size:10px;color:#9b93c4;\">'+esc(v.plate)+'</span>'):'')+'</td>'+
+        '<td style="padding:8px 10px;"><input value="'+esc(v.gpsDeviceId||'')+'" placeholder="device / IMEI" onchange="window.__hnxFLEET.setDeviceId(\''+v.id+'\',this.value)" style="width:140px;background:var(--surface2,#12121a);border:1px solid #2e2748;color:#fff;border-radius:6px;padding:5px 8px;font-size:12px;"></td>'+
+        '<td style="padding:8px 10px;font-family:var(--mono,monospace);color:#9b93c4;font-size:11px;">'+(g&&g.ts?esc(String(g.ts).replace('T',' ').slice(0,16)):'\u2014')+'</td>'+
+        '<td style="padding:8px 10px;">'+(g&&g.speed!=null?(Math.round(g.speed)+' km/h'):'\u2014')+'</td>'+
+        '<td style="padding:8px 10px;">'+(g&&g.odo?Math.round(g.odo).toLocaleString()+' km':(v.odometer?Math.round(v.odometer).toLocaleString()+' km':'\u2014'))+'</td>'+
+      '</tr>';
+    }).join('');
+    var tbl='<div style="overflow-x:auto;background:rgba(20,18,34,.6);border:1px solid #2e2748;border-radius:12px;"><table style="width:100%;border-collapse:collapse;min-width:600px;font-size:12px;"><thead><tr style="background:#15122a;color:#9b93c4;">'+
+      ['Vehicle','GPS device ID','Last fix','Speed','Odometer'].map(function(h){return '<th style="padding:8px 10px;text-align:left;font-size:11px;">'+h+'</th>';}).join('')+'</tr></thead><tbody>'+rows+'</tbody></table></div>';
+    return head+note+'<div style="font-size:15px;font-weight:800;color:#fff;margin:4px 0 10px;">\ud83d\udd17 Vehicle \u2192 GPS device mapping</div>'+tbl;
+  };
   window.__hnxFLEET=FL;
   console.log('[HNX-p265] Fleet-AI ready · window.__hnxFLEET');
 })();
