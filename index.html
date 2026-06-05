@@ -163099,23 +163099,38 @@ gh+=_mtxTreeBody(rows);
   }
 
   function activeSection(){
-    // v3.69.13.1 — read ONLY the selected option's label, not the whole select textContent
-    // (which would include all option labels and false-match every section).
+    // v3.69.13.2 — permissive detection. Check selected option's label only (NOT whole
+    // select textContent — that contains all option labels and false-matches everywhere).
     try{
       var sel=document.querySelector('#hnxaccTabs select');
       if(!sel) return null;
-      // Try value first (cheapest)
+      // Cheap path: check the select value attribute
       var v=(sel.value||'').toLowerCase();
       if(v==='aidash'||v==='cfo'||v==='cfoai') return 'cfo';
       if(v==='accountant'||v==='acctai'||v==='acct') return 'acct';
-      // Then try the selected option's label
+      // Label path: ONLY the selected option's textContent
       var opt = sel.options && sel.options[sel.selectedIndex];
       if(!opt) return null;
       var label = (opt.textContent||'').trim();
-      if(/^[^A-Z]*CFO[\s\-]*AI/i.test(label)) return 'cfo';
-      if(/^[^A-Z]*ACCOUNTANT[\s\-]*AI/i.test(label)) return 'acct';
+      // ACCOUNTANT first (CFO regex doesn't match it but be defensive)
+      if(/ACCOUNTANT/i.test(label)) return 'acct';
+      if(/CFO/i.test(label)) return 'cfo';
       return null;
     }catch(e){return null;}
+  }
+  // v3.69.13.3 — always-on diagnostic banner injected at top of body so user can SEE it
+  function diagBannerHtml(){
+    var sel=document.querySelector('#hnxaccTabs select');
+    if(!sel) return '<div class="hnx-v12-diag">v3.69.13.3 PROBE: no #hnxaccTabs select found</div>';
+    var opt = sel.options && sel.options[sel.selectedIndex];
+    var d = activeSection();
+    return '<div class="hnx-v12-diag" style="background:#3a1f1f;border:2px solid #ff8a7a;border-radius:8px;padding:10px;margin:8px 0;font-family:monospace;font-size:11.5px;color:#ffeb9c;">'
+      +'<b>v3.69.13.3 PROBE</b><br>'
+      +'sel.value: <code style="color:#84e0d8;">'+esc(JSON.stringify(sel.value))+'</code><br>'
+      +'selected label: <code style="color:#84e0d8;">'+esc(JSON.stringify(opt?opt.textContent:null))+'</code><br>'
+      +'detected section: <code style="color:'+(d?'#5fe07a':'#ff8a7a')+';"><b>'+esc(JSON.stringify(d))+'</b></code><br>'
+      +'<i style="color:#9fc7bb;">If detected is null but you ARE on CFO-AI or ACCOUNTANT-AI, tell me what "selected label" shows above and I add it to the detection.</i>'
+      +'</div>';
   }
 
   function renderSubNav(section){
@@ -163511,6 +163526,9 @@ gh+=_mtxTreeBody(rows);
       var body=document.getElementById('hnxaccBody');
       if(!body)return;
       var section = activeSection();
+      // v3.69.13.3 — always show a probe banner so we can see what we detected
+      var probeHtml = diagBannerHtml();
+      inject(body, probeHtml, 'hnx-v12-probe');
       // v3.69.13.1 — when leaving an AI section, REMOVE our injected nodes so they don't leak
       if(!section){
         ['cfo','acct'].forEach(function(s){
@@ -163553,7 +163571,7 @@ gh+=_mtxTreeBody(rows);
     setTimeout(processBody, 700);
   }
 
-  function start(){startObs(); log('v3.69.13.1 loaded — hotfix: section detection + cleanup on navigate away');}
+  function start(){startObs(); log('v3.69.13.3 loaded — visible probe banner to diagnose detection');}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded', start);
   else start();
 })();
