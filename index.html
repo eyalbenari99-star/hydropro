@@ -162725,10 +162725,12 @@ gh+=_mtxTreeBody(rows);
 </script>
 <!-- ===================== END HNX v3.69.10 ===================== -->
 
-<!-- ===================== HNX v3.69.11 — Real AR/AP Aging from QB ===================== -->
-<!-- Replaces v3.69.7 TB-synthesized AR/AP blocks with real QuickBooks Aging report data. -->
-<!-- Calls /api/qb/apti/aged-receivables + /api/qb/apti/aged-payables with report_date.   -->
-<!-- 5-min localStorage cache. Honest error UX (no fake fallback data).                   -->
+<!-- ===================== HNX v3.69.11.1 — Real AR/AP Aging (loop hotfix) ===================== -->
+<!-- v3.69.11   bug: regex matched parent "Receivables / Payables" → both panels injected on AR view  -->
+<!--           bug: removeMarkers fought v3.69.7 inject → MutationObserver loop ("data jumping")     -->
+<!-- v3.69.11.1 fix: tight regex requires "AR — Receivable" / "AP — Payable" specifically            -->
+<!-- v3.69.11.1 fix: no DOM removal; CSS rule hides v3.69.7 panels when v3.69.11 panel present       -->
+<!-- v3.69.11.1 fix: skip inject when html is identical to current → no MutationObserver feedback    -->
 <style id="hnx-v36911-css">
 .hnx-v11-panel{background:linear-gradient(160deg,#0a140d,#070d09);border:1.5px solid rgba(132,255,249,.35);border-radius:12px;padding:14px 18px;margin:14px 0 18px;}
 .hnx-v11-h{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid rgba(132,255,249,.18);}
@@ -162752,6 +162754,9 @@ gh+=_mtxTreeBody(rows);
 .hnx-v11-err-h{font-size:13px;font-weight:800;color:#ff8a7a;letter-spacing:.3px;margin-bottom:8px;}
 .hnx-v11-err-b{font-size:11.5px;color:#cdebcf;line-height:1.6;font-family:var(--mono,monospace);}
 .hnx-v11-load{padding:18px;text-align:center;color:#7a9b80;font-size:11.5px;}
+/* v3.69.11.1 — hide v3.69.7 synth panels when real v3.69.11 panels are present (no DOM removal = no MO loop) */
+.hnx-v11-ar-real ~ .hnx-v7-arwrap{display:none!important;}
+.hnx-v11-ap-real ~ .hnx-v7-apwrap{display:none!important;}
 </style>
 <script id="hnx-v36911-aging">
 (function(){
@@ -162907,7 +162912,7 @@ gh+=_mtxTreeBody(rows);
   async function loadAndRender(co, kind){
     var cached=cacheGet(co,kind);
     if(cached && (Date.now()-cached.at)<CACHE_TTL){
-      log('cache hit', co, kind);
+      // v3.69.11.1 — silent cache hit (no log spam); loop should not happen now but defense in depth
       return renderAging(cached.parsed, kind, cached.asOf);
     }
     var fetched=await qbFetchAging(co,kind);
@@ -162933,14 +162938,15 @@ gh+=_mtxTreeBody(rows);
     return 'APTI';
   }
 
-  function inject(body, html, marker, removeMarkers){
+  function inject(body, html, marker){
     if(!html)return;
-    (removeMarkers||[]).forEach(function(m){
-      var old=body.querySelector('.'+m);
-      if(old) old.remove();
-    });
     var existing=body.querySelector('.'+marker);
-    if(existing){ existing.innerHTML=html; return; }
+    if(existing){
+      // v3.69.11.1 — only overwrite if content actually changed (prevents MO feedback loop)
+      if(existing.innerHTML===html) return;
+      existing.innerHTML=html;
+      return;
+    }
     var wrap=document.createElement('div');
     wrap.className=marker;
     wrap.innerHTML=html;
@@ -162961,23 +162967,29 @@ gh+=_mtxTreeBody(rows);
       var co=getActiveCo();
       if(!QB_ROUTES[co])return;
 
-      if(bodyMatches(body, [/AR.*Aging|Aged.*Receivable|Receivables\s+Aging/i])){
+      // v3.69.11.1 — STRICT regex. Must match the sub-sub specifically (e.g. "AR — Receivables"),
+      // NOT the parent sub-tab text "Receivables / Payables" that contains both words.
+      // — em-dash, – en-dash, - hyphen — all three cover the dropdown label variants.
+      var isAR = /\bAR\s*[—–\-]\s*Receivable/i.test(body.textContent||'');
+      var isAP = /\bAP\s*[—–\-]\s*Payable/i.test(body.textContent||'');
+
+      if(isAR && !isAP){
         var arkey=co+'_ar';
         if(!pendingFetch[arkey]){
           pendingFetch[arkey]=true;
-          inject(body, renderLoading('ar'), 'hnx-v11-ar-real', ['hnx-v7-arwrap']);
+          inject(body, renderLoading('ar'), 'hnx-v11-ar-real');
           var html=await loadAndRender(co, 'ar');
-          inject(body, html, 'hnx-v11-ar-real', ['hnx-v7-arwrap']);
+          inject(body, html, 'hnx-v11-ar-real');
           delete pendingFetch[arkey];
         }
       }
-      if(bodyMatches(body, [/AP.*Aging|Aged.*Payable|Payables\s+Aging/i])){
+      if(isAP && !isAR){
         var apkey=co+'_ap';
         if(!pendingFetch[apkey]){
           pendingFetch[apkey]=true;
-          inject(body, renderLoading('ap'), 'hnx-v11-ap-real', ['hnx-v7-apwrap']);
+          inject(body, renderLoading('ap'), 'hnx-v11-ap-real');
           var html=await loadAndRender(co, 'ap');
-          inject(body, html, 'hnx-v11-ap-real', ['hnx-v7-apwrap']);
+          inject(body, html, 'hnx-v11-ap-real');
           delete pendingFetch[apkey];
         }
       }
@@ -162996,7 +163008,7 @@ gh+=_mtxTreeBody(rows);
     setTimeout(processBody, 700);
   }
 
-  function start(){startObs(); log('v3.69.11 loaded — Real AR/AP Aging armed (replaces v3.69.7 TB synthesis)');}
+  function start(){startObs(); log('v3.69.11.1 loaded — Real AR/AP Aging armed (loop hotfix: strict regex, no DOM removal, html-equal skip)');}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded', start);
   else start();
 
@@ -163010,7 +163022,7 @@ gh+=_mtxTreeBody(rows);
   };
 })();
 </script>
-<!-- ===================== END HNX v3.69.11 ===================== -->
+<!-- ===================== END HNX v3.69.11.1 ===================== -->
 
 </body>
 </html>
