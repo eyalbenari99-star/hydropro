@@ -163099,24 +163099,23 @@ gh+=_mtxTreeBody(rows);
   }
 
   function activeSection(){
-    // Read which section is active from the SECTION <select> at top of accounting overlay
+    // v3.69.13.1 — read ONLY the selected option's label, not the whole select textContent
+    // (which would include all option labels and false-match every section).
     try{
       var sel=document.querySelector('#hnxaccTabs select');
-      if(sel){
-        var v=sel.value||'';
-        if(v==='aidash') return 'cfo';
-        if(v==='accountant'||v==='acctai') return 'acct';
-      }
-    }catch(e){}
-    // Fallback: scan visible text
-    var ovr=document.querySelector('#hnxaccOverlay');
-    if(!ovr) return null;
-    var topBar=ovr.querySelector('#hnxaccTabs');
-    if(!topBar) return null;
-    var txt=topBar.textContent||'';
-    if(/CFO[\s\-]?AI/.test(txt) && !/ACCOUNTANT/.test(txt)) return 'cfo';
-    if(/ACCOUNTANT[\s\-]?AI/.test(txt)) return 'acct';
-    return null;
+      if(!sel) return null;
+      // Try value first (cheapest)
+      var v=(sel.value||'').toLowerCase();
+      if(v==='aidash'||v==='cfo'||v==='cfoai') return 'cfo';
+      if(v==='accountant'||v==='acctai'||v==='acct') return 'acct';
+      // Then try the selected option's label
+      var opt = sel.options && sel.options[sel.selectedIndex];
+      if(!opt) return null;
+      var label = (opt.textContent||'').trim();
+      if(/^[^A-Z]*CFO[\s\-]*AI/i.test(label)) return 'cfo';
+      if(/^[^A-Z]*ACCOUNTANT[\s\-]*AI/i.test(label)) return 'acct';
+      return null;
+    }catch(e){return null;}
   }
 
   function renderSubNav(section){
@@ -163133,19 +163132,362 @@ gh+=_mtxTreeBody(rows);
       +'</div>';
   }
 
+  // ====== Real-data helpers (v3.69.13) ======
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function fmt(v){var n=Number(v)||0; if(Math.abs(n)<0.005)return '–'; var s=Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}); return (n<0?'('+s+')':s);}
+  function fmtP(v){var n=Number(v)||0; if(Math.abs(n)<0.005)return '–'; return '₱'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})+(n<0?')':'');}
+  function loadTB(co){try{var qb=JSON.parse(localStorage.getItem('hydroPro_acct_qb_v1')||'{}'); return (qb&&qb[co]&&qb[co].tb&&qb[co].tb.parsed&&qb[co].tb.parsed.rows)||[];}catch(e){return [];}}
+  function loadFS(co){try{var fs=JSON.parse(localStorage.getItem('hydroPro_acct_fs_v1')||'{}'); return (fs&&fs[co]&&fs[co].num)||{};}catch(e){return {};}}
+  function loadAging(co,kind){try{var a=JSON.parse(localStorage.getItem('hydroPro_acct_qb_aging_v1')||'{}'); return (a&&a[co]&&a[co][kind])||null;}catch(e){return null;}}
+  function getActiveCo(){
+    try{var btn=document.querySelector('.hnxacc-co.active'); if(btn){return btn.textContent.trim().split(/\s+/)[0].toUpperCase();}}catch(e){}
+    return 'APTI';
+  }
+  function filterTB(tb, prefixes){
+    return tb.filter(function(r){
+      var code=(String(r.account||'').match(/^(\d[\d.\/A-Za-z-]*)/)||['',''])[1];
+      if(!code)return false;
+      var p4=code.substring(0,4);
+      return prefixes.indexOf(p4)>=0;
+    });
+  }
+  function totalEnding(rows){return rows.reduce(function(a,r){return a+(Number(r.ending)||0);},0);}
+  function totalCredit(rows){return rows.reduce(function(a,r){return a+((Number(r.credit)||0)-(Number(r.debit)||0));},0);}
+
+  function panelOpen(icon, title, meta){
+    return '<div class="hnx-v12-panel"><div class="hnx-v12-h"><div class="hnx-v12-dot"></div>'
+      +'<div class="hnx-v12-tt">'+icon+' '+esc(title)+'</div>'
+      +'<div class="hnx-v12-meta">'+esc(meta)+'</div></div><div class="hnx-v12-body">';
+  }
+  function panelClose(){return '</div></div>';}
+  function tableHTML(headers, rows){
+    var h='<table style="width:100%;border-collapse:collapse;font-size:11.5px;font-family:monospace;margin-top:8px;"><thead><tr>';
+    headers.forEach(function(c,i){h+='<th style="padding:6px 10px;text-align:'+(i===0?'left':'right')+';color:#9fc7bb;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid rgba(132,255,249,.18);">'+esc(c)+'</th>';});
+    h+='</tr></thead><tbody>';
+    rows.forEach(function(r,ri){
+      h+='<tr style="'+(r.tot?'border-top:1.5px solid #5fe07a;border-bottom:2px solid #5fe07a;background:rgba(95,224,122,.06);font-weight:800;color:#9ff5f1;':'')+'">';
+      r.cells.forEach(function(c,ci){
+        var align=ci===0?'left':'right';
+        var color=c.neg?'color:#ff8a7a;':(c.dim?'color:#3c5a4f;':'color:#e8f5e9;');
+        h+='<td style="padding:5px 10px;text-align:'+align+';font-variant-numeric:tabular-nums;border-bottom:1px solid rgba(76,175,80,.05);'+color+'">'+(c.html||esc(c.v||''))+'</td>';
+      });
+      h+='</tr>';
+    });
+    h+='</tbody></table>';
+    return h;
+  }
+  function noData(msg){
+    return '<div style="padding:18px;text-align:center;color:#7a9b80;font-size:11.5px;font-style:italic;">'+esc(msg)+'</div>';
+  }
+  function honestPlaceholder(reason){
+    return '<div style="background:rgba(255,235,156,.05);border:1.5px dashed rgba(255,235,156,.4);border-radius:10px;padding:16px;margin:8px 0;">'
+      +'<div style="font-size:12px;font-weight:700;color:#ffeb9c;margin-bottom:6px;">⚠ Awaiting native data feed</div>'
+      +'<div style="font-size:11.5px;color:#cdebcf;line-height:1.6;">'+esc(reason)+'</div></div>';
+  }
+
+  // ====== CFO-AI tab renderers ======
+  function cfoRenderDash(co){
+    var fs=loadFS(co), tb=loadTB(co);
+    var sales=Number(fs.is_sales_cur)||0, cogs=Math.abs(Number(fs.is_cogs_cur)||0);
+    var gp=sales-cogs, gpm=sales?gp/sales*100:0;
+    var ni=Number(fs.is_ni_cur)||0;
+    var cash=filterTB(tb,['1000','1011','1012']).reduce(function(a,r){return a+(Number(r.ending)||0);},0);
+    var ar=filterTB(tb,['1015','1019','1020','1021']).reduce(function(a,r){return a+(Number(r.ending)||0);},0);
+    var ap=Math.abs(filterTB(tb,['2000','2100','2311','2312']).reduce(function(a,r){return a+totalCredit([r]);},0));
+    var dso=sales>0?ar/(sales/365):0;
+    var dpo=cogs>0?ap/(cogs/365):0;
+    var totalAssets=Number(fs.bs_ta_cur)||0;
+    var h=panelOpen('📊','CFO Dashboard','APTI · 2025 YTD strategic snapshot');
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px;"><tr>';
+    [['Sales',fmtP(sales)],['Net Income',fmtP(ni)],['Cash',fmtP(cash)],['AR',fmtP(ar)],['AP',fmtP(ap)],['Total Assets',fmtP(totalAssets)],['Gross Margin',gpm.toFixed(1)+'%'],['DSO (days)',dso.toFixed(0)],['DPO (days)',dpo.toFixed(0)]].forEach(function(kv,i){if(i%3===0&&i>0)h+='</tr><tr>'; h+='<td style="padding:14px;border:1px solid #244;background:linear-gradient(135deg,rgba(46,204,155,.07),rgba(66,165,245,.04));"><div style="font-size:20px;font-weight:800;font-family:monospace;letter-spacing:-.5px;color:#e8f5e9;">'+kv[1]+'</div><div style="font-size:10.5px;color:#9fc7bb;margin-top:2px;">'+kv[0]+'</div></td>';});
+    h+='</tr></table>'+panelClose();
+    return h;
+  }
+  function cfoRenderPack(co){
+    var fs=loadFS(co);
+    var h=panelOpen('📦','Board Pack','APTI · Monthly performance summary');
+    h+='<b>Income Statement Summary (2025 YTD)</b>';
+    h+=tableHTML(['Line','Amount','% of Sales'],[
+      {cells:[{v:'Sales'},{v:fmtP(fs.is_sales_cur||0)},{v:'100.0%'}]},
+      {cells:[{v:'Cost of Sales'},{v:fmtP(fs.is_cogs_cur||0)},{v:fs.is_sales_cur?(Math.abs(fs.is_cogs_cur||0)/Math.abs(fs.is_sales_cur)*100).toFixed(1)+'%':'–'}]},
+      {tot:true,cells:[{v:'Gross Profit'},{v:fmtP(fs.is_gp_cur||0)},{v:fs.is_sales_cur?(Math.abs(fs.is_gp_cur||0)/Math.abs(fs.is_sales_cur)*100).toFixed(1)+'%':'–'}]},
+      {cells:[{v:'Admin Expenses'},{v:fmtP(fs.is_admin_cur||0)},{v:fs.is_sales_cur?(Math.abs(fs.is_admin_cur||0)/Math.abs(fs.is_sales_cur)*100).toFixed(1)+'%':'–'}]},
+      {tot:true,cells:[{v:'Net Income'},{v:fmtP(fs.is_ni_cur||0)},{v:fs.is_sales_cur?(Math.abs(fs.is_ni_cur||0)/Math.abs(fs.is_sales_cur)*100).toFixed(1)+'%':'–'}]}
+    ]);
+    h+=panelClose();
+    return h;
+  }
+  function cfoRenderCash(co){
+    var tb=loadTB(co);
+    var rows=filterTB(tb,['1000','1011','1012']).sort(function(a,b){return Math.abs(Number(b.ending)||0)-Math.abs(Number(a.ending)||0);});
+    if(!rows.length){return panelOpen('💧','Cash Position','APTI · No cash accounts found')+noData('Open Live QuickBooks → Pull TB first.')+panelClose();}
+    var total=rows.reduce(function(a,r){return a+(Number(r.ending)||0);},0);
+    var trows=rows.map(function(r){
+      var nm=String(r.account||'').replace(/^\d[\d.\/A-Za-z-]*\s*/,'');
+      var end=Number(r.ending)||0;
+      return {cells:[{v:nm},{v:fmt(end),neg:end<0,dim:end===0}]};
+    });
+    trows.push({tot:true,cells:[{v:'TOTAL CASH'},{v:fmtP(total)}]});
+    var h=panelOpen('💧','Cash Position by Account','APTI · '+rows.length+' cash accounts');
+    h+=tableHTML(['Account','Ending'],trows);
+    h+=panelClose();
+    return h;
+  }
+  function cfoRenderReco(co){
+    var h=panelOpen('🔄','CFO Reconciliation','APTI · Bank vs book, intercompany, FX');
+    h+=honestPlaceholder('CFO-level reconciliation requires bank statement uploads + FX rate feed. The Bank Reconciliation module (Matrices → Banks) has the book balances. CFO reco view will aggregate from there + add intercompany eliminations + FX revaluation. Build queued.');
+    h+=panelClose();
+    return h;
+  }
+  function cfoRenderPrice(co){
+    var h=panelOpen('💰','Pricing & Margin','APTI · Product margins, customer profitability');
+    h+=honestPlaceholder('Customer profitability requires QB sales-by-customer + cost allocation. The /api/qb/apti/customer-balance worker route is available but not yet wired to this view. Next step: build sales-by-customer Make scenario + parser.');
+    h+=panelClose();
+    return h;
+  }
+  function cfoRenderEffect(co){
+    var fs=loadFS(co);
+    var sales=Number(fs.is_sales_cur)||0;
+    var opex=Math.abs(Number(fs.is_admin_cur)||0);
+    var totalAssets=Number(fs.bs_ta_cur)||0;
+    var opexRatio=sales?opex/sales*100:0;
+    var assetTurnover=totalAssets?sales/totalAssets:0;
+    var h=panelOpen('📈','Effectiveness Metrics','APTI · 2025 YTD');
+    h+=tableHTML(['Metric','Value','Interpretation'],[
+      {cells:[{v:'Opex per ₱ Revenue'},{v:opexRatio.toFixed(1)+'%'},{v:opexRatio<30?'Healthy':opexRatio<50?'Moderate':'High'}]},
+      {cells:[{v:'Asset Turnover'},{v:assetTurnover.toFixed(2)+'x'},{v:assetTurnover>1?'Efficient':assetTurnover>0.5?'Average':'Low'}]},
+      {cells:[{v:'Net Income / Revenue'},{v:sales?(Number(fs.is_ni_cur)||0)/sales*100+'%':'–'},{v:''}]}
+    ]);
+    h+=panelClose();
+    return h;
+  }
+
+  // ====== ACCOUNTANT-AI tab renderers ======
+  function acctRenderAp(co){
+    var tb=loadTB(co);
+    var rows=filterTB(tb,['2000','2100','2311','2312']).sort(function(a,b){return Math.abs(totalCredit([b]))-Math.abs(totalCredit([a]));});
+    if(!rows.length){return panelOpen('📤','Accounts Payable','No payable accounts found')+noData('Pull TB first.')+panelClose();}
+    var total=rows.reduce(function(a,r){return a+((Number(r.credit)||0)-(Number(r.debit)||0));},0);
+    var trows=rows.slice(0,30).map(function(r){
+      var nm=String(r.account||'').replace(/^\d[\d.\/A-Za-z-]*\s*/,'');
+      var bal=(Number(r.credit)||0)-(Number(r.debit)||0);
+      return {cells:[{v:nm},{v:fmt(bal),neg:bal<0,dim:bal===0}]};
+    });
+    trows.push({tot:true,cells:[{v:'TOTAL PAYABLES (top 30)'},{v:fmtP(total)}]});
+    var h=panelOpen('📤','Accounts Payable','APTI · Top 30 of '+rows.length+' AP accounts (from TB)');
+    h+=tableHTML(['Account','Balance'],trows);
+    h+='<div style="margin-top:10px;font-size:10.5px;color:#7a9b80;font-style:italic;">For true aging buckets (Current / 1-30 / 31-60 / 61-90 / 91+), see the real Aged Payables panel on the Matrices → AP — Payables view.</div>';
+    h+=panelClose();
+    return h;
+  }
+  function acctRenderPo(co){
+    var h=panelOpen('📋','Purchase Orders','Open POs, receipts, 3-way match');
+    h+=honestPlaceholder('Purchase Orders require SOS Inventory PO feed (already connected per your stack) + matching to QB bills. PO sync scenario not yet built. Queue as v3.69.x.');
+    h+=panelClose();
+    return h;
+  }
+  function acctRenderAr(co){
+    var aging=loadAging(co,'ar');
+    if(aging && aging.parsed && aging.parsed.rows.length){
+      var p=aging.parsed;
+      var h=panelOpen('📥','Accounts Receivable','APTI · '+p.rows.length+' customers · Live from QB · As of '+aging.asOf);
+      var sorted=p.rows.slice().sort(function(a,b){return Math.abs(b.values[b.values.length-1]||0)-Math.abs(a.values[a.values.length-1]||0);});
+      var trows=sorted.map(function(r){
+        var cells=[{v:r.name}];
+        r.values.forEach(function(v,i){
+          var isOld=(i>=r.values.length-3 && i<r.values.length-1);
+          cells.push({v:v?fmt(v):'–', neg:v<0, dim:v===0, html:isOld&&v>0?'<b style="color:#ff8a7a;">'+fmt(v)+'</b>':null});
+        });
+        return {cells:cells};
+      });
+      var totalsCells=[{v:'TOTAL'}];
+      p.totals.forEach(function(t){totalsCells.push({v:fmtP(t)});});
+      trows.push({tot:true,cells:totalsCells});
+      h+=tableHTML(['Customer'].concat(p.columns.slice(1)),trows);
+      h+=panelClose();
+      return h;
+    }
+    // Fallback to TB synthesis
+    var tb=loadTB(co);
+    var rows=filterTB(tb,['1015','1019','1020','1021']).sort(function(a,b){return Math.abs(Number(b.ending)||0)-Math.abs(Number(a.ending)||0);});
+    if(!rows.length){return panelOpen('📥','Accounts Receivable','No AR found')+noData('Pull TB or open Matrices → AR for real aging.')+panelClose();}
+    var total=rows.reduce(function(a,r){return a+(Number(r.ending)||0);},0);
+    var trows=rows.slice(0,30).map(function(r){
+      var nm=String(r.account||'').replace(/^\d[\d.\/A-Za-z-]*\s*/,'');
+      return {cells:[{v:nm},{v:fmt(r.ending||0)}]};
+    });
+    trows.push({tot:true,cells:[{v:'TOTAL AR'},{v:fmtP(total)}]});
+    var h=panelOpen('📥','Accounts Receivable','APTI · From TB · No live aging cached yet');
+    h+=tableHTML(['Account','Ending'],trows);
+    h+='<div style="margin-top:10px;font-size:10.5px;color:#7a9b80;font-style:italic;">For real aging buckets, open Matrices → AR — Receivables (live QB pull).</div>';
+    h+=panelClose();
+    return h;
+  }
+  function acctRenderCollections(co){
+    var aging=loadAging(co,'ar');
+    if(!aging || !aging.parsed || !aging.parsed.rows.length){
+      return panelOpen('📞','Collections','APTI · No AR aging cached')+noData('Open Matrices → AR — Receivables to fetch live aging first.')+panelClose();
+    }
+    var p=aging.parsed;
+    // Get customers with anything in 61+ days
+    var oldIdx=p.columns.length-3; // 61-90 column index after Customer
+    var ninetyIdx=p.columns.length-2; // 91+ column index
+    var overdue=p.rows.filter(function(r){
+      return (r.values[oldIdx-1]||0)>0 || (r.values[ninetyIdx-1]||0)>0;
+    }).sort(function(a,b){return (b.values[ninetyIdx-1]||0)-(a.values[ninetyIdx-1]||0);});
+    var h=panelOpen('📞','Overdue Collections Queue','APTI · '+overdue.length+' customers with 61+ day balances');
+    if(!overdue.length){h+=noData('🎉 No overdue receivables. All customers within 60 days.');}
+    else{
+      var trows=overdue.map(function(r){
+        return {cells:[{v:r.name},{v:fmt(r.values[oldIdx-1]||0)},{v:fmt(r.values[ninetyIdx-1]||0), html:'<b style="color:#ff8a7a;">'+fmt(r.values[ninetyIdx-1]||0)+'</b>'},{v:fmtP(r.values[r.values.length-1]||0)}]};
+      });
+      h+=tableHTML(['Customer','61-90','91+','Total Open'],trows);
+      h+='<div style="margin-top:10px;font-size:10.5px;color:#7a9b80;font-style:italic;">AI-drafted collection emails: queue for v3.69.x (will use OpenAI to draft per-customer follow-up letters).</div>';
+    }
+    h+=panelClose();
+    return h;
+  }
+  function acctRenderAssets(co){
+    var tb=loadTB(co);
+    var rows=filterTB(tb,['1025','1026']).sort(function(a,b){return Math.abs(Number(b.ending)||0)-Math.abs(Number(a.ending)||0);});
+    if(!rows.length){return panelOpen('🏭','Fixed Assets','No PPE found')+noData('Pull TB first.')+panelClose();}
+    var total=rows.reduce(function(a,r){return a+(Number(r.ending)||0);},0);
+    var trows=rows.slice(0,40).map(function(r){
+      var nm=String(r.account||'').replace(/^\d[\d.\/A-Za-z-]*\s*/,'');
+      var dr=Number(r.debit)||0, cr=Number(r.credit)||0;
+      return {cells:[{v:nm},{v:fmt(dr),dim:dr===0},{v:fmt(cr),dim:cr===0,neg:cr>0},{v:fmt(r.ending||0)}]};
+    });
+    trows.push({tot:true,cells:[{v:'TOTAL PPE'},{v:''},{v:''},{v:fmtP(total)}]});
+    var h=panelOpen('🏭','Fixed Assets Register','APTI · Top 40 of '+rows.length+' PPE accounts');
+    h+=tableHTML(['Account','Cost (Dr)','Accum Depr (Cr)','Net Book Value'],trows);
+    h+=panelClose();
+    return h;
+  }
+  function acctRenderLoans(co){
+    var tb=loadTB(co);
+    var rows=filterTB(tb,['2200']).sort(function(a,b){return Math.abs(totalCredit([b]))-Math.abs(totalCredit([a]));});
+    if(!rows.length){return panelOpen('🏦','Loans','No loan accounts')+noData('No loan accounts found in TB (prefix 2200).')+panelClose();}
+    var total=rows.reduce(function(a,r){return a+((Number(r.credit)||0)-(Number(r.debit)||0));},0);
+    var trows=rows.map(function(r){
+      var nm=String(r.account||'').replace(/^\d[\d.\/A-Za-z-]*\s*/,'');
+      var bal=(Number(r.credit)||0)-(Number(r.debit)||0);
+      return {cells:[{v:nm},{v:fmt(bal),neg:bal<0}]};
+    });
+    trows.push({tot:true,cells:[{v:'TOTAL LOANS'},{v:fmtP(total)}]});
+    var h=panelOpen('🏦','Loans & Liabilities','APTI · '+rows.length+' loan accounts');
+    h+=tableHTML(['Loan Account','Outstanding'],trows);
+    h+='<div style="margin-top:10px;font-size:10.5px;color:#7a9b80;font-style:italic;">Amortization schedules + interest accruals require loan terms input. Build queued.</div>';
+    h+=panelClose();
+    return h;
+  }
+  function acctRenderBanks(co){
+    var tb=loadTB(co);
+    var rows=filterTB(tb,['1011','1012']).filter(function(r){return /bank|bpi|bdo|dbp|robinsons|metrobank|landbank|psbank/i.test(String(r.account||''));}).sort(function(a,b){return Math.abs(Number(b.ending)||0)-Math.abs(Number(a.ending)||0);});
+    if(!rows.length){return panelOpen('🏦','Banks','No bank accounts')+noData('No identifiable bank accounts in TB.')+panelClose();}
+    var total=rows.reduce(function(a,r){return a+(Number(r.ending)||0);},0);
+    var trows=rows.map(function(r){
+      var nm=String(r.account||'').replace(/^\d[\d.\/A-Za-z-]*\s*/,'');
+      return {cells:[{v:nm},{v:fmt(r.ending||0)}]};
+    });
+    trows.push({tot:true,cells:[{v:'TOTAL BANK BOOK BALANCE'},{v:fmtP(total)}]});
+    var h=panelOpen('🏦','Banks & Reconciliation','APTI · '+rows.length+' bank accounts (book balance)');
+    h+=tableHTML(['Bank Account','Book Balance'],trows);
+    h+='<div style="margin-top:10px;font-size:10.5px;color:#7a9b80;font-style:italic;">Bank statement upload + matching: see Matrices → Banks. Statement vs Book deltas computed there.</div>';
+    h+=panelClose();
+    return h;
+  }
+  function acctRenderCards(co){
+    var h=panelOpen('💳','Credit Cards & Reconciliation','Credit card transactions');
+    h+=honestPlaceholder('Credit card transaction sync requires per-card feed. QB has the liability balances (prefix 2050 / 2150). Statement-level reconciliation requires either CSV upload or direct card feed. Queue.');
+    h+=panelClose();
+    return h;
+  }
+  function acctRenderPettycash(co){
+    var tb=loadTB(co);
+    var rows=filterTB(tb,['1000']).filter(function(r){return /petty|cash on hand|coh/i.test(String(r.account||''));}).sort(function(a,b){return Math.abs(Number(b.ending)||0)-Math.abs(Number(a.ending)||0);});
+    if(!rows.length){return panelOpen('💵','Petty Cash','No petty cash')+noData('No petty cash accounts found in TB.')+panelClose();}
+    var total=rows.reduce(function(a,r){return a+(Number(r.ending)||0);},0);
+    var trows=rows.map(function(r){
+      var nm=String(r.account||'').replace(/^\d[\d.\/A-Za-z-]*\s*/,'');
+      return {cells:[{v:nm},{v:fmt(r.ending||0)}]};
+    });
+    trows.push({tot:true,cells:[{v:'TOTAL PETTY CASH'},{v:fmtP(total)}]});
+    var h=panelOpen('💵','Petty Cash by Custodian','APTI · '+rows.length+' petty cash accounts');
+    h+=tableHTML(['Account','Balance'],trows);
+    h+=panelClose();
+    return h;
+  }
+  function acctRenderRecurring(co){
+    var h=panelOpen('🔁','Recurring Expenses & Income','Auto-detection');
+    h+=honestPlaceholder('Recurring item detection requires pattern analysis of last 6-12 months of journal entries. Need QB General Ledger pull (worker route /api/qb/apti/general-ledger is ready). Detection algorithm + UI queued.');
+    h+=panelClose();
+    return h;
+  }
+  function acctRenderCashforecast(co){
+    var tb=loadTB(co);
+    var cash=filterTB(tb,['1000','1011','1012']).reduce(function(a,r){return a+(Number(r.ending)||0);},0);
+    var aging=loadAging(co,'ar');
+    var arTotal=aging&&aging.parsed?aging.parsed.totals[aging.parsed.totals.length-1]||0:0;
+    var h=panelOpen('💧','Cash & Forecast-AI','APTI · Simple 30-day projection (per plan §8)');
+    h+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px;">';
+    [['Starting Cash',fmtP(cash)],['Expected AR collection (30d est)',fmtP(arTotal*0.6)],['Forecast Ending Cash (rough)',fmtP(cash+arTotal*0.6)]].forEach(function(kv){
+      h+='<div style="padding:14px;border:1px solid #244;background:linear-gradient(135deg,rgba(46,204,155,.07),rgba(66,165,245,.04));border-radius:10px;"><div style="font-size:18px;font-weight:800;font-family:monospace;color:#e8f5e9;">'+kv[1]+'</div><div style="font-size:10px;color:#9fc7bb;margin-top:2px;">'+kv[0]+'</div></div>';
+    });
+    h+='</div>';
+    h+=honestPlaceholder('Full Cash & Forecast-AI per master plan §8 needs: (1) recurring expense feed, (2) AR payment behavior model, (3) project-level inflow/outflow tagging, (4) horizon selector (14d/30d/90d/12m), (5) chart. Built incrementally as worker routes for GL come online. The numbers above are honest first-order estimates (starting cash from TB + 60% of open AR within 30d).');
+    h+=panelClose();
+    return h;
+  }
+  function acctRenderOther(co){
+    var tb=loadTB(co);
+    if(!tb.length){return panelOpen('📦','Other Ledgers','No TB cached')+noData('Pull TB first.')+panelClose();}
+    // Show accounts NOT in any of the standard prefixes
+    var known=['1000','1011','1012','1015','1019','1020','1021','1023','1025','1026','2000','2100','2200','2311','2312','2800','4000','5001','5003','5105','5106','6122','6123','6124'];
+    var other=tb.filter(function(r){var code=(String(r.account||'').match(/^(\d[\d.\/A-Za-z-]*)/)||['',''])[1]; return code && known.indexOf(code.substring(0,4))<0;}).sort(function(a,b){return Math.abs(Number(b.ending)||0)-Math.abs(Number(a.ending)||0);});
+    if(!other.length){return panelOpen('📦','Other Ledgers','All accounts classified')+noData('Every account in TB matches a standard prefix. Nothing unclassified.')+panelClose();}
+    var trows=other.slice(0,40).map(function(r){
+      var nm=String(r.account||'').replace(/^\d[\d.\/A-Za-z-]*\s*/,'');
+      return {cells:[{v:nm},{v:fmt(r.ending||0)}]};
+    });
+    var h=panelOpen('📦','Other Ledgers / Unclassified','APTI · Top 40 of '+other.length+' uncategorized accounts');
+    h+=tableHTML(['Account','Ending'],trows);
+    h+=panelClose();
+    return h;
+  }
+
+  // ====== Dispatcher ======
   function renderPanel(section, tabKey){
-    var tabs = section==='cfo' ? CFO_TABS : ACCT_TABS;
-    var tab = tabs.filter(function(t){return t.key===tabKey;})[0] || tabs[0];
-    var sectionName = section==='cfo' ? 'CFO-AI' : 'ACCOUNTANT-AI';
-    return '<div class="hnx-v12-panel">'
-      +'<div class="hnx-v12-h"><div class="hnx-v12-dot"></div>'
-      +'<div class="hnx-v12-tt">'+tab.label+' — '+sectionName+'</div>'
-      +'<div class="hnx-v12-meta">v3.69.12 · per master plan</div></div>'
-      +'<div class="hnx-v12-body">'
-      +'<b>What this view will contain:</b><br>'+tab.desc+'<br><br>'
-      +'<b>Status:</b> sub-tab navigation in place. Full content build queued per <code>accounting module plan June3-26 vs1</code>. '
-      +'For now: switching the dropdown above changes which view loads here. Use this dropdown to navigate the '+sectionName+' workspace.'
-      +'</div></div>';
+    var co=getActiveCo();
+    try{
+      if(section==='cfo'){
+        switch(tabKey){
+          case 'dash': return cfoRenderDash(co);
+          case 'pack': return cfoRenderPack(co);
+          case 'cash': return cfoRenderCash(co);
+          case 'reco': return cfoRenderReco(co);
+          case 'price': return cfoRenderPrice(co);
+          case 'effect': return cfoRenderEffect(co);
+        }
+      } else if(section==='acct'){
+        switch(tabKey){
+          case 'ap': return acctRenderAp(co);
+          case 'po': return acctRenderPo(co);
+          case 'ar': return acctRenderAr(co);
+          case 'collections': return acctRenderCollections(co);
+          case 'assets': return acctRenderAssets(co);
+          case 'loans': return acctRenderLoans(co);
+          case 'banks': return acctRenderBanks(co);
+          case 'cards': return acctRenderCards(co);
+          case 'pettycash': return acctRenderPettycash(co);
+          case 'recurring': return acctRenderRecurring(co);
+          case 'cashforecast': return acctRenderCashforecast(co);
+          case 'other': return acctRenderOther(co);
+        }
+      }
+    }catch(e){
+      return '<div class="hnx-v12-panel"><div class="hnx-v12-h"><div class="hnx-v12-dot" style="background:#ff8a7a;"></div><div class="hnx-v12-tt">Renderer error</div></div><div class="hnx-v12-body">'+esc(e.message||String(e))+'</div></div>';
+    }
+    return panelOpen('?','Unknown tab','')+panelClose();
   }
 
   function inject(body, html, marker){
@@ -163162,14 +163504,31 @@ gh+=_mtxTreeBody(rows);
     body.insertBefore(wrap, body.firstChild);
   }
 
+  // v3.69.13.1 — cache last-rendered HTML per section to skip no-op re-renders
+  var lastRenderedHtml={};
   function processBody(){
     try{
       var body=document.getElementById('hnxaccBody');
       if(!body)return;
       var section = activeSection();
-      if(!section) return;
+      // v3.69.13.1 — when leaving an AI section, REMOVE our injected nodes so they don't leak
+      if(!section){
+        ['cfo','acct'].forEach(function(s){
+          var old=body.querySelector('.hnx-v12-aisubnav-'+s);
+          if(old) old.remove();
+          delete lastRenderedHtml[s];
+        });
+        return;
+      }
+      // Remove the OTHER section's nav if it was previously injected
+      var other = section==='cfo' ? 'acct' : 'cfo';
+      var otherEl = body.querySelector('.hnx-v12-aisubnav-'+other);
+      if(otherEl){ otherEl.remove(); delete lastRenderedHtml[other]; }
       var cur = getTab(section);
       var html = renderSubNav(section) + renderPanel(section, cur);
+      // Skip if exact same HTML as before — prevents focus-loss / dropdown jumping
+      if(lastRenderedHtml[section] === html) return;
+      lastRenderedHtml[section] = html;
       inject(body, html, 'hnx-v12-aisubnav-'+section);
     }catch(e){}
   }
@@ -163194,7 +163553,7 @@ gh+=_mtxTreeBody(rows);
     setTimeout(processBody, 700);
   }
 
-  function start(){startObs(); log('v3.69.12 loaded — AI section sub-tabs (6 CFO + 12 ACCT per master plan)');}
+  function start(){startObs(); log('v3.69.13.1 loaded — hotfix: section detection + cleanup on navigate away');}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded', start);
   else start();
 })();
