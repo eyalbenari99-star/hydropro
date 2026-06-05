@@ -162725,5 +162725,317 @@ gh+=_mtxTreeBody(rows);
 </script>
 <!-- ===================== END HNX v3.69.10 ===================== -->
 
+<!-- ===================== HNX v3.69.11.1 — Real AR/AP Aging (loop hotfix) ===================== -->
+<!-- v3.69.11   bug: regex matched parent "Receivables / Payables" → both panels injected on AR view  -->
+<!--           bug: removeMarkers fought v3.69.7 inject → MutationObserver loop ("data jumping")     -->
+<!-- v3.69.11.1 fix: tight regex requires "AR — Receivable" / "AP — Payable" specifically            -->
+<!-- v3.69.11.1 fix: no DOM removal; CSS rule hides v3.69.7 panels when v3.69.11 panel present       -->
+<!-- v3.69.11.1 fix: skip inject when html is identical to current → no MutationObserver feedback    -->
+<style id="hnx-v36911-css">
+.hnx-v11-panel{background:linear-gradient(160deg,#0a140d,#070d09);border:1.5px solid rgba(132,255,249,.35);border-radius:12px;padding:14px 18px;margin:14px 0 18px;}
+.hnx-v11-h{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid rgba(132,255,249,.18);}
+.hnx-v11-dot{width:9px;height:9px;border-radius:50%;background:#5fe07a;box-shadow:0 0 10px #5fe07a;animation:hnx-v11-pulse 1.6s ease-in-out infinite;}
+.hnx-v11-dot.warn{background:#ffeb9c;animation:none;}
+.hnx-v11-dot.err{background:#ff8a7a;animation:none;}
+@keyframes hnx-v11-pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+.hnx-v11-tt{font-size:13.5px;font-weight:800;color:#9ff5f1;flex:1;letter-spacing:.3px;}
+.hnx-v11-meta{font-size:10.5px;color:#7a9b80;font-family:var(--mono,monospace);}
+.hnx-v11-tbl{width:100%;border-collapse:collapse;font-size:11.5px;font-family:var(--mono,monospace);}
+.hnx-v11-tbl th{padding:6px 10px;text-align:right;color:#9fc7bb;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid rgba(132,255,249,.18);white-space:nowrap;}
+.hnx-v11-tbl th:first-child{text-align:left;}
+.hnx-v11-tbl td{padding:5px 10px;border-bottom:1px solid rgba(76,175,80,.05);}
+.hnx-v11-tbl td:first-child{color:#cdebcf;font-family:var(--sans,inherit);font-size:11.5px;}
+.hnx-v11-tbl td.amt{text-align:right;font-variant-numeric:tabular-nums;color:#e8f5e9;}
+.hnx-v11-tbl td.amt.neg{color:#ff8a7a;}
+.hnx-v11-tbl td.amt.dim{color:#3c5a4f;}
+.hnx-v11-tbl td.amt.hot{color:#ff8a7a;font-weight:700;}
+.hnx-v11-tbl tr.tot td{font-weight:800;color:#9ff5f1;border-top:1.5px solid #5fe07a;border-bottom:2px solid #5fe07a;background:rgba(95,224,122,.06);padding-top:7px;padding-bottom:7px;}
+.hnx-v11-err{background:rgba(255,138,122,.05);border:1.5px dashed rgba(255,138,122,.4);border-radius:12px;padding:18px 22px;margin:14px 0;}
+.hnx-v11-err-h{font-size:13px;font-weight:800;color:#ff8a7a;letter-spacing:.3px;margin-bottom:8px;}
+.hnx-v11-err-b{font-size:11.5px;color:#cdebcf;line-height:1.6;font-family:var(--mono,monospace);}
+.hnx-v11-load{padding:18px;text-align:center;color:#7a9b80;font-size:11.5px;}
+/* v3.69.11.1 — hide v3.69.7 synth panels when real v3.69.11 panels are present (no DOM removal = no MO loop) */
+.hnx-v11-ar-real ~ .hnx-v7-arwrap{display:none!important;}
+.hnx-v11-ap-real ~ .hnx-v7-apwrap{display:none!important;}
+</style>
+<script id="hnx-v36911-aging">
+(function(){
+  'use strict';
+  var TAG='[HNX-V69.11]';
+  function log(){try{console.log.apply(console,[TAG].concat([].slice.call(arguments)));}catch(e){}}
+  function err(){try{console.error.apply(console,[TAG].concat([].slice.call(arguments)));}catch(e){}}
+
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function fmt(v){var n=Number(v)||0; if(Math.abs(n)<0.005)return '–'; var s=Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}); return (n<0?'('+s+')':s);}
+  function fmtP(v){var n=Number(v)||0; if(Math.abs(n)<0.005)return '–'; return '₱'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})+(n<0?')':'');}
+  function num(s){if(s==null||s==='')return 0; s=String(s).replace(/\(/g,'-').replace(/\)/g,'').replace(/[,$₱ ]/g,''); var n=parseFloat(s); return isNaN(n)?0:n;}
+  function todayISO(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+
+  var QB_BASE=(typeof QB_API_BASE!=='undefined')?QB_API_BASE:'https://qb-api.eyalbenari99.workers.dev';
+  var QB_KEY=(typeof QB_API_KEY!=='undefined')?QB_API_KEY:'';
+
+  var QB_ROUTES={
+    APTI:{ar:'/api/qb/apti/aged-receivables', ap:'/api/qb/apti/aged-payables'},
+    APAC:{ar:'/api/qb/apac/aged-receivables', ap:'/api/qb/apac/aged-payables'},
+    GLHI:null
+  };
+
+  var CACHE_KEY='hydroPro_acct_qb_aging_v1';
+  var CACHE_TTL=5*60*1000;
+  function loadCache(){try{var v=JSON.parse(localStorage.getItem(CACHE_KEY)||'{}'); return (v&&typeof v==='object')?v:{};}catch(e){return {};}}
+  function saveCache(o){try{localStorage.setItem(CACHE_KEY,JSON.stringify(o||{}));}catch(e){}}
+  function cacheGet(co,kind){var all=loadCache(); return all[co]&&all[co][kind]?all[co][kind]:null;}
+  function cacheSet(co,kind,payload){var all=loadCache(); if(!all[co])all[co]={}; all[co][kind]=payload; saveCache(all);}
+
+  async function qbFetchAging(co, kind){
+    var routes=QB_ROUTES[co]; if(!routes) return {ok:false, error:'No QB for '+co+' (manual entry only)'};
+    var route=routes[kind]; if(!route) return {ok:false, error:'No '+kind+' route for '+co};
+    var rd=todayISO();
+    var url=QB_BASE+route+'?report_date='+rd+'&accounting_method=Accrual';
+    log('fetching', kind, 'for', co, url);
+    try{
+      var res=await fetch(url, {headers:{'x-api-key':QB_KEY}});
+      var text=await res.text();
+      if(!res.ok){
+        var msg='HTTP '+res.status+' '+res.statusText;
+        if(text) msg+=' — '+text.substring(0,300);
+        return {ok:false, error:msg};
+      }
+      var raw; try{ raw=JSON.parse(text); }catch(e){ return {ok:false, error:'Non-JSON response: '+text.substring(0,200)}; }
+      return {ok:true, raw:raw};
+    }catch(e){
+      return {ok:false, error:(e&&e.message)?e.message:String(e)};
+    }
+  }
+
+  // Parse QB aging tree into {columns, rows:[{name, values}], totals}
+  function parseAging(raw){
+    if(!raw) return null;
+    var rpt = (raw.Header && raw.Columns && raw.Rows) ? raw
+            : (raw.Report && raw.Report.Header) ? raw.Report
+            : (raw.body && raw.body.Header) ? raw.body
+            : (raw.data && raw.data.Header) ? raw.data
+            : raw;
+    if(!rpt || !rpt.Columns || !rpt.Rows) return null;
+
+    var cols=(rpt.Columns.Column||[]).map(function(c){return (c&&c.ColTitle)||'';});
+    var rows=[];
+    function walk(node){
+      if(!node) return;
+      var R=node.Row||(Array.isArray(node)?node:[]);
+      (R||[]).forEach(function(r){
+        if(r&&r.ColData&&r.ColData.length>1){
+          var name=(r.ColData[0]&&r.ColData[0].value)||'';
+          if(name && !/^total/i.test(name)){
+            var values=r.ColData.slice(1).map(function(c){return num(c&&c.value);});
+            // Skip rows that are all zero
+            var sum=values.reduce(function(a,v){return a+Math.abs(v);},0);
+            if(sum>0.005) rows.push({name:name, values:values});
+          }
+        }
+        if(r&&r.Rows){walk(r.Rows);}
+      });
+    }
+    walk(rpt.Rows);
+
+    var agg=(cols.slice(1)).map(function(){return 0;});
+    rows.forEach(function(r){ r.values.forEach(function(v,i){agg[i]+=v;}); });
+
+    return {columns:cols, rows:rows, totals:agg};
+  }
+
+  function renderEmpty(kind, asOfDate){
+    var icon=kind==='ar'?'📨':'📤';
+    var name=kind==='ar'?'Receivable':'Payable';
+    return '<div class="hnx-v11-panel"><div class="hnx-v11-h"><div class="hnx-v11-dot warn"></div>'
+      +'<div class="hnx-v11-tt">'+icon+' Aged '+name+'s — No open balances</div>'
+      +'<div class="hnx-v11-meta">As of '+esc(asOfDate)+'</div></div>'
+      +'<div class="hnx-v11-load">QuickBooks returned an empty aging report for as-of date '+esc(asOfDate)+'. This means there are no outstanding '+name.toLowerCase()+'s as of that date — or all balances are zero.</div></div>';
+  }
+
+  function renderAging(parsed, kind, asOfDate){
+    if(!parsed || !parsed.rows.length) return renderEmpty(kind, asOfDate);
+    var icon=kind==='ar'?'📨':'📤';
+    var title=kind==='ar'?'LIVE — Accounts Receivable Aging (from QuickBooks)':'LIVE — Accounts Payable Aging (from QuickBooks)';
+    var nameLbl=kind==='ar'?'Customer':'Vendor';
+
+    var h='<div class="hnx-v11-panel"><div class="hnx-v11-h"><div class="hnx-v11-dot"></div>'
+      +'<div class="hnx-v11-tt">'+icon+' '+title+'</div>'
+      +'<div class="hnx-v11-meta">As of '+esc(asOfDate)+' &middot; '+parsed.rows.length+' '+nameLbl.toLowerCase()+'s</div></div>';
+
+    h+='<table class="hnx-v11-tbl"><thead><tr><th>'+nameLbl+'</th>';
+    parsed.columns.slice(1).forEach(function(c){ h+='<th>'+esc(c)+'</th>'; });
+    h+='</tr></thead><tbody>';
+
+    var sorted=parsed.rows.slice().sort(function(a,b){
+      var ta=a.values[a.values.length-1]||0;
+      var tb=b.values[b.values.length-1]||0;
+      return Math.abs(tb)-Math.abs(ta);
+    });
+
+    sorted.forEach(function(r){
+      h+='<tr><td>'+esc(r.name)+'</td>';
+      r.values.forEach(function(v,i){
+        var isOld=(i>=r.values.length-3 && i<r.values.length-1);
+        var hot=(isOld && v>0)?'hot':'';
+        var cls=v===0?'dim':(v<0?'neg':hot);
+        h+='<td class="amt '+cls+'">'+(v?fmt(v):'–')+'</td>';
+      });
+      h+='</tr>';
+    });
+
+    h+='<tr class="tot"><td>TOTAL</td>';
+    parsed.totals.forEach(function(t){ h+='<td class="amt">'+fmtP(t)+'</td>'; });
+    h+='</tr>';
+
+    h+='</tbody></table>'
+      +'<div style="margin-top:8px;font-size:10px;color:#7a9b80;font-style:italic;">Cells in red show balances aged 61+ days — collection priority for AR, payment urgency for AP.</div>'
+      +'</div>';
+    return h;
+  }
+
+  function renderError(kind, errMsg){
+    var icon=kind==='ar'?'📨':'📤';
+    var title=kind==='ar'?'AR Aging':'AP Aging';
+    return '<div class="hnx-v11-err"><div class="hnx-v11-err-h">'+icon+' '+title+' — Live fetch failed</div>'
+      +'<div class="hnx-v11-err-b">Error: '+esc(errMsg)+'<br><br>The TB-synthesized estimate below (v3.69.7) is shown as a fallback reference only — it is NOT real aging buckets. Real aging requires the Make scenario + worker chain to succeed. Check: x-api-key in app config, worker /health endpoint, Make scenario is Active.</div></div>';
+  }
+
+  function renderLoading(kind){
+    var icon=kind==='ar'?'📨':'📤';
+    var title=kind==='ar'?'AR Aging':'AP Aging';
+    return '<div class="hnx-v11-panel"><div class="hnx-v11-h"><div class="hnx-v11-dot warn"></div>'
+      +'<div class="hnx-v11-tt">'+icon+' '+title+' — Loading live data from QuickBooks…</div></div>'
+      +'<div class="hnx-v11-load">Calling /api/qb/apti/aged-'+(kind==='ar'?'receivables':'payables')+'?report_date='+todayISO()+'</div></div>';
+  }
+
+  async function loadAndRender(co, kind){
+    var cached=cacheGet(co,kind);
+    if(cached && (Date.now()-cached.at)<CACHE_TTL){
+      // v3.69.11.1 — silent cache hit (no log spam); loop should not happen now but defense in depth
+      return renderAging(cached.parsed, kind, cached.asOf);
+    }
+    var fetched=await qbFetchAging(co,kind);
+    if(!fetched.ok){
+      err('fetch failed', kind, fetched.error);
+      return renderError(kind, fetched.error);
+    }
+    var parsed=parseAging(fetched.raw);
+    if(!parsed){
+      err('parse failed', kind, 'raw:', fetched.raw);
+      return renderError(kind, 'Parser could not find Header/Columns/Rows in response. Open browser console and run: window.hnxV11.fetch("'+co+'","'+kind+'").then(r=>console.log(r.raw))');
+    }
+    cacheSet(co,kind,{at:Date.now(),parsed:parsed,asOf:todayISO()});
+    log('cached', co, kind, parsed.rows.length, 'rows');
+    return renderAging(parsed, kind, todayISO());
+  }
+
+  function getActiveCo(){
+    try{
+      var btn=document.querySelector('.hnxacc-co.active');
+      if(btn){return btn.textContent.trim().split(/\s+/)[0].toUpperCase();}
+    }catch(e){}
+    return 'APTI';
+  }
+
+  function inject(body, html, marker){
+    if(!html)return;
+    var existing=body.querySelector('.'+marker);
+    if(existing){
+      // v3.69.11.1 — only overwrite if content actually changed (prevents MO feedback loop)
+      if(existing.innerHTML===html) return;
+      existing.innerHTML=html;
+      return;
+    }
+    var wrap=document.createElement('div');
+    wrap.className=marker;
+    wrap.innerHTML=html;
+    body.insertBefore(wrap, body.firstChild);
+  }
+
+  function bodyMatches(body, patterns){
+    var txt=body.textContent||'';
+    return patterns.every(function(p){return p instanceof RegExp?p.test(txt):txt.indexOf(p)>=0;});
+  }
+
+  var pendingFetch={};
+
+  async function processBody(){
+    try{
+      var body=document.getElementById('hnxaccBody');
+      if(!body)return;
+      var co=getActiveCo();
+      if(!QB_ROUTES[co])return;
+
+      // v3.69.11.1 — STRICT regex. Must match the sub-sub specifically (e.g. "AR — Receivables"),
+      // NOT the parent sub-tab text "Receivables / Payables" that contains both words.
+      // — em-dash, – en-dash, - hyphen — all three cover the dropdown label variants.
+      var isAR = /\bAR\s*[—–\-]\s*Receivable/i.test(body.textContent||'');
+      var isAP = /\bAP\s*[—–\-]\s*Payable/i.test(body.textContent||'');
+
+      if(isAR && !isAP){
+        var arkey=co+'_ar';
+        if(!pendingFetch[arkey]){
+          pendingFetch[arkey]=true;
+          inject(body, renderLoading('ar'), 'hnx-v11-ar-real');
+          var html=await loadAndRender(co, 'ar');
+          inject(body, html, 'hnx-v11-ar-real');
+          delete pendingFetch[arkey];
+        }
+      }
+      if(isAP && !isAR){
+        var apkey=co+'_ap';
+        if(!pendingFetch[apkey]){
+          pendingFetch[apkey]=true;
+          inject(body, renderLoading('ap'), 'hnx-v11-ap-real');
+          var html=await loadAndRender(co, 'ap');
+          inject(body, html, 'hnx-v11-ap-real');
+          delete pendingFetch[apkey];
+        }
+      }
+    }catch(e){err('processBody:', e);}
+  }
+
+  var dbnc;
+  function startObs(){
+    var body=document.getElementById('hnxaccBody');
+    if(!body){setTimeout(startObs,500);return;}
+    if(body.__v11Obs)return;
+    body.__v11Obs=true;
+    var obs=new MutationObserver(function(){clearTimeout(dbnc); dbnc=setTimeout(processBody, 320);});
+    obs.observe(body, {childList:true, subtree:true});
+    log('MutationObserver attached — live AR/AP aging fetcher armed');
+    setTimeout(processBody, 700);
+  }
+
+  function start(){startObs(); log('v3.69.11.1 loaded — Real AR/AP Aging armed (loop hotfix: strict regex, no DOM removal, html-equal skip)');}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded', start);
+  else start();
+
+  // Debug helpers exposed for console diagnosis
+  window.hnxV11 = {
+    fetch: qbFetchAging,
+    parse: parseAging,
+    cacheKey: CACHE_KEY,
+    clearCache: function(){localStorage.removeItem(CACHE_KEY); log('cache cleared'); processBody();},
+    refresh: function(){localStorage.removeItem(CACHE_KEY); processBody();}
+  };
+})();
+</script>
+<!-- ===================== END HNX v3.69.11.1 ===================== -->
+
+<!-- ===================== HNX v3.69.11.2 — restore sub-tabs ===================== -->
+<!-- A pre-existing rule at line ~147722 hides .hnxacc-sub elements globally:        -->
+<!--    .hnxacc-sub{display:none!important;}                                          -->
+<!-- That's why all sub-tab navigation buttons were missing across every section.    -->
+<!-- This patch re-enables them with a higher-specificity override.                  -->
+<style id="hnx-v369112-css">
+.hnxacc-sub{display:inline-flex!important;align-items:center;}
+</style>
+<script id="hnx-v369112-log">
+(function(){try{console.log('[HNX-V69.11.2] sub-tabs restored — pre-existing display:none rule overridden');}catch(e){}})();
+</script>
+<!-- ===================== END HNX v3.69.11.2 ===================== -->
+
 </body>
 </html>
