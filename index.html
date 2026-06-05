@@ -163098,38 +163098,44 @@ gh+=_mtxTreeBody(rows);
     return false;
   }
 
+  function findSectionSelect(){
+    // v3.69.13.4 — there are MULTIPLE selects in #hnxaccTabs (COMPANY, SECTION, SUB-TAB).
+    // The COMPANY select returns "APTI"/"APAC"/"GLHI". The SECTION select has section names.
+    // Iterate and find the one whose options contain "CFO" or "ACCOUNTANT" or "Matrices" etc.
+    var selects=document.querySelectorAll('#hnxaccTabs select');
+    for(var i=0;i<selects.length;i++){
+      var sel=selects[i];
+      var text=sel.textContent||'';
+      if(/(CFO|ACCOUNTANT|Auditor|Matrices|Statements|Dashboard|Reports)/i.test(text)){
+        return sel;
+      }
+    }
+    return null;
+  }
   function activeSection(){
-    // v3.69.13.2 — permissive detection. Check selected option's label only (NOT whole
-    // select textContent — that contains all option labels and false-matches everywhere).
     try{
-      var sel=document.querySelector('#hnxaccTabs select');
+      var sel=findSectionSelect();
       if(!sel) return null;
-      // Cheap path: check the select value attribute
       var v=(sel.value||'').toLowerCase();
       if(v==='aidash'||v==='cfo'||v==='cfoai') return 'cfo';
       if(v==='accountant'||v==='acctai'||v==='acct') return 'acct';
-      // Label path: ONLY the selected option's textContent
       var opt = sel.options && sel.options[sel.selectedIndex];
       if(!opt) return null;
       var label = (opt.textContent||'').trim();
-      // ACCOUNTANT first (CFO regex doesn't match it but be defensive)
       if(/ACCOUNTANT/i.test(label)) return 'acct';
       if(/CFO/i.test(label)) return 'cfo';
       return null;
     }catch(e){return null;}
   }
-  // v3.69.13.3 — always-on diagnostic banner injected at top of body so user can SEE it
+  // v3.69.13.4 — quiet success indicator (we know what's happening now)
   function diagBannerHtml(){
-    var sel=document.querySelector('#hnxaccTabs select');
-    if(!sel) return '<div class="hnx-v12-diag">v3.69.13.3 PROBE: no #hnxaccTabs select found</div>';
-    var opt = sel.options && sel.options[sel.selectedIndex];
+    var sel=findSectionSelect();
+    if(!sel) return '';
     var d = activeSection();
-    return '<div class="hnx-v12-diag" style="background:#3a1f1f;border:2px solid #ff8a7a;border-radius:8px;padding:10px;margin:8px 0;font-family:monospace;font-size:11.5px;color:#ffeb9c;">'
-      +'<b>v3.69.13.3 PROBE</b><br>'
-      +'sel.value: <code style="color:#84e0d8;">'+esc(JSON.stringify(sel.value))+'</code><br>'
-      +'selected label: <code style="color:#84e0d8;">'+esc(JSON.stringify(opt?opt.textContent:null))+'</code><br>'
-      +'detected section: <code style="color:'+(d?'#5fe07a':'#ff8a7a')+';"><b>'+esc(JSON.stringify(d))+'</b></code><br>'
-      +'<i style="color:#9fc7bb;">If detected is null but you ARE on CFO-AI or ACCOUNTANT-AI, tell me what "selected label" shows above and I add it to the detection.</i>'
+    if(d) return ''; // No banner when detection works
+    var opt = sel.options && sel.options[sel.selectedIndex];
+    return '<div style="background:#3a1f1f;border:1px solid #ff8a7a;border-radius:6px;padding:8px;margin:6px 0;font-family:monospace;font-size:11px;color:#ffeb9c;">'
+      +'v3.69.13.4: section "<code>'+esc(opt?opt.textContent:'?')+'</code>" not in CFO/ACCT sub-tab scope (expected — only CFO-AI and ACCOUNTANT-AI get sub-tabs)'
       +'</div>';
   }
 
@@ -163571,12 +163577,321 @@ gh+=_mtxTreeBody(rows);
     setTimeout(processBody, 700);
   }
 
-  function start(){startObs(); log('v3.69.13.3 loaded — visible probe banner to diagnose detection');}
+  function start(){startObs(); log('v3.69.13.4 loaded — fixed: now reads the RIGHT select (SECTION not COMPANY)');}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded', start);
   else start();
 })();
 </script>
 <!-- ===================== END HNX v3.69.12 ===================== -->
+
+<!-- ===================== HNX v3.69.14 — Real Cash Flow Statement from QuickBooks ===================== -->
+<!-- Replaces v3.69.10 honest CF placeholder with live data via /api/qb/apti/cash-flow worker route.    -->
+<!-- Parses QB CashFlow tree → Operating / Investing / Financing sections.                              -->
+<!-- 10-min localStorage cache. Strict regex — only activates when on Statements → Cash Flow view.      -->
+<style id="hnx-v36914-css">
+.hnx-v14-panel{background:linear-gradient(160deg,#0a140d,#070d09);border:1.5px solid rgba(132,255,249,.35);border-radius:12px;padding:14px 18px;margin:14px 0 18px;}
+.hnx-v14-h{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid rgba(132,255,249,.18);}
+.hnx-v14-dot{width:9px;height:9px;border-radius:50%;background:#5fe07a;box-shadow:0 0 10px #5fe07a;animation:hnx-v14-pulse 1.6s ease-in-out infinite;}
+.hnx-v14-dot.warn{background:#ffeb9c;animation:none;}
+.hnx-v14-dot.err{background:#ff8a7a;animation:none;}
+@keyframes hnx-v14-pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+.hnx-v14-tt{font-size:13.5px;font-weight:800;color:#9ff5f1;flex:1;letter-spacing:.3px;}
+.hnx-v14-meta{font-size:10.5px;color:#7a9b80;font-family:var(--mono,monospace);}
+.hnx-v14-tbl{width:100%;border-collapse:collapse;font-size:12px;}
+.hnx-v14-tbl td{padding:5px 10px;border-bottom:1px solid rgba(76,175,80,.06);}
+.hnx-v14-tbl td.lbl{color:#cdebcf;}
+.hnx-v14-tbl td.lbl.ind{padding-left:24px;color:#bcd;}
+.hnx-v14-tbl td.lbl.head{font-weight:800;color:#7defc0;font-size:11.5px;letter-spacing:.5px;text-transform:uppercase;padding-top:14px;}
+.hnx-v14-tbl td.amt{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono,monospace);color:#e8f5e9;width:160px;}
+.hnx-v14-tbl td.amt.neg{color:#ff8a7a;}
+.hnx-v14-tbl td.amt.dim{color:#3c5a4f;}
+.hnx-v14-tbl tr.sub td{font-weight:800;color:#9ff5f1;border-top:1px solid rgba(95,224,122,.4);padding-top:7px;}
+.hnx-v14-tbl tr.tot td{font-weight:800;color:#9ff5f1;border-top:1.5px solid #5fe07a;border-bottom:2px solid #5fe07a;background:rgba(95,224,122,.06);padding-top:7px;padding-bottom:7px;}
+.hnx-v14-err{background:rgba(255,138,122,.05);border:1.5px dashed rgba(255,138,122,.4);border-radius:12px;padding:18px 22px;margin:14px 0;}
+.hnx-v14-err-h{font-size:13px;font-weight:800;color:#ff8a7a;margin-bottom:8px;}
+.hnx-v14-err-b{font-size:11.5px;color:#cdebcf;line-height:1.6;font-family:var(--mono,monospace);}
+.hnx-v14-load{padding:18px;text-align:center;color:#7a9b80;font-size:11.5px;font-style:italic;}
+</style>
+<script id="hnx-v36914-cashflow">
+(function(){
+  'use strict';
+  var TAG='[HNX-V69.14]';
+  function log(){try{console.log.apply(console,[TAG].concat([].slice.call(arguments)));}catch(e){}}
+  function err(){try{console.error.apply(console,[TAG].concat([].slice.call(arguments)));}catch(e){}}
+
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function num(s){if(s==null||s==='')return 0; s=String(s).replace(/\(/g,'-').replace(/\)/g,'').replace(/[,$₱ ]/g,''); var n=parseFloat(s); return isNaN(n)?0:n;}
+  function fmt(v){var n=Number(v)||0; if(Math.abs(n)<0.005)return '–'; var s=Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}); return (n<0?'('+s+')':s);}
+  function fmtP(v){var n=Number(v)||0; if(Math.abs(n)<0.005)return '–'; return '₱'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})+(n<0?')':'');}
+
+  var QB_BASE=(typeof QB_API_BASE!=='undefined')?QB_API_BASE:'https://qb-api.eyalbenari99.workers.dev';
+  var QB_KEY=(typeof QB_API_KEY!=='undefined')?QB_API_KEY:'';
+
+  var QB_ROUTES={
+    APTI:'/api/qb/apti/cash-flow',
+    APAC:'/api/qb/apac/cash-flow',
+    GLHI:null
+  };
+
+  var CACHE_KEY='hydroPro_acct_qb_cashflow_v1';
+  var CACHE_TTL=10*60*1000;
+  function loadCache(){try{var v=JSON.parse(localStorage.getItem(CACHE_KEY)||'{}'); return (v&&typeof v==='object')?v:{};}catch(e){return {};}}
+  function saveCache(o){try{localStorage.setItem(CACHE_KEY,JSON.stringify(o||{}));}catch(e){}}
+  function cacheGet(co,year){var all=loadCache(); return all[co]&&all[co][year]?all[co][year]:null;}
+  function cacheSet(co,year,payload){var all=loadCache(); if(!all[co])all[co]={}; all[co][year]=payload; saveCache(all);}
+
+  function getActiveCo(){try{var btn=document.querySelector('.hnxacc-co.active'); if(btn){return btn.textContent.trim().split(/\s+/)[0].toUpperCase();}}catch(e){} return 'APTI';}
+  function getActiveYear(){
+    try{
+      var selects=document.querySelectorAll('#hnxaccTabs select');
+      for(var i=0;i<selects.length;i++){
+        var sel=selects[i], v=sel.value||'';
+        if(/^20\d{2}$/.test(v)) return v;
+      }
+    }catch(e){}
+    return String(new Date().getFullYear());
+  }
+
+  async function fetchCashFlow(co, year){
+    var route=QB_ROUTES[co]; if(!route) return {ok:false, error:'No QB cash-flow route for '+co};
+    var url=QB_BASE+route+'?start_date='+year+'-01-01&end_date='+year+'-12-31&accounting_method=Accrual';
+    log('fetching cash-flow for', co, year, url);
+    try{
+      var res=await fetch(url, {headers:{'x-api-key':QB_KEY}});
+      var text=await res.text();
+      if(!res.ok){
+        var msg='HTTP '+res.status+' '+res.statusText;
+        if(text) msg+=' — '+text.substring(0,300);
+        return {ok:false, error:msg};
+      }
+      var raw; try{ raw=JSON.parse(text); }catch(e){ return {ok:false, error:'Non-JSON response'}; }
+      return {ok:true, raw:raw};
+    }catch(e){
+      return {ok:false, error:(e&&e.message)?e.message:String(e)};
+    }
+  }
+
+  // Parse QB CashFlow tree → {sections: [{name, rows:[{label, value, indent}], subtotal}], netChange, beginCash, endCash}
+  function parseCashFlow(raw){
+    if(!raw) return null;
+    var rpt = (raw.Header && raw.Rows) ? raw
+            : (raw.Report && raw.Report.Header) ? raw.Report
+            : (raw.body && raw.body.Header) ? raw.body
+            : (raw.data && raw.data.Header) ? raw.data
+            : raw;
+    if(!rpt || !rpt.Rows) return null;
+
+    var sections=[];
+    var meta={};
+    function walk(node, indent, currentSection){
+      if(!node) return;
+      var R=node.Row || (Array.isArray(node)?node:[]);
+      (R||[]).forEach(function(r){
+        // Section header?
+        if(r.Header && r.Header.ColData){
+          var hdr=(r.Header.ColData[0]||{}).value||'';
+          if(hdr){
+            var newSection={name:hdr, rows:[], subtotal:0};
+            sections.push(newSection);
+            currentSection=newSection;
+          }
+        }
+        // Detail row
+        if(r.ColData && r.ColData.length>=2){
+          var label=(r.ColData[0]||{}).value||'';
+          var val=num((r.ColData[r.ColData.length-1]||{}).value);
+          if(label && currentSection){
+            currentSection.rows.push({label:label, value:val, indent:indent});
+          } else if(label && /net.*(income|loss|cash)|cash.*(begin|end)/i.test(label)){
+            // Top-level meta
+            if(/net.*increase.*cash|net.*change.*cash/i.test(label)) meta.netChange=val;
+            if(/cash.*begin/i.test(label)) meta.beginCash=val;
+            if(/cash.*end/i.test(label)) meta.endCash=val;
+          }
+        }
+        // Section summary
+        if(r.Summary && r.Summary.ColData){
+          var sumLabel=(r.Summary.ColData[0]||{}).value||'';
+          var sumVal=num((r.Summary.ColData[r.Summary.ColData.length-1]||{}).value);
+          if(currentSection && sumLabel){
+            currentSection.subtotal=sumVal;
+            currentSection.subtotalLabel=sumLabel;
+          }
+          if(/net.*increase.*cash|net.*change.*cash/i.test(sumLabel)) meta.netChange=sumVal;
+          if(/cash.*end/i.test(sumLabel)) meta.endCash=sumVal;
+          if(/cash.*begin/i.test(sumLabel)) meta.beginCash=sumVal;
+        }
+        if(r.Rows){ walk(r.Rows, indent+1, currentSection); }
+      });
+    }
+    walk(rpt.Rows, 0, null);
+
+    return {sections:sections, meta:meta, asOf:(rpt.Header&&rpt.Header.Time)||''};
+  }
+
+  function renderCashFlow(parsed, year){
+    if(!parsed || !parsed.sections.length){
+      return '<div class="hnx-v14-err"><div class="hnx-v14-err-h">No Cash Flow data returned</div>'
+        +'<div class="hnx-v14-err-b">QuickBooks returned an empty Cash Flow report for '+year+'. Possible reasons: (a) no cash activity in period, (b) Make scenario returned malformed JSON. Console: window.hnxV14.fetch("APTI","'+year+'")</div></div>';
+    }
+    var h='<div class="hnx-v14-panel"><div class="hnx-v14-h"><div class="hnx-v14-dot"></div>'
+      +'<div class="hnx-v14-tt">💧 LIVE — Statement of Cash Flows (from QuickBooks)</div>'
+      +'<div class="hnx-v14-meta">FY '+esc(year)+' &middot; '+parsed.sections.length+' sections &middot; Accrual basis</div></div>';
+    h+='<table class="hnx-v14-tbl">';
+    parsed.sections.forEach(function(sec){
+      h+='<tr><td class="lbl head" colspan="2">'+esc(sec.name)+'</td></tr>';
+      sec.rows.forEach(function(r){
+        var cls = r.indent>0 ? 'lbl ind' : 'lbl';
+        var amtCls = r.value<0 ? 'amt neg' : (r.value===0?'amt dim':'amt');
+        h+='<tr><td class="'+cls+'">'+esc(r.label)+'</td><td class="'+amtCls+'">'+fmt(r.value)+'</td></tr>';
+      });
+      if(sec.subtotal !== undefined && sec.subtotalLabel){
+        var subCls = sec.subtotal<0 ? 'amt neg' : 'amt';
+        h+='<tr class="sub"><td class="lbl">'+esc(sec.subtotalLabel)+'</td><td class="'+subCls+'">'+fmt(sec.subtotal)+'</td></tr>';
+      }
+    });
+    // Footer with meta
+    if(parsed.meta.netChange !== undefined || parsed.meta.beginCash !== undefined || parsed.meta.endCash !== undefined){
+      h+='<tr><td colspan="2" style="height:14px;"></td></tr>';
+      if(parsed.meta.netChange !== undefined){
+        h+='<tr class="tot"><td class="lbl">NET INCREASE (DECREASE) IN CASH</td><td class="amt">'+fmt(parsed.meta.netChange)+'</td></tr>';
+      }
+      if(parsed.meta.beginCash !== undefined){
+        h+='<tr><td class="lbl">Cash at beginning of period</td><td class="amt">'+fmt(parsed.meta.beginCash)+'</td></tr>';
+      }
+      if(parsed.meta.endCash !== undefined){
+        h+='<tr class="tot"><td class="lbl">CASH AT END OF PERIOD</td><td class="amt">'+fmtP(parsed.meta.endCash)+'</td></tr>';
+      }
+    }
+    h+='</table></div>';
+    return h;
+  }
+
+  function renderError(year, errMsg){
+    return '<div class="hnx-v14-err"><div class="hnx-v14-err-h">💧 Cash Flow Statement — Fetch failed</div>'
+      +'<div class="hnx-v14-err-b">Error: '+esc(errMsg)+'<br><br>The chain: app → /api/qb/apti/cash-flow → Make scenario → QB. Check x-api-key, Make scenario is Active, and QB connection.</div></div>';
+  }
+
+  function renderLoading(year){
+    return '<div class="hnx-v14-panel"><div class="hnx-v14-h"><div class="hnx-v14-dot warn"></div>'
+      +'<div class="hnx-v14-tt">💧 Statement of Cash Flows — Loading live data from QuickBooks…</div></div>'
+      +'<div class="hnx-v14-load">Calling /api/qb/apti/cash-flow?start_date='+year+'-01-01&end_date='+year+'-12-31</div></div>';
+  }
+
+  async function loadAndRender(co, year){
+    var cached=cacheGet(co,year);
+    if(cached && (Date.now()-cached.at)<CACHE_TTL){
+      return renderCashFlow(cached.parsed, year);
+    }
+    var fetched=await fetchCashFlow(co,year);
+    if(!fetched.ok){
+      return renderError(year, fetched.error);
+    }
+    var parsed=parseCashFlow(fetched.raw);
+    if(!parsed){
+      return renderError(year, 'Parser could not find Header/Rows. Use window.hnxV14.fetch to inspect raw response.');
+    }
+    cacheSet(co,year,{at:Date.now(),parsed:parsed});
+    return renderCashFlow(parsed, year);
+  }
+
+  function findSectionSelect(){
+    var selects=document.querySelectorAll('#hnxaccTabs select');
+    for(var i=0;i<selects.length;i++){
+      var sel=selects[i], text=sel.textContent||'';
+      if(/(CFO|ACCOUNTANT|Auditor|Matrices|Statements|Dashboard|Reports)/i.test(text)) return sel;
+    }
+    return null;
+  }
+  function findSubTabSelect(){
+    var selects=document.querySelectorAll('#hnxaccTabs select');
+    for(var i=0;i<selects.length;i++){
+      var sel=selects[i], text=sel.textContent||'';
+      if(/(Balance Sheet|Income Statement|Cash Flow|Changes in Equity|Notes)/i.test(text)) return sel;
+    }
+    return null;
+  }
+
+  function isCashFlowView(){
+    try{
+      var sectSel=findSectionSelect();
+      if(!sectSel) return false;
+      var sectOpt = sectSel.options && sectSel.options[sectSel.selectedIndex];
+      if(!sectOpt) return false;
+      var sectLabel = (sectOpt.textContent||'').trim();
+      if(!/Statements|Financial/i.test(sectLabel)) return false;
+      var subSel=findSubTabSelect();
+      if(!subSel) return false;
+      var subOpt = subSel.options && subSel.options[subSel.selectedIndex];
+      if(!subOpt) return false;
+      var subLabel=(subOpt.textContent||'').trim();
+      return /Cash Flow/i.test(subLabel);
+    }catch(e){return false;}
+  }
+
+  function inject(body, html, marker){
+    if(!html)return;
+    var existing=body.querySelector('.'+marker);
+    if(existing){
+      if(existing.innerHTML===html) return;
+      existing.innerHTML=html;
+      return;
+    }
+    var wrap=document.createElement('div');
+    wrap.className=marker;
+    wrap.innerHTML=html;
+    body.insertBefore(wrap, body.firstChild);
+  }
+
+  var pendingFetch={};
+  async function processBody(){
+    try{
+      var body=document.getElementById('hnxaccBody');
+      if(!body)return;
+      // Only act on Statements → Cash Flow view
+      if(!isCashFlowView()){
+        var old=body.querySelector('.hnx-v14-cfwrap');
+        if(old) old.remove();
+        return;
+      }
+      var co=getActiveCo();
+      var year=getActiveYear();
+      var key=co+'_'+year;
+      if(pendingFetch[key]) return;
+      pendingFetch[key]=true;
+      inject(body, renderLoading(year), 'hnx-v14-cfwrap');
+      var html=await loadAndRender(co, year);
+      inject(body, html, 'hnx-v14-cfwrap');
+      delete pendingFetch[key];
+    }catch(e){err('processBody:', e);}
+  }
+
+  var dbnc;
+  function startObs(){
+    var body=document.getElementById('hnxaccBody');
+    if(!body){setTimeout(startObs,500);return;}
+    if(body.__v14Obs)return;
+    body.__v14Obs=true;
+    var obs=new MutationObserver(function(){clearTimeout(dbnc); dbnc=setTimeout(processBody, 380);});
+    obs.observe(body, {childList:true, subtree:true});
+    log('MutationObserver attached — Cash Flow live fetcher armed');
+    setTimeout(processBody, 800);
+  }
+
+  function start(){startObs(); log('v3.69.14 loaded — Real Cash Flow Statement from QB (replaces v3.69.10 placeholder)');}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded', start);
+  else start();
+
+  window.hnxV14 = {
+    fetch: fetchCashFlow,
+    parse: parseCashFlow,
+    cacheKey: CACHE_KEY,
+    clearCache: function(){localStorage.removeItem(CACHE_KEY); log('cache cleared'); processBody();},
+    refresh: function(){localStorage.removeItem(CACHE_KEY); processBody();}
+  };
+})();
+</script>
+<!-- ===================== END HNX v3.69.14 ===================== -->
 
 </body>
 </html>
