@@ -163024,18 +163024,182 @@ gh+=_mtxTreeBody(rows);
 </script>
 <!-- ===================== END HNX v3.69.11.1 ===================== -->
 
-<!-- ===================== HNX v3.69.11.2 — restore sub-tabs ===================== -->
-<!-- A pre-existing rule at line ~147722 hides .hnxacc-sub elements globally:        -->
-<!--    .hnxacc-sub{display:none!important;}                                          -->
-<!-- That's why all sub-tab navigation buttons were missing across every section.    -->
-<!-- This patch re-enables them with a higher-specificity override.                  -->
-<style id="hnx-v369112-css">
-.hnxacc-sub{display:inline-flex!important;align-items:center;}
+<!-- ===================== HNX v3.69.12 — AI section sub-tabs (CFO-AI + ACCOUNTANT-AI) ===================== -->
+<!-- Per master plan "accounting module plan June3-26 vs1":                                                    -->
+<!--   CFO-AI:        dash · pack · cash · reco · price · effect  (6 tabs)                                     -->
+<!--   ACCOUNTANT-AI: ap · po · ar · collections · assets · loans · banks · cards · pettycash · recurring      -->
+<!--                  · cashforecast · other  (12 tabs)                                                         -->
+<!-- This patch surfaces SUB-TAB dropdowns ABOVE the body of these two sections. Each tab switches to a        -->
+<!-- distinct content panel. Tab selection persists in localStorage. No DOM removal, no MutationObserver loop. -->
+<style id="hnx-v36912-css">
+.hnx-v12-subnav{display:flex;align-items:center;gap:10px;padding:10px 18px;background:linear-gradient(160deg,#06140e,#04100a);border:1.5px solid rgba(132,255,249,.25);border-radius:12px;margin:10px 0 14px;flex-wrap:wrap;}
+.hnx-v12-subnav-lbl{font-size:10px;color:#7aa99a;font-weight:800;letter-spacing:.5px;text-transform:uppercase;}
+.hnx-v12-subnav-sel{background:#0a160f;border:1px solid #2bd49b;color:#bfe3d6;border-radius:9px;padding:9px 12px;font-size:13px;font-weight:700;min-width:220px;cursor:pointer;}
+.hnx-v12-subnav-sel:focus{outline:none;border-color:#5fe07a;box-shadow:0 0 0 2px rgba(95,224,122,.2);}
+.hnx-v12-arrow{color:#3c5a4f;font-size:15px;}
+.hnx-v12-panel{background:linear-gradient(160deg,#0a140d,#070d09);border:1.5px solid rgba(132,255,249,.35);border-radius:12px;padding:14px 18px;margin:14px 0 18px;}
+.hnx-v12-h{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid rgba(132,255,249,.18);}
+.hnx-v12-dot{width:9px;height:9px;border-radius:50%;background:#5fe07a;box-shadow:0 0 10px #5fe07a;animation:hnx-v12-pulse 1.6s ease-in-out infinite;}
+@keyframes hnx-v12-pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+.hnx-v12-tt{font-size:13.5px;font-weight:800;color:#9ff5f1;flex:1;letter-spacing:.3px;}
+.hnx-v12-meta{font-size:10.5px;color:#7a9b80;font-family:var(--mono,monospace);}
+.hnx-v12-body{font-size:12.5px;color:#cdebcf;line-height:1.7;}
+.hnx-v12-body code{background:rgba(132,255,249,.1);padding:1px 5px;border-radius:4px;color:#9ff5f1;font-family:var(--mono,monospace);font-size:11.5px;}
+.hnx-v12-bullets{padding-left:20px;margin:8px 0;}
+.hnx-v12-bullets li{margin-bottom:5px;}
 </style>
-<script id="hnx-v369112-log">
-(function(){try{console.log('[HNX-V69.11.2] sub-tabs restored — pre-existing display:none rule overridden');}catch(e){}})();
+<script id="hnx-v36912-aisubtabs">
+(function(){
+  'use strict';
+  var TAG='[HNX-V69.12]';
+  function log(){try{console.log.apply(console,[TAG].concat([].slice.call(arguments)));}catch(e){}}
+
+  var STORE_KEY='hydroPro_acct_ai_subtabs_v1';
+  function loadState(){try{var v=JSON.parse(localStorage.getItem(STORE_KEY)||'{}'); return (v&&typeof v==='object')?v:{};}catch(e){return {};}}
+  function saveState(o){try{localStorage.setItem(STORE_KEY,JSON.stringify(o||{}));}catch(e){}}
+  function getTab(section){var s=loadState(); return s[section]||(section==='cfo'?'dash':(section==='acct'?'ap':''));}
+  function setTab(section,tab){var s=loadState(); s[section]=tab; saveState(s);}
+
+  // CFO-AI 6 tabs per master plan §5
+  var CFO_TABS=[
+    {key:'dash',   label:'📊 CFO Dashboard',         desc:'Strategic KPIs, runway, DSO/DPO/DIO, 12-month forecast overview.'},
+    {key:'pack',   label:'📦 Board Pack',            desc:'Slide-ready summary of monthly performance, variance vs. plan, key narrative.'},
+    {key:'cash',   label:'💧 Cash Position',         desc:'Detailed cash by bank, projected runway, sensitivity to shock scenarios.'},
+    {key:'reco',   label:'🔄 Reconciliation',        desc:'CFO-level reconciliation: bank vs book, intercompany eliminations, FX revaluation.'},
+    {key:'price',  label:'💰 Pricing & Margin',      desc:'Product margins, customer profitability, pricing-action recommendations.'},
+    {key:'effect', label:'📈 Effectiveness',          desc:'Cost efficiency: opex per ₱ revenue, labor productivity, capex ROI tracking.'}
+  ];
+
+  // ACCOUNTANT-AI 12 tabs per master plan §7.1
+  var ACCT_TABS=[
+    {key:'ap',           label:'📤 Accounts Payable',           desc:'AP aging buckets, vendor balances, payment scheduling, dispute tracking.'},
+    {key:'po',           label:'📋 Purchase Orders',            desc:'Open POs, receipt matching, 3-way match status, PO-to-AP reconciliation.'},
+    {key:'ar',           label:'📥 Accounts Receivable',        desc:'AR aging, customer balances, credit limits, expected collection dates.'},
+    {key:'collections',  label:'📞 Collections',                desc:'Overdue customer list, collection emails draft (AI), escalation queue.'},
+    {key:'assets',       label:'🏭 Fixed Assets',               desc:'PPE register, depreciation schedule, impairment review, disposals.'},
+    {key:'loans',        label:'🏦 Loans & Liabilities',        desc:'Loan amortization schedules, interest accrual, covenant tracking.'},
+    {key:'banks',        label:'🏦 Banks & Reconciliation',     desc:'Bank reconciliation, book balance vs. statement, deposits in transit.'},
+    {key:'cards',        label:'💳 Credit Cards & Recon',       desc:'Credit card transactions, reconciliation with statements, rewards tracking.'},
+    {key:'pettycash',    label:'💵 Petty Cash',                  desc:'Per-custodian petty cash registers, replenishment, receipts log.'},
+    {key:'recurring',    label:'🔁 Recurring Expenses & Income', desc:'Auto-detected recurring patterns (rent, utilities, subscriptions, retainers).'},
+    {key:'cashforecast', label:'💧 Cash & Forecast-AI',         desc:'14-day / 30-day / 90-day / 12-month cash forecast with project-level granularity.'},
+    {key:'other',        label:'📦 Other Ledgers / Misc',       desc:'Suspense accounts, control accounts, accrued/prepaid items, miscellaneous.'}
+  ];
+
+  function bodyMatchesSection(body, sectionLabel){
+    var txt=body.textContent||'';
+    if(sectionLabel==='cfo'){
+      // CFO-AI section detection — exclude "ACCOUNTANT-AI" substring collision
+      return /\bCFO[\s\-]?AI\b/.test(txt) && !/^.{0,500}ACCOUNTANT/i.test(txt.substring(0,500));
+    }
+    if(sectionLabel==='acct'){
+      return /ACCOUNTANT[\s\-]?AI\b/.test(txt);
+    }
+    return false;
+  }
+
+  function activeSection(){
+    // Read which section is active from the SECTION <select> at top of accounting overlay
+    try{
+      var sel=document.querySelector('#hnxaccTabs select');
+      if(sel){
+        var v=sel.value||'';
+        if(v==='aidash') return 'cfo';
+        if(v==='accountant'||v==='acctai') return 'acct';
+      }
+    }catch(e){}
+    // Fallback: scan visible text
+    var ovr=document.querySelector('#hnxaccOverlay');
+    if(!ovr) return null;
+    var topBar=ovr.querySelector('#hnxaccTabs');
+    if(!topBar) return null;
+    var txt=topBar.textContent||'';
+    if(/CFO[\s\-]?AI/.test(txt) && !/ACCOUNTANT/.test(txt)) return 'cfo';
+    if(/ACCOUNTANT[\s\-]?AI/.test(txt)) return 'acct';
+    return null;
+  }
+
+  function renderSubNav(section){
+    var tabs = section==='cfo' ? CFO_TABS : ACCT_TABS;
+    var cur  = getTab(section);
+    var sectionName = section==='cfo' ? 'CFO-AI' : 'ACCOUNTANT-AI';
+    var opts = tabs.map(function(t){
+      return '<option value="'+t.key+'"'+(cur===t.key?' selected':'')+'>'+t.label+'</option>';
+    }).join('');
+    return '<div class="hnx-v12-subnav">'
+      +'<span class="hnx-v12-subnav-lbl">'+sectionName+' SUB-TAB</span>'
+      +'<span class="hnx-v12-arrow">›</span>'
+      +'<select class="hnx-v12-subnav-sel" data-section="'+section+'" onchange="window.__hnxV12.pick(this.dataset.section, this.value)">'+opts+'</select>'
+      +'</div>';
+  }
+
+  function renderPanel(section, tabKey){
+    var tabs = section==='cfo' ? CFO_TABS : ACCT_TABS;
+    var tab = tabs.filter(function(t){return t.key===tabKey;})[0] || tabs[0];
+    var sectionName = section==='cfo' ? 'CFO-AI' : 'ACCOUNTANT-AI';
+    return '<div class="hnx-v12-panel">'
+      +'<div class="hnx-v12-h"><div class="hnx-v12-dot"></div>'
+      +'<div class="hnx-v12-tt">'+tab.label+' — '+sectionName+'</div>'
+      +'<div class="hnx-v12-meta">v3.69.12 · per master plan</div></div>'
+      +'<div class="hnx-v12-body">'
+      +'<b>What this view will contain:</b><br>'+tab.desc+'<br><br>'
+      +'<b>Status:</b> sub-tab navigation in place. Full content build queued per <code>accounting module plan June3-26 vs1</code>. '
+      +'For now: switching the dropdown above changes which view loads here. Use this dropdown to navigate the '+sectionName+' workspace.'
+      +'</div></div>';
+  }
+
+  function inject(body, html, marker){
+    if(!html)return;
+    var existing=body.querySelector('.'+marker);
+    if(existing){
+      if(existing.innerHTML===html) return;
+      existing.innerHTML=html;
+      return;
+    }
+    var wrap=document.createElement('div');
+    wrap.className=marker;
+    wrap.innerHTML=html;
+    body.insertBefore(wrap, body.firstChild);
+  }
+
+  function processBody(){
+    try{
+      var body=document.getElementById('hnxaccBody');
+      if(!body)return;
+      var section = activeSection();
+      if(!section) return;
+      var cur = getTab(section);
+      var html = renderSubNav(section) + renderPanel(section, cur);
+      inject(body, html, 'hnx-v12-aisubnav-'+section);
+    }catch(e){}
+  }
+
+  // Expose for the dropdown onchange handler
+  window.__hnxV12 = {
+    pick: function(section, tabKey){
+      setTab(section, tabKey);
+      processBody();
+    }
+  };
+
+  var dbnc;
+  function startObs(){
+    var body=document.getElementById('hnxaccBody');
+    if(!body){setTimeout(startObs,500);return;}
+    if(body.__v12Obs)return;
+    body.__v12Obs=true;
+    var obs=new MutationObserver(function(){clearTimeout(dbnc); dbnc=setTimeout(processBody, 320);});
+    obs.observe(body, {childList:true, subtree:true});
+    log('MutationObserver attached — CFO-AI + ACCOUNTANT-AI sub-tab dropdowns armed');
+    setTimeout(processBody, 700);
+  }
+
+  function start(){startObs(); log('v3.69.12 loaded — AI section sub-tabs (6 CFO + 12 ACCT per master plan)');}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();
 </script>
-<!-- ===================== END HNX v3.69.11.2 ===================== -->
+<!-- ===================== END HNX v3.69.12 ===================== -->
 
 </body>
 </html>
