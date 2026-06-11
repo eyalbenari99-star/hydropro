@@ -169488,7 +169488,7 @@ function scan(){
   var rows=[],total=0;
   for(var i=0;i<localStorage.length;i++){
     var k=localStorage.key(i); if(k===null)continue;
-    var v=localStorage.getItem(k)||'';
+    var v=((window.__hnxAUTOVAULT&&window.__hnxAUTOVAULT.rawGet)?window.__hnxAUTOVAULT.rawGet(k):localStorage.getItem(k))||'';
     var bytes=(k.length+v.length)*2; total+=bytes;
     var imgs=(v.match(/data:image\//g)||[]).length;
     rows.push({k:k,bytes:bytes,imgs:imgs});
@@ -169526,7 +169526,7 @@ function collect(node,list){
   ks.forEach(function(k){
     var v=node[k];
     if(typeof v==='string'){
-      if(v.length>20000 && v.slice(0,11)==='data:image/') list.push({o:node,k:k});
+      if(v.length>8192 && v.slice(0,11)==='data:image/') list.push({o:node,k:k});
     } else if(v&&typeof v==='object') collect(v,list);
   });
 }
@@ -169623,7 +169623,7 @@ function render(){
     '<div style="margin-bottom:14px;">'
       +'<div style="display:flex;justify-content:space-between;font-size:12px;color:#9fb8a4;margin-bottom:5px;"><span>Browser working store (localStorage)</span><span style="font-weight:800;color:'+barColor+';">'+usedKB+' / ~'+LIMIT_KB+' KB</span></div>'
       +'<div style="height:10px;border-radius:6px;background:rgba(255,255,255,.08);overflow:hidden;"><div style="height:100%;width:'+pct+'%;background:'+barColor+';"></div></div>'
-      +'<div style="font-size:11px;color:#9fb8a4;margin-top:7px;line-height:1.5;">\u2139\ufe0f This ~5 MB cap is the <b>browser\u2019s</b> limit \u2014 separate from the <b>2 TB cloud file storage (R2)</b>, which is for the Files module and is nearly empty. 🤖 AUTO-VAULT is ON — big QuickBooks/SOS caches auto-move to the device database, photos auto-fly to cloud (R2), old backups auto-archive: at boot + every 5 min + above 85% usage. Manual buttons still work. Photos saved as text inside these keys fill the browser store; <b>Compress</b> shrinks them in place; <b>\u2601\ufe0f To cloud</b> moves them into R2 permanently (needs cloud sign-in) \u2014 the store keeps only a tiny pointer and photos load from the cloud on every device.</div>'
+      +'<div style="font-size:11px;color:#9fb8a4;margin-top:7px;line-height:1.5;">\u2139\ufe0f This ~5 MB cap is the <b>browser\u2019s</b> limit \u2014 separate from the <b>2 TB cloud file storage (R2)</b>, which is for the Files module and is nearly empty. 🤖 AUTO-VAULT is ON — big QuickBooks/SOS caches auto-move to the device database, photos auto-fly to cloud (R2), old backups auto-archive: at boot + every 5 min + above 85% usage. Manual buttons still work. \ud83d\udddc\ufe0f Big data keys auto-compress in place (LZ) — sizes below are true on-disk sizes. Photos saved as text inside these keys fill the browser store; <b>Compress</b> shrinks them in place; <b>\u2601\ufe0f To cloud</b> moves them into R2 permanently (needs cloud sign-in) \u2014 the store keeps only a tiny pointer and photos load from the cloud on every device.</div>'
     +'</div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">'
       +'<button onclick="window.__hnxSTO.all()" style="background:#1F4D2C;color:#C9A227;border:1px solid #C9A227;border-radius:8px;padding:8px 14px;font-weight:800;font-size:12px;cursor:pointer;">\ud83d\udddc Compress ALL photos</button>'
@@ -169814,7 +169814,7 @@ function collectImgs(node,list){
   ks.forEach(function(k){
     var v=node[k];
     if(typeof v==='string'){
-      if(v.length>20000 && v.slice(0,11)==='data:image/') list.push({o:node,k:k});
+      if(v.length>8192 && v.slice(0,11)==='data:image/') list.push({o:node,k:k});
     } else if(v&&typeof v==='object') collectImgs(v,list);
   });
 }
@@ -169881,7 +169881,7 @@ window.hnxPhotoVault={migrateKey:migrateKey,sweep:sweep,_cache:cache};
 
 <script>
 /* ============================================================
-   hnx_autovault.js — v4.16  AUTOMATIC STORAGE PILOT
+   hnx_autovault.js — v4.17-vaultmax  AUTOMATIC STORAGE PILOT + LZ in-place compression · junk archiver · 8KB photo threshold
    No taps needed. Three automatic movers:
    1) BIG RE-PULLABLE CACHES (QuickBooks 12-month + QB snapshot +
       SOS arrays) -> served from memory, persisted in IndexedDB
@@ -169910,31 +169910,130 @@ var OFF={}; OFFLOAD.forEach(function(k){OFF[k]=1;});
 var NEVER=/hydroPro_users|hnx_cloud_token|hydroPro_session/;
 
 var VAULT={};
+/* ---- v4.17 LZ in-place compression (transparent, self-verifying) ---- */
+var MAGIC='\u0001LZ1';
+var DCACHE={};
+var JUNKRE=/^hydroPro_backup_|_PRE_P1_|^hnx_t10_.*_bak|^hydroPro_\d{4}-\d{2}-\d{2}$/;
+function lzEnc(s){
+  var dict={},code=3,toks=[],w='',i,c,wc;
+  function emit(str){ if(str.length===1){toks.push(0);toks.push(str.charCodeAt(0));} else {toks.push(dict[str]);} }
+  for(i=0;i<s.length;i++){
+    c=s.charAt(i); wc=w+c;
+    if(dict[wc]!==undefined){ w=wc; continue; }
+    if(w){ emit(w); if(code<65500){ dict[wc]=code++; } else { dict={}; code=3; } }
+    w=c;
+  }
+  if(w) emit(w);
+  var buf=0,bits=0,out=[],t;
+  for(i=0;i<toks.length;i++){
+    t=toks[i]&0xFFFF; buf=(buf<<16)|t; bits+=16;
+    while(bits>=14){ bits-=14; out.push(String.fromCharCode(0x20+((buf>>>bits)&0x3FFF))); buf&=(1<<bits)-1; }
+  }
+  if(bits>0){ out.push(String.fromCharCode(0x20+((buf<<(14-bits))&0x3FFF))); }
+  return MAGIC+toks.length.toString(36)+':'+out.join('');
+}
+function lzDec(s){
+  var hp=s.indexOf(':'); var n=parseInt(s.slice(MAGIC.length,hp),36); var body=s.slice(hp+1);
+  var toks=[],buf=0,bits=0,i,cc;
+  for(i=0;i<body.length && toks.length<n;i++){
+    cc=body.charCodeAt(i)-0x20; buf=(buf<<14)|cc; bits+=14;
+    if(bits>=16){ bits-=16; toks.push((buf>>>bits)&0xFFFF); buf&=(1<<bits)-1; }
+  }
+  var dict=[],code=3,out=[],prev=null,t,entry,j=0;
+  while(j<toks.length){
+    t=toks[j++];
+    if(t===0){ entry=String.fromCharCode(toks[j++]); }
+    else if(t<code && dict[t]!==undefined){ entry=dict[t]; }
+    else if(t===code && prev!==null){ entry=prev+prev.charAt(0); }
+    else { throw new Error('lz-token'); }
+    out.push(entry);
+    if(prev!==null){ if(code<65500){ dict[code++]=prev+entry.charAt(0); } else { dict=[]; code=3; } }
+    prev=entry;
+  }
+  return out.join('');
+}
+var lzOK=true;
+(function(){
+  try{
+    var t='HNX self-test \u05e9\u05dc\u05d5\u05dd \ud83d\ude9a {"a":[1,2,3]} '+new Array(60).join('hydroPro_repeat_xy')+'\udc00tail';
+    if(lzDec(lzEnc(t))!==t) lzOK=false;
+  }catch(e){ lzOK=false; }
+  if(!lzOK){ try{ console.warn('[AutoVault] LZ self-test failed \u2014 compression disabled, app unaffected.'); }catch(e){} }
+})();
+function lzEligible(k,v){
+  return lzOK && typeof v==='string' && v.length>120000 &&
+    /^(hydroPro_|hnx_)/.test(k) && !OFF[k] && !NEVER.test(k) && !JUNKRE.test(k) &&
+    v.lastIndexOf(MAGIC,0)!==0 && v.indexOf('data:image/')===-1;
+}
+function lzTry(k,v){
+  try{
+    var p=lzEnc(v);
+    if(p.length>=v.length*0.92) return null;
+    if(lzDec(p)!==v){ lzOK=false; try{console.warn('[AutoVault] LZ verify mismatch on '+k+' \u2014 compression disabled.');}catch(e){} return null; }
+    return p;
+  }catch(e){ return null; }
+}
+function compressSweep(){
+  if(!lzOK) return 0;
+  var n=0,freed=0,ks=[];
+  try{ for(var i=0;i<localStorage.length;i++) ks.push(localStorage.key(i)); }catch(e){}
+  ks.forEach(function(k){
+    if(!k) return; var v=null;
+    try{ v=_get.call(window.localStorage,k); }catch(e){}
+    if(v===null || !lzEligible(k,v)) return;
+    var p=lzTry(k,v); if(!p) return;
+    try{ _set.call(window.localStorage,k,p); DCACHE[k]=v; n++; freed+=(v.length-p.length); }catch(e){}
+  });
+  if(n) note('\ud83d\udddc\ufe0f '+n+' big data key'+(n>1?'s':'')+' compressed in place \u2014 freed ~'+kb(freed)+'.');
+  return n;
+}
 function idb(){ return (window.HNXIDB && window.HNXIDB.available) ? window.HNXIDB : null; }
 
 /* narrow Storage facade (localStorage only, offload keys only) */
 var P=Storage.prototype;
 var _get=P.getItem,_set=P.setItem,_rem=P.removeItem;
 P.getItem=function(k){
-  try{ if(this===window.localStorage && OFF[k] && Object.prototype.hasOwnProperty.call(VAULT,k)) return VAULT[k]; }catch(e){}
+  try{
+    if(this===window.localStorage){
+      if(OFF[k] && Object.prototype.hasOwnProperty.call(VAULT,k)) return VAULT[k];
+      var r=_get.apply(this,arguments);
+      if(typeof r==='string' && r.lastIndexOf(MAGIC,0)===0){
+        if(Object.prototype.hasOwnProperty.call(DCACHE,k)) return DCACHE[k];
+        try{ var d=lzDec(r); DCACHE[k]=d; return d; }catch(e){ return r; }
+      }
+      return r;
+    }
+  }catch(e){}
   return _get.apply(this,arguments);
 };
 P.setItem=function(k,v){
   try{
-    if(this===window.localStorage && OFF[k]){
-      VAULT[k]=String(v);
-      var D=idb(); if(D) D.put('vault:'+k,String(v)).catch(function(){});
-      try{ _rem.call(window.localStorage,k); }catch(e){}
-      return;
+    if(this===window.localStorage){
+      if(OFF[k]){
+        VAULT[k]=String(v);
+        var D=idb(); if(D) D.put('vault:'+k,String(v)).catch(function(){});
+        try{ _rem.call(window.localStorage,k); }catch(e){}
+        return;
+      }
+      var s=String(v);
+      if(lzEligible(k,s)){
+        var p=lzTry(k,s);
+        if(p){ DCACHE[k]=s; return _set.call(this,k,p); }
+      }
+      if(Object.prototype.hasOwnProperty.call(DCACHE,k)) delete DCACHE[k];
+      return _set.call(this,k,s);
     }
   }catch(e){}
   return _set.apply(this,arguments);
 };
 P.removeItem=function(k){
   try{
-    if(this===window.localStorage && OFF[k]){
-      delete VAULT[k];
-      var D=idb(); if(D) D.del('vault:'+k).catch(function(){});
+    if(this===window.localStorage){
+      if(Object.prototype.hasOwnProperty.call(DCACHE,k)) delete DCACHE[k];
+      if(OFF[k]){
+        delete VAULT[k];
+        var D=idb(); if(D) D.del('vault:'+k).catch(function(){});
+      }
     }
   }catch(e){}
   return _rem.apply(this,arguments);
@@ -169971,6 +170070,7 @@ function hydrate(){
   });
 }
 hydrate();
+setTimeout(function(){ try{ compressSweep(); refreshPanel(); }catch(e){} }, 3500);
 
 /* photos -> R2 (auto, reuses PhotoVault) */
 var photoBusy=false;
@@ -169984,7 +170084,7 @@ function autoPhotos(){
       var k=localStorage.key(i);
       if(!k||NEVER.test(k)||OFF[k]) continue;
       var v=_get.call(window.localStorage,k)||'';
-      if(v.length>40960 && v.indexOf('data:image/')>-1) keys.push(k);
+      if(v.length>20000 && v.indexOf('data:image/')>-1) keys.push(k);
     }
   }catch(e){}
   if(!keys.length) return Promise.resolve(0);
@@ -170000,12 +170100,13 @@ function autoArchiveBackups(){
   try{
     for(var i=0;i<localStorage.length;i++){
       var k=localStorage.key(i);
-      if(k && k.indexOf('hydroPro_backup_manual_')===0){
+      if(k && JUNKRE.test(k) && !OFF[k] && !NEVER.test(k)){
         var v=_get.call(window.localStorage,k)||'';
-        if(v.length>20480){
+        if(typeof v==='string' && v.lastIndexOf(MAGIC,0)===0){ try{ v=lzDec(v); }catch(e){} }
+        var isBak=k.indexOf('hydroPro_backup_manual_')===0;
+        if(v.length>(isBak?20480:1024)){
           var ageOk=true;
-          var m=k.match(/(\d{4}-\d{2}-\d{2})/);
-          if(m){ ageOk=(Date.now()-new Date(m[1]).getTime())>48*3600*1000; }
+          if(isBak){ var m=k.match(/(\d{4}-\d{2}-\d{2})/); if(m){ ageOk=(Date.now()-new Date(m[1]).getTime())>48*3600*1000; } }
           if(ageOk) targets.push({k:k,v:v});
         }
       }
@@ -170047,6 +170148,7 @@ var running=false;
 function autoRun(){
   if(running) return Promise.resolve();
   running=true;
+  try{ compressSweep(); }catch(e){}
   return sweepOffload()
     .then(function(){ return autoArchiveBackups(); })
     .then(function(){ return autoPhotos(); })
@@ -170058,7 +170160,7 @@ setInterval(autoRun, 5*60*1000);
 setInterval(function(){ var u=usagePct(); if(u.pct>85) autoRun(); }, 60*1000);
 document.addEventListener('visibilitychange',function(){ if(!document.hidden) setTimeout(autoRun,2500); });
 
-window.__hnxAUTOVAULT={run:autoRun,vaultKeys:OFFLOAD,usage:usagePct,_VAULT:VAULT};
+window.__hnxAUTOVAULT={run:autoRun,vaultKeys:OFFLOAD,usage:usagePct,_VAULT:VAULT,rawGet:function(k){try{return _get.call(window.localStorage,k);}catch(e){return null;}},compress:compressSweep,lzOK:function(){return lzOK;}};
 })();
 </script>
 
