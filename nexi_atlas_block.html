@@ -1,0 +1,248 @@
+<script>
+/* === injected: nexi_atlas.js (v5.00) ===
+   PURPOSE — make Nexi "know every tab and sub-tab by heart", so she can:
+     (1) answer "what can you do" / "list tabs" / "what's in maintenance" from a
+         COMPLETE, always-accurate menu built live from window.NEXI_NAV;
+     (2) open module-qualified screens precisely ("open maintenance dashboard"
+         lands on Maintenance, not the first "dashboard" it finds);
+     (3) carry the full tab menu + the last few turns of conversation into the
+         Cloud AI (/ai/analyze) context, so open-ended dialog stays grounded and
+         the model never invents screens that don't exist.
+
+   100% ADDITIVE. Wraps existing hooks (_nexiAnswerFromDomains, _nexiResolveTarget,
+   __hnxApi) and falls through to the originals for everything it doesn't handle.
+   Single-file / one-Worker style — no new infra, no new endpoints. */
+(function(){
+'use strict';
+if(window._nexiAtlas) return; window._nexiAtlas = true;
+
+/* ---------- friendly module names + synonyms (drive listing + qualified nav) ---------- */
+var MOD_LABEL = {
+  overview:'Overview', reports:'Reports', production:'Production', hr:'HR',
+  payroll:'Payroll', maintenance:'Maintenance', it:'IT', irrigation:'Irrigation',
+  inventory:'Inventory', packaging:'Packaging', logistics:'Logistics', crm:'CRM',
+  security:'Security', quality:'Quality (QC)', licenses:'Licenses',
+  projects:'Projects', admin:'Admin'
+};
+var MOD_SYN = {
+  overview:['overview','home','global','dashboard home'],
+  reports:['reports','report','reporting'],
+  production:['production','prod','grow','growing','crops','greenhouse ops'],
+  hr:['hr','human resources','people','employees','staff'],
+  payroll:['payroll','salary','salaries','wages','pay'],
+  maintenance:['maintenance','maint','repairs','technical'],
+  it:['it','tech','computer','network','cctv','devices'],
+  irrigation:['irrigation','irr','water','dosing','nutrients'],
+  inventory:['inventory','inv','stock','warehouse','store'],
+  packaging:['packaging','pack','packing'],
+  logistics:['logistics','log','fleet','delivery','deliveries','dispatch','trucks'],
+  crm:['crm','sales','customers','leads','clients'],
+  security:['security','sec','guard','guards','patrol'],
+  quality:['quality','qc','quality control','inspection'],
+  licenses:['licenses','license','permits','permit','compliance'],
+  projects:['projects','project','prj'],
+  admin:['admin','administration','settings','system']
+};
+
+/* ---------- helpers ---------- */
+function nav(){ try{ return (window.NEXI_NAV||[]).slice(); }catch(e){ return []; } }
+function cap(s){ return String(s||'').replace(/\b\w/g,function(c){return c.toUpperCase();}); }
+function modLabel(slug){ return MOD_LABEL[slug] || cap(slug||''); }
+
+/* group views by module, preserving NEXI_NAV order; de-dupe repeated labels per module */
+function groups(){
+  var g={}, order=[];
+  nav().forEach(function(v){
+    if(!g[v.mod]){ g[v.mod]=[]; order.push(v.mod); }
+    if(!g[v.mod].some(function(x){return x.label===v.label;})) g[v.mod].push(v);
+  });
+  return {map:g, order:order};
+}
+
+/* map a phrase to a module slug via synonyms (longest synonym first) */
+function modFromText(t){
+  t=' '+String(t||'').toLowerCase()+' ';
+  var best=null, bestLen=0;
+  for(var slug in MOD_SYN){
+    MOD_SYN[slug].forEach(function(syn){
+      if((t.indexOf(' '+syn+' ')>-1 || t.indexOf(syn)>-1) && syn.length>bestLen){
+        best=slug; bestLen=syn.length;
+      }
+    });
+  }
+  return best;
+}
+
+/* compact menu object for the AI context: { Maintenance:[...], IT:[...] } */
+function compactMenu(){
+  var G=groups(), out={};
+  G.order.forEach(function(m){ out[modLabel(m)] = G.map[m].map(function(v){return v.label;}); });
+  return out;
+}
+
+/* last N conversation turns from the per-user chat log (same key the session block writes) */
+function uname(){ try{ var u=(typeof getCurrentUser==='function')&&getCurrentUser(); return (u&&u.username)?u.username:'guest'; }catch(e){ return 'guest'; } }
+function recentTurns(n){
+  try{
+    var a=JSON.parse(localStorage.getItem('hydroPro_nexi_chat_v1_'+uname()))||[];
+    return a.slice(-(n||8)).map(function(m){ return (m.role==='me'?'User: ':'Nexi: ')+String(m.text||'').slice(0,240); });
+  }catch(e){ return []; }
+}
+
+/* ============================================================
+   (1) TEXT-VISIBLE CAPABILITY MENU  — wraps _nexiAnswerFromDomains
+   ============================================================ */
+function menuOverview(){
+  var G=groups(), total=nav().length, areas=G.order.map(modLabel).join(', ');
+  return 'Here’s what I can do:\n'
+    + '• Open any of '+total+' screens across '+G.order.length+' areas — just say “open <screen>” (e.g. “open maintenance dashboard”).\n'
+    + '• Pull live counts, lists and status from any module (“how many open calls”, “list the vehicles”).\n'
+    + '• Summarise the screen you’re on, and flag what needs attention right now.\n'
+    + '• Answer follow-up questions in context.\n\n'
+    + 'Areas: '+areas+'.\n'
+    + 'Say “list <area> tabs” to see the screens in any area, or “list all tabs” for the full menu.';
+}
+function listModule(slug){
+  var G=groups(), views=G.map[slug]||[];
+  if(!views.length) return 'I don’t have any screens registered under '+modLabel(slug)+'.';
+  return modLabel(slug)+' has '+views.length+' screen'+(views.length===1?'':'s')+':\n'
+    + views.map(function(v){return '• '+cap(v.label);}).join('\n')
+    + '\n\nSay “open '+slug+' '+(views[0]?views[0].label:'')+'” to jump to one.';
+}
+function listAll(){
+  var G=groups();
+  return 'Full menu — every area and its screens:\n\n'
+    + G.order.map(function(m){
+        return modLabel(m)+':\n  '+G.map[m].map(function(v){return cap(v.label);}).join(', ');
+      }).join('\n\n');
+}
+function whereIs(term){
+  term=String(term||'').toLowerCase().trim();
+  if(!term) return null;
+  var hits=nav().filter(function(v){ return v.label.indexOf(term)>-1; });
+  if(!hits.length) return null;
+  if(hits.length===1){ var h=hits[0]; return cap(h.label)+' is in '+modLabel(h.mod)+'. Say “open '+h.mod+' '+h.label+'” and I’ll take you there.'; }
+  var by={}; hits.forEach(function(h){ (by[h.mod]=by[h.mod]||[]).push(cap(h.label)); });
+  return '“'+term+'” appears in several areas: '
+    + Object.keys(by).map(function(m){return modLabel(m)+' ('+by[m].join(', ')+')';}).join('; ')
+    + '. Add the area, e.g. “open '+Object.keys(by)[0]+' '+term+'”.';
+}
+
+var _prevDomain = window._nexiAnswerFromDomains;
+window._nexiAnswerFromDomains = function(qRaw){
+  var q = String(qRaw||'').toLowerCase().trim();
+
+  if(q){
+    /* "what can you do" / capabilities / main menu */
+    if(/\bwhat can (you|nexi|u)\b/.test(q) || /\b(your |the )?capabilit(y|ies)\b/.test(q)
+       || /\b(main menu|show (me )?the menu|open the menu|full menu|what do you know how to do)\b/.test(q)){
+      if(/\ball\b.*\btabs?\b/.test(q)) return listAll();
+      return menuOverview();
+    }
+
+    /* module-scoped listing: "list maintenance tabs", "what's in IT", "show production screens" */
+    if(/\b(tabs?|screens?|views?|pages?|sub-?tabs?)\b/.test(q)
+       && /\b(list|show|what|which|all|every|whats|what'?s|in|under|for|has|have)\b/.test(q)){
+      var m = modFromText(q);
+      if(m) return listModule(m);
+      if(/\ball\b/.test(q) || /\bevery\b/.test(q)) return listAll();
+      /* generic "what tabs do you have" with no area -> overview */
+      return menuOverview();
+    }
+
+    /* bare "<area> tabs" e.g. "maintenance tabs", "irrigation screens" */
+    if(/\b(tabs?|screens?|views?|pages?)\b/.test(q)){
+      var m2 = modFromText(q);
+      if(m2) return listModule(m2);
+    }
+
+    /* "where is X" / "which tab has X" / "find the X screen" */
+    var wm = q.match(/\b(?:where is|where'?s|which (?:tab|screen|module) (?:has|is)|find (?:the )?)\s+(.+?)\s*(?:tab|screen|page|view)?\??$/);
+    if(wm){ var w=whereIs(wm[1]); if(w) return w; }
+  }
+
+  return (typeof _prevDomain==='function') ? _prevDomain(qRaw) : null;
+};
+
+/* ============================================================
+   (2) MODULE-QUALIFIED PRECISE NAVIGATION — wraps _nexiResolveTarget
+   Fixes "opens the wrong tab" when a label (dashboard, command center,
+   open calls, recurring tasks, history) exists in many modules.
+   ============================================================ */
+function scoreLabel(label, want){
+  label=String(label||''); want=String(want||'');
+  if(!label||!want) return 0;
+  if(label===want) return 100;
+  if(label.indexOf(want)>-1 || want.indexOf(label)>-1) return 80;
+  var lw=label.split(' '), ww=want.split(' '), hit=0;
+  ww.forEach(function(t){ if(t.length>2 && lw.indexOf(t)>-1) hit++; });
+  return ww.length ? Math.round(60*hit/ww.length) : 0;
+}
+function resolveInModule(rawText){
+  var t=String(rawText||'').toLowerCase().trim();
+  if(!t) return null;
+  var slug=modFromText(t);
+  if(!slug) return null;                       /* no area mentioned -> let original resolver handle it */
+  /* strip the area words + filler so only the screen name remains */
+  var rest=t;
+  (MOD_SYN[slug]||[]).forEach(function(syn){ rest=rest.replace(new RegExp('\\b'+syn.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','g'),' '); });
+  rest=rest.replace(/\b(open|go to|goto|navigate to|take me to|switch to|jump to|bring up|show|the|tab|screen|page|view|module|please|me|to|in|under|for|of|a|an)\b/g,' ')
+           .replace(/\s+/g,' ').trim();
+  var views=nav().filter(function(v){return v.mod===slug;});
+  if(!views.length) return null;
+  if(!rest){
+    /* just the area -> module home (defer to original which knows module homes) */
+    return null;
+  }
+  var best=null, bs=0;
+  views.forEach(function(v){ var s=scoreLabel(v.label, rest); if(s>bs){ bs=s; best=v; } });
+  if(best && bs>=50) return { type:'view', mod:best.mod, id:best.id, label:cap(best.label) };
+  return null;
+}
+var _origResolve = window._nexiResolveTarget;
+window._nexiResolveTarget = function(raw){
+  try{ var t=resolveInModule(raw); if(t) return t; }catch(e){}
+  return (typeof _origResolve==='function') ? _origResolve(raw) : null;
+};
+
+/* ============================================================
+   (3) GROUND THE CLOUD AI — wrap __hnxApi so every /ai/analyze call
+   carries the full tab menu + recent conversation + a "don't invent
+   screens" contract. Surgical: only /ai/analyze bodies are touched.
+   ============================================================ */
+function wrapApi(){
+  var api = window.__hnxApi;
+  if(typeof api!=='function' || api._atlasWrapped) return;
+  var wrapped = function(path, opts){
+    try{
+      if(path==='/ai/analyze' && opts && typeof opts.body==='string'){
+        var b=JSON.parse(opts.body);
+        if(b && b.context && typeof b.context==='object'){
+          b.context.nexiCapabilities = compactMenu();
+          b.context.recentConversation = recentTurns(8);
+          b.context.currentScreen = (window.currentView||null);
+          b.context.navigationContract =
+            'Screen navigation is handled deterministically by the app, not by you. '
+            + 'nexiCapabilities lists the ONLY screens that exist. Never invent tabs, buttons or screens. '
+            + 'If the user asks to open something not in that list, say it does not exist and suggest the closest real screen. '
+            + 'Use recentConversation to stay in context across turns.';
+          opts = Object.assign({}, opts, { body: JSON.stringify(b) });
+        }
+      }
+    }catch(e){}
+    return api.apply(this, [path, opts]);
+  };
+  wrapped._atlasWrapped = true;
+  window.__hnxApi = wrapped;
+}
+wrapApi();
+/* __hnxApi can be (re)assigned during later init; re-apply a couple of times, idempotently */
+setTimeout(wrapApi, 1500);
+setTimeout(wrapApi, 5000);
+
+/* ---------- expose a couple of helpers for debugging / reuse ---------- */
+window.NexiAtlasMenu = compactMenu;
+window.NexiAtlasList = listAll;
+
+})();
+</script>
