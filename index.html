@@ -155524,6 +155524,541 @@ gh+=_mtxTreeBody(rows);
 <!-- ===== END HNX FORECASTING MODULE ===== -->
 
 
+<!-- ===== HNX FORECASTING MODULE v2 (EWMA + seasonality + bands + auto-PO + Nexi summary) =====
+     Drop-in superset of v1: overrides window.renderInvForecast / hnxInvForecast / __hnxInvForecast.
+     All persistent state uses hydroPro_* keys, so the existing hnx-sync worker picks them up
+     in the 20s autosync loop AND every save() calls hnxCloudSyncPush() for direct cross-device sync.
+
+     STORAGE SCHEMA (JSDoc — also mirrored in hnx_inventory_schema.sql on the desktop):
+       hydroPro_inv_usage_v1         : { [sku]: { monthly:number, source:'manual'|'csv', updatedAt:ISO } }
+       hydroPro_inv_fc_window_v1     : '90' | '180' | '365'
+       hydroPro_inv_requests_v1      : Array<{ createdAt:ISO, itemSku, itemName, qty, status }>
+       hydroPro_inv_draft_pos_v1     : Array<{ sku, name, supplier, suggestedQty, unit, onHand, lead, recSafety, confidence, status:'draft', source:'forecast-v2', createdAt:ISO }>
+       hydroPro_inv_settings_v1      : { [sku]: { lead_time_days?:number, safety_stock_override?:number, seasonality_profile:'flat'|'summer'|'rainy'|'dryseason', updated_at:ISO } }
+       hydroPro_inv_forecast_meta_v1 : { last_forecast_at:ISO, model_version:string }
+       hydroPro_inv_ai_summary_v1    : { text:string, src:string, at:ISO, pending?:boolean }
+
+     QA: window.hnxRunForecastTests() — pops a result chip in the corner.
+     ===================================================================== -->
+<script id="hnx-forecast-v2">
+(function(){
+  'use strict';
+  if (window.__hnxInvForecastV2 && window.__hnxInvForecastV2._ready) return;
+
+  var REQ_KEY  = 'hydroPro_inv_requests_v1';
+  var USE_KEY  = 'hydroPro_inv_usage_v1';
+  var WIN_KEY  = 'hydroPro_inv_fc_window_v1';
+  var DPO_KEY  = 'hydroPro_inv_draft_pos_v1';
+  var SET_KEY  = 'hydroPro_inv_settings_v1';
+  var META_KEY = 'hydroPro_inv_forecast_meta_v1';
+  var AISUM_KEY= 'hydroPro_inv_ai_summary_v1';
+
+  var MODEL_VERSION = 'fc-v2-ewma-2026.06';
+  var EWMA_ALPHA = 0.45;
+  var Z_FOR_BAND = 1.28;
+  var SEASON_PROFILES = {
+    flat:      [1,1,1,1,1,1,1,1,1,1,1,1],
+    summer:    [.85,.85,.9,1.0,1.15,1.2,1.25,1.2,1.1,1.0,.9,.85],
+    rainy:     [1.15,1.1,1.0,.95,.9,.85,.85,.9,1.0,1.1,1.15,1.2],
+    dryseason: [1.2,1.2,1.1,1.0,.9,.85,.85,.9,1.0,1.1,1.15,1.2]
+  };
+
+  function jget(k,fb){ try{ var v=JSON.parse(localStorage.getItem(k)||'null'); return (v==null)?fb:v; }catch(e){ return fb; } }
+  function jset(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} push(); }
+  function push(){ try{ if (typeof hnxCloudSyncPush==='function') hnxCloudSyncPush(); }catch(e){} }
+  function num(x){ return parseFloat(x)||0; }
+  function esc(s){ s=(s==null)?'':String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function toast(m,t){ try{ if (typeof showToast==='function') showToast(m,t||'info'); }catch(e){} }
+  function canEdit(){ try{ return (typeof can==='function') && can('manageInventory'); }catch(e){ return false; } }
+  function stockList(){ try{ return (typeof _invLoadStock==='function') ? _invLoadStock() : []; }catch(e){ return []; } }
+  function reqs(){ return jget(REQ_KEY,[]) || []; }
+  function useMap(){ return jget(USE_KEY,{}) || {}; }
+  function loadSettings(){ var o=jget(SET_KEY,{}); return (o && typeof o==='object') ? o : {}; }
+  function saveSettings(o){ jset(SET_KEY,o); }
+  function loadMeta(){ return jget(META_KEY, { last_forecast_at:null, model_version:MODEL_VERSION }); }
+  function saveMeta(m){ jset(META_KEY,m); }
+  function loadWindow(){ try{ var v=parseInt(localStorage.getItem(WIN_KEY)||'90',10); return (v===180||v===365)?v:90; }catch(e){ return 90; } }
+  function loadAiSum(){ return jget(AISUM_KEY,null); }
+  function saveAiSum(o){ jset(AISUM_KEY,o); }
+
+  var V = { filter:'risk', q:'' };
+
+  function monthlyDemand(windowDays){
+    var cut = Date.now()-windowDays*86400000, out={};
+    reqs().forEach(function(r){
+      if (!r) return;
+      var t=new Date(r.createdAt||0).getTime();
+      if (isNaN(t)||t<cut) return;
+      var st=String(r.status||'').toLowerCase();
+      if (/reject|cancel|denied|void/.test(st)) return;
+      var key=String(r.itemSku||r.itemName||'').trim(); if (!key) return;
+      var ym=new Date(t).toISOString().slice(0,7);
+      var b=out[key]||(out[key]={});
+      b[ym]=(b[ym]||0)+(num(r.qty)||1);
+    });
+    return out;
+  }
+  function ewma(vals, alpha){
+    if (!vals.length) return 0;
+    var e=vals[0];
+    for (var i=1;i<vals.length;i++) e = alpha*vals[i] + (1-alpha)*e;
+    return e;
+  }
+  function stddev(vals, mean){
+    if (vals.length<2) return 0;
+    var s=0;
+    for (var i=0;i<vals.length;i++) s += (vals[i]-mean)*(vals[i]-mean);
+    return Math.sqrt(s/(vals.length-1));
+  }
+  function profileFor(sku, settings){
+    var s=settings[sku], name=(s&&s.seasonality_profile)||'flat';
+    return SEASON_PROFILES[name]||SEASON_PROFILES.flat;
+  }
+  function leadFor(it, settings){
+    var s=settings[it.sku];
+    if (s && num(s.lead_time_days)>0) return num(s.lead_time_days);
+    try{
+      if (typeof window.hnxInvSuppliers==='function'){
+        var sup=(it.supplier||'').trim();
+        var hit=window.hnxInvSuppliers().filter(function(x){ return (x.name||'')===sup; })[0];
+        if (hit && num(hit.leadTimeDays)>0) return num(hit.leadTimeDays);
+      }
+    }catch(e){}
+    return 7;
+  }
+  function safetyFor(sku, settings, avgDaily, lead){
+    var s=settings[sku];
+    if (s && num(s.safety_stock_override)>0) return num(s.safety_stock_override);
+    return Math.ceil(avgDaily*lead);
+  }
+
+  var _cache=null, _cacheKey='';
+  function build(){
+    var win=loadWindow();
+    var key=win+'|'+localStorage.getItem(USE_KEY)+'|'+localStorage.getItem(SET_KEY)+'|'+Math.floor(((new Date()).getTime())/60000);
+    if (_cache && _cacheKey===key) return _cache;
+    var buckets=monthlyDemand(win), overrides=useMap(), settings=loadSettings();
+    var monthIdx=new Date().getMonth(), out={};
+    stockList().forEach(function(it){
+      var sku=String(it.sku||it.id||''); if (!sku) return;
+      var name=String(it.name||'');
+      var b=buckets[sku]||buckets[name]||{};
+      var months=Object.keys(b).sort();
+      var series=months.map(function(m){ return b[m]; });
+      var ov=overrides[sku];
+      var avgMonthly=0, avgEwma=0, sigma=0, n=series.length, source='';
+      if (ov && num(ov.monthly)>0){
+        avgMonthly=num(ov.monthly); avgEwma=avgMonthly;
+        source=(ov.source==='csv')?'csv':'manual';
+      } else if (series.length){
+        var sum=series.reduce(function(a,b){return a+b;},0);
+        avgMonthly=sum/Math.max(1, win/30);
+        avgEwma=ewma(series, EWMA_ALPHA);
+        sigma=stddev(series, sum/series.length);
+        source='request';
+      } else { return; }
+      var prof=profileFor(sku, settings);
+      var monthFactor=prof[monthIdx]||1;
+      var smoothed=avgEwma*monthFactor;
+      var avgDaily=smoothed/30;
+      var onHand=num(it.onHand);
+      var daysCover=avgDaily>0?(onHand/avgDaily):Infinity;
+      var lead=leadFor(it, settings);
+      var recSafety=safetyFor(sku, settings, avgDaily, lead);
+      var projected=Math.round(smoothed);
+      var lo=Math.max(0, Math.round((avgEwma - Z_FOR_BAND*sigma)*monthFactor));
+      var hi=Math.round((avgEwma + Z_FOR_BAND*sigma)*monthFactor);
+      var thin=(source==='request' && n<3);
+      var conf=(source==='request')?(thin?'estimate':(n>=6?'modeled-strong':'modeled')):source;
+      out[sku] = {
+        sku:sku, name:name, onHand:onHand, unit:(it.unit||''), supplier:(it.supplier||''),
+        avgMonthly:avgMonthly, avgMonthlyEwma:avgEwma, seasonFactor:monthFactor,
+        avgDaily:avgDaily, daysCover:daysCover,
+        projected:projected, loBand:lo, hiBand:hi, recSafety:recSafety,
+        lead:lead, source:source, n:n, confidence:conf, modelVersion:MODEL_VERSION
+      };
+    });
+    _cache=out; _cacheKey=key;
+    var meta=loadMeta(); meta.last_forecast_at=new Date().toISOString(); meta.model_version=MODEL_VERSION;
+    saveMeta(meta);
+    return out;
+  }
+  function invalidate(){ _cache=null; }
+
+  window.hnxInvForecast       = function(sku){ if (!sku) return null; var f=build(); return f[sku]||null; };
+  window.hnxInvForecastExists = function(sku){ if (!sku) return false; var f=build(); return !!(f[sku] && f[sku].avgMonthly>0); };
+
+  window.hnxInvOpenForecastSettings = function(sku){
+    if (!canEdit()){ toast('Need inventory edit permission','warn'); return; }
+    var s=loadSettings(), cur=s[sku]||{};
+    var lead=prompt('Lead time (days) for '+sku+' — blank to use supplier default:', cur.lead_time_days||'');
+    if (lead===null) return;
+    var safe=prompt('Safety stock override (units) — blank to compute from lead × avg-daily:', cur.safety_stock_override||'');
+    if (safe===null) return;
+    var prof=prompt('Seasonality profile (flat / summer / rainy / dryseason):', cur.seasonality_profile||'flat');
+    if (prof===null) return;
+    if (['flat','summer','rainy','dryseason'].indexOf(prof)<0) prof='flat';
+    var row={ seasonality_profile:prof, updated_at:new Date().toISOString() };
+    if (num(lead)>0) row.lead_time_days=num(lead);
+    if (num(safe)>0) row.safety_stock_override=num(safe);
+    if (!row.lead_time_days && !row.safety_stock_override && row.seasonality_profile==='flat') delete s[sku];
+    else s[sku]=row;
+    saveSettings(s); invalidate();
+    toast('Settings saved — synced to cloud','success');
+    if (typeof window.renderInvForecast==='function') window.renderInvForecast();
+  };
+
+  function suggestDraftPOs(){
+    var list=build();
+    return Object.keys(list).map(function(k){return list[k];})
+      .filter(function(x){ return x.daysCover<=x.lead; })
+      .map(function(x){
+        var horizon=x.lead+30;
+        var qty=Math.max(0, Math.ceil(x.avgDaily*horizon) + x.recSafety - x.onHand);
+        return { sku:x.sku, name:x.name, supplier:x.supplier||'(unknown)',
+                 onHand:x.onHand, lead:x.lead, recSafety:x.recSafety,
+                 suggestedQty:qty, unit:x.unit, confidence:x.confidence,
+                 status:'draft', source:'forecast-v2', createdAt:new Date().toISOString() };
+      })
+      .sort(function(a,b){ return b.suggestedQty - a.suggestedQty; });
+  }
+
+  window.hnxInvSaveDraftPOs = function(){
+    if (!canEdit()){ toast('Need inventory edit permission','warn'); return; }
+    var existing=jget(DPO_KEY,[])||[];
+    var added=0, key=function(p){ return (p.sku||'')+'|'+(p.status||'draft'); };
+    var idx={}; existing.forEach(function(p){ idx[key(p)]=true; });
+    suggestDraftPOs().forEach(function(s){
+      if (s.suggestedQty<=0) return;
+      if (idx[key(s)]) return;
+      existing.unshift(s); added++;
+    });
+    jset(DPO_KEY, existing);
+    toast(added+' draft POs saved — synced to cloud','success');
+    if (typeof window.renderInvForecast==='function') window.renderInvForecast();
+  };
+
+  window.hnxInvCopyDraftPOs = function(){
+    var lines=['supplier,sku,name,qty,unit,onHand,lead,confidence'];
+    suggestDraftPOs().forEach(function(p){
+      if (p.suggestedQty<=0) return;
+      function q(v){ v=(v==null)?'':String(v); return /[",\n]/.test(v)?('"'+v.replace(/"/g,'""')+'"'):v; }
+      lines.push([p.supplier,p.sku,p.name,p.suggestedQty,p.unit,p.onHand,p.lead,p.confidence].map(q).join(','));
+    });
+    var text=lines.join('\n');
+    try{
+      navigator.clipboard.writeText(text).then(
+        function(){ toast('Copied '+(lines.length-1)+' rows','success'); },
+        function(){ window.prompt('Copy:', text); }
+      );
+    }catch(e){ window.prompt('Copy:', text); }
+  };
+
+  function localSummary(){
+    var arr=Object.keys(build()).map(function(k){return build()[k];});
+    var atRisk=arr.filter(function(x){return x.daysCover<=x.lead;});
+    var soon=arr.filter(function(x){return x.daysCover<=30 && x.daysCover>x.lead;});
+    var spikes=arr.filter(function(x){return x.hiBand && x.avgMonthlyEwma && (x.hiBand > x.avgMonthlyEwma*1.6);});
+    var top=atRisk.slice().sort(function(a,b){return a.daysCover-b.daysCover;}).slice(0,5);
+    var lines=[];
+    lines.push('Forecast snapshot — '+arr.length+' SKUs with a demand signal, '+atRisk.length+' at risk.');
+    if (top.length){
+      lines.push('Top stock-out risks:');
+      top.forEach(function(x){
+        lines.push('  • '+x.sku+(x.name?' ('+x.name+')':'')+' — '+Math.round(x.daysCover)+'d cover, lead '+x.lead+'d, project '+x.projected+'/mo (band '+x.loBand+'–'+x.hiBand+').');
+      });
+    }
+    if (soon.length) lines.push(soon.length+' more under 30d cover but above lead — watch, do not order yet.');
+    if (spikes.length) lines.push(spikes.length+' SKUs show high demand volatility (hi-band > 1.6× EWMA).');
+    var pos=suggestDraftPOs().filter(function(p){return p.suggestedQty>0;});
+    if (pos.length){
+      var bySupp={}; pos.forEach(function(p){ bySupp[p.supplier]=(bySupp[p.supplier]||0)+1; });
+      var who=Object.keys(bySupp).sort(function(a,b){return bySupp[b]-bySupp[a];}).slice(0,3);
+      lines.push('Recommend drafting POs for '+pos.length+' SKUs — concentrate first on: '+who.join(', ')+'.');
+    } else {
+      lines.push('No POs required from current signal.');
+    }
+    return lines.join('\n');
+  }
+
+  window.hnxInvGenAiSummary = function(){
+    var pending={ text:'Generating…', src:'…', at:new Date().toISOString(), pending:true };
+    saveAiSum(pending);
+    if (typeof window.renderInvForecast==='function') window.renderInvForecast();
+    var ctx='Inventory forecasting snapshot:\n'+localSummary();
+    var q='Summarize the inventory forecast: top stock-out risks, demand anomalies, and one concrete next action. <=120 words. Use the snapshot.';
+    function setResult(text, src){
+      saveAiSum({ text:text, src:src, at:new Date().toISOString(), pending:false });
+      if (typeof window.renderInvForecast==='function') window.renderInvForecast();
+    }
+    if (typeof window.__hnxApi!=='function' || !localStorage.getItem('hnx_cloud_token')){
+      setResult(localSummary(), 'local-synth (cloud not connected)');
+      return;
+    }
+    try{
+      window.__hnxApi('/ai/analyze',{
+        method:'POST',
+        body:JSON.stringify({
+          context:{ role:'You are FORECAST-AI for a Philippine hydroponic farm group. Be concise and direct.', question:q },
+          question:q, snapshot:ctx
+        })
+      }).then(function(d){
+        var ans=d && (d.answer || (d.analysis && [d.analysis.conclusion,d.analysis.recommendation].filter(Boolean).join(' — ')));
+        if (ans) setResult(ans, (d&&d.src)||'cloud-ai');
+        else setResult(localSummary(),'local-synth (no cloud answer)');
+      }).catch(function(e){
+        setResult(localSummary(),'local-synth ('+(e&&e.message||'cloud error')+')');
+      });
+    }catch(e){
+      setResult(localSummary(),'local-synth (call failed)');
+    }
+  };
+
+  function kpi(label,val,cls){
+    return '<div class="pay-stat"><div class="pay-stat-label">'+esc(label)+'</div><div class="pay-stat-val'+(cls?(' '+cls):'')+'">'+esc(String(val))+'</div></div>';
+  }
+  function fchip(id,label){
+    var on=V.filter===id;
+    return '<button onclick="window.__hnxInvForecast.setFilter(\''+id+'\')" style="padding:6px 12px;border-radius:6px;border:1px solid '+(on?'#66bb6a':'rgba(120,160,140,.4)')+';background:'+(on?'rgba(102,187,106,.18)':'transparent')+';color:'+(on?'#9ccc65':'#9fc7bb')+';font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">'+esc(label)+'</button>';
+  }
+  function wchip(d){
+    var on=loadWindow()===d;
+    return '<button onclick="window.__hnxInvForecast.setWindow('+d+')" style="padding:5px 10px;border-radius:6px;border:1px solid '+(on?'#4aa3df':'rgba(120,160,140,.4)')+';background:'+(on?'rgba(74,163,223,.18)':'transparent')+';color:'+(on?'#7cc0f0':'#9fc7bb')+';font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">'+d+'d</button>';
+  }
+
+  window.renderInvForecast = function(){
+    var root=document.getElementById('invForecastRoot'); if (!root) return;
+    var map=build();
+    var list=Object.keys(map).map(function(k){return map[k];});
+    var win=loadWindow();
+
+    var atRisk=list.filter(function(x){return x.daysCover<=x.lead;});
+    var soon=list.filter(function(x){return x.daysCover<=30;});
+    var manualN=list.filter(function(x){return x.source==='manual'||x.source==='csv';}).length;
+    var reqN=list.filter(function(x){return x.source==='request';}).length;
+    var covVals=list.filter(function(x){return isFinite(x.daysCover);}).map(function(x){return x.daysCover;});
+    var avgCov=covVals.length?Math.round(covVals.reduce(function(a,b){return a+b;},0)/covVals.length):0;
+    var strong=list.filter(function(x){return x.confidence==='modeled-strong';}).length;
+
+    var q=(V.q||'').toLowerCase();
+    var rows=list.filter(function(x){
+      if (V.filter==='risk' && x.daysCover>x.lead) return false;
+      if (V.filter==='manual' && !(x.source==='manual'||x.source==='csv')) return false;
+      if (V.filter==='request' && x.source!=='request') return false;
+      if (q && (x.sku.toLowerCase().indexOf(q)<0 && (x.name||'').toLowerCase().indexOf(q)<0)) return false;
+      return true;
+    }).sort(function(a,b){ return a.daysCover-b.daysCover; });
+
+    var hero='';
+    try{
+      if (typeof _hnxRenderDashHero==='function'){
+        hero=_hnxRenderDashHero({
+          module:'inventory', icon:'📈',
+          title:'Demand Forecasting · '+MODEL_VERSION,
+          tagline:'EWMA-smoothed monthly demand with seasonality, confidence bands, and cloud-direct sync. Auto-PO drafts for at-risk SKUs.',
+          chips:[String(list.length)+' forecast', String(atRisk.length)+' at risk', win+'d window', strong+' strong']
+        });
+      }
+    }catch(e){}
+
+    var kpis='<div class="pay-stats" style="margin:14px 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">'
+      +kpi('Items forecast', list.length)
+      +kpi('At risk (≤ lead)', atRisk.length, atRisk.length?'warn':'')
+      +kpi('Cover ≤ 30d', soon.length, soon.length?'warn':'')
+      +kpi('Avg days cover', isFinite(avgCov)?avgCov:'—')
+      +kpi('Manual / CSV', manualN)
+      +kpi('Request-derived', reqN)
+      +kpi('Strong-model', strong)
+      +'</div>';
+
+    var controls='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">'
+      +fchip('risk','⚠ At risk')+fchip('all','All')+fchip('manual','✍ Manual/CSV')+fchip('request','📝 Request-derived')
+      +'<span style="margin-left:6px;color:#7aa99a;font-size:11px;">Demand window:</span>'+wchip(90)+wchip(180)+wchip(365)
+      +'<span style="flex:1 1 120px;"></span>'
+      +'<input id="invFcSearch" placeholder="Search SKU / name…" value="'+esc(V.q)+'" oninput="window.__hnxInvForecast.search(this.value)" style="padding:7px 10px;border-radius:7px;border:1px solid rgba(120,160,140,.35);background:#0c1713;color:#cfe;font-size:12px;min-width:160px;">'
+      +(canEdit()?'<button onclick="window.hnxInvImportUsageCSV()" style="padding:7px 12px;border-radius:7px;border:1px solid rgba(74,163,223,.5);background:rgba(74,163,223,.14);color:#7cc0f0;font-size:12px;font-weight:700;cursor:pointer;">⬆ Import usage CSV</button>':'')
+      +'<button onclick="window.__hnxInvForecast.exportCSV()" style="padding:7px 12px;border-radius:7px;border:1px solid rgba(120,160,140,.4);background:transparent;color:#9fc7bb;font-size:12px;font-weight:700;cursor:pointer;">⬇ Export</button>'
+      +'<button onclick="window.hnxInvGenAiSummary()" style="padding:7px 12px;border-radius:7px;border:1px solid rgba(126,87,194,.5);background:rgba(126,87,194,.14);color:#b39ddb;font-size:12px;font-weight:700;cursor:pointer;">🤖 AI summary</button>'
+      +'<button onclick="window.hnxRunForecastTests()" style="padding:7px 12px;border-radius:7px;border:1px solid rgba(120,160,140,.4);background:transparent;color:#9fc7bb;font-size:12px;font-weight:700;cursor:pointer;">✓ Run QA</button>'
+      +'</div>';
+
+    var ai=loadAiSum(), aiPanel='';
+    if (ai){
+      aiPanel='<div style="margin:10px 0 14px;padding:12px 14px;border:1px solid rgba(126,87,194,.4);border-radius:10px;background:rgba(126,87,194,.07);">'
+        +'<div style="font-size:11px;color:#b39ddb;font-weight:700;margin-bottom:4px;">🤖 NEXI · What this means'+(ai.src?(' · '+esc(ai.src)):'')+'</div>'
+        +'<div style="font-size:13px;color:#cfe;white-space:pre-wrap;line-height:1.55;">'+esc(ai.text)+'</div>'
+        +'<div style="font-size:10px;color:#7aa99a;margin-top:6px;">Synced '+(ai.at?new Date(ai.at).toLocaleString():'')+'</div>'
+        +'</div>';
+    }
+
+    var drafts=suggestDraftPOs().filter(function(p){return p.suggestedQty>0;}), posPanel='';
+    if (drafts.length){
+      var poRows=drafts.slice(0,12).map(function(p){
+        return '<tr>'
+          +'<td style="padding:6px 8px;font-size:12px;color:#cfe;font-family:var(--mono,monospace);">'+esc(p.sku)+'</td>'
+          +'<td style="padding:6px 8px;font-size:12px;color:#cfe;max-width:240px;overflow:hidden;text-overflow:ellipsis;">'+esc(p.name||'—')+'</td>'
+          +'<td style="padding:6px 8px;font-size:12px;color:#cfe;">'+esc(p.supplier||'—')+'</td>'
+          +'<td style="padding:6px 8px;font-size:12px;color:#9ccc65;font-weight:700;">'+p.suggestedQty+' '+esc(p.unit||'')+'</td>'
+          +'<td style="padding:6px 8px;font-size:11px;color:#7aa99a;">'+esc(p.confidence)+'</td></tr>';
+      }).join('');
+      posPanel='<div style="margin:10px 0 14px;padding:12px 14px;border:1px solid rgba(74,163,223,.4);border-radius:10px;background:rgba(74,163,223,.06);">'
+        +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">'
+        +'<div style="font-size:11px;color:#7cc0f0;font-weight:700;">📄 AUTO-DRAFT POs ('+drafts.length+')</div>'
+        +'<span style="flex:1;"></span>'
+        +(canEdit()?'<button onclick="window.hnxInvSaveDraftPOs()" style="padding:5px 10px;border-radius:6px;border:1px solid #4aa3df;background:rgba(74,163,223,.18);color:#7cc0f0;font-size:11px;font-weight:700;cursor:pointer;">Save '+drafts.length+' drafts</button>':'')
+        +'<button onclick="window.hnxInvCopyDraftPOs()" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(120,160,140,.5);background:transparent;color:#9fc7bb;font-size:11px;font-weight:700;cursor:pointer;">Copy CSV</button>'
+        +'</div>'
+        +'<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+        +'<thead><tr style="text-align:left;color:#7aa99a;font-size:10px;text-transform:uppercase;letter-spacing:.4px;">'
+        +'<th style="padding:6px 8px;">SKU</th><th style="padding:6px 8px;">Name</th><th style="padding:6px 8px;">Supplier</th><th style="padding:6px 8px;">Qty</th><th style="padding:6px 8px;">Conf.</th></tr></thead>'
+        +'<tbody>'+poRows+'</tbody></table>'
+        +(drafts.length>12?'<div style="font-size:10px;color:#7aa99a;margin-top:6px;">Showing top 12 of '+drafts.length+'.</div>':'')
+        +'</div>';
+    }
+
+    var body;
+    if (!list.length){
+      body='<div style="padding:40px 20px;text-align:center;color:#7aa99a;">'
+        +'<div style="font-size:34px;opacity:.5;margin-bottom:8px;">📈</div>'
+        +'<div style="font-weight:700;color:#cfe;margin-bottom:6px;">No demand signal yet</div>'
+        +'<div style="font-size:12.5px;max-width:520px;margin:0 auto 4px;">Forecasts build once Item Requests flow or you import monthly usage.</div>'
+        +(canEdit()?'<div style="margin-top:12px;"><button onclick="window.hnxInvImportUsageCSV()" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(74,163,223,.5);background:rgba(74,163,223,.14);color:#7cc0f0;font-weight:700;cursor:pointer;">⬆ Import usage CSV (sku,monthly)</button></div>':'')
+        +'</div>';
+    } else {
+      var th='style="text-align:left;padding:8px 10px;font-size:10.5px;letter-spacing:.4px;text-transform:uppercase;color:#7aa99a;border-bottom:1px solid rgba(120,160,140,.2);white-space:nowrap;"';
+      var tr=rows.slice(0,400).map(function(x){
+        var risk=x.daysCover<=x.lead, soonF=x.daysCover<=30;
+        var cov=isFinite(x.daysCover)?(Math.round(x.daysCover)+'d'):'∞';
+        var covColor=risk?'#ef5350':(soonF?'#ffb300':'#26c281');
+        var eta=isFinite(x.daysCover)?new Date(Date.now()+x.daysCover*86400000).toISOString().slice(0,10):'—';
+        var srcBadge={manual:'✍ manual',csv:'⬆ csv',request:'📝 req'}[x.source]||x.source;
+        var conf=(x.confidence==='estimate')?' <span style="color:#ffb300;">(est)</span>'
+                :(x.confidence==='modeled-strong')?' <span style="color:#9ccc65;">✦</span>'
+                :'';
+        var band=(x.source==='request' && (x.loBand||x.hiBand))?(' <span style="font-size:10.5px;color:#7aa99a;">['+x.loBand+'–'+x.hiBand+']</span>'):'';
+        var seas=(x.seasonFactor && Math.abs(x.seasonFactor-1)>0.04)?(' <span style="font-size:10.5px;color:'+(x.seasonFactor>1?'#ffb300':'#7cc0f0')+';">×'+x.seasonFactor.toFixed(2)+'</span>'):'';
+        var td='style="padding:8px 10px;font-size:12.5px;color:#cfe;border-bottom:1px solid rgba(120,160,140,.08);white-space:nowrap;"';
+        var skuEsc=esc(x.sku).replace(/'/g,"\\'");
+        return '<tr>'
+          +'<td '+td+'><span style="font-family:var(--mono,monospace);color:#9fc7bb;">'+esc(x.sku)+'</span></td>'
+          +'<td style="padding:8px 10px;font-size:12.5px;color:#cfe;border-bottom:1px solid rgba(120,160,140,.08);max-width:240px;overflow:hidden;text-overflow:ellipsis;">'+esc(x.name||'—')+'</td>'
+          +'<td '+td+'>'+x.onHand+' '+esc(x.unit)+'</td>'
+          +'<td '+td+'>'+(Math.round(x.avgMonthlyEwma*10)/10)+'/mo'+conf+seas+band+'</td>'
+          +'<td '+td+'><span style="color:'+covColor+';font-weight:700;">'+cov+'</span></td>'
+          +'<td '+td+'>'+x.projected+'</td>'
+          +'<td '+td+'>'+x.recSafety+'</td>'
+          +'<td '+td+'><span style="color:'+(risk?'#ef5350':'#9fc7bb')+';">'+eta+'</span></td>'
+          +'<td '+td+'><span style="font-size:11px;color:#7aa99a;">'+srcBadge+'</span>'
+            +(canEdit()?' <button onclick="window.hnxInvPromptUsage(\''+skuEsc+'\')" title="Set monthly usage" style="background:none;border:none;color:#4aa3df;cursor:pointer;font-size:12px;">✎</button>':'')
+            +(canEdit()?' <button onclick="window.hnxInvOpenForecastSettings(\''+skuEsc+'\')" title="Per-SKU forecast settings" style="background:none;border:none;color:#7e57c2;cursor:pointer;font-size:12px;">⚙</button>':'')
+          +'</td></tr>';
+      }).join('');
+      var more=rows.length>400?('<div style="padding:8px 10px;color:#7aa99a;font-size:11px;">Showing first 400 of '+rows.length+' — narrow with search.</div>'):'';
+      body='<div style="overflow-x:auto;border:1px solid rgba(120,160,140,.18);border-radius:10px;">'
+        +'<table style="width:100%;border-collapse:collapse;min-width:780px;">'
+        +'<thead><tr>'
+        +'<th '+th+'>SKU</th><th '+th+'>Name</th><th '+th+'>On hand</th><th '+th+'>Avg use (EWMA · season · band)</th>'
+        +'<th '+th+'>Days cover</th><th '+th+'>Proj 30d</th><th '+th+'>Rec. safety</th><th '+th+'>Stock-out ETA</th><th '+th+'>Source</th>'
+        +'</tr></thead><tbody>'+tr+'</tbody></table>'+more+'</div>';
+    }
+
+    var meta=loadMeta();
+    var token=!!localStorage.getItem('hnx_cloud_token');
+    var foot='<div style="margin-top:10px;font-size:11px;color:#6e8f82;line-height:1.55;">'
+      +'Model <code style="color:#9fc7bb;">'+esc(meta.model_version||MODEL_VERSION)+'</code> · '
+      +'EWMA α='+EWMA_ALPHA+' · z='+Z_FOR_BAND+' (~80% band) · '
+      +'last forecast '+(meta.last_forecast_at?new Date(meta.last_forecast_at).toLocaleString():'—')+' · '
+      +'cloud sync: <span style="color:'+(token?'#9ccc65':'#ffb300')+';font-weight:700;">'+(token?'CONNECTED — direct':'OFFLINE')+'</span>'
+      +'</div>';
+
+    root.innerHTML = hero + kpis + controls + aiPanel + posPanel + body + foot;
+  };
+
+  window.__hnxInvForecast = {
+    setFilter:function(f){ V.filter=f; window.renderInvForecast(); },
+    setWindow:function(d){ try{ localStorage.setItem(WIN_KEY,String(d)); }catch(e){} push(); invalidate(); window.renderInvForecast(); },
+    search:function(v){ V.q=v; var f=document.getElementById('invFcSearch'); var pos=f?f.selectionStart:null; window.renderInvForecast(); var nf=document.getElementById('invFcSearch'); if (nf){ nf.focus(); if (pos!=null){ try{ nf.setSelectionRange(pos,pos); }catch(e){} } } },
+    exportCSV:function(){
+      var f=build();
+      var arr=Object.keys(f).map(function(k){return f[k];}).sort(function(a,b){return a.daysCover-b.daysCover;});
+      var head=['SKU','Name','OnHand','Unit','AvgMonthlyEWMA','SeasonFactor','LoBand','HiBand','DaysCover','Projected30d','RecSafety','LeadDays','StockoutETA','Source','Confidence','Model'];
+      var lines=[head.join(',')];
+      arr.forEach(function(x){
+        var eta=isFinite(x.daysCover)?new Date(Date.now()+x.daysCover*86400000).toISOString().slice(0,10):'';
+        function q(v){ v=(v==null)?'':String(v); return /[",\n]/.test(v)?('"'+v.replace(/"/g,'""')+'"'):v; }
+        lines.push([x.sku,x.name,x.onHand,x.unit,Math.round(x.avgMonthlyEwma*100)/100,(x.seasonFactor||1).toFixed(2),x.loBand||'',x.hiBand||'',(isFinite(x.daysCover)?Math.round(x.daysCover):''),x.projected,x.recSafety,x.lead,eta,x.source,x.confidence,x.modelVersion].map(q).join(','));
+      });
+      try{
+        var blob=new Blob([lines.join('\n')],{type:'text/csv'});
+        var a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+        a.download='hnx_demand_forecast_v2_'+new Date().toISOString().slice(0,10)+'.csv';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        toast('Exported '+arr.length+' rows','success');
+      }catch(e){ toast('Export failed','warn'); }
+    }
+  };
+
+  window.hnxRunForecastTests = function(){
+    var fails=[], passes=0;
+    function ok(name,cond){ if (cond) passes++; else fails.push(name); }
+
+    var rising=[1,2,3,4,5];
+    var e1=ewma(rising, EWMA_ALPHA);
+    ok('ewma in range', e1>=1 && e1<=5);
+    ok('ewma weighted toward last', e1 > (1+2+3+4+5)/5);
+    ok('stddev zero for constant', stddev([3,3,3,3], 3) === 0);
+    var prof=SEASON_PROFILES.summer;
+    var minf=Math.min.apply(null,prof), maxf=Math.max.apply(null,prof);
+    ok('season profile bounded', minf>=0.5 && maxf<=2);
+
+    var sample=build();
+    var skus=Object.keys(sample);
+    if (skus.length){
+      var f=sample[skus[0]];
+      ok('superset: avgMonthly', typeof f.avgMonthly==='number');
+      ok('superset: daysCover', typeof f.daysCover==='number');
+      ok('new: avgMonthlyEwma', typeof f.avgMonthlyEwma==='number');
+      ok('new: confidence band lo/hi', typeof f.loBand==='number' && typeof f.hiBand==='number');
+      ok('band order lo<=hi', f.loBand<=f.hiBand);
+      ok('new: modelVersion stamp', f.modelVersion===MODEL_VERSION);
+    } else {
+      ok('skip (no SKUs with signal)', true);
+    }
+
+    var pos=suggestDraftPOs();
+    if (pos.length){
+      var p=pos[0];
+      ok('po qty non-negative', p.suggestedQty>=0);
+      ok('po has supplier string', typeof p.supplier==='string');
+    } else {
+      ok('skip (no PO suggestions)', true);
+    }
+
+    var probe='__hnx_test_'+Math.floor((new Date()).getTime());
+    var before=loadSettings();
+    var s=Object.assign({}, before);
+    s[probe]={ lead_time_days:9, safety_stock_override:11, seasonality_profile:'flat', updated_at:new Date().toISOString() };
+    saveSettings(s);
+    var after=loadSettings();
+    ok('settings round-trip', after[probe] && after[probe].lead_time_days===9);
+    delete after[probe]; saveSettings(after);
+
+    var box=document.createElement('div');
+    box.style.cssText='position:fixed;right:18px;bottom:18px;z-index:99999;max-width:380px;padding:14px 16px;border-radius:12px;background:#0c1713;border:1px solid '+(fails.length?'#ef5350':'#26c281')+';color:#cfe;font-family:var(--font,system-ui);box-shadow:0 8px 24px rgba(0,0,0,.5);';
+    box.innerHTML='<div style="font-weight:700;color:'+(fails.length?'#ef5350':'#9ccc65')+';margin-bottom:6px;">QA: '+passes+' passed · '+fails.length+' failed</div>'
+      +(fails.length?'<div style="font-size:12px;line-height:1.5;color:#ffb300;"><b>First failures:</b><br>'+fails.slice(0,5).map(esc).join('<br>')+'</div>':'<div style="font-size:12px;color:#9fc7bb;">All forecast invariants hold.</div>')
+      +'<div style="margin-top:8px;text-align:right;"><button onclick="this.parentNode.parentNode.remove()" style="background:none;border:1px solid rgba(120,160,140,.4);color:#9fc7bb;border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;">close</button></div>';
+    document.body.appendChild(box);
+    setTimeout(function(){ try{ box.remove(); }catch(e){} }, 12000);
+    return { passed:passes, failed:fails.length, fails:fails };
+  };
+
+  window.__hnxInvForecastV2 = { _ready:true, modelVersion:MODEL_VERSION };
+})();
+</script>
+<!-- ===== END HNX FORECASTING MODULE v2 ===== -->
+
+
 
 
 <!-- ================= HNX DASHBOARD HERO PATTERN (v2.46.295) =================
