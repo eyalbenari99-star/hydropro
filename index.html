@@ -171208,7 +171208,7 @@ window.__hnxAUTOVAULT={run:autoRun,vaultKeys:OFFLOAD,usage:usagePct,_VAULT:VAULT
     var stColor=i.status==='Approved'?'#66bb6a':(i.status==='In review'?'#ffb74d':(i.status==='Archived'?'#78909c':'#90caf9'));
     var lk=(i.linkedTasks||[]).length;
     return '<div class="rnd-card">\
-      <img class="rnd-thumb" src="'+(i.thumb||transparentPx())+'" alt="">\
+      <img class="rnd-thumb" src="'+(i.thumb||miniDiagram(i))+'" alt="">\
       <div style="font-weight:800;margin-top:8px;">'+esc(i.title||'Untitled')+'</div>\
       <div class="rnd-row" style="gap:6px;margin:6px 0;"><span class="rnd-badge" style="background:'+s.color+'22;color:'+s.color+';">'+s.icon+' '+esc(s.name)+'</span>\
         <span class="rnd-badge" style="background:'+stColor+'22;color:'+stColor+';">'+esc(i.status||'Draft')+'</span>\
@@ -171853,6 +171853,93 @@ window.__hnxAUTOVAULT={run:autoRun,vaultKeys:OFFLOAD,usage:usagePct,_VAULT:VAULT
      ========================================================================== */
   function blankScene(){ var g=settings().gridSpacing||40; return {w:1600,h:1000,bg:{type:'grid',grid:g},objects:[]}; }
   function transparentPx(){ return 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'); }
+  /* === injected: R&D mini-diagram thumbnails ===
+     Draws a schematic SVG preview for any design that has no saved thumb,
+     so the Recent/Library cards show a visual instead of a black box.
+     Motif is inferred from the design title + subject + design-type. */
+  function _mdLine(x1,y1,x2,y2,w,c){return '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="'+(c||'#a9c7b8')+'" stroke-width="'+(w||2)+'" stroke-linecap="round"/>';}
+  function _mdRect(x,y,w,h,rx,fill,stroke){return '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+(rx==null?3:rx)+'" fill="'+(fill||'none')+'" stroke="'+(stroke||'#a9c7b8')+'" stroke-width="2"/>';}
+  function _mdCirc(cx,cy,r,fill,stroke){return '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+(fill||'none')+'" stroke="'+(stroke||'#a9c7b8')+'" stroke-width="2"/>';}
+  function _mdText(x,y,s,size,fill,anchor){return '<text x="'+x+'" y="'+y+'" font-family="monospace" font-size="'+(size||9)+'" fill="'+(fill||'#a9c7b8')+'"'+(anchor?' text-anchor="'+anchor+'"':'')+'>'+s+'</text>';}
+  function _mdMotif(m,a){
+    var S='#a9c7b8';
+    if(m==='water'){
+      return _mdRect(14,20,44,46,4,a+'22',a)+_mdText(36,47,'TANK',9,S,'middle')
+        +_mdLine(58,43,86,43,3,a)
+        +_mdCirc(98,43,12,a+'22',a)+_mdText(98,46,'P',9,S,'middle')
+        +_mdLine(110,43,150,43,3,a)+_mdLine(150,32,150,72,3,a)
+        +_mdLine(150,32,196,32,3,a)+_mdLine(150,72,196,72,3,a)
+        +_mdRect(196,19,98,26,5,'none',S)+_mdRect(196,59,98,26,5,'none',S)
+        +_mdText(245,35,'POOL 15',9,S,'middle')+_mdText(245,75,'POOL 16',9,S,'middle');
+    }
+    if(m==='electrical'){
+      var br=''; for(var k=0;k<4;k++){ br+=_mdRect(22,24+k*14,40,9,2,a+'22',a); }
+      var ld=''; [24,48,72].forEach(function(y){ ld+=_mdLine(110,y+5,150,y+5,2,S)+_mdRect(150,y,44,12,2,'none',S); });
+      return _mdRect(16,16,56,76,4,'none',a)+br
+        +_mdLine(110,12,110,92,3,a)
+        +_mdLine(72,43,110,43,2,a)+ld;
+    }
+    if(m==='nft'){
+      var ch=''; for(var c2=0;c2<4;c2++){ var y0=24+c2*14; ch+=_mdLine(46,y0,300,y0+12,3,a); }
+      return ch+_mdRect(14,30,30,40,4,a+'22',a)+_mdText(29,54,'SUMP',8,S,'middle');
+    }
+    if(m==='vent'){
+      var f=''; [70,160,250].forEach(function(cx){ f+=_mdCirc(cx,46,22,'none',a)+_mdLine(cx,46,cx+15,38,2,a)+_mdLine(cx,46,cx+15,54,2,a)+_mdLine(cx,46,cx-15,38,2,a)+_mdLine(cx,46,cx-15,54,2,a)+_mdCirc(cx,46,4,a,a); });
+      return f;
+    }
+    if(m==='cooling'){
+      var h=''; for(var x=20;x<118;x+=10){ h+=_mdLine(x,18,x,78,1,S); }
+      return _mdRect(16,16,104,64,3,'none',a)+h
+        +'<path d="M140 30 q12 -8 24 0 t24 0 t24 0" fill="none" stroke="'+a+'" stroke-width="2"/>'
+        +'<path d="M140 50 q12 -8 24 0 t24 0 t24 0" fill="none" stroke="'+a+'" stroke-width="2"/>'
+        +'<path d="M140 70 q12 -8 24 0 t24 0 t24 0" fill="none" stroke="'+a+'" stroke-width="2"/>';
+    }
+    if(m==='roof'){
+      return '<path d="M20 78 L160 22 L300 78" fill="none" stroke="'+a+'" stroke-width="3"/>'
+        +'<path d="M30 78 L160 30 L290 78" fill="none" stroke="'+S+'" stroke-width="1.5"/>'+_mdLine(20,86,300,86,2,S);
+    }
+    if(m==='drain'){
+      return '<path d="M16 30 L250 70" stroke="'+a+'" stroke-width="3" fill="none"/>'
+        +_mdRect(250,66,40,20,3,a+'22',a)
+        +'<path d="M150 44 l0 14 m-5 -5 l5 5 l5 -5" stroke="'+S+'" stroke-width="2" fill="none"/>'
+        +_mdText(60,40,'slope',9,S);
+    }
+    var n=[[40,40],[120,28],[120,72],[210,50],[285,32],[285,72]];
+    var edges=[[0,1],[0,2],[1,3],[2,3],[3,4],[3,5]];
+    var g=edges.map(function(e){return _mdLine(n[e[0]][0],n[e[0]][1],n[e[1]][0],n[e[1]][1],2,a);}).join('');
+    g+=n.map(function(p){return _mdCirc(p[0],p[1],7,'#06120b',a);}).join('');
+    return g;
+  }
+  function miniDiagram(it){
+    try{
+      var d=(typeof getDs==='function')?getDs(it):((it&&it.ds)||{});
+      var subj=(typeof subjectById==='function')?subjectById(it&&it.subjectId):null;
+      var a=(subj&&subj.color)||'#66bb6a';
+      var title=String((it&&it.title)||'Untitled');
+      var hay=(title+' '+((subj&&subj.name)||'')+' '+((d&&d.type)||'')).toLowerCase();
+      var m='generic';
+      if(/elect|cabinet|breaker|panel|wir|circuit|power|volt/.test(hay))m='electrical';
+      else if(/nft/.test(hay))m='nft';
+      else if(/vent|fan|exhaust|airflow/.test(hay))m='vent';
+      else if(/cool|pad/.test(hay))m='cooling';
+      else if(/roof|film|clad/.test(hay))m='roof';
+      else if(/drain|gravity|floor/.test(hay))m='drain';
+      else if(/water|pool|dram|drum|osmosis|pump|plumb|pipe|irrig|tank|fertig|dos|valve/.test(hay))m='water';
+      var W=320,H=120;
+      var t=title.length>30?title.slice(0,29)+'…':title;
+      function e2(s){return String(s).replace(/[&<>"]/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c];});}
+      var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'">'
+        +'<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a1a12"/><stop offset="1" stop-color="#06120b"/></linearGradient>'
+        +'<pattern id="grid" width="16" height="16" patternUnits="userSpaceOnUse"><path d="M16 0H0V16" fill="none" stroke="#15301f" stroke-width="1"/></pattern></defs>'
+        +'<rect width="'+W+'" height="'+H+'" fill="url(#bg)"/><rect width="'+W+'" height="'+H+'" fill="url(#grid)"/>'
+        +_mdMotif(m,a)
+        +'<rect x="0" y="'+(H-22)+'" width="'+W+'" height="22" fill="#00000066"/>'
+        +_mdText(10,H-7,e2(t),12,'#cfe3d6')
+        +'<circle cx="'+(W-12)+'" cy="'+(H-11)+'" r="4" fill="'+a+'"/></svg>';
+      return 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+    }catch(e){ return (typeof transparentPx==='function')?transparentPx():''; }
+  }
+
 
   function newBoard(){ newItemMeta(function(meta){ var it=baseItem(meta,'quick_board'); editingItemId=it.id; it._dirty=true; putItem(it); openBoardModal(it); }); }
 
@@ -172556,7 +172643,7 @@ window.NexiAtlasMenu = compactMenu;
 window.NexiAtlasList = listAll;
 
 })();
-</script>
 
+</script>
 </body>
 </html>
