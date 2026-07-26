@@ -134589,6 +134589,40 @@ body.hnx-mobile-locked { overflow: hidden; }
   // Keys we sync (everything starting with hydroPro_ except sensitive/temp ones)
   var SKIP_PREFIXES=['hydroPro_session','hydroPro_biometric','hydroPro_audit'];
   var SKIP_KEYS=['hnx_cloud_token','hnx_cloud_last'];
+  /* v12.90 SYNC-SCOPE-EXPANSION: operational keys the app writes under legacy
+     hn_/hnx_/hydroProIrr* names (not hydroPro_) that were being SILENTLY
+     EXCLUDED from cloud sync. Each one holds cross-device data — daily
+     reports, activity stream, resolutions/assignments, accounting-note
+     disclosures, Hik-Connect camera URLs, irrigation settings. Per-device UI
+     prefs (topbar toggle, wizard index, tour-seen, migration flags, last-seen
+     build, etc.) are intentionally left LOCAL and NOT added here — those must
+     stay per-device or every user opens the app in whoever last synced's UI. */
+  var EXTRA_SYNC_KEYS=[
+    /* Daily-report / activity / assignment / resolution stack (hn_ prefix) */
+    'hn_daily_reports_v1',
+    'hn_activity_stream_v1',
+    'hn_assignments_v1',
+    'hn_resolutions_v1',
+    /* Accounting + Irrigation + Camera legacy-named singletons */
+    'hnx_acct_note_disclosures_v1',
+    'hnx_hikconnect_urls',
+    'hydroProIrrSettings',
+    /* SOP module (aba_sop_*) — signatures, vault, logs, settings */
+    'aba_sop_signature_v1',
+    'aba_sop_vault_v1',
+    'aba_sop_logs_v1',
+    'aba_sop_settings_v1',
+    /* Nursery / ops / trim-trace / tasks / HR policies (hnx_ operational) */
+    'hnx_seedling_plans_v1',
+    'hnx_sup_checklist_v1',
+    'hnx_ttm_history_v1',
+    'hnx_oneTimeTasks_v1',
+    'hnx_company_policies_v1',
+    /* AI memory (aim_*) — feedback log, knowledge base, per-user outcomes */
+    'aim_feedback_log_v1',
+    'aim_knowledge_base_v1',
+    'aim_user_outcomes_v1'
+  ];
 
   function shouldSync(key){
     if(!key) return false;
@@ -134596,8 +134630,9 @@ body.hnx-mobile-locked { overflow: hidden; }
     for(var i=0;i<SKIP_PREFIXES.length;i++){
       if(key.indexOf(SKIP_PREFIXES[i])===0) return false;
     }
-    // Sync all hydroPro_ keys
-    return key.indexOf('hydroPro_')===0;
+    if(key.indexOf('hydroPro_')===0) return true;
+    if(EXTRA_SYNC_KEYS.indexOf(key)!==-1) return true; /* v12.90: operational legacy-named keys */
+    return false;
   }
 
   var IS_LOCAL=false; /* p51 reverted: sync runs everywhere, including from a downloaded file. If the worker's CORS allows it, file:// syncs like the live site. */
@@ -168275,24 +168310,49 @@ window._nexiSnapshot=snapshot;
 /* ---- Tier 2: grounded reasoning via the app's secure Cloud AI ---- */
 window._nexiGroundedAI=function(q,cb){
   var fn=(typeof window.__hnxApi==='function')?window.__hnxApi:null;
-  if(!fn || !localStorage.getItem('hnx_cloud_token')){ cb(null); return; }
-  var ctx=snapshot();
-  ctx.role="You are a warm, direct assistant inside ABA Pardes' HydroNexis-AI operations app. "
-    +"Reply in 1-3 short, friendly sentences and get straight to the point. Do NOT introduce yourself or say your name. "
-    +"Use ONLY the data in this context (it is live from the app); if it's thin, say so plainly instead of guessing. Adapt to the user's current screen.";
-  var done=false; var t=setTimeout(function(){ if(!done){done=true;cb(null);} },26000);
-  try{
-    fn('/ai/analyze',{method:'POST',body:JSON.stringify({context:ctx,question:q})})
-      .then(function(d){
-        if(done)return; done=true; clearTimeout(t);
-        var a=null;
-        if(d&&d.answer)a=d.answer;
-        else if(d&&typeof d.text==='string')a=d.text;
-        else if(d&&d.analysis){ a=[d.analysis.monitoring,d.analysis.conclusion,d.analysis.recommendation,d.analysis.pastExperience].filter(Boolean).join('\n\n'); }
-        cb(a||null);
-      })
-      .catch(function(){ if(done)return; done=true; clearTimeout(t); cb(null); });
-  }catch(e){ if(!done){done=true;clearTimeout(t);cb(null);} }
+  if(!fn){ cb(null); return; }
+  /* v12.90-nexifix ROOT CAUSE of "Hi Nexi not working": the old code
+     early-returned null the moment there was no hnx_cloud_token, so every
+     question fell through to the canned _nexiNoAI() reply — the exact loop
+     users saw ("I can answer about every module …"). Fix: if we're missing
+     a token, try the silent app-credential sign-in first (hnxCloudAutoLogin,
+     added in v12.88 — it reuses the user's own HydroNexis password to obtain
+     a token from the worker's /auth/app-login route). Only if that ALSO
+     fails do we hand cb(null) back and let the canned reply show. */
+  function doAsk(){
+    var ctx=snapshot();
+    ctx.role="You are a warm, direct assistant inside ABA Pardes' HydroNexis-AI operations app. "
+      +"Reply in 1-3 short, friendly sentences and get straight to the point. Do NOT introduce yourself or say your name. "
+      +"Use ONLY the data in this context (it is live from the app); if it's thin, say so plainly instead of guessing. Adapt to the user's current screen.";
+    var done=false; var t=setTimeout(function(){ if(!done){done=true;cb(null);} },26000);
+    try{
+      fn('/ai/analyze',{method:'POST',body:JSON.stringify({context:ctx,question:q})})
+        .then(function(d){
+          if(done)return; done=true; clearTimeout(t);
+          var a=null;
+          if(d&&d.answer)a=d.answer;
+          else if(d&&typeof d.text==='string')a=d.text;
+          else if(d&&d.analysis){ a=[d.analysis.monitoring,d.analysis.conclusion,d.analysis.recommendation,d.analysis.pastExperience].filter(Boolean).join('\n\n'); }
+          cb(a||null);
+        })
+        .catch(function(){ if(done)return; done=true; clearTimeout(t); cb(null); });
+    }catch(e){ if(!done){done=true;clearTimeout(t);cb(null);} }
+  }
+  if(localStorage.getItem('hnx_cloud_token')){ doAsk(); return; }
+  /* No token → attempt silent sign-in (v12.88 flow) then retry once. */
+  if(typeof window.hnxCloudAutoLogin==='function'){
+    try{
+      var p=window.hnxCloudAutoLogin();
+      if(p && typeof p.then==='function'){
+        p.then(function(ok){
+          if(ok && localStorage.getItem('hnx_cloud_token')) doAsk();
+          else cb(null);
+        }).catch(function(){ cb(null); });
+        return;
+      }
+    }catch(e){}
+  }
+  cb(null);
 };
 
 /* ---- deterministic executive + summarize-this-screen intents ----
@@ -173403,7 +173463,7 @@ window.__hnxAUTOVAULT={run:autoRun,vaultKeys:OFFLOAD,usage:usagePct,_VAULT:VAULT
   var KEY='hnx_wake_on';
   var rec=null, enabled=false, busy=false, restartT=null;
   function toast(m){ try{ var d=document.createElement('div'); d.textContent=m; d.style.cssText='position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:#13402a;color:#cfeedd;padding:8px 14px;border-radius:10px;font:600 13px system-ui,sans-serif;z-index:2147483646;box-shadow:0 4px 18px rgba(0,0,0,.4);max-width:80vw'; document.body.appendChild(d); setTimeout(function(){ if(d&&d.parentNode)d.parentNode.removeChild(d); },2800);}catch(e){} }
-  function setDot(on){ var b=document.getElementById('hnxWakeBtn'); if(!b)return; b.style.background=on?'#1f7a44':'#243528'; var dt=b.querySelector('.dot'); if(dt)dt.style.animation=on?'hnxpulse 1.4s infinite':'none'; var lb=b.querySelector('.lbl'); if(lb)lb.textContent=on?'Hi Nexi: ON':'Hi Nexi: OFF'; }
+  function setDot(on){ var b=document.getElementById('hnxWakeBtn'); if(!b)return; b.style.background=on?'#1f7a44':'#243528'; var dt=b.querySelector('.dot'); if(dt)dt.style.animation=on?'hnxpulse 1.4s infinite':'none'; var lb=b.querySelector('.lbl'); if(lb)lb.textContent=on?'Hi Nexi: ON':'Hi Nexi: OFF · tap to enable'; }
   function handle(transcript){
     var t=(transcript||'').trim(); if(!t)return;
     if(!/\bne(xi|xt|ksi|xy|xie)\b/i.test(t)) return;
@@ -173434,7 +173494,7 @@ window.__hnxAUTOVAULT={run:autoRun,vaultKeys:OFFLOAD,usage:usagePct,_VAULT:VAULT
     var st=document.createElement('style'); st.textContent='@keyframes hnxpulse{0%{opacity:1}50%{opacity:.25}100%{opacity:1}}'; document.head.appendChild(st);
     var b=document.createElement('button'); b.id='hnxWakeBtn'; b.title='Hands-free wake word for Nexi (say \u201CHi Nexi\u201D)';
     b.style.cssText='position:fixed;left:14px;bottom:118px;z-index:2147483646;display:flex;align-items:center;gap:7px;background:#243528;color:#cfeedd;border:1px solid #2f5d3f;border-radius:20px;padding:7px 12px;font:600 12px system-ui,sans-serif;cursor:pointer';
-    b.innerHTML='<span class="dot" style="width:9px;height:9px;border-radius:50%;background:#39d98a;display:inline-block"></span><span class="lbl">Hi Nexi: OFF</span>';
+    b.innerHTML='<span class="dot" style="width:9px;height:9px;border-radius:50%;background:#39d98a;display:inline-block"></span><span class="lbl">Hi Nexi: OFF · tap to enable</span>';
     b.onclick=toggle; document.body.appendChild(b);
   }
   function init(){ mkBtn(); if(location.protocol==='file:'){ var b=document.getElementById('hnxWakeBtn'); if(b){ var lb=b.querySelector('.lbl'); if(lb)lb.textContent='Hi Nexi: online only'; b.title='Wake word works only on the online https app; file:// blocks always-on mic'; } setDot(false); return; } if(!SR){ setDot(false); return; } try{ if(localStorage.getItem(KEY)==='1') enable(); }catch(e){} }
