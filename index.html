@@ -134589,6 +134589,23 @@ body.hnx-mobile-locked { overflow: hidden; }
   // Keys we sync (everything starting with hydroPro_ except sensitive/temp ones)
   var SKIP_PREFIXES=['hydroPro_session','hydroPro_biometric','hydroPro_audit'];
   var SKIP_KEYS=['hnx_cloud_token','hnx_cloud_last'];
+  /* v12.90 SYNC-SCOPE-EXPANSION: operational keys the app writes under legacy
+     hn_/hnx_/hydroProIrr* names (not hydroPro_) that were being SILENTLY
+     EXCLUDED from cloud sync. Each one holds cross-device data — daily
+     reports, activity stream, resolutions/assignments, accounting-note
+     disclosures, Hik-Connect camera URLs, irrigation settings. Per-device UI
+     prefs (topbar toggle, wizard index, tour-seen, migration flags, last-seen
+     build, etc.) are intentionally left LOCAL and NOT added here — those must
+     stay per-device or every user opens the app in whoever last synced's UI. */
+  var EXTRA_SYNC_KEYS=[
+    'hn_daily_reports_v1',
+    'hn_activity_stream_v1',
+    'hn_assignments_v1',
+    'hn_resolutions_v1',
+    'hnx_acct_note_disclosures_v1',
+    'hnx_hikconnect_urls',
+    'hydroProIrrSettings'
+  ];
 
   function shouldSync(key){
     if(!key) return false;
@@ -134596,8 +134613,9 @@ body.hnx-mobile-locked { overflow: hidden; }
     for(var i=0;i<SKIP_PREFIXES.length;i++){
       if(key.indexOf(SKIP_PREFIXES[i])===0) return false;
     }
-    // Sync all hydroPro_ keys
-    return key.indexOf('hydroPro_')===0;
+    if(key.indexOf('hydroPro_')===0) return true;
+    if(EXTRA_SYNC_KEYS.indexOf(key)!==-1) return true; /* v12.90: operational legacy-named keys */
+    return false;
   }
 
   var IS_LOCAL=false; /* p51 reverted: sync runs everywhere, including from a downloaded file. If the worker's CORS allows it, file:// syncs like the live site. */
