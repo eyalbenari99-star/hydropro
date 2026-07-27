@@ -88628,6 +88628,8 @@ window._renderAcctPurchasing=function(){
     body=_purchRenderHistoryTab(hist,suppliers,products);
   }else if(_purchState.tab==='suppliers'){
     body=_purchRenderSuppliersTab(hist,suppliers);
+  }else if(_purchState.tab==='outreach'){
+    body=_purchRenderOutreachTab();
   }
 
   // Integration / sync status
@@ -88665,7 +88667,9 @@ window._renderAcctPurchasing=function(){
       ${tabBtn('compare','📊 Comparisons')}
       ${tabBtn('history','📜 Purchase History')}
       ${tabBtn('suppliers','🏭 Suppliers Ledger')}
+      ${tabBtn('outreach','📬 Nexi RFQ Log')}
       <div style="flex:1;"></div>
+      <button class="btn btn-primary" style="padding:6px 14px;font-size:12px;background:linear-gradient(135deg,#1d7a5f,#0c5b46);" onclick="_purchOpenOutreach({})">🤖 Nexi · Find & contact suppliers</button>
       <button class="btn btn-outline" style="padding:6px 12px;font-size:11px;" onclick="_purchExportCsv()">⬇ Export CSV</button>
     </div>
     ${dl(suppliers,'purchSupplierList')}
@@ -88836,6 +88840,7 @@ function _purchRenderCompCard(c){
     </table>
   </div>
   <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
+    <button class="btn btn-primary" style="padding:5px 12px;font-size:11px;background:linear-gradient(135deg,#1d7a5f,#0c5b46);" onclick="_purchOutreachFromComparison('${c.id}')">🤖 Ask Nexi for more quotes</button>
     <button class="btn btn-outline" style="padding:5px 12px;font-size:11px;" onclick="_purchSetStatus('${c.id}','open')">↩ Reopen</button>
     <button class="btn btn-outline" style="padding:5px 12px;font-size:11px;" onclick="_purchSetStatus('${c.id}','closed')">🔒 Close</button>
     <div style="flex:1;"></div>
@@ -88950,6 +88955,63 @@ function _purchRenderSuppliersTab(hist,suppliers){
   </table>`;
 }
 
+// ---------- OUTREACH / NEXI RFQ LOG TAB ----------
+function _purchRenderOutreachTab(){
+  const log=_purchLoadOutreach().slice().sort(function(a,b){return (b.sentAt||0)-(a.sentAt||0);});
+  const total=log.length;
+  const sent=log.filter(function(r){return r.status==='sent'||r.status==='opened';}).length;
+  const quoted=log.filter(function(r){return r.responseStatus==='quoted';}).length;
+  const declined=log.filter(function(r){return r.responseStatus==='declined';}).length;
+  const pending=log.filter(function(r){return r.responseStatus==='pending';}).length;
+  const replyRate=sent?Math.round((quoted+declined)/sent*100):0;
+
+  const stats='<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:12px;">'
+    +[['📨 RFQs sent',total],['⏳ Pending',pending],['💰 Quoted back',quoted],['❌ Declined',declined],['📊 Reply rate',replyRate+'%']].map(function(kv){
+      return '<div style="padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;"><div style="font-size:18px;font-weight:800;font-family:var(--mono);">'+kv[1]+'</div><div style="font-size:10.5px;color:var(--text3);margin-top:2px;">'+kv[0]+'</div></div>';
+    }).join('')+'</div>';
+
+  if(!log.length){
+    return stats+'<div style="text-align:center;padding:40px 20px;color:var(--text3);background:var(--surface);border:1px dashed var(--border);border-radius:10px;">'
+      +'<div style="font-size:32px;margin-bottom:8px;">📬</div>'
+      +'<div style="font-size:14px;font-weight:700;color:var(--text2);margin-bottom:4px;">No RFQs sent yet</div>'
+      +'<div style="font-size:12px;margin-bottom:12px;">Nexi builds her ranking of suppliers from RFQ replies. Send the first one to start learning.</div>'
+      +'<button class="btn btn-primary" onclick="_purchOpenOutreach({})">🤖 Nexi · Find & contact suppliers</button>'
+      +'</div>';
+  }
+
+  const rows=log.map(function(r){
+    const st=r.responseStatus||'pending';
+    const stColor=st==='quoted'?'var(--ok)':st==='declined'?'var(--danger)':st==='no-response'?'var(--text3)':'var(--warn)';
+    const chLabel=r.channel==='sms'?'📱 SMS':'✉️ Email';
+    return '<tr>'
+      +'<td style="font-family:var(--mono);font-size:11px;">'+_purchEsc(new Date(r.sentAt).toISOString().slice(0,16).replace('T',' '))+'</td>'
+      +'<td><strong>'+_purchEsc(r.product)+'</strong><div style="font-size:10px;color:var(--text3);">'+_purchEsc(r.qty||'')+' '+_purchEsc(r.unit||'')+(r.specs?' · '+_purchEsc(r.specs):'')+'</div></td>'
+      +'<td><strong>'+_purchEsc(r.supplier)+'</strong><div style="font-size:10px;font-family:var(--mono);color:var(--text3);">'+_purchEsc(r.supplierEmail||r.supplierPhone||'')+'</div></td>'
+      +'<td style="font-size:11px;">'+chLabel+' <span style="color:var(--text3);">('+_purchEsc(r.delivery||'')+')</span></td>'
+      +'<td>'
+        +'<select class="input" style="padding:3px 6px;font-size:11px;color:'+stColor+';font-weight:700;" onchange="_purchOutreachSetResponse(\''+r.id+'\',\'responseStatus\',this.value)">'
+          +['pending','quoted','declined','no-response'].map(function(o){return '<option value="'+o+'"'+(st===o?' selected':'')+'>'+o+'</option>';}).join('')
+        +'</select>'
+      +'</td>'
+      +'<td><input class="input" type="number" step="0.01" placeholder="unit ₱" value="'+_purchEsc(r.quotedUnitCost||'')+'" style="width:90px;font-size:11px;" onchange="_purchOutreachSetResponse(\''+r.id+'\',\'quotedUnitCost\',Number(this.value))"></td>'
+      +'<td><input class="input" type="number" step="1" placeholder="days" value="'+_purchEsc(r.quotedDeliveryDays||'')+'" style="width:70px;font-size:11px;" onchange="_purchOutreachSetResponse(\''+r.id+'\',\'quotedDeliveryDays\',Number(this.value))"></td>'
+      +'<td><input class="input" placeholder="notes" value="'+_purchEsc(r.responseNotes||'')+'" style="font-size:11px;" onchange="_purchOutreachSetResponse(\''+r.id+'\',\'responseNotes\',this.value)"></td>'
+      +'<td style="text-align:right;white-space:nowrap;">'
+        +'<button class="btn btn-outline" style="padding:3px 8px;font-size:10px;" title="Preview message" onclick="_purchOutreachPreview(\''+r.id+'\')">👁</button>'
+        +' <button class="btn btn-outline" style="padding:3px 8px;font-size:10px;color:var(--danger);" onclick="_purchOutreachDelete(\''+r.id+'\')">🗑</button>'
+      +'</td>'
+      +'</tr>';
+  }).join('');
+
+  return stats+'<div style="padding:10px 12px;background:var(--surface2);border-left:3px solid var(--accent2);border-radius:6px;margin-bottom:10px;font-size:11.5px;color:var(--text2);line-height:1.5;">'
+    +'<strong>🤖 Nexi is learning:</strong> Update each row\'s <b>response</b> and <b>quoted unit price</b> as replies come in. When you mark a row <b>quoted</b> with a unit price, Nexi auto-adds it as a quote-record to Purchase History so it appears in future comparisons — and she uses reply rates to rank suppliers for your next RFQ.'
+    +'</div>'
+    +'<div style="overflow-x:auto;"><table class="fleet-table" style="width:100%;font-size:12px;min-width:900px;">'
+    +'<thead><tr><th>Sent</th><th>Product</th><th>Supplier</th><th>Channel</th><th>Response</th><th>Quoted ₱</th><th>Lead d</th><th>Notes</th><th></th></tr></thead>'
+    +'<tbody>'+rows+'</tbody>'
+    +'</table></div>';
+}
+
 // ---------- ACTIONS ----------
 window._purchSwitchTab=function(t){_purchState.tab=t;_renderAcctPurchasing();};
 window._purchToggle=function(id){_purchState.expanded=_purchState.expanded===id?null:id;_renderAcctPurchasing();};
@@ -89060,6 +89122,468 @@ window._purchDeleteHistory=function(id){
   _purchSaveHist(_purchLoadHist().filter(x=>x.id!==id));
   _renderAcctPurchasing();
 };
+
+// =====================================================================
+// === NEXI SUPPLIER OUTREACH (RFQ email/SMS) + intelligence log     ===
+// =====================================================================
+// Nexi finds candidate suppliers from every source we have:
+//   - hydroPro_inv_suppliers_v1  (Inventory Master · with email + phone + score)
+//   - hydroPro_acct_vendors      (Accounting Vendors · with email + phone + TIN)
+//   - SOS Inventory items cache  (preferred vendor per SKU)
+//   - Purchase history           (past vendors ranked by response + best price)
+// User can add web-found candidates on the fly. Every outreach (email/SMS)
+// is logged to hydroPro_acct_purch_outreach so Nexi can analyse:
+//   response rate · time-to-quote · best price historically · reliability
+// The log is what makes future purchasing smarter.
+const ACCT_PURCH_OUTREACH_KEY='hydroPro_acct_purch_outreach';
+const ACCT_PURCH_RFQ_TEMPLATE_KEY='hydroPro_acct_purch_rfq_template';
+
+function _purchLoadOutreach(){try{return JSON.parse(localStorage.getItem(ACCT_PURCH_OUTREACH_KEY)||'[]');}catch(e){return [];}}
+function _purchSaveOutreach(a){localStorage.setItem(ACCT_PURCH_OUTREACH_KEY,JSON.stringify(a));}
+function _purchLoadRfqTemplate(){
+  try{const t=localStorage.getItem(ACCT_PURCH_RFQ_TEMPLATE_KEY);if(t)return t;}catch(e){}
+  return 'Hello {{supplierContact}},\n\nWe are looking to purchase the following item and would like to request your best quotation:\n\n  Product:  {{product}}\n  Quantity: {{qty}} {{unit}}\n  Specs:    {{specs}}\n  Need by:  {{needBy}}\n\nPlease reply with:\n  1. Unit price and total (VAT inclusive if applicable)\n  2. Lead time / delivery days\n  3. Payment terms\n  4. Warranty / return policy\n  5. Any relevant certifications\n\nThank you,\n{{requester}}\n{{companyName}}';
+}
+function _purchSaveRfqTemplate(t){try{localStorage.setItem(ACCT_PURCH_RFQ_TEMPLATE_KEY,t);}catch(e){}}
+
+// Gather every supplier we know about, with contact info, ranked so Nexi's
+// suggestions surface the most relevant ones first.
+window._purchGatherAllSuppliers=function(productHint){
+  const map={};
+  function add(name,src,contact,email,phone,score){
+    const k=(name||'').trim();if(!k)return;
+    const lk=k.toLowerCase();
+    if(!map[lk])map[lk]={name:k,sources:[],contact:'',email:'',phone:'',score:0,pastProducts:new Set(),pastSpend:0,ordersCount:0,lastPurchaseDate:null,lastResponseAt:null,quotesReceived:0,rfqsSent:0};
+    const rec=map[lk];
+    if(src&&rec.sources.indexOf(src)<0)rec.sources.push(src);
+    if(contact&&!rec.contact)rec.contact=contact;
+    if(email&&!rec.email)rec.email=email;
+    if(phone&&!rec.phone)rec.phone=phone;
+    if(score&&Number(score)>rec.score)rec.score=Number(score);
+  }
+  // Inventory Master suppliers
+  try{const sup=JSON.parse(localStorage.getItem('hydroPro_inv_suppliers_v1')||'[]');(sup||[]).forEach(function(s){if((s.status||'Active')==='Active')add(s.name,'inv-master',s.contact,s.email,s.phone,s.score);});}catch(e){}
+  // Accounting vendors
+  try{const v=JSON.parse(localStorage.getItem(ACCT_VENDOR_KEY)||'[]');(v||[]).forEach(function(x){add(x.name,'acct-vendors',x.contact,x.email,x.phone,null);});}catch(e){}
+  // SOS items → preferred vendors
+  try{
+    if(window.__hnxSos&&window.__hnxSos.getItems){
+      (window.__hnxSos.getItems()||[]).forEach(function(it){
+        const v=(it.vendorName||it.vendor||it.supplier||it.supplierName||'')+'';
+        if(!v)return;
+        add(v,'sos-items',null,null,null,null);
+      });
+    }
+  }catch(e){}
+  // Enrich with past-purchase stats + product filter
+  const hist=_purchLoadHist();
+  const q=(productHint||'').trim().toLowerCase();
+  hist.forEach(function(h){
+    if(!h.supplier)return;
+    const rec=map[h.supplier.trim().toLowerCase()];
+    if(!rec){add(h.supplier,'history',null,null,null,null);}
+    const r=map[h.supplier.trim().toLowerCase()];
+    if(h.product)r.pastProducts.add(h.product.trim());
+    r.ordersCount++;
+    r.pastSpend+=Number(h.qty||0)*Number(h.unitCost||0);
+    if(h.date&&(!r.lastPurchaseDate||h.date>r.lastPurchaseDate))r.lastPurchaseDate=h.date;
+  });
+  // Enrich with outreach stats
+  _purchLoadOutreach().forEach(function(o){
+    if(!o.supplier)return;
+    const rec=map[o.supplier.trim().toLowerCase()];
+    if(!rec)return;
+    rec.rfqsSent++;
+    if(o.responseAt&&(!rec.lastResponseAt||o.responseAt>rec.lastResponseAt))rec.lastResponseAt=o.responseAt;
+    if(o.responseStatus==='quoted')rec.quotesReceived++;
+  });
+  // Rank: matches product (existing) > has email > has phone > score > alphabetical
+  return Object.values(map).map(function(r){
+    r.pastProducts=Array.from(r.pastProducts);
+    r.hasProductHistory=q?r.pastProducts.some(function(p){return p.toLowerCase()===q||p.toLowerCase().includes(q);}):false;
+    r.responseRate=r.rfqsSent?Math.round(r.quotesReceived/r.rfqsSent*100):null;
+    return r;
+  }).sort(function(a,b){
+    if(a.hasProductHistory!==b.hasProductHistory)return a.hasProductHistory?-1:1;
+    const ac=(a.email?2:0)+(a.phone?1:0),bc=(b.email?2:0)+(b.phone?1:0);
+    if(ac!==bc)return bc-ac;
+    if(a.score!==b.score)return b.score-a.score;
+    return (a.name||'').localeCompare(b.name||'');
+  });
+};
+
+// Build the RFQ message from the template + inputs
+function _purchRenderRfq(tmpl,vars){
+  return tmpl.replace(/\{\{(\w+)\}\}/g,function(_,k){return vars[k]==null?'':String(vars[k]);});
+}
+
+// Open the outreach modal (Nexi's supplier finder + RFQ sender)
+window._purchOpenOutreach=function(prefill){
+  prefill=prefill||{};
+  let m=document.getElementById('purchOutreachModal');if(m)m.remove();
+  m=document.createElement('div');
+  m.id='purchOutreachModal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:10050;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto;';
+  const suppliers=_purchGatherAllSuppliers(prefill.product);
+  const tmpl=_purchLoadRfqTemplate();
+  const requester=(function(){try{const u=(typeof getCurrentUser==='function'?getCurrentUser():null)||{};return u.fullName||u.name||u.username||'';}catch(e){return '';}})();
+  const rowsHtml=suppliers.map(function(s,i){
+    const badges=[];
+    if(s.hasProductHistory)badges.push('<span style="background:var(--ok);color:#fff;padding:1px 5px;border-radius:6px;font-size:9px;font-weight:800;">HAS HISTORY</span>');
+    else if(s.ordersCount>0)badges.push('<span style="background:var(--info);color:#fff;padding:1px 5px;border-radius:6px;font-size:9px;font-weight:800;">EXISTING</span>');
+    else badges.push('<span style="background:var(--warn);color:#000;padding:1px 5px;border-radius:6px;font-size:9px;font-weight:800;">NEW</span>');
+    s.sources.forEach(function(src){badges.push('<span style="background:var(--surface3);color:var(--text2);padding:1px 5px;border-radius:6px;font-size:9px;">'+src+'</span>');});
+    if(s.responseRate!=null)badges.push('<span style="background:var(--surface3);color:'+(s.responseRate>=60?'var(--ok)':s.responseRate>=30?'var(--warn)':'var(--danger)')+';padding:1px 5px;border-radius:6px;font-size:9px;">reply '+s.responseRate+'%</span>');
+    const ch=(s.email?'email':'')+(s.email&&s.phone?'|':'')+(s.phone?'sms':'');
+    const disabled=(!s.email&&!s.phone);
+    return '<tr>'
+      +'<td style="padding:6px 8px;"><input type="checkbox" class="purchOutreachPick" data-idx="'+i+'"'+(disabled?' disabled':'')+'></td>'
+      +'<td style="padding:6px 8px;font-size:12px;"><strong>'+_purchEsc(s.name)+'</strong><div style="font-size:10px;color:var(--text3);">'+_purchEsc(s.contact||'—')+'</div></td>'
+      +'<td style="padding:6px 8px;font-size:11px;font-family:var(--mono);">'+(s.email?_purchEsc(s.email):'<span style="color:var(--text3);">—</span>')+'</td>'
+      +'<td style="padding:6px 8px;font-size:11px;font-family:var(--mono);">'+(s.phone?_purchEsc(s.phone):'<span style="color:var(--text3);">—</span>')+'</td>'
+      +'<td style="padding:6px 8px;font-size:10px;">'+badges.join(' ')+'</td>'
+      +'<td style="padding:6px 8px;font-size:10px;color:var(--text3);">'+(s.ordersCount?(s.ordersCount+' orders · '+_purchFmtMoney(s.pastSpend)+(s.lastPurchaseDate?' · last '+_purchFmtDate(s.lastPurchaseDate):'')):'—')+'</td>'
+      +'<td style="padding:6px 8px;font-size:10px;color:var(--text3);">'+_purchEsc(ch||'no contact')+'</td>'
+      +'</tr>';
+  }).join('');
+  m.innerHTML='<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;max-width:1080px;width:100%;padding:20px;max-height:92vh;overflow-y:auto;">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">'
+      +'<div style="font-size:15px;font-weight:800;color:var(--accent);"><span style="font-size:20px;">🤖</span> Nexi · Find suppliers & send RFQ</div>'
+      +'<button onclick="document.getElementById(\'purchOutreachModal\').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;">✕</button>'
+    +'</div>'
+    +'<div style="padding:10px 12px;background:var(--surface2);border-left:3px solid var(--info);border-radius:6px;margin-bottom:12px;font-size:11.5px;color:var(--text2);line-height:1.5;">'
+      +'<strong>How Nexi works:</strong> I pulled every supplier I know about from Inventory Master, Accounting Vendors, SOS Inventory items, past POs, and past outreach responses. '
+      +'Suppliers that already sold you this product show <b>HAS HISTORY</b>; ones with contact info are tickable. '
+      +'You can add a supplier you found on the web at the bottom. When you click Send, I dispatch email (via EmailJS if configured, otherwise mailto:) and/or SMS (sms: link) and <b>log every attempt</b> so I can rank suppliers by response rate and best price next time.'
+    +'</div>'
+    // Product + qty + template variables
+    +'<div style="display:grid;grid-template-columns:1.4fr .8fr .6fr .6fr .8fr;gap:8px;margin-bottom:12px;">'
+      +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Product *</div><input id="poutProduct" class="input" placeholder="e.g. Rockwool cube 100×100" value="'+_purchEsc(prefill.product||'')+'"></div>'
+      +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Specs</div><input id="poutSpecs" class="input" placeholder="grade / size" value="'+_purchEsc(prefill.specs||'')+'"></div>'
+      +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Qty</div><input id="poutQty" type="number" step="0.01" class="input" value="'+_purchEsc(prefill.qty||'')+'"></div>'
+      +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Unit</div><input id="poutUnit" class="input" placeholder="pc" value="'+_purchEsc(prefill.unit||'')+'"></div>'
+      +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Need by</div><input id="poutNeedBy" type="date" class="input" value="'+_purchEsc(prefill.needBy||'')+'"></div>'
+    +'</div>'
+    // Supplier list
+    +'<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:12px;">'
+      +'<div style="padding:8px 10px;background:var(--surface2);display:flex;justify-content:space-between;align-items:center;">'
+        +'<div style="font-weight:800;font-size:12px;">📇 Suppliers Nexi found ('+suppliers.length+')</div>'
+        +'<div style="display:flex;gap:6px;">'
+          +'<button class="btn btn-outline" style="padding:3px 10px;font-size:10.5px;" onclick="_purchOutreachSelect(\'top3\')">✓ Pick top 3</button>'
+          +'<button class="btn btn-outline" style="padding:3px 10px;font-size:10.5px;" onclick="_purchOutreachSelect(\'existing\')">✓ Pick existing</button>'
+          +'<button class="btn btn-outline" style="padding:3px 10px;font-size:10.5px;" onclick="_purchOutreachSelect(\'none\')">Clear</button>'
+        +'</div>'
+      +'</div>'
+      +'<div style="max-height:280px;overflow-y:auto;">'
+        +'<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+          +'<thead><tr style="background:var(--surface3);color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:.5px;">'
+            +'<th style="padding:6px;width:32px;"></th><th style="padding:6px;text-align:left;">Supplier / contact</th><th style="padding:6px;text-align:left;">Email</th><th style="padding:6px;text-align:left;">Phone</th><th style="padding:6px;text-align:left;">Nexi tags</th><th style="padding:6px;text-align:left;">History</th><th style="padding:6px;text-align:left;">Channel</th>'
+          +'</tr></thead>'
+          +'<tbody id="purchOutreachRows">'+(rowsHtml||'<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text3);">No suppliers found yet — add one below or in 📦 Vendors.</td></tr>')+'</tbody>'
+        +'</table>'
+      +'</div>'
+    +'</div>'
+    // Add web-found supplier
+    +'<div style="border:1px dashed var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px;background:var(--surface);">'
+      +'<div style="font-weight:800;font-size:11.5px;margin-bottom:6px;">🌐 Add a supplier Nexi found on the web (or you found manually)</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:6px;">'
+        +'<input id="poutAddName" class="input" placeholder="Supplier name">'
+        +'<input id="poutAddContact" class="input" placeholder="Contact person">'
+        +'<input id="poutAddEmail" class="input" type="email" placeholder="email@supplier.com">'
+        +'<input id="poutAddPhone" class="input" placeholder="+63…">'
+        +'<button class="btn btn-outline" style="padding:6px 12px;font-size:11px;" onclick="_purchOutreachAddWebSupplier()">➕ Add</button>'
+      +'</div>'
+      +'<div style="font-size:10px;color:var(--text3);margin-top:4px;">Added suppliers are saved to <a href="javascript:switchView(\'acct_vendors\')" style="color:var(--accent);">📦 Vendors</a> so Nexi remembers them next time.</div>'
+    +'</div>'
+    // RFQ message + channel
+    +'<div style="display:grid;grid-template-columns:1.4fr 1fr;gap:12px;margin-bottom:12px;">'
+      +'<div>'
+        +'<div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">RFQ message · {{supplierContact}} {{product}} {{qty}} {{unit}} {{specs}} {{needBy}} {{requester}} {{companyName}}</div>'
+        +'<textarea id="poutMessage" class="input" style="width:100%;min-height:180px;font-family:var(--mono);font-size:11.5px;">'+_purchEsc(tmpl)+'</textarea>'
+        +'<div style="display:flex;justify-content:space-between;margin-top:4px;">'
+          +'<button class="btn btn-outline" style="padding:3px 10px;font-size:10.5px;" onclick="_purchOutreachSaveTemplate()">💾 Save as default template</button>'
+          +'<button class="btn btn-outline" style="padding:3px 10px;font-size:10.5px;" onclick="_purchOutreachResetTemplate()">↻ Reset template</button>'
+        +'</div>'
+      +'</div>'
+      +'<div>'
+        +'<div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Send via</div>'
+        +'<label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-bottom:6px;"><input type="checkbox" id="poutChEmail" checked> ✉️ Email (auto-send if EmailJS is configured, otherwise opens your mail app)</label>'
+        +'<label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-bottom:6px;"><input type="checkbox" id="poutChSms"> 📱 SMS (opens your device SMS app — supplier gets a shortened RFQ)</label>'
+        +'<div style="font-size:10px;color:var(--text3);margin-top:4px;">EmailJS status: '+((typeof _emailJsConfigured==='function'&&_emailJsConfigured())?'<span style="color:var(--ok);font-weight:700;">✓ configured — silent auto-send</span>':'<span style="color:var(--warn);">not configured · will open mail app per supplier</span>')+'</div>'
+        +'<div style="font-size:10px;color:var(--text3);margin-top:8px;">Requester (used in RFQ signature)</div>'
+        +'<input id="poutRequester" class="input" placeholder="Your name" value="'+_purchEsc(requester)+'">'
+        +'<div style="font-size:10px;color:var(--text3);margin-top:6px;">Company name (used in RFQ signature)</div>'
+        +'<input id="poutCompany" class="input" placeholder="Company" value="'+_purchEsc(prefill.company||'AteretPaz')+'">'
+      +'</div>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;">'
+      +'<button class="btn btn-outline" onclick="document.getElementById(\'purchOutreachModal\').remove()">Cancel</button>'
+      +'<button class="btn btn-outline" onclick="_purchOutreachPreviewFirst()">👁 Preview first supplier</button>'
+      +'<button class="btn btn-primary" onclick="_purchOutreachSend()">📨 Send RFQ to selected suppliers</button>'
+    +'</div>'
+    +'</div>';
+  document.body.appendChild(m);
+  // Cache the suppliers list on the modal so send handlers can read it
+  m._purchSuppliers=suppliers;
+};
+
+window._purchOutreachSelect=function(mode){
+  const modal=document.getElementById('purchOutreachModal');if(!modal)return;
+  const suppliers=modal._purchSuppliers||[];
+  const boxes=modal.querySelectorAll('.purchOutreachPick');
+  boxes.forEach(function(b,i){
+    if(b.disabled)return;
+    if(mode==='none'){b.checked=false;return;}
+    if(mode==='top3'){b.checked=i<3;return;}
+    if(mode==='existing'){b.checked=suppliers[i]&&(suppliers[i].hasProductHistory||suppliers[i].ordersCount>0);}
+  });
+};
+
+window._purchOutreachAddWebSupplier=function(){
+  const name=(document.getElementById('poutAddName').value||'').trim();
+  const contact=(document.getElementById('poutAddContact').value||'').trim();
+  const email=(document.getElementById('poutAddEmail').value||'').trim();
+  const phone=(document.getElementById('poutAddPhone').value||'').trim();
+  if(!name){alert('Supplier name is required.');return;}
+  if(!email&&!phone){if(!confirm('No email or phone — Nexi will save the supplier but cannot send an RFQ. Continue?'))return;}
+  // Save to Accounting Vendors so it persists
+  try{
+    const arr=JSON.parse(localStorage.getItem(ACCT_VENDOR_KEY)||'[]');
+    arr.push({id:'e_web_'+Date.now().toString(36),createdAt:Date.now(),name:name,contact:contact,email:email,phone:phone,tin:'',source:'nexi-web'});
+    localStorage.setItem(ACCT_VENDOR_KEY,JSON.stringify(arr));
+  }catch(e){}
+  if(typeof showToast==='function')showToast('Supplier saved — reopening list','ok');
+  // Reopen the modal so it refreshes
+  const p={
+    product:document.getElementById('poutProduct').value,
+    specs:document.getElementById('poutSpecs').value,
+    qty:document.getElementById('poutQty').value,
+    unit:document.getElementById('poutUnit').value,
+    needBy:document.getElementById('poutNeedBy').value,
+    company:document.getElementById('poutCompany').value
+  };
+  document.getElementById('purchOutreachModal').remove();
+  _purchOpenOutreach(p);
+};
+
+window._purchOutreachSaveTemplate=function(){
+  _purchSaveRfqTemplate(document.getElementById('poutMessage').value||'');
+  if(typeof showToast==='function')showToast('RFQ template saved','ok');
+};
+window._purchOutreachResetTemplate=function(){
+  try{localStorage.removeItem(ACCT_PURCH_RFQ_TEMPLATE_KEY);}catch(e){}
+  document.getElementById('poutMessage').value=_purchLoadRfqTemplate();
+  if(typeof showToast==='function')showToast('RFQ template reset to default','ok');
+};
+
+function _purchOutreachBuildVars(supplier){
+  return {
+    supplierContact:supplier.contact||supplier.name||'Supplier',
+    supplierName:supplier.name||'',
+    product:document.getElementById('poutProduct').value||'',
+    specs:document.getElementById('poutSpecs').value||'—',
+    qty:document.getElementById('poutQty').value||'—',
+    unit:document.getElementById('poutUnit').value||'',
+    needBy:document.getElementById('poutNeedBy').value||'—',
+    requester:document.getElementById('poutRequester').value||'',
+    companyName:document.getElementById('poutCompany').value||''
+  };
+}
+
+window._purchOutreachPreviewFirst=function(){
+  const modal=document.getElementById('purchOutreachModal');if(!modal)return;
+  const suppliers=modal._purchSuppliers||[];
+  const checked=[].slice.call(modal.querySelectorAll('.purchOutreachPick:checked')).map(function(b){return suppliers[Number(b.dataset.idx)];}).filter(Boolean);
+  if(!checked.length){alert('No suppliers selected.');return;}
+  const s=checked[0];
+  const vars=_purchOutreachBuildVars(s);
+  const subject='RFQ · '+vars.product;
+  const body=_purchRenderRfq(document.getElementById('poutMessage').value||'',vars);
+  alert('To: '+(s.email||'(no email)')+'\nSubject: '+subject+'\n\n'+body);
+};
+
+window._purchOutreachSend=async function(){
+  const modal=document.getElementById('purchOutreachModal');if(!modal)return;
+  const suppliers=modal._purchSuppliers||[];
+  const checked=[].slice.call(modal.querySelectorAll('.purchOutreachPick:checked')).map(function(b){return suppliers[Number(b.dataset.idx)];}).filter(Boolean);
+  if(!checked.length){alert('Pick at least one supplier.');return;}
+  const product=(document.getElementById('poutProduct').value||'').trim();
+  if(!product){alert('Product is required.');return;}
+  const wantEmail=document.getElementById('poutChEmail').checked;
+  const wantSms=document.getElementById('poutChSms').checked;
+  if(!wantEmail&&!wantSms){alert('Pick at least one channel: email or SMS.');return;}
+  const tmpl=document.getElementById('poutMessage').value||'';
+  const outreach=_purchLoadOutreach();
+  let sentEmail=0,sentSms=0,skipped=0;
+  const emailJsReady=(typeof _emailJsConfigured==='function'&&_emailJsConfigured());
+  for(let i=0;i<checked.length;i++){
+    const s=checked[i];
+    const vars=_purchOutreachBuildVars(s);
+    const subject='RFQ · '+vars.product;
+    const body=_purchRenderRfq(tmpl,vars);
+    const rfqId='rfq_'+Date.now().toString(36)+'_'+i;
+    const base={
+      id:rfqId,
+      sentAt:Date.now(),
+      product:product,
+      supplier:s.name,
+      supplierEmail:s.email||'',
+      supplierPhone:s.phone||'',
+      subject:subject,
+      message:body,
+      qty:Number(document.getElementById('poutQty').value||0),
+      unit:document.getElementById('poutUnit').value||'',
+      specs:document.getElementById('poutSpecs').value||'',
+      needBy:document.getElementById('poutNeedBy').value||'',
+      requester:document.getElementById('poutRequester').value||'',
+      responseStatus:'pending',
+      responseAt:null,
+      quotedUnitCost:null,
+      quotedDeliveryDays:null,
+      responseNotes:''
+    };
+    if(wantEmail&&s.email){
+      try{
+        let ok=false;
+        if(emailJsReady&&typeof _sendViaEmailJs==='function'){ok=await _sendViaEmailJs(s.email,subject,body);}
+        if(ok){
+          outreach.push(Object.assign({},base,{channel:'email',delivery:'emailjs',status:'sent'}));
+          sentEmail++;
+        }else{
+          // Fallback to mailto
+          const url='mailto:'+encodeURIComponent(s.email)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
+          window.open(url,'_blank');
+          outreach.push(Object.assign({},base,{channel:'email',delivery:'mailto',status:'opened'}));
+          sentEmail++;
+        }
+      }catch(e){
+        outreach.push(Object.assign({},base,{channel:'email',delivery:'error',status:'error',error:String(e&&e.message||e)}));
+        skipped++;
+      }
+    }
+    if(wantSms&&s.phone){
+      // SMS body must be short. Take first ~400 chars.
+      const smsBody=body.length>380?body.slice(0,380)+' …':body;
+      // Cross-platform sms: URL scheme
+      const url='sms:'+encodeURIComponent(s.phone)+'?body='+encodeURIComponent(smsBody);
+      try{window.open(url,'_blank');}catch(e){}
+      outreach.push(Object.assign({},base,{channel:'sms',delivery:'sms-app',status:'opened',message:smsBody}));
+      sentSms++;
+    }
+    if((wantEmail&&!s.email)&&(wantSms&&!s.phone))skipped++;
+  }
+  _purchSaveOutreach(outreach);
+  modal.remove();
+  if(typeof showToast==='function')showToast('RFQ dispatched · '+sentEmail+' email, '+sentSms+' SMS'+(skipped?', '+skipped+' skipped':''),'ok');
+  _purchState.tab='outreach';
+  _renderAcctPurchasing();
+};
+
+// Update an outreach record's response (called from the Outreach tab)
+window._purchOutreachSetResponse=function(id,field,value){
+  const arr=_purchLoadOutreach();const r=arr.find(function(x){return x.id===id;});if(!r)return;
+  r[field]=value;
+  if(field==='responseStatus'&&value!=='pending'&&!r.responseAt)r.responseAt=Date.now();
+  if(field==='responseStatus'&&value==='pending')r.responseAt=null;
+  _purchSaveOutreach(arr);
+  // Auto-mirror a quoted price into purchase history so Nexi's next comparison sees it
+  if(field==='responseStatus'&&value==='quoted'&&r.quotedUnitCost){
+    const hist=_purchLoadHist();
+    // Only add a soft "quote" row (not a real purchase) — flag with source
+    hist.push({
+      id:'ph_quote_'+r.id,
+      source:'rfq-quote',
+      date:new Date(r.responseAt||Date.now()).toISOString().slice(0,10),
+      product:r.product,
+      supplier:r.supplier,
+      unit:r.unit||'',
+      qty:0,
+      unitCost:Number(r.quotedUnitCost||0),
+      ref:r.id,
+      notes:'Quote received via RFQ · not yet purchased'
+    });
+    _purchSaveHist(hist);
+  }
+  _renderAcctPurchasing();
+};
+window._purchOutreachDelete=function(id){
+  if(!confirm('Delete this outreach record? Nexi will lose the reply-rate data for this attempt.'))return;
+  _purchSaveOutreach(_purchLoadOutreach().filter(function(x){return x.id!==id;}));
+  _renderAcctPurchasing();
+};
+window._purchOutreachPreview=function(id){
+  const r=_purchLoadOutreach().find(function(x){return x.id===id;});if(!r)return;
+  alert('To: '+(r.supplierEmail||r.supplierPhone||'—')+'\nChannel: '+(r.channel||'')+' ('+(r.delivery||'')+')\nSubject: '+(r.subject||'')+'\n\n'+(r.message||''));
+};
+window._purchOutreachFromComparison=function(compId){
+  const c=_purchLoadComp().find(function(x){return x.id===compId;});if(!c)return;
+  const s0=(c.suppliers&&c.suppliers[0])||{};
+  _purchOpenOutreach({product:c.product||'',specs:s0.specs||'',qty:s0.qty||'',unit:s0.unit||'',needBy:c.needBy||'',company:'AteretPaz'});
+};
+
+// Nexi analytics — rank suppliers using history + outreach signals
+window._purchNexiRankSuppliers=function(product){
+  const suppliers=_purchGatherAllSuppliers(product);
+  return suppliers.slice(0,10).map(function(s){
+    // Best price this supplier ever quoted or sold at for this product (if any)
+    const hist=_purchLoadHist().filter(function(h){return (h.supplier||'').toLowerCase()===s.name.toLowerCase()&&(product?(h.product||'').toLowerCase().includes(product.toLowerCase()):true)&&Number(h.unitCost||0)>0;});
+    const bestUnit=hist.length?Math.min.apply(null,hist.map(function(h){return Number(h.unitCost);})):null;
+    return {name:s.name,hasProductHistory:s.hasProductHistory,orders:s.ordersCount,responseRate:s.responseRate,bestUnit:bestUnit,lastPurchase:s.lastPurchaseDate,email:s.email,phone:s.phone};
+  });
+};
+
+// Register Nexi domain so she can answer questions like:
+//   "who supplies rockwool" · "best price on X" · "supplier reply rate"
+(function _registerPurchNexiDomain(){
+  function tryReg(){
+    if(typeof window.registerNexiDomain!=='function'){setTimeout(tryReg,600);return;}
+    window.registerNexiDomain({
+      module:'purchasing',
+      name:'Purchasing & Suppliers',
+      keywords:['supplier','vendor','purchas','quote','quotation','rfq','rfp','po ','purchase order','best price','cheapest','who supplies','offer','bid','tender'],
+      collections:[
+        {key:ACCT_PURCH_COMP_KEY,noun:'supplier comparisons',nameField:'product'},
+        {key:ACCT_PURCH_HIST_KEY,noun:'purchase records',nameField:'product'},
+        {key:ACCT_PURCH_OUTREACH_KEY,noun:'RFQs sent',nameField:'supplier'}
+      ],
+      answer:function(qLower){
+        const q=qLower||'';
+        // "who supplies X" / "best price on X"
+        const bestMatch=q.match(/(?:best price|cheapest|lowest).*?(?:on|for)?\s+([a-z0-9 \-]{3,})/);
+        const whoMatch =q.match(/who\s+(?:supplies|sells|provides|has)\s+([a-z0-9 \-]{3,})/);
+        const product=(bestMatch&&bestMatch[1]||whoMatch&&whoMatch[1]||'').trim();
+        if(product){
+          const ranked=_purchNexiRankSuppliers(product);
+          if(!ranked.length)return "I don't have any supplier records for \""+product+"\" yet. Add one in Purchasing or run 📥 Sync from SOS.";
+          const withPrice=ranked.filter(function(r){return r.bestUnit!=null;}).sort(function(a,b){return a.bestUnit-b.bestUnit;});
+          if(withPrice.length){
+            const cheapest=withPrice[0];
+            const others=withPrice.slice(1,3).map(function(r){return r.name+' '+_purchFmtMoney(r.bestUnit);}).join(', ');
+            return '💰 Cheapest historically for "'+product+'": '+cheapest.name+' at '+_purchFmtMoney(cheapest.bestUnit)+'/unit'+(cheapest.responseRate!=null?' (replies '+cheapest.responseRate+'% of RFQs)':'')+'.'+(others?' Next: '+others+'.':'');
+          }
+          const names=ranked.slice(0,5).map(function(r){return '• '+r.name+(r.email?' · '+r.email:'')+(r.orders?' · '+r.orders+' past orders':' · new');}).join('\n');
+          return 'Suppliers I know for "'+product+'":\n'+names+'\n\nTip: open 🛒 Purchasing and click "🤖 Nexi · Find suppliers" to send an RFQ.';
+        }
+        // Response rate / RFQs
+        if(/reply|response|answered|rfq/.test(q)){
+          const o=_purchLoadOutreach();
+          if(!o.length)return "I haven't sent any RFQs yet. Open 🛒 Purchasing → Nexi · Find suppliers to send the first one.";
+          const bySup={};
+          o.forEach(function(r){bySup[r.supplier]=bySup[r.supplier]||{sent:0,quoted:0,declined:0};bySup[r.supplier].sent++;if(r.responseStatus==='quoted')bySup[r.supplier].quoted++;if(r.responseStatus==='declined')bySup[r.supplier].declined++;});
+          const rows=Object.keys(bySup).map(function(k){const b=bySup[k];return '• '+k+' — '+b.quoted+'/'+b.sent+' quoted ('+Math.round(b.quoted/b.sent*100)+'%)';}).sort();
+          return '📬 RFQ scoreboard ('+o.length+' sent):\n'+rows.slice(0,10).join('\n');
+        }
+        // Generic totals
+        if(/purchas|supplier|vendor/.test(q)&&/(how many|total|count)/.test(q)){
+          const h=_purchLoadHist().length;const c=_purchLoadComp().length;const o=_purchLoadOutreach().length;
+          return 'Purchasing snapshot — '+c+' active comparisons, '+h+' historical purchase records, '+o+' RFQs dispatched.';
+        }
+        return null;
+      }
+    });
+  }
+  tryReg();
+})();
 
 window._purchExportCsv=function(){
   const hist=_purchLoadHist();
