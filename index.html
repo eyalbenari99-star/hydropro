@@ -88428,6 +88428,133 @@ function _purchSaveComp(a){localStorage.setItem(ACCT_PURCH_COMP_KEY,JSON.stringi
 function _purchLoadHist(){try{return JSON.parse(localStorage.getItem(ACCT_PURCH_HIST_KEY)||'[]');}catch(e){return [];}}
 function _purchSaveHist(a){localStorage.setItem(ACCT_PURCH_HIST_KEY,JSON.stringify(a));}
 
+// =====================================================================
+// === Import purchase history from SOS Inventory / QuickBooks       ===
+// =====================================================================
+// Sources:
+//   1. SOS Purchase Orders via window.__hnxApi('/sos/purchase-orders')
+//      → each PO line becomes one history row (dedup by po-number + line index)
+//   2. Fallback hint (no bulk history): SOS items give preferred vendor + last cost
+// Every imported row is tagged {source:'sos', poNumber, lineIdx} so it can be
+// re-synced without duplicating, and users can distinguish it from manual entries.
+window._purchSyncMeta=function(){
+  try{return JSON.parse(localStorage.getItem('hydroPro_acct_purch_sync_meta')||'{}');}catch(e){return {};}
+};
+function _purchSaveSyncMeta(m){try{localStorage.setItem('hydroPro_acct_purch_sync_meta',JSON.stringify(m));}catch(e){}}
+
+// Fetch SOS POs and merge into history. Returns a Promise-like via callback.
+window._purchSyncFromSOS=function(cb){
+  cb=cb||function(){};
+  if(typeof window.__hnxApi!=='function'){
+    cb({ok:false,err:'SOS API not available. Open Admin → 📦 SOS Inventory Sync and connect first.'});
+    return;
+  }
+  const meta=_purchSyncMeta();meta.status='running';meta.startedAt=Date.now();_purchSaveSyncMeta(meta);
+  try{if(typeof _renderAcctPurchasing==='function')_renderAcctPurchasing();}catch(e){}
+  window.__hnxApi('/sos/purchase-orders').then(function(resp){
+    const list=(resp&&(resp.purchaseorders||resp.purchaseOrders||resp.data||resp.items||resp.list||resp.results))||(Array.isArray(resp)?resp:[]);
+    const hist=_purchLoadHist();
+    // Build an index of already-imported PO lines so we don't duplicate
+    const seen={};hist.forEach(function(h){if(h.source==='sos'&&h.poNumber!=null)seen[h.poNumber+'::'+h.lineIdx]=h;});
+    let added=0,updated=0,skipped=0,poCount=0;
+    (list||[]).forEach(function(po){
+      poCount++;
+      const poNum=po.number||po.poNumber||po.docNumber||po.id||'';
+      const date=(po.date||po.dateCreated||po.txnDate||po.txnDate||'').toString().slice(0,10);
+      const vendor=(po.vendor&&(po.vendor.name||po.vendor))||po.vendorName||po.supplier||po.supplierName||'';
+      const status=((po.status||po.state||'')+'').toLowerCase();
+      const lines=po.lines||po.lineItems||po.items||[];
+      lines.forEach(function(ln,idx){
+        const item=ln.item||ln.product||{};
+        const product=(item.name||item.displayName||ln.description||ln.itemName||'').toString();
+        if(!product||!vendor)return;
+        const qty=Number(ln.quantity||ln.qty||ln.orderedQty||0);
+        const received=Number(ln.received||ln.receivedQty||0);
+        const unitCost=Number(ln.unitprice||ln.unitPrice||ln.rate||ln.cost||0);
+        const total=Number(ln.amount||(qty*unitCost)||0);
+        const unit=(ln.uom||ln.unit||item.unitOfMeasureName||item.uom||'').toString();
+        const key=poNum+'::'+idx;
+        const row={
+          id:seen[key]?seen[key].id:('ph_sos_'+(poNum||'').replace(/[^a-z0-9]/gi,'')+'_'+idx),
+          source:'sos',
+          poNumber:poNum,
+          lineIdx:idx,
+          date:date||(seen[key]&&seen[key].date)||'',
+          product:product.trim(),
+          supplier:vendor.toString().trim(),
+          sku:(item.sku||'').toString(),
+          unit:unit,
+          qty:qty||received||0,
+          receivedQty:received,
+          unitCost:unitCost,
+          totalAmount:total,
+          ref:poNum,
+          status:status,
+          notes:'From SOS PO'+(status?' · '+status:''),
+          importedAt:Date.now()
+        };
+        if(seen[key]){
+          // Update in place
+          const idxHist=hist.findIndex(function(h){return h.id===seen[key].id;});
+          if(idxHist>=0){hist[idxHist]=row;updated++;}else{hist.push(row);added++;}
+        }else{hist.push(row);added++;}
+      });
+    });
+    _purchSaveHist(hist);
+    const nm={status:'ok',lastSync:Date.now(),poCount:poCount,added:added,updated:updated,skipped:skipped,total:hist.filter(function(h){return h.source==='sos';}).length};
+    _purchSaveSyncMeta(nm);
+    if(typeof showToast==='function')showToast('SOS import · '+added+' new, '+updated+' updated ('+poCount+' POs)','ok');
+    cb({ok:true,added:added,updated:updated,poCount:poCount});
+    try{if(typeof _renderAcctPurchasing==='function')_renderAcctPurchasing();}catch(e){}
+  }).catch(function(e){
+    const err=(e&&e.message)||String(e);
+    _purchSaveSyncMeta({status:'err',err:err,lastSync:Date.now()});
+    if(typeof showToast==='function')showToast('SOS import failed: '+err,'warn');
+    cb({ok:false,err:err});
+    try{if(typeof _renderAcctPurchasing==='function')_renderAcctPurchasing();}catch(e2){}
+  });
+};
+
+// Remove all SOS-sourced history rows (keeps manual entries)
+window._purchClearSOSHistory=function(){
+  if(!confirm('Remove all history rows imported from SOS? Manual entries are kept.'))return;
+  const kept=_purchLoadHist().filter(function(h){return h.source!=='sos';});
+  _purchSaveHist(kept);
+  _purchSaveSyncMeta({});
+  if(typeof showToast==='function')showToast('SOS history cleared','ok');
+  _renderAcctPurchasing();
+};
+
+// Read SOS items cache to get preferred vendor + last known purchase cost for a product name.
+// Used as a hint when there are no PO lines yet for that product/supplier pair.
+window._purchSosItemHint=function(product){
+  try{
+    if(!window.__hnxSos||typeof window.__hnxSos.getItems!=='function')return null;
+    const items=window.__hnxSos.getItems()||[];
+    const q=(product||'').trim().toLowerCase();if(!q)return null;
+    const it=items.find(function(x){
+      const n=((x.name||x.description||x.displayName||'')+'').toLowerCase();
+      const s=((x.sku||x.itemNumber||'')+'').toLowerCase();
+      return n===q||n.includes(q)||s===q;
+    });
+    if(!it)return null;
+    return {
+      vendor:(it.vendorName||it.vendor||it.supplier||it.supplierName||'')+'',
+      lastCost:Number(it.purchaseCost||it.cost||it.averageCost||it.unitCost||0),
+      sku:(it.sku||'')+'',
+      onHand:Number(it.quantityOnHand||it.onHand||0)
+    };
+  }catch(e){return null;}
+};
+
+// SOS/QB connection status (for banner)
+window._purchIntegrationStatus=function(){
+  const s={sos:false,qb:false,sosItems:0,qbCached:false};
+  try{if(window.__hnxSos&&window.__hnxSos.getMeta){const m=window.__hnxSos.getMeta();s.sos=!!(m&&m.connected);s.sosItems=(window.__hnxSos.getItems&&window.__hnxSos.getItems().length)||0;}}catch(e){}
+  try{const qb=JSON.parse(localStorage.getItem('hydroPro_acct_qb_v1')||'{}');s.qbCached=!!(qb&&Object.keys(qb).length);s.qb=s.qbCached;}catch(e){}
+  return s;
+};
+
 // Escape helper (avoid HTML injection in supplier / product names)
 function _purchEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function _purchFmtDate(d){if(!d)return '—';const dt=new Date(d);if(isNaN(dt))return _purchEsc(d);return dt.toISOString().slice(0,10);}
@@ -88503,10 +88630,29 @@ window._renderAcctPurchasing=function(){
     body=_purchRenderSuppliersTab(hist,suppliers);
   }
 
+  // Integration / sync status
+  const integ=_purchIntegrationStatus();
+  const syncMeta=_purchSyncMeta();
+  const sosRows=hist.filter(h=>h.source==='sos').length;
+  const manualRows=hist.length-sosRows;
+  const lastSyncTxt=syncMeta.lastSync?new Date(syncMeta.lastSync).toLocaleString():'never';
+  const syncBadge=syncMeta.status==='running'?'<span style="color:var(--info);">⏳ syncing…</span>':syncMeta.status==='err'?`<span style="color:var(--danger);">✕ ${_purchEsc(syncMeta.err||'error')}</span>`:syncMeta.status==='ok'?`<span style="color:var(--ok);">✓ synced</span>`:'';
+
   view.innerHTML=`<div class="section-title">🛒 Purchasing — Supplier Comparison & History</div>
     <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.55;">
       <strong>🛒 3-supplier comparison workflow:</strong> Log each product you're buying, add up to 3 quotes (unit, specs, quantity, cost, delivery time, other fields as needed), and pick a winner.
       The system flags whether each supplier is <em>NEW</em> or <em>EXISTING</em>, and — if existing — shows how many times you bought this exact product from them, total quantity, total cost, and the <em>last purchase date</em>.
+      <br><br>
+      <strong>📥 Purchase history sources:</strong>
+      SOS Inventory ${integ.sos?`<span style="color:var(--ok);font-weight:700;">● connected (${integ.sosItems} items)</span>`:'<span style="color:var(--text3);">○ not connected</span>'} ·
+      QuickBooks ${integ.qb?'<span style="color:var(--ok);font-weight:700;">● cached</span>':'<span style="color:var(--text3);">○ no cache</span>'} ·
+      history rows: <strong>${sosRows}</strong> from SOS · <strong>${manualRows}</strong> manual ·
+      last sync: <strong>${_purchEsc(lastSyncTxt)}</strong> ${syncBadge}
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-primary" style="padding:5px 12px;font-size:11px;" ${integ.sos?'':'disabled title="Connect SOS in Admin → 📦 SOS Inventory Sync first"'} onclick="_purchSyncFromSOS()">📥 Sync purchase history from SOS</button>
+        ${sosRows?`<button class="btn btn-outline" style="padding:5px 12px;font-size:11px;color:var(--danger);" onclick="_purchClearSOSHistory()">🗑 Clear SOS-imported rows</button>`:''}
+        <a href="javascript:switchView('admin_sos_sync')" style="align-self:center;font-size:11px;color:var(--accent);">SOS Sync settings →</a>
+      </div>
     </div>
     <div class="fleet-stat-row">
       <div class="fleet-stat-card"><div class="fleet-stat-label">🗂 Comparisons</div><div class="fleet-stat-val">${comps.length}</div></div>
@@ -88649,12 +88795,21 @@ function _purchRenderCompCard(c){
   ];
   const rowsHtml=rowsCriteria.map(([label,fn])=>`<tr><td style="padding:7px 10px;font-size:11px;font-weight:700;color:var(--text3);background:var(--surface2);border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.5px;">${label}</td>${cols.map(x=>cell(fn(x))).join('')}</tr>`).join('');
 
+  // SOS hint about this product (preferred vendor + last cost)
+  const sosHint=(typeof _purchSosItemHint==='function')?_purchSosItemHint(c.product):null;
+  const sosHintBlock=sosHint?`<tr><td style="padding:7px 10px;font-size:11px;font-weight:700;color:var(--text3);background:var(--surface2);border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.5px;">SOS item hint</td><td colspan="${cols.length||3}" style="padding:8px 10px;border-bottom:1px solid var(--border);background:rgba(66,165,245,.06);">
+    <div style="font-size:11.5px;color:var(--text2);">
+      📦 SOS item match: preferred vendor <strong>${_purchEsc(sosHint.vendor||'—')}</strong>${sosHint.sku?' · SKU <code>'+_purchEsc(sosHint.sku)+'</code>':''}${sosHint.lastCost?' · last purchase cost <strong>'+_purchFmtMoney(sosHint.lastCost)+'</strong>':''} · on-hand <strong>${sosHint.onHand}</strong>
+    </div>
+  </td></tr>`:'';
+
   // History rows (last purchases of THIS product from each supplier)
   const histRow=`<tr><td style="padding:7px 10px;font-size:11px;font-weight:700;color:var(--text3);background:var(--surface2);border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.5px;">Purchase history</td>${cols.map(x=>{
     const h=x.hist;
     if(!x.s.name)return cell('<span style="color:var(--text3);">—</span>');
     if(h.isNew){
-      return cell(`<div style="font-size:11px;"><span style="color:var(--info);font-weight:700;">🆕 First time buying this product from this supplier.</span></div>`);
+      const sameVendorInSos=sosHint&&sosHint.vendor&&sosHint.vendor.trim().toLowerCase()===(x.s.name||'').trim().toLowerCase();
+      return cell(`<div style="font-size:11px;"><span style="color:var(--info);font-weight:700;">🆕 First time buying this product from this supplier.</span>${sameVendorInSos?'<div style="color:var(--text3);margin-top:3px;">SOS marks this vendor as the preferred supplier for this item.</div>':''}</div>`);
     }
     const rows=h.rows.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
     const list=rows.slice(0,6).map(r=>`<div style="font-family:var(--mono);font-size:10.5px;color:var(--text2);">${_purchFmtDate(r.date)} · ${Number(r.qty||0)} ${_purchEsc(r.unit||'')} @ ${_purchFmtMoney(r.unitCost)} = <strong>${_purchFmtMoney(Number(r.qty||0)*Number(r.unitCost||0))}</strong></div>`).join('');
@@ -88677,7 +88832,7 @@ function _purchRenderCompCard(c){
   const table=`<div style="overflow-x:auto;margin-top:10px;background:var(--surface2);border-radius:6px;">
     <table style="width:100%;border-collapse:collapse;min-width:640px;">
       <thead><tr><th style="padding:8px 10px;background:var(--surface3);border-bottom:2px solid var(--border);text-align:left;width:150px;">Criterion</th>${colHeader}</tr></thead>
-      <tbody>${rowsHtml}${histRow}${actionsRow}</tbody>
+      <tbody>${rowsHtml}${sosHintBlock}${histRow}${actionsRow}</tbody>
     </table>
   </div>
   <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
@@ -88725,10 +88880,11 @@ function _purchRenderHistoryTab(hist,suppliers,products){
   const q=_purchState.filter.trim().toLowerCase();
   const filtered=hist.filter(h=>!q||[h.product,h.supplier,h.ref,h.notes].some(v=>(v||'').toLowerCase().includes(q))).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const rows=filtered.map(h=>{
-    const total=Number(h.qty||0)*Number(h.unitCost||0);
+    const total=Number(h.totalAmount||0)||Number(h.qty||0)*Number(h.unitCost||0);
+    const srcBadge=h.source==='sos'?'<span style="background:var(--accent2);color:#fff;padding:1px 5px;border-radius:6px;font-size:9px;font-weight:800;margin-right:4px;">SOS</span>':'';
     return `<tr>
       <td style="font-family:var(--mono);font-size:11px;">${_purchFmtDate(h.date)}</td>
-      <td><strong>${_purchEsc(h.product)}</strong></td>
+      <td>${srcBadge}<strong>${_purchEsc(h.product)}</strong></td>
       <td>${_purchEsc(h.supplier)}</td>
       <td style="font-size:11px;">${_purchEsc(h.unit||'')}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:11px;">${Number(h.qty||0).toLocaleString()}</td>
@@ -88736,7 +88892,7 @@ function _purchRenderHistoryTab(hist,suppliers,products){
       <td style="text-align:right;font-family:var(--mono);font-size:11px;"><strong>${_purchFmtMoney(total)}</strong></td>
       <td style="font-size:11px;font-family:var(--mono);">${_purchEsc(h.ref||'')}</td>
       <td style="font-size:11px;color:var(--text3);">${_purchEsc((h.notes||'').slice(0,60))}</td>
-      <td style="text-align:right;"><button class="btn btn-outline" style="padding:3px 8px;font-size:10px;color:var(--danger);" onclick="_purchDeleteHistory('${h.id}')">🗑</button></td>
+      <td style="text-align:right;">${h.source==='sos'?'<span title="Imported from SOS — will re-sync" style="color:var(--text3);font-size:10px;">🔒 SOS</span>':`<button class="btn btn-outline" style="padding:3px 8px;font-size:10px;color:var(--danger);" onclick="_purchDeleteHistory('${h.id}')">🗑</button>`}</td>
     </tr>`;
   }).join('');
   return form+`<table class="fleet-table" style="width:100%;font-size:12px;">
@@ -88897,6 +89053,9 @@ window._purchAddHistory=function(){
 };
 
 window._purchDeleteHistory=function(id){
+  const row=_purchLoadHist().find(x=>x.id===id);
+  if(!row)return;
+  if(row.source==='sos'){alert('SOS-imported rows will re-sync from SOS. Use "Clear SOS-imported rows" to remove them all, or delete the PO in SOS Inventory.');return;}
   if(!confirm('Delete this purchase record?'))return;
   _purchSaveHist(_purchLoadHist().filter(x=>x.id!==id));
   _renderAcctPurchasing();
@@ -88904,9 +89063,10 @@ window._purchDeleteHistory=function(id){
 
 window._purchExportCsv=function(){
   const hist=_purchLoadHist();
-  const out=[['Date','Product','Supplier','Unit','Qty','UnitCost','Total','PO/Ref','Notes']];
+  const out=[['Date','Product','Supplier','SKU','Unit','Qty','Received','UnitCost','Total','PO/Ref','Source','Status','Notes']];
   hist.forEach(h=>{
-    out.push([h.date||'',h.product||'',h.supplier||'',h.unit||'',h.qty||0,h.unitCost||0,(Number(h.qty||0)*Number(h.unitCost||0)),h.ref||'',h.notes||'']);
+    const total=Number(h.totalAmount||0)||Number(h.qty||0)*Number(h.unitCost||0);
+    out.push([h.date||'',h.product||'',h.supplier||'',h.sku||'',h.unit||'',h.qty||0,h.receivedQty||0,h.unitCost||0,total,h.ref||'',h.source||'manual',h.status||'',h.notes||'']);
   });
   const csv=out.map(r=>r.map(c=>{const s=String(c==null?'':c);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n');
   const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
