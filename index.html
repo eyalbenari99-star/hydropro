@@ -135073,9 +135073,16 @@ body.hnx-mobile-locked { overflow: hidden; }
               var dm=__hnxMergeDay(localStorage.getItem(k), v); /* live deep-merge of today's report — union, never drops a field */
               if(dm!=null && dm!==localStorage.getItem(k)) localStorage.setItem(k, dm);
             } else if(__firstPull){
-              localStorage.setItem(k, v); /* first pull of the session — adopt cloud snapshot wholesale */
+              /* v12.90-p2 UPLOAD-SURVIVES-REFRESH: before, first pull WHOLESALE-OVERWROTE local
+                 for non-op keys. That killed just-uploaded 201-file docs (and any other write) if
+                 the user hard-refreshed within the ≤4s push-debounce, because the pending push
+                 never fired and boot's first pull replaced the freshly saved local entry with the
+                 stale cloud copy. Now: merge on first pull too, so any local unpushed write
+                 survives; if local is empty, merge returns remote wholesale (fresh-device case). */
+              var fm=__hnxMergeGeneric(k, localStorage.getItem(k), v);
+              if(fm!=null && fm!==localStorage.getItem(k)) localStorage.setItem(k, fm);
             } else if(!__HNX_DIRTY[k]){
-              /* v12.90 LIVE-SYNC-ALL: every subsequent pull now merges too, so cross-device edits actually converge.
+              /* v12.90 LIVE-SYNC-ALL: every subsequent pull merges too, so cross-device edits actually converge.
                  Dirty local key → leave it alone this cycle; the pending push (≤4s debounce) will send it up. */
               var gm=__hnxMergeGeneric(k, localStorage.getItem(k), v);
               if(gm!=null && gm!==localStorage.getItem(k)) localStorage.setItem(k, gm);
@@ -135119,9 +135126,27 @@ body.hnx-mobile-locked { overflow: hidden; }
           if(getToken() && window.__hnxPulledOk){ clearTimeout(_qpT); _qpT=setTimeout(function(){ try{ pushAll(); }catch(e){} }, 4000); }
         } }catch(e){}
         return r; };
-      document.addEventListener('visibilitychange', function(){ if(!document.hidden){ try{ tryAutoSync(); }catch(e){} } });
+      document.addEventListener('visibilitychange', function(){
+        if(document.hidden){ /* v12.90-p2: tab going away → flush pending push NOW (keepalive) so uploads survive close/refresh */
+          try{ if(!IS_LOCAL && getToken() && window.__hnxPulledOk){
+            clearTimeout(_qpT); var data=collectData();
+            if(Object.keys(data).length){
+              try{ fetch(WORKER+'/sync/push',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+getToken()},body:JSON.stringify({data:data}),keepalive:true}); }catch(e){}
+            }
+          } }catch(e){}
+        } else { try{ tryAutoSync(); }catch(e){} }
+      });
       window.addEventListener('focus', function(){ try{ tryAutoSync(); }catch(e){} });
       window.addEventListener('online', function(){ try{ tryAutoSync(); }catch(e){} });
+      /* v12.90-p2: belt-and-braces — also flush on pagehide (fires when tab is being closed/navigated away) */
+      window.addEventListener('pagehide', function(){
+        try{ if(!IS_LOCAL && getToken() && window.__hnxPulledOk){
+          clearTimeout(_qpT); var data=collectData();
+          if(Object.keys(data).length){
+            try{ fetch(WORKER+'/sync/push',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+getToken()},body:JSON.stringify({data:data}),keepalive:true}); }catch(e){}
+          }
+        } }catch(e){}
+      });
     }catch(e){}
   })();
   /* p105: durability + headroom — ask the browser to PERSIST our data (never auto-evict)
