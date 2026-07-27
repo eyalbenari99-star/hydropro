@@ -88555,6 +88555,267 @@ window._purchIntegrationStatus=function(){
   return s;
 };
 
+// =====================================================================
+// === GEO / RADIUS — search suppliers within a distance of our base ===
+// =====================================================================
+// Bigger orders justify farther suppliers, so the effective radius scales
+// with estimated order value. Rules are user-editable, defaults below.
+// Base location + per-supplier locations are stored locally; distance is
+// computed with the Haversine formula. Suppliers with no known location
+// fall into a separate "unknown-distance" bucket that the user can either
+// include or hide.
+const ACCT_PURCH_BASE_LOC_KEY='hydroPro_acct_purch_base_location';
+const ACCT_PURCH_SUP_LOC_KEY='hydroPro_acct_purch_supplier_locations';
+
+const _PURCH_DEFAULT_BASE={
+  name:'AteretPaz farm',
+  address:'',
+  lat:14.5995,   // Manila metro fallback; user can edit anytime
+  lng:120.9842,
+  // tiers = order-value → allowed radius in km. First matching (maxValue >= value) wins.
+  // Set radiusKm to null for "no limit / worldwide".
+  tiers:[
+    {maxValue:10000,   radiusKm:25,   label:'Small · local only'},
+    {maxValue:50000,   radiusKm:100,  label:'Regular · metro'},
+    {maxValue:200000,  radiusKm:500,  label:'Mid · regional'},
+    {maxValue:1000000, radiusKm:2000, label:'Large · national'},
+    {maxValue:Infinity,radiusKm:null, label:'Very large · worldwide'}
+  ],
+  // If radius filtering surfaces < minSuppliersForRadius candidates, Nexi
+  // auto-widens to the next tier so the buyer never ends up with 0 quotes.
+  minSuppliersForRadius:3,
+  // Include suppliers whose location is unknown when true
+  includeUnknown:true
+};
+
+window._purchGetBase=function(){
+  try{
+    const raw=JSON.parse(localStorage.getItem(ACCT_PURCH_BASE_LOC_KEY)||'null');
+    if(!raw)return JSON.parse(JSON.stringify(_PURCH_DEFAULT_BASE));
+    // Merge with defaults so newly-added keys keep working after schema growth
+    const out=JSON.parse(JSON.stringify(_PURCH_DEFAULT_BASE));
+    Object.keys(raw).forEach(function(k){if(raw[k]!=null)out[k]=raw[k];});
+    // Repair tier list (localStorage can't hold Infinity — comes back as null)
+    (out.tiers||[]).forEach(function(t){if(t.maxValue==null)t.maxValue=Infinity;});
+    return out;
+  }catch(e){return JSON.parse(JSON.stringify(_PURCH_DEFAULT_BASE));}
+};
+window._purchSaveBase=function(b){
+  try{
+    // Persist Infinity as a JSON-safe sentinel
+    const clone=JSON.parse(JSON.stringify(b,function(k,v){return v===Infinity?null:v;}));
+    localStorage.setItem(ACCT_PURCH_BASE_LOC_KEY,JSON.stringify(clone));
+  }catch(e){}
+};
+
+function _purchLoadSupplierLocs(){try{return JSON.parse(localStorage.getItem(ACCT_PURCH_SUP_LOC_KEY)||'{}');}catch(e){return {};}}
+function _purchSaveSupplierLocs(o){try{localStorage.setItem(ACCT_PURCH_SUP_LOC_KEY,JSON.stringify(o));}catch(e){}}
+
+// Read a supplier's stored coords (from the purchasing overlay first, then
+// fall back to any address/city on the base vendor records).
+window._purchGetSupplierLocation=function(name){
+  const k=(name||'').trim().toLowerCase();if(!k)return null;
+  const map=_purchLoadSupplierLocs();
+  if(map[k])return map[k];
+  // Fallback: look up an address field on inv-master / acct-vendors and
+  // return a "no coords, only address" record so the UI can show something.
+  try{
+    const inv=JSON.parse(localStorage.getItem('hydroPro_inv_suppliers_v1')||'[]');
+    const hit=(inv||[]).find(function(s){return (s.name||'').trim().toLowerCase()===k;});
+    if(hit&&(hit.address||hit.city||hit.country))return {address:hit.address||'',city:hit.city||'',country:hit.country||'',lat:null,lng:null};
+  }catch(e){}
+  try{
+    const av=JSON.parse(localStorage.getItem(ACCT_VENDOR_KEY)||'[]');
+    const hit=(av||[]).find(function(s){return (s.name||'').trim().toLowerCase()===k;});
+    if(hit&&(hit.address||hit.city||hit.country))return {address:hit.address||'',city:hit.city||'',country:hit.country||'',lat:null,lng:null};
+  }catch(e){}
+  return null;
+};
+window._purchSetSupplierLocation=function(name,loc){
+  const k=(name||'').trim().toLowerCase();if(!k)return;
+  const map=_purchLoadSupplierLocs();
+  map[k]=Object.assign({},map[k]||{},loc||{});
+  _purchSaveSupplierLocs(map);
+};
+
+// Haversine — great-circle distance in kilometres.
+window._purchDistanceKm=function(lat1,lng1,lat2,lng2){
+  if(lat1==null||lng1==null||lat2==null||lng2==null)return null;
+  const R=6371;
+  const toRad=function(d){return d*Math.PI/180;};
+  const dLat=toRad(lat2-lat1),dLng=toRad(lng2-lng1);
+  const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+};
+
+// Pick the tier whose maxValue >= the estimated order value.
+window._purchTierForValue=function(value){
+  const b=_purchGetBase();
+  const v=Number(value||0);
+  const t=(b.tiers||[]).slice().sort(function(a,b){return a.maxValue-b.maxValue;}).find(function(t){return v<=t.maxValue;});
+  return t||{maxValue:Infinity,radiusKm:null,label:'Worldwide'};
+};
+
+// Enrich a list of supplier records (from _purchGatherAllSuppliers) with
+// distanceKm and inRadius flags, given an estimated order value + an
+// optional user-override radius.
+window._purchApplyRadius=function(suppliers,estimatedValue,overrideRadiusKm){
+  const b=_purchGetBase();
+  const tier=_purchTierForValue(estimatedValue);
+  let radius=(overrideRadiusKm!=null?Number(overrideRadiusKm):tier.radiusKm);
+  const enriched=suppliers.map(function(s){
+    const loc=_purchGetSupplierLocation(s.name);
+    const dist=(loc&&loc.lat!=null&&loc.lng!=null)?_purchDistanceKm(b.lat,b.lng,loc.lat,loc.lng):null;
+    return Object.assign({},s,{location:loc,distanceKm:dist,inRadius:radius==null?true:(dist==null?b.includeUnknown:dist<=radius)});
+  });
+  // If too few survive the filter, auto-widen: pick the next larger tier or
+  // remove the filter entirely, so the buyer always sees something.
+  let effectiveRadius=radius,widened=false;
+  if(radius!=null){
+    const inCount=enriched.filter(function(x){return x.distanceKm!=null&&x.distanceKm<=radius;}).length;
+    if(inCount<Number(b.minSuppliersForRadius||3)){
+      const tiers=(b.tiers||[]).slice().sort(function(a,b){return a.maxValue-b.maxValue;});
+      const nextBigger=tiers.filter(function(t){return t.radiusKm==null||t.radiusKm>radius;})[0];
+      if(nextBigger){
+        effectiveRadius=nextBigger.radiusKm;widened=true;
+        enriched.forEach(function(s){s.inRadius=effectiveRadius==null?true:(s.distanceKm==null?b.includeUnknown:s.distanceKm<=effectiveRadius);});
+      }
+    }
+  }
+  return {suppliers:enriched,tier:tier,radius:effectiveRadius,requestedRadius:radius,widened:widened,base:b};
+};
+
+// Format a distance for the UI: km with an integer under 100 km, one decimal above.
+window._purchFmtKm=function(d){if(d==null)return '—';if(d<10)return d.toFixed(1)+' km';if(d<100)return Math.round(d)+' km';return Math.round(d).toLocaleString()+' km';};
+
+// Open a small settings dialog for base location + radius tiers.
+window._purchOpenLocationSettings=function(){
+  const b=_purchGetBase();
+  let m=document.getElementById('purchLocSettingsModal');if(m)m.remove();
+  m=document.createElement('div');
+  m.id='purchLocSettingsModal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:10060;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto;';
+  const tierRows=(b.tiers||[]).map(function(t,i){
+    const isMax=(t.maxValue===Infinity||t.maxValue==null);
+    return '<tr>'
+      +'<td style="padding:4px;"><input class="input" style="width:100%;font-size:11.5px;" id="pltT'+i+'_max" type="number" step="1" placeholder="max ₱"'+(isMax?' disabled value="∞"':' value="'+t.maxValue+'"')+'></td>'
+      +'<td style="padding:4px;"><input class="input" style="width:100%;font-size:11.5px;" id="pltT'+i+'_km" type="number" step="1" placeholder="km (blank = ∞)" value="'+(t.radiusKm==null?'':t.radiusKm)+'"></td>'
+      +'<td style="padding:4px;"><input class="input" style="width:100%;font-size:11.5px;" id="pltT'+i+'_lbl" placeholder="label" value="'+_purchEsc(t.label||'')+'"></td>'
+      +'<td style="padding:4px;text-align:right;">'+(isMax?'':'<button class="btn btn-outline" style="padding:2px 6px;font-size:10px;color:var(--danger);" onclick="_purchLocRemoveTier('+i+')">✕</button>')+'</td>'
+      +'</tr>';
+  }).join('');
+  m.innerHTML='<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;max-width:720px;width:100%;padding:22px;max-height:92vh;overflow-y:auto;">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">'
+      +'<div style="font-size:14px;font-weight:800;color:var(--accent);">📍 Purchasing · Base location &amp; radius tiers</div>'
+      +'<button onclick="document.getElementById(\'purchLocSettingsModal\').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;">✕</button>'
+    +'</div>'
+    +'<div style="padding:10px 12px;background:var(--surface2);border-left:3px solid var(--info);border-radius:6px;margin-bottom:12px;font-size:11.5px;color:var(--text2);line-height:1.5;">'
+      +'When Nexi searches for suppliers, she filters by distance from this base. Bigger orders unlock a bigger radius — <b>the larger the ₱ value, the farther she looks</b>, because a large order justifies more transport. If a tier surfaces fewer than <b>Min suppliers</b> candidates, Nexi auto-widens to the next tier.'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">'
+      +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Base name</div><input class="input" id="pltName" value="'+_purchEsc(b.name||'')+'"></div>'
+      +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Base address</div><input class="input" id="pltAddress" value="'+_purchEsc(b.address||'')+'" placeholder="street, city, country"></div>'
+      +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Latitude</div><input class="input" id="pltLat" type="number" step="0.000001" value="'+_purchEsc(b.lat)+'" placeholder="14.5995"></div>'
+      +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Longitude</div><input class="input" id="pltLng" type="number" step="0.000001" value="'+_purchEsc(b.lng)+'" placeholder="120.9842"></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">'
+      +'<button class="btn btn-outline" style="padding:5px 12px;font-size:11px;" onclick="_purchLocUseBrowser()">📡 Use my current location</button>'
+      +'<a href="https://www.google.com/maps" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent);align-self:center;">→ open Google Maps to copy coordinates</a>'
+    +'</div>'
+    +'<div style="font-weight:800;font-size:12px;margin-bottom:6px;">🎯 Order-value → radius tiers</div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:10px;">'
+      +'<thead><tr style="background:var(--surface3);color:var(--text3);text-transform:uppercase;font-size:10px;letter-spacing:.5px;">'
+        +'<th style="padding:4px;text-align:left;">Up to ₱</th><th style="padding:4px;text-align:left;">Radius (km)</th><th style="padding:4px;text-align:left;">Label</th><th style="padding:4px;text-align:right;"></th>'
+      +'</tr></thead><tbody id="pltTierRows">'+tierRows+'</tbody>'
+    +'</table>'
+    +'<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">'
+      +'<button class="btn btn-outline" style="padding:4px 10px;font-size:11px;" onclick="_purchLocAddTier()">➕ Add tier</button>'
+      +'<div style="flex:1;"></div>'
+      +'<label style="font-size:11px;display:flex;gap:6px;align-items:center;"><input type="checkbox" id="pltIncUnknown"'+(b.includeUnknown?' checked':'')+'> Include suppliers with unknown location</label>'
+      +'<label style="font-size:11px;display:flex;gap:6px;align-items:center;">Min suppliers <input class="input" id="pltMinSup" type="number" min="0" step="1" value="'+Number(b.minSuppliersForRadius||3)+'" style="width:52px;font-size:11px;padding:2px 6px;"> (auto-widen if fewer)</label>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;">'
+      +'<button class="btn btn-outline" onclick="document.getElementById(\'purchLocSettingsModal\').remove()">Cancel</button>'
+      +'<button class="btn btn-primary" onclick="_purchLocSave()">Save</button>'
+    +'</div>'
+    +'</div>';
+  document.body.appendChild(m);
+};
+
+window._purchLocUseBrowser=function(){
+  if(!navigator.geolocation){alert('Geolocation not supported in this browser.');return;}
+  navigator.geolocation.getCurrentPosition(function(pos){
+    document.getElementById('pltLat').value=pos.coords.latitude.toFixed(6);
+    document.getElementById('pltLng').value=pos.coords.longitude.toFixed(6);
+    if(typeof showToast==='function')showToast('Captured your current coordinates','ok');
+  },function(err){alert('Could not read location: '+(err&&err.message||err));});
+};
+
+window._purchLocAddTier=function(){
+  const b=_purchGetBase();
+  b.tiers=b.tiers||[];
+  // Insert a new tier just before the Infinity row
+  const maxIdx=b.tiers.findIndex(function(t){return t.maxValue===Infinity;});
+  const newTier={maxValue:100000,radiusKm:250,label:'Custom tier'};
+  if(maxIdx>=0)b.tiers.splice(maxIdx,0,newTier);else b.tiers.push(newTier);
+  _purchSaveBase(b);_purchOpenLocationSettings();
+};
+window._purchLocRemoveTier=function(idx){
+  const b=_purchGetBase();b.tiers.splice(idx,1);_purchSaveBase(b);_purchOpenLocationSettings();
+};
+window._purchLocSave=function(){
+  const b=_purchGetBase();
+  b.name=(document.getElementById('pltName').value||'').trim();
+  b.address=(document.getElementById('pltAddress').value||'').trim();
+  b.lat=Number(document.getElementById('pltLat').value||b.lat);
+  b.lng=Number(document.getElementById('pltLng').value||b.lng);
+  b.includeUnknown=document.getElementById('pltIncUnknown').checked;
+  b.minSuppliersForRadius=Number(document.getElementById('pltMinSup').value||3);
+  // Rebuild tiers from the form
+  const tiers=[];
+  document.querySelectorAll('#pltTierRows tr').forEach(function(tr,i){
+    const maxEl=tr.querySelector('#pltT'+i+'_max');
+    const kmEl=tr.querySelector('#pltT'+i+'_km');
+    const lblEl=tr.querySelector('#pltT'+i+'_lbl');
+    if(!maxEl||!kmEl)return;
+    const isMax=maxEl.disabled;
+    const maxVal=isMax?Infinity:Number(maxEl.value||0);
+    const km=kmEl.value===''?null:Number(kmEl.value);
+    tiers.push({maxValue:maxVal,radiusKm:km,label:(lblEl.value||'').trim()});
+  });
+  if(tiers.length)b.tiers=tiers.sort(function(a,b){return a.maxValue-b.maxValue;});
+  _purchSaveBase(b);
+  const m=document.getElementById('purchLocSettingsModal');if(m)m.remove();
+  if(typeof showToast==='function')showToast('Base location + radius tiers saved','ok');
+  _renderAcctPurchasing();
+};
+
+// Set a single supplier's location (dialog reachable from the outreach modal)
+window._purchOpenSupplierLocation=function(name){
+  const loc=_purchGetSupplierLocation(name)||{};
+  const lat=prompt('Latitude for '+name+' (blank = keep):',(loc.lat!=null?loc.lat:''));
+  if(lat===null)return;
+  const lng=prompt('Longitude for '+name+' (blank = keep):',(loc.lng!=null?loc.lng:''));
+  if(lng===null)return;
+  const addr=prompt('Address / city (optional):',(loc.address||loc.city||''));
+  _purchSetSupplierLocation(name,{lat:lat===''?loc.lat:Number(lat),lng:lng===''?loc.lng:Number(lng),address:addr||loc.address||'',city:loc.city||'',country:loc.country||''});
+  if(typeof showToast==='function')showToast('Location saved for '+name,'ok');
+  // Re-open outreach if it's open
+  const modal=document.getElementById('purchOutreachModal');
+  if(modal){
+    const prefill={
+      product:(document.getElementById('poutProduct')||{}).value||'',
+      specs:(document.getElementById('poutSpecs')||{}).value||'',
+      qty:(document.getElementById('poutQty')||{}).value||'',
+      unit:(document.getElementById('poutUnit')||{}).value||'',
+      needBy:(document.getElementById('poutNeedBy')||{}).value||'',
+      company:(document.getElementById('poutCompany')||{}).value||'AteretPaz',
+      estimatedValue:(document.getElementById('poutEstValue')||{}).value||''
+    };
+    modal.remove();_purchOpenOutreach(prefill);
+  }
+};
+
 // Escape helper (avoid HTML injection in supplier / product names)
 function _purchEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function _purchFmtDate(d){if(!d)return '—';const dt=new Date(d);if(isNaN(dt))return _purchEsc(d);return dt.toISOString().slice(0,10);}
@@ -88655,6 +88916,11 @@ window._renderAcctPurchasing=function(){
         ${sosRows?`<button class="btn btn-outline" style="padding:5px 12px;font-size:11px;color:var(--danger);" onclick="_purchClearSOSHistory()">🗑 Clear SOS-imported rows</button>`:''}
         <a href="javascript:switchView('admin_sos_sync')" style="align-self:center;font-size:11px;color:var(--accent);">SOS Sync settings →</a>
       </div>
+      <div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);font-size:11.5px;">
+        <strong>📍 Search geography:</strong> base at <b>${_purchEsc(_purchGetBase().name||'AteretPaz')}</b> (${Number(_purchGetBase().lat).toFixed(3)}, ${Number(_purchGetBase().lng).toFixed(3)}).
+        Radius grows with the order size — ${(_purchGetBase().tiers||[]).map(t=>`≤ ${t.maxValue===Infinity?'∞':'₱'+Number(t.maxValue).toLocaleString()} → ${t.radiusKm==null?'∞ km':t.radiusKm+' km'}`).join(' · ')}.
+        <a href="javascript:_purchOpenLocationSettings()" style="color:var(--accent);">edit tiers →</a>
+      </div>
     </div>
     <div class="fleet-stat-row">
       <div class="fleet-stat-card"><div class="fleet-stat-label">🗂 Comparisons</div><div class="fleet-stat-val">${comps.length}</div></div>
@@ -88670,6 +88936,7 @@ window._renderAcctPurchasing=function(){
       ${tabBtn('outreach','📬 Nexi RFQ Log')}
       <div style="flex:1;"></div>
       <button class="btn btn-primary" style="padding:6px 14px;font-size:12px;background:linear-gradient(135deg,#1d7a5f,#0c5b46);" onclick="_purchOpenOutreach({})">🤖 Nexi · Find & contact suppliers</button>
+      <button class="btn btn-outline" style="padding:6px 12px;font-size:11px;" onclick="_purchOpenLocationSettings()" title="Set your base location and how the search radius grows with order value">📍 Location &amp; radius</button>
       <button class="btn btn-outline" style="padding:6px 12px;font-size:11px;" onclick="_purchExportCsv()">⬇ Export CSV</button>
     </div>
     ${dl(suppliers,'purchSupplierList')}
@@ -89224,7 +89491,18 @@ window._purchOpenOutreach=function(prefill){
   m=document.createElement('div');
   m.id='purchOutreachModal';
   m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:10050;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto;';
-  const suppliers=_purchGatherAllSuppliers(prefill.product);
+  // Estimate order value from qty × last known unit cost for this product (if any)
+  const gathered=_purchGatherAllSuppliers(prefill.product);
+  let estValue=Number(prefill.estimatedValue||0);
+  if(!estValue&&prefill.qty){
+    const hint=_purchSosItemHint(prefill.product);
+    const unitGuess=hint&&hint.lastCost||0;
+    if(unitGuess)estValue=Number(prefill.qty)*Number(unitGuess);
+  }
+  // Apply radius filter based on estimated value (override can come later via the modal input)
+  const geo=_purchApplyRadius(gathered,estValue,prefill.overrideRadiusKm);
+  const suppliers=geo.suppliers;
+  const base=geo.base;
   const tmpl=_purchLoadRfqTemplate();
   const requester=(function(){try{const u=(typeof getCurrentUser==='function'?getCurrentUser():null)||{};return u.fullName||u.name||u.username||'';}catch(e){return '';}})();
   const rowsHtml=suppliers.map(function(s,i){
@@ -89234,10 +89512,21 @@ window._purchOpenOutreach=function(prefill){
     else badges.push('<span style="background:var(--warn);color:#000;padding:1px 5px;border-radius:6px;font-size:9px;font-weight:800;">NEW</span>');
     s.sources.forEach(function(src){badges.push('<span style="background:var(--surface3);color:var(--text2);padding:1px 5px;border-radius:6px;font-size:9px;">'+src+'</span>');});
     if(s.responseRate!=null)badges.push('<span style="background:var(--surface3);color:'+(s.responseRate>=60?'var(--ok)':s.responseRate>=30?'var(--warn)':'var(--danger)')+';padding:1px 5px;border-radius:6px;font-size:9px;">reply '+s.responseRate+'%</span>');
+    // Distance chip
+    let distChip='';
+    if(s.distanceKm!=null){
+      const inRad=s.inRadius;
+      distChip='<span style="background:'+(inRad?'var(--accent-soft,rgba(30,122,95,.15))':'var(--surface3)')+';color:'+(inRad?'var(--ok)':'var(--text3)')+';padding:1px 5px;border-radius:6px;font-size:9px;font-weight:700;">📍 '+_purchFmtKm(s.distanceKm)+(inRad?'':' · out')+'</span>';
+    }else{
+      distChip='<span style="background:var(--surface3);color:var(--text3);padding:1px 5px;border-radius:6px;font-size:9px;cursor:pointer;" title="Click to add coordinates" onclick="_purchOpenSupplierLocation(&quot;'+_purchEsc(s.name).replace(/"/g,'&quot;')+'&quot;)">📍 no location · add</span>';
+    }
+    badges.push(distChip);
     const ch=(s.email?'email':'')+(s.email&&s.phone?'|':'')+(s.phone?'sms':'');
     const disabled=(!s.email&&!s.phone);
-    return '<tr>'
-      +'<td style="padding:6px 8px;"><input type="checkbox" class="purchOutreachPick" data-idx="'+i+'"'+(disabled?' disabled':'')+'></td>'
+    const rowStyle=s.inRadius?'':'opacity:.45;';
+    const hint=s.inRadius?'':' title="Out of the current radius. Widen the radius or set this supplier\'s location."';
+    return '<tr style="'+rowStyle+'"'+hint+'>'
+      +'<td style="padding:6px 8px;"><input type="checkbox" class="purchOutreachPick" data-idx="'+i+'" data-inradius="'+(s.inRadius?'1':'0')+'"'+(disabled?' disabled':'')+'></td>'
       +'<td style="padding:6px 8px;font-size:12px;"><strong>'+_purchEsc(s.name)+'</strong><div style="font-size:10px;color:var(--text3);">'+_purchEsc(s.contact||'—')+'</div></td>'
       +'<td style="padding:6px 8px;font-size:11px;font-family:var(--mono);">'+(s.email?_purchEsc(s.email):'<span style="color:var(--text3);">—</span>')+'</td>'
       +'<td style="padding:6px 8px;font-size:11px;font-family:var(--mono);">'+(s.phone?_purchEsc(s.phone):'<span style="color:var(--text3);">—</span>')+'</td>'
@@ -89246,6 +89535,12 @@ window._purchOpenOutreach=function(prefill){
       +'<td style="padding:6px 8px;font-size:10px;color:var(--text3);">'+_purchEsc(ch||'no contact')+'</td>'
       +'</tr>';
   }).join('');
+  // Radius / geo status line
+  const radiusLine=geo.radius==null
+    ? '<span style="color:var(--ok);font-weight:700;">🌐 No radius limit</span> — worldwide search'
+    : ('<span style="color:var(--accent);font-weight:800;">🎯 Radius '+geo.radius.toLocaleString()+' km</span> · tier <b>'+_purchEsc(geo.tier.label||'')+'</b>'+(geo.widened?' <span style="color:var(--warn);">(auto-widened · fewer than min in the requested tier)</span>':''));
+  const inRadiusCount=suppliers.filter(function(s){return s.inRadius;}).length;
+  const outRadiusCount=suppliers.length-inRadiusCount;
   m.innerHTML='<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;max-width:1080px;width:100%;padding:20px;max-height:92vh;overflow-y:auto;">'
     +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">'
       +'<div style="font-size:15px;font-weight:800;color:var(--accent);"><span style="font-size:20px;">🤖</span> Nexi · Find suppliers & send RFQ</div>'
@@ -89257,20 +89552,32 @@ window._purchOpenOutreach=function(prefill){
       +'You can add a supplier you found on the web at the bottom. When you click Send, I dispatch email (via EmailJS if configured, otherwise mailto:) and/or SMS (sms: link) and <b>log every attempt</b> so I can rank suppliers by response rate and best price next time.'
     +'</div>'
     // Product + qty + template variables
-    +'<div style="display:grid;grid-template-columns:1.4fr .8fr .6fr .6fr .8fr;gap:8px;margin-bottom:12px;">'
+    +'<div style="display:grid;grid-template-columns:1.4fr .8fr .5fr .5fr .8fr .8fr;gap:8px;margin-bottom:8px;">'
       +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Product *</div><input id="poutProduct" class="input" placeholder="e.g. Rockwool cube 100×100" value="'+_purchEsc(prefill.product||'')+'"></div>'
       +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Specs</div><input id="poutSpecs" class="input" placeholder="grade / size" value="'+_purchEsc(prefill.specs||'')+'"></div>'
       +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Qty</div><input id="poutQty" type="number" step="0.01" class="input" value="'+_purchEsc(prefill.qty||'')+'"></div>'
       +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Unit</div><input id="poutUnit" class="input" placeholder="pc" value="'+_purchEsc(prefill.unit||'')+'"></div>'
       +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Need by</div><input id="poutNeedBy" type="date" class="input" value="'+_purchEsc(prefill.needBy||'')+'"></div>'
+      +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Est. value ₱</div><input id="poutEstValue" type="number" step="0.01" class="input" placeholder="qty × unit" value="'+_purchEsc(estValue||'')+'"></div>'
+    +'</div>'
+    // Radius / geo status strip
+    +'<div style="display:flex;gap:10px;align-items:center;padding:10px 12px;background:var(--surface2);border-left:3px solid var(--accent);border-radius:6px;margin-bottom:12px;font-size:11.5px;flex-wrap:wrap;">'
+      +'<div>'+radiusLine+'</div>'
+      +'<div style="color:var(--text3);">📍 Base <b>'+_purchEsc(base.name||'')+'</b> · '+Number(base.lat).toFixed(3)+', '+Number(base.lng).toFixed(3)+'</div>'
+      +'<div style="color:var(--text3);">✅ '+inRadiusCount+' in range · '+outRadiusCount+' outside</div>'
+      +'<div style="flex:1;"></div>'
+      +'<label style="font-size:11px;display:flex;gap:4px;align-items:center;">Override km <input id="poutRadiusOverride" class="input" type="number" min="0" step="1" placeholder="'+(geo.radius==null?'∞':geo.radius)+'" style="width:70px;padding:2px 6px;font-size:11px;" value="'+_purchEsc(prefill.overrideRadiusKm||'')+'"></label>'
+      +'<button class="btn btn-outline" style="padding:4px 10px;font-size:11px;" onclick="_purchOutreachRecalcRadius()">↻ Apply</button>'
+      +'<button class="btn btn-outline" style="padding:4px 10px;font-size:11px;" onclick="_purchOpenLocationSettings()">⚙ Base &amp; tiers</button>'
     +'</div>'
     // Supplier list
     +'<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:12px;">'
-      +'<div style="padding:8px 10px;background:var(--surface2);display:flex;justify-content:space-between;align-items:center;">'
-        +'<div style="font-weight:800;font-size:12px;">📇 Suppliers Nexi found ('+suppliers.length+')</div>'
-        +'<div style="display:flex;gap:6px;">'
-          +'<button class="btn btn-outline" style="padding:3px 10px;font-size:10.5px;" onclick="_purchOutreachSelect(\'top3\')">✓ Pick top 3</button>'
-          +'<button class="btn btn-outline" style="padding:3px 10px;font-size:10.5px;" onclick="_purchOutreachSelect(\'existing\')">✓ Pick existing</button>'
+      +'<div style="padding:8px 10px;background:var(--surface2);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">'
+        +'<div style="font-weight:800;font-size:12px;">📇 Suppliers Nexi found · '+suppliers.length+' total · '+inRadiusCount+' inside radius</div>'
+        +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+          +'<button class="btn btn-outline" style="padding:3px 10px;font-size:10.5px;" onclick="_purchOutreachSelect(\'top3\')">✓ Top 3 in range</button>'
+          +'<button class="btn btn-outline" style="padding:3px 10px;font-size:10.5px;" onclick="_purchOutreachSelect(\'existing\')">✓ Existing in range</button>'
+          +'<button class="btn btn-outline" style="padding:3px 10px;font-size:10.5px;" onclick="_purchOutreachSelect(\'all-in-range\')">✓ All in range</button>'
           +'<button class="btn btn-outline" style="padding:3px 10px;font-size:10.5px;" onclick="_purchOutreachSelect(\'none\')">Clear</button>'
         +'</div>'
       +'</div>'
@@ -89331,12 +89638,36 @@ window._purchOutreachSelect=function(mode){
   const modal=document.getElementById('purchOutreachModal');if(!modal)return;
   const suppliers=modal._purchSuppliers||[];
   const boxes=modal.querySelectorAll('.purchOutreachPick');
+  let picked=0;
   boxes.forEach(function(b,i){
-    if(b.disabled)return;
+    if(b.disabled){b.checked=false;return;}
+    const inRange=b.dataset.inradius==='1';
     if(mode==='none'){b.checked=false;return;}
-    if(mode==='top3'){b.checked=i<3;return;}
-    if(mode==='existing'){b.checked=suppliers[i]&&(suppliers[i].hasProductHistory||suppliers[i].ordersCount>0);}
+    if(mode==='all-in-range'){b.checked=inRange;return;}
+    if(mode==='top3'){
+      const s=suppliers[i];
+      // Only pick in-range suppliers, until we've filled 3
+      if(inRange&&picked<3){b.checked=true;picked++;}else{b.checked=false;}
+      return;
+    }
+    if(mode==='existing'){b.checked=inRange&&suppliers[i]&&(suppliers[i].hasProductHistory||suppliers[i].ordersCount>0);}
   });
+};
+
+window._purchOutreachRecalcRadius=function(){
+  // Re-open modal with new estimated value / override to re-run the geo filter
+  const p={
+    product:(document.getElementById('poutProduct')||{}).value||'',
+    specs:(document.getElementById('poutSpecs')||{}).value||'',
+    qty:(document.getElementById('poutQty')||{}).value||'',
+    unit:(document.getElementById('poutUnit')||{}).value||'',
+    needBy:(document.getElementById('poutNeedBy')||{}).value||'',
+    company:(document.getElementById('poutCompany')||{}).value||'AteretPaz',
+    estimatedValue:(document.getElementById('poutEstValue')||{}).value||'',
+    overrideRadiusKm:(document.getElementById('poutRadiusOverride')||{}).value||''
+  };
+  document.getElementById('purchOutreachModal').remove();
+  _purchOpenOutreach(p);
 };
 
 window._purchOutreachAddWebSupplier=function(){
@@ -89540,7 +89871,7 @@ window._purchNexiRankSuppliers=function(product){
     window.registerNexiDomain({
       module:'purchasing',
       name:'Purchasing & Suppliers',
-      keywords:['supplier','vendor','purchas','quote','quotation','rfq','rfp','po ','purchase order','best price','cheapest','who supplies','offer','bid','tender'],
+      keywords:['supplier','vendor','purchas','quote','quotation','rfq','rfp','po ','purchase order','best price','cheapest','who supplies','offer','bid','tender','radius','nearby','near me','local supplier','distance','within','km','kilometer','area'],
       collections:[
         {key:ACCT_PURCH_COMP_KEY,noun:'supplier comparisons',nameField:'product'},
         {key:ACCT_PURCH_HIST_KEY,noun:'purchase records',nameField:'product'},
@@ -89548,6 +89879,21 @@ window._purchNexiRankSuppliers=function(product){
       ],
       answer:function(qLower){
         const q=qLower||'';
+        // Geo / radius questions — "suppliers near me", "within 50 km", "local supplier for X"
+        if(/(near me|nearby|local|within\s+\d|closest|distance|radius|km|kilometer)/i.test(q)){
+          const kmMatch=q.match(/within\s+(\d+)\s*(km|kilometer|kilometre)/);
+          const forMatch=q.match(/for\s+([a-z0-9 \-]{3,})/);
+          const product=(forMatch&&forMatch[1]||'').trim();
+          const gathered=_purchGatherAllSuppliers(product||null);
+          const geo=_purchApplyRadius(gathered,0,kmMatch?Number(kmMatch[1]):null);
+          const base=geo.base;
+          const withDist=geo.suppliers.filter(function(s){return s.distanceKm!=null;}).sort(function(a,b){return a.distanceKm-b.distanceKm;});
+          const inRange=geo.suppliers.filter(function(s){return s.inRadius&&s.distanceKm!=null;});
+          if(!withDist.length)return 'I don\'t have coordinates on any supplier yet. Open 🛒 Purchasing → 📍 Location & radius, then click the 📍 chip on any supplier to save its coords.';
+          const list=(inRange.length?inRange:withDist).slice(0,5).map(function(s){return '• '+s.name+' — '+_purchFmtKm(s.distanceKm)+(s.email?' · '+s.email:'')+(s.ordersCount?' · '+s.ordersCount+' past orders':'');}).join('\n');
+          const scope=geo.radius==null?'worldwide':'within '+geo.radius+' km';
+          return '📍 From '+(base.name||'the base')+' ('+scope+')'+(product?' for "'+product+'"':'')+':\n'+list+(inRange.length?'':' \n(none inside the radius — showing closest instead)');
+        }
         // "who supplies X" / "best price on X"
         const bestMatch=q.match(/(?:best price|cheapest|lowest).*?(?:on|for)?\s+([a-z0-9 \-]{3,})/);
         const whoMatch =q.match(/who\s+(?:supplies|sells|provides|has)\s+([a-z0-9 \-]{3,})/);
