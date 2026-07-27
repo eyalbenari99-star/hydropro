@@ -87895,7 +87895,7 @@ setInterval(_setupAccountingModule, 5000);
 
 // Register the new accounting views in the view-to-module map so banners work
 (function _addAcctViewsToMap(){
-  const adds={acct_dash:'accounting',acct_checklist:'accounting',acct_quickbooks:'accounting',acct_pnl:'accounting',acct_cashflow:'accounting',acct_balance:'accounting',acct_transactions:'accounting',acct_vendors:'accounting',acct_customers:'accounting',acct_invoices:'accounting',acct_tax:'accounting',payroll_ops:'accounting',payroll_office:'accounting',payroll_history:'accounting',payroll_rates:'accounting'};
+  const adds={acct_dash:'accounting',acct_checklist:'accounting',acct_quickbooks:'accounting',acct_pnl:'accounting',acct_cashflow:'accounting',acct_balance:'accounting',acct_transactions:'accounting',acct_vendors:'accounting',acct_customers:'accounting',acct_invoices:'accounting',acct_purchasing:'accounting',acct_tax:'accounting',payroll_ops:'accounting',payroll_office:'accounting',payroll_history:'accounting',payroll_rates:'accounting'};
   setTimeout(()=>{
     if(typeof VIEW_TO_MODULE==='undefined')return;
     Object.assign(VIEW_TO_MODULE,adds);
@@ -88412,6 +88412,506 @@ window._renderAcctInvoices=function(){
   _renderAcctEntityList('acct_invoices',ACCT_INVOICE_KEY,'📃 Invoices',
     [{key:'number',label:'Invoice #',required:true},{key:'party',label:'Customer / Vendor'},{key:'date',label:'Date'},{key:'dueDate',label:'Due'},{key:'amount',label:'Amount',type:'number'},{key:'status',label:'Status (paid/unpaid)'}],
     [{key:'number',label:'Invoice #'},{key:'party',label:'Party'},{key:'date',label:'Date'},{key:'dueDate',label:'Due'},{key:'amount',label:'Amount'},{key:'status',label:'Status'}]);
+};
+
+// =====================================================================
+// === PURCHASING: 3-way supplier comparison + purchase history      ===
+// =====================================================================
+// Storage keys:
+//   ACCT_PURCH_COMP_KEY  — saved comparison sheets (product × up to 3 suppliers)
+//   ACCT_PURCH_HIST_KEY  — flat purchase history log (product from supplier)
+const ACCT_PURCH_COMP_KEY='hydroPro_acct_purch_comparisons';
+const ACCT_PURCH_HIST_KEY='hydroPro_acct_purch_history';
+
+function _purchLoadComp(){try{return JSON.parse(localStorage.getItem(ACCT_PURCH_COMP_KEY)||'[]');}catch(e){return [];}}
+function _purchSaveComp(a){localStorage.setItem(ACCT_PURCH_COMP_KEY,JSON.stringify(a));}
+function _purchLoadHist(){try{return JSON.parse(localStorage.getItem(ACCT_PURCH_HIST_KEY)||'[]');}catch(e){return [];}}
+function _purchSaveHist(a){localStorage.setItem(ACCT_PURCH_HIST_KEY,JSON.stringify(a));}
+
+// Escape helper (avoid HTML injection in supplier / product names)
+function _purchEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function _purchFmtDate(d){if(!d)return '—';const dt=new Date(d);if(isNaN(dt))return _purchEsc(d);return dt.toISOString().slice(0,10);}
+function _purchFmtMoney(v){const n=Number(v||0);if(!n)return '—';return '₱'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+
+// Given a product and supplier, return history stats
+function _purchLookupHistory(product,supplier){
+  const hist=_purchLoadHist();
+  const p=(product||'').trim().toLowerCase();
+  const s=(supplier||'').trim().toLowerCase();
+  if(!p||!s)return {isNew:true,times:0,totalQty:0,totalCost:0,lastDate:null,rows:[]};
+  const rows=hist.filter(h=>((h.product||'').trim().toLowerCase()===p)&&((h.supplier||'').trim().toLowerCase()===s));
+  const totalQty=rows.reduce((a,r)=>a+Number(r.qty||0),0);
+  const totalCost=rows.reduce((a,r)=>a+Number(r.qty||0)*Number(r.unitCost||0),0);
+  const lastDate=rows.length?rows.map(r=>r.date||'').filter(Boolean).sort().slice(-1)[0]||null:null;
+  return {isNew:rows.length===0,times:rows.length,totalQty,totalCost,lastDate,rows};
+}
+// Is a supplier known to us at all (from history OR vendors master)?
+function _purchSupplierExists(supplier){
+  const s=(supplier||'').trim().toLowerCase();if(!s)return false;
+  const hist=_purchLoadHist();
+  if(hist.some(h=>(h.supplier||'').trim().toLowerCase()===s))return true;
+  try{
+    const vendors=JSON.parse(localStorage.getItem(ACCT_VENDOR_KEY)||'[]');
+    if(Array.isArray(vendors)&&vendors.some(v=>(v.name||'').trim().toLowerCase()===s))return true;
+  }catch(e){}
+  return false;
+}
+// Distinct known suppliers (for dropdowns)
+function _purchKnownSuppliers(){
+  const set=new Set();
+  _purchLoadHist().forEach(h=>{if(h.supplier)set.add(h.supplier.trim());});
+  try{
+    const vendors=JSON.parse(localStorage.getItem(ACCT_VENDOR_KEY)||'[]');
+    (vendors||[]).forEach(v=>{if(v.name)set.add(v.name.trim());});
+  }catch(e){}
+  return Array.from(set).sort((a,b)=>a.localeCompare(b));
+}
+function _purchKnownProducts(){
+  const set=new Set();
+  _purchLoadHist().forEach(h=>{if(h.product)set.add(h.product.trim());});
+  _purchLoadComp().forEach(c=>{if(c.product)set.add(c.product.trim());});
+  return Array.from(set).sort((a,b)=>a.localeCompare(b));
+}
+
+// UI state (which comparison is expanded, filter text)
+let _purchState={expanded:null,filter:'',tab:'compare'};
+
+window._renderAcctPurchasing=function(){
+  let view=document.getElementById('view-acct_purchasing');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-acct_purchasing';(document.getElementById('appMain')||document.body).appendChild(view);}
+  const comps=_purchLoadComp();
+  const hist=_purchLoadHist();
+  const suppliers=_purchKnownSuppliers();
+  const products=_purchKnownProducts();
+
+  // Header stats
+  const totalSpend=hist.reduce((a,h)=>a+Number(h.qty||0)*Number(h.unitCost||0),0);
+  const distinctSuppliersUsed=new Set(hist.map(h=>(h.supplier||'').trim().toLowerCase()).filter(Boolean)).size;
+  const distinctProducts=new Set(hist.map(h=>(h.product||'').trim().toLowerCase()).filter(Boolean)).size;
+  const activeComps=comps.filter(c=>c.status!=='closed').length;
+
+  const dl=(list,id)=>`<datalist id="${id}">${list.map(x=>`<option value="${_purchEsc(x)}"></option>`).join('')}</datalist>`;
+
+  const tabBtn=(k,l)=>`<button class="btn ${_purchState.tab===k?'btn-primary':'btn-outline'}" style="padding:6px 14px;font-size:12px;" onclick="_purchSwitchTab('${k}')">${l}</button>`;
+
+  let body='';
+  if(_purchState.tab==='compare'){
+    body=_purchRenderCompareTab(comps,suppliers,products);
+  }else if(_purchState.tab==='history'){
+    body=_purchRenderHistoryTab(hist,suppliers,products);
+  }else if(_purchState.tab==='suppliers'){
+    body=_purchRenderSuppliersTab(hist,suppliers);
+  }
+
+  view.innerHTML=`<div class="section-title">🛒 Purchasing — Supplier Comparison & History</div>
+    <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.55;">
+      <strong>🛒 3-supplier comparison workflow:</strong> Log each product you're buying, add up to 3 quotes (unit, specs, quantity, cost, delivery time, other fields as needed), and pick a winner.
+      The system flags whether each supplier is <em>NEW</em> or <em>EXISTING</em>, and — if existing — shows how many times you bought this exact product from them, total quantity, total cost, and the <em>last purchase date</em>.
+    </div>
+    <div class="fleet-stat-row">
+      <div class="fleet-stat-card"><div class="fleet-stat-label">🗂 Comparisons</div><div class="fleet-stat-val">${comps.length}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">⏳ Open</div><div class="fleet-stat-val ${activeComps>0?'warn':''}">${activeComps}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">📦 Products tracked</div><div class="fleet-stat-val">${distinctProducts}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">🏭 Suppliers used</div><div class="fleet-stat-val">${distinctSuppliersUsed}</div></div>
+      <div class="fleet-stat-card"><div class="fleet-stat-label">💸 Total logged spend</div><div class="fleet-stat-val">${_purchFmtMoney(totalSpend)}</div></div>
+    </div>
+    <div style="display:flex;gap:6px;margin:14px 0 12px;flex-wrap:wrap;">
+      ${tabBtn('compare','📊 Comparisons')}
+      ${tabBtn('history','📜 Purchase History')}
+      ${tabBtn('suppliers','🏭 Suppliers Ledger')}
+      <div style="flex:1;"></div>
+      <button class="btn btn-outline" style="padding:6px 12px;font-size:11px;" onclick="_purchExportCsv()">⬇ Export CSV</button>
+    </div>
+    ${dl(suppliers,'purchSupplierList')}
+    ${dl(products,'purchProductList')}
+    ${body}`;
+};
+
+// ---------- COMPARISONS TAB ----------
+function _purchRenderCompareTab(comps,suppliers,products){
+  const supplierBlock=(n)=>{
+    // Empty draft form for a new comparison — 3 supplier slots
+    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;">
+      <div style="font-weight:800;font-size:12px;color:var(--accent2);margin-bottom:8px;">Supplier ${n}</div>
+      <div style="display:grid;grid-template-columns:1fr;gap:6px;">
+        <input class="input" id="pcS${n}_name" list="purchSupplierList" placeholder="Supplier name">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <input class="input" id="pcS${n}_unit" placeholder="Unit (pc/kg/box…)">
+          <input class="input" id="pcS${n}_qty" type="number" step="0.01" placeholder="Qty">
+        </div>
+        <input class="input" id="pcS${n}_specs" placeholder="Specs / grade / size">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <input class="input" id="pcS${n}_unitCost" type="number" step="0.01" placeholder="Unit cost">
+          <input class="input" id="pcS${n}_deliveryDays" type="number" step="1" placeholder="Delivery (days)">
+        </div>
+        <input class="input" id="pcS${n}_payTerms" placeholder="Payment terms (e.g. Net 30, COD)">
+        <input class="input" id="pcS${n}_warranty" placeholder="Warranty / return policy">
+        <input class="input" id="pcS${n}_notes" placeholder="Other notes (brand, origin, freebies…)">
+      </div>
+    </div>`;
+  };
+
+  const form=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;">
+    <div style="font-weight:800;margin-bottom:10px;font-size:13px;">➕ New comparison</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:12px;">
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Product *</div><input id="pcProduct" class="input" list="purchProductList" placeholder="e.g. Rockwool cube 100×100"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Category</div><input id="pcCategory" class="input" placeholder="e.g. Growing media"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Required by</div><input id="pcNeedBy" type="date" class="input"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Requested by</div><input id="pcRequester" class="input" placeholder="Your initials"></div>
+      <div><button class="btn btn-primary" style="padding:9px 16px;" onclick="_purchAddComparison()">💾 Save comparison</button></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">${[1,2,3].map(supplierBlock).join('')}</div>
+  </div>`;
+
+  if(!comps.length){
+    return form+`<div style="text-align:center;padding:40px 20px;color:var(--text3);background:var(--surface);border:1px dashed var(--border);border-radius:10px;">
+      <div style="font-size:32px;margin-bottom:8px;">📊</div>
+      <div style="font-size:14px;font-weight:700;color:var(--text2);margin-bottom:4px;">No comparisons yet</div>
+      <div style="font-size:12px;">Add a product above and fill in quotes from up to 3 suppliers to start comparing.</div>
+    </div>`;
+  }
+
+  // Sort newest first
+  const sorted=comps.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const cards=sorted.map(_purchRenderCompCard).join('');
+  return form+cards;
+}
+
+function _purchRenderCompCard(c){
+  const suppliers=(c.suppliers||[]).slice(0,3);
+  const expanded=_purchState.expanded===c.id;
+  // Compute winner (lowest total cost = qty * unitCost) among filled quotes with cost > 0
+  const withTotals=suppliers.map((s,i)=>{
+    const qty=Number(s.qty||0),uc=Number(s.unitCost||0);
+    const total=qty*uc;
+    return {i,s,qty,uc,total,hist:_purchLookupHistory(c.product,s.name)};
+  });
+  const priceable=withTotals.filter(x=>x.total>0);
+  let winnerIdx=-1;
+  if(priceable.length){
+    winnerIdx=priceable.reduce((min,x)=>x.total<min.total?x:min,priceable[0]).i;
+  }
+  const chosenIdx=(typeof c.chosenSupplier==='number')?c.chosenSupplier:winnerIdx;
+
+  const statusColor=c.status==='closed'?'var(--ok)':c.status==='awarded'?'var(--accent2)':'var(--warn)';
+  const statusLbl=c.status||'open';
+
+  const headerRow=`<div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;cursor:pointer;" onclick="_purchToggle('${c.id}')">
+    <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:220px;">
+      <span style="font-size:14px;color:var(--text3);">${expanded?'▼':'▶'}</span>
+      <span style="font-size:22px;">🛒</span>
+      <div>
+        <div style="font-size:14px;font-weight:800;">${_purchEsc(c.product)}</div>
+        <div style="font-size:11px;color:var(--text3);font-family:var(--mono);">${_purchEsc(c.category||'')}${c.needBy?' · need by '+_purchFmtDate(c.needBy):''}${c.requester?' · '+_purchEsc(c.requester):''}</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;font-family:var(--mono);font-size:11px;">
+      ${suppliers.filter(s=>s&&(s.name||'').trim()).length} / 3 quotes
+      ${priceable.length?`· best ${_purchFmtMoney(priceable.reduce((min,x)=>x.total<min.total?x:min,priceable[0]).total)}`:''}
+    </div>
+    <div style="min-width:110px;text-align:right;">
+      <span style="background:${statusColor};color:#fff;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;">${_purchEsc(statusLbl)}</span>
+    </div>
+  </div>`;
+
+  if(!expanded){
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid ${statusColor};border-radius:10px;padding:12px 14px;margin-bottom:10px;">${headerRow}</div>`;
+  }
+
+  // Build the comparison table (rows are the criteria, cols are the 3 suppliers)
+  const cols=withTotals;
+  const cell=(v)=>`<td style="padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px;">${v}</td>`;
+  const colHeader=cols.map((x,i)=>{
+    const isWinner=i===winnerIdx&&priceable.length>1;
+    const isChosen=i===chosenIdx;
+    const name=(x.s.name||'').trim()||`Supplier ${i+1}`;
+    const known=_purchSupplierExists(x.s.name);
+    const newBadge=x.s.name?(known?'<span style="background:var(--ok);color:#fff;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:800;">EXISTING</span>':'<span style="background:var(--info);color:#fff;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:800;">NEW</span>'):'';
+    return `<th style="padding:8px 10px;background:${isChosen?'rgba(76,175,80,.12)':'var(--surface3)'};border-bottom:2px solid ${isChosen?'var(--ok)':'var(--border)'};text-align:left;min-width:180px;">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <strong style="font-size:12px;">${_purchEsc(name)}</strong>
+        ${isWinner?'<span style="background:var(--warn);color:#000;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:800;">💰 CHEAPEST</span>':''}
+        ${newBadge}
+      </div>
+    </th>`;
+  }).join('');
+
+  const rowsCriteria=[
+    ['Unit',c=>_purchEsc(c.s.unit||'—')],
+    ['Quantity',c=>c.qty?c.qty.toLocaleString():'—'],
+    ['Specs / grade',c=>_purchEsc(c.s.specs||'—')],
+    ['Unit cost',c=>c.uc?_purchFmtMoney(c.uc):'—'],
+    ['Total cost',c=>c.total?`<strong>${_purchFmtMoney(c.total)}</strong>`:'—'],
+    ['Delivery (days)',c=>c.s.deliveryDays?`${c.s.deliveryDays} d`:'—'],
+    ['Payment terms',c=>_purchEsc(c.s.payTerms||'—')],
+    ['Warranty / return',c=>_purchEsc(c.s.warranty||'—')],
+    ['Other notes',c=>_purchEsc(c.s.notes||'—')]
+  ];
+  const rowsHtml=rowsCriteria.map(([label,fn])=>`<tr><td style="padding:7px 10px;font-size:11px;font-weight:700;color:var(--text3);background:var(--surface2);border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.5px;">${label}</td>${cols.map(x=>cell(fn(x))).join('')}</tr>`).join('');
+
+  // History rows (last purchases of THIS product from each supplier)
+  const histRow=`<tr><td style="padding:7px 10px;font-size:11px;font-weight:700;color:var(--text3);background:var(--surface2);border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.5px;">Purchase history</td>${cols.map(x=>{
+    const h=x.hist;
+    if(!x.s.name)return cell('<span style="color:var(--text3);">—</span>');
+    if(h.isNew){
+      return cell(`<div style="font-size:11px;"><span style="color:var(--info);font-weight:700;">🆕 First time buying this product from this supplier.</span></div>`);
+    }
+    const rows=h.rows.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const list=rows.slice(0,6).map(r=>`<div style="font-family:var(--mono);font-size:10.5px;color:var(--text2);">${_purchFmtDate(r.date)} · ${Number(r.qty||0)} ${_purchEsc(r.unit||'')} @ ${_purchFmtMoney(r.unitCost)} = <strong>${_purchFmtMoney(Number(r.qty||0)*Number(r.unitCost||0))}</strong></div>`).join('');
+    const more=rows.length>6?`<div style="font-size:10px;color:var(--text3);margin-top:2px;">+ ${rows.length-6} earlier…</div>`:'';
+    return cell(`<div style="font-size:11px;">
+      <div style="margin-bottom:4px;"><strong>${h.times}×</strong> before · total ${h.totalQty} units · <strong>${_purchFmtMoney(h.totalCost)}</strong></div>
+      <div style="margin-bottom:4px;">Last: <strong>${_purchFmtDate(h.lastDate)}</strong></div>
+      ${list}${more}
+    </div>`);
+  }).join('')}</tr>`;
+
+  // Actions row (choose winner, delete)
+  const actionsRow=`<tr><td style="padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);"></td>${cols.map((x,i)=>`<td style="padding:8px 10px;border-bottom:1px solid var(--border);">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <button class="btn ${chosenIdx===i?'btn-primary':'btn-outline'}" style="padding:4px 10px;font-size:10.5px;" onclick="_purchAward('${c.id}',${i})">${chosenIdx===i?'✓ Chosen':'🏅 Award'}</button>
+      ${x.s.name?`<button class="btn btn-outline" style="padding:4px 10px;font-size:10.5px;" onclick="_purchLogPurchaseFromComparison('${c.id}',${i})">➕ Log purchase</button>`:''}
+    </div>
+  </td>`).join('')}</tr>`;
+
+  const table=`<div style="overflow-x:auto;margin-top:10px;background:var(--surface2);border-radius:6px;">
+    <table style="width:100%;border-collapse:collapse;min-width:640px;">
+      <thead><tr><th style="padding:8px 10px;background:var(--surface3);border-bottom:2px solid var(--border);text-align:left;width:150px;">Criterion</th>${colHeader}</tr></thead>
+      <tbody>${rowsHtml}${histRow}${actionsRow}</tbody>
+    </table>
+  </div>
+  <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
+    <button class="btn btn-outline" style="padding:5px 12px;font-size:11px;" onclick="_purchSetStatus('${c.id}','open')">↩ Reopen</button>
+    <button class="btn btn-outline" style="padding:5px 12px;font-size:11px;" onclick="_purchSetStatus('${c.id}','closed')">🔒 Close</button>
+    <div style="flex:1;"></div>
+    <button class="btn btn-outline" style="padding:5px 12px;font-size:11px;color:var(--danger);" onclick="_purchDeleteComparison('${c.id}')">🗑 Delete</button>
+  </div>`;
+
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid ${statusColor};border-radius:10px;padding:12px 14px;margin-bottom:12px;">
+    ${headerRow}
+    ${table}
+  </div>`;
+}
+
+// ---------- HISTORY TAB ----------
+function _purchRenderHistoryTab(hist,suppliers,products){
+  const form=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+    <div style="font-weight:800;margin-bottom:10px;font-size:13px;">➕ Log a purchase</div>
+    <div style="display:grid;grid-template-columns:1.4fr 1.4fr .8fr .6fr .8fr .8fr 1fr .7fr auto;gap:8px;align-items:end;">
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Product *</div><input id="phProduct" class="input" list="purchProductList" placeholder="Product"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Supplier *</div><input id="phSupplier" class="input" list="purchSupplierList" placeholder="Supplier"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Date</div><input id="phDate" type="date" class="input" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Unit</div><input id="phUnit" class="input" placeholder="pc"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Qty</div><input id="phQty" type="number" step="0.01" class="input"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Unit cost</div><input id="phUnitCost" type="number" step="0.01" class="input"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">PO / ref #</div><input id="phRef" class="input" placeholder="PO-…"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Notes</div><input id="phNotes" class="input" placeholder="…"></div>
+      <div><button class="btn btn-primary" onclick="_purchAddHistory()">➕ Log</button></div>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
+    <input class="input" id="phFilter" style="max-width:280px;" placeholder="🔍 filter by product / supplier / PO" value="${_purchEsc(_purchState.filter)}" oninput="_purchState.filter=this.value;_renderAcctPurchasing();this.focus();">
+    <div style="font-size:11px;color:var(--text3);">${hist.length} total records</div>
+  </div>`;
+
+  if(!hist.length){
+    return form+`<div style="text-align:center;padding:40px 20px;color:var(--text3);background:var(--surface);border:1px dashed var(--border);border-radius:10px;">
+      <div style="font-size:32px;margin-bottom:8px;">📜</div>
+      <div style="font-size:14px;font-weight:700;color:var(--text2);margin-bottom:4px;">No purchases logged yet</div>
+      <div style="font-size:12px;">Log a purchase above, or use ➕ Log purchase from any comparison card.</div>
+    </div>`;
+  }
+
+  const q=_purchState.filter.trim().toLowerCase();
+  const filtered=hist.filter(h=>!q||[h.product,h.supplier,h.ref,h.notes].some(v=>(v||'').toLowerCase().includes(q))).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const rows=filtered.map(h=>{
+    const total=Number(h.qty||0)*Number(h.unitCost||0);
+    return `<tr>
+      <td style="font-family:var(--mono);font-size:11px;">${_purchFmtDate(h.date)}</td>
+      <td><strong>${_purchEsc(h.product)}</strong></td>
+      <td>${_purchEsc(h.supplier)}</td>
+      <td style="font-size:11px;">${_purchEsc(h.unit||'')}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;">${Number(h.qty||0).toLocaleString()}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;">${_purchFmtMoney(h.unitCost)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;"><strong>${_purchFmtMoney(total)}</strong></td>
+      <td style="font-size:11px;font-family:var(--mono);">${_purchEsc(h.ref||'')}</td>
+      <td style="font-size:11px;color:var(--text3);">${_purchEsc((h.notes||'').slice(0,60))}</td>
+      <td style="text-align:right;"><button class="btn btn-outline" style="padding:3px 8px;font-size:10px;color:var(--danger);" onclick="_purchDeleteHistory('${h.id}')">🗑</button></td>
+    </tr>`;
+  }).join('');
+  return form+`<table class="fleet-table" style="width:100%;font-size:12px;">
+    <thead><tr><th>Date</th><th>Product</th><th>Supplier</th><th>Unit</th><th style="text-align:right;">Qty</th><th style="text-align:right;">Unit cost</th><th style="text-align:right;">Total</th><th>PO / ref</th><th>Notes</th><th></th></tr></thead>
+    <tbody>${rows||'<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px;">No matches</td></tr>'}</tbody>
+  </table>`;
+}
+
+// ---------- SUPPLIERS LEDGER TAB ----------
+function _purchRenderSuppliersTab(hist,suppliers){
+  // Group history by supplier
+  const bySup={};
+  hist.forEach(h=>{
+    const k=(h.supplier||'').trim();if(!k)return;
+    if(!bySup[k])bySup[k]={supplier:k,orders:0,products:new Set(),totalQty:0,totalCost:0,lastDate:null,rows:[]};
+    const b=bySup[k];
+    b.orders++;
+    if(h.product)b.products.add(h.product.trim());
+    b.totalQty+=Number(h.qty||0);
+    b.totalCost+=Number(h.qty||0)*Number(h.unitCost||0);
+    if(h.date&&(!b.lastDate||h.date>b.lastDate))b.lastDate=h.date;
+    b.rows.push(h);
+  });
+  // Include suppliers from vendor master that have no history yet
+  suppliers.forEach(s=>{if(!bySup[s])bySup[s]={supplier:s,orders:0,products:new Set(),totalQty:0,totalCost:0,lastDate:null,rows:[]};});
+
+  const list=Object.values(bySup).sort((a,b)=>b.totalCost-a.totalCost);
+  if(!list.length){
+    return `<div style="text-align:center;padding:40px 20px;color:var(--text3);background:var(--surface);border:1px dashed var(--border);border-radius:10px;">
+      <div style="font-size:32px;margin-bottom:8px;">🏭</div>
+      <div style="font-size:14px;font-weight:700;color:var(--text2);margin-bottom:4px;">No suppliers yet</div>
+      <div style="font-size:12px;">Add vendors in <a href="javascript:switchView('acct_vendors')" style="color:var(--accent);">📦 Vendors</a> or log a purchase to populate this ledger.</div>
+    </div>`;
+  }
+  const today=new Date().toISOString().slice(0,10);
+  const rows=list.map(b=>{
+    const status=b.orders===0?'🆕 NEW':(b.lastDate&&b.lastDate>=today.slice(0,4)+'-01-01')?'✅ ACTIVE':'⏸ DORMANT';
+    const statusColor=b.orders===0?'var(--info)':status.includes('ACTIVE')?'var(--ok)':'var(--warn)';
+    const products=Array.from(b.products);
+    const topProducts=products.slice(0,4).map(p=>`<span style="background:var(--surface3);border-radius:10px;padding:2px 8px;font-size:10px;margin-right:4px;">${_purchEsc(p)}</span>`).join('');
+    return `<tr>
+      <td><strong>${_purchEsc(b.supplier)}</strong></td>
+      <td><span style="background:${statusColor};color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800;">${status}</span></td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;">${b.orders}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;">${b.products.size}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;">${b.totalQty.toLocaleString()}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;"><strong>${_purchFmtMoney(b.totalCost)}</strong></td>
+      <td style="font-family:var(--mono);font-size:11px;">${_purchFmtDate(b.lastDate)}</td>
+      <td>${topProducts}${products.length>4?`<span style="font-size:10px;color:var(--text3);">+${products.length-4}</span>`:''}</td>
+    </tr>`;
+  }).join('');
+  return `<table class="fleet-table" style="width:100%;font-size:12px;">
+    <thead><tr><th>Supplier</th><th>Status</th><th style="text-align:right;">Orders</th><th style="text-align:right;">Products</th><th style="text-align:right;">Total qty</th><th style="text-align:right;">Total spend</th><th>Last purchase</th><th>Recent products</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+// ---------- ACTIONS ----------
+window._purchSwitchTab=function(t){_purchState.tab=t;_renderAcctPurchasing();};
+window._purchToggle=function(id){_purchState.expanded=_purchState.expanded===id?null:id;_renderAcctPurchasing();};
+
+window._purchAddComparison=function(){
+  const product=(document.getElementById('pcProduct').value||'').trim();
+  if(!product){alert('Product is required.');return;}
+  const suppliers=[1,2,3].map(n=>({
+    name:(document.getElementById('pcS'+n+'_name').value||'').trim(),
+    unit:(document.getElementById('pcS'+n+'_unit').value||'').trim(),
+    qty:Number(document.getElementById('pcS'+n+'_qty').value||0),
+    specs:(document.getElementById('pcS'+n+'_specs').value||'').trim(),
+    unitCost:Number(document.getElementById('pcS'+n+'_unitCost').value||0),
+    deliveryDays:Number(document.getElementById('pcS'+n+'_deliveryDays').value||0),
+    payTerms:(document.getElementById('pcS'+n+'_payTerms').value||'').trim(),
+    warranty:(document.getElementById('pcS'+n+'_warranty').value||'').trim(),
+    notes:(document.getElementById('pcS'+n+'_notes').value||'').trim()
+  }));
+  const filled=suppliers.filter(s=>s.name).length;
+  if(!filled){alert('Please fill in at least one supplier.');return;}
+  const comp={
+    id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),
+    product,
+    category:(document.getElementById('pcCategory').value||'').trim(),
+    needBy:document.getElementById('pcNeedBy').value||'',
+    requester:(document.getElementById('pcRequester').value||'').trim(),
+    suppliers,
+    status:'open',
+    chosenSupplier:null,
+    createdAt:Date.now()
+  };
+  const arr=_purchLoadComp();arr.push(comp);_purchSaveComp(arr);
+  _purchState.expanded=comp.id;
+  if(typeof showToast==='function')showToast('Comparison saved · '+filled+' quote(s)','ok');
+  _renderAcctPurchasing();
+};
+
+window._purchAward=function(id,idx){
+  const arr=_purchLoadComp();const c=arr.find(x=>x.id===id);if(!c)return;
+  c.chosenSupplier=idx;c.status='awarded';c.awardedAt=Date.now();
+  _purchSaveComp(arr);
+  const sName=(c.suppliers[idx]||{}).name||'';
+  if(typeof showToast==='function')showToast('Awarded to '+(sName||('Supplier '+(idx+1))),'ok');
+  _renderAcctPurchasing();
+};
+
+window._purchSetStatus=function(id,st){
+  const arr=_purchLoadComp();const c=arr.find(x=>x.id===id);if(!c)return;
+  c.status=st;_purchSaveComp(arr);_renderAcctPurchasing();
+};
+
+window._purchDeleteComparison=function(id){
+  if(!confirm('Delete this comparison? Purchase history entries are kept.'))return;
+  _purchSaveComp(_purchLoadComp().filter(x=>x.id!==id));
+  if(_purchState.expanded===id)_purchState.expanded=null;
+  _renderAcctPurchasing();
+};
+
+window._purchLogPurchaseFromComparison=function(id,idx){
+  const arr=_purchLoadComp();const c=arr.find(x=>x.id===id);if(!c)return;
+  const s=c.suppliers[idx];if(!s||!s.name){alert('Supplier is missing.');return;}
+  const hist=_purchLoadHist();
+  hist.push({
+    id:'ph_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),
+    date:new Date().toISOString().slice(0,10),
+    product:c.product,
+    supplier:s.name,
+    unit:s.unit||'',
+    qty:Number(s.qty||0),
+    unitCost:Number(s.unitCost||0),
+    ref:'',
+    notes:'From comparison '+c.id,
+    createdAt:Date.now()
+  });
+  _purchSaveHist(hist);
+  // Also auto-award this supplier if not chosen yet
+  if(c.chosenSupplier==null){c.chosenSupplier=idx;c.status='awarded';c.awardedAt=Date.now();_purchSaveComp(arr);}
+  if(typeof showToast==='function')showToast('Purchase logged from '+s.name,'ok');
+  _renderAcctPurchasing();
+};
+
+window._purchAddHistory=function(){
+  const product=(document.getElementById('phProduct').value||'').trim();
+  const supplier=(document.getElementById('phSupplier').value||'').trim();
+  if(!product||!supplier){alert('Product and Supplier are required.');return;}
+  const hist=_purchLoadHist();
+  hist.push({
+    id:'ph_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),
+    date:document.getElementById('phDate').value||new Date().toISOString().slice(0,10),
+    product,supplier,
+    unit:(document.getElementById('phUnit').value||'').trim(),
+    qty:Number(document.getElementById('phQty').value||0),
+    unitCost:Number(document.getElementById('phUnitCost').value||0),
+    ref:(document.getElementById('phRef').value||'').trim(),
+    notes:(document.getElementById('phNotes').value||'').trim(),
+    createdAt:Date.now()
+  });
+  _purchSaveHist(hist);
+  if(typeof showToast==='function')showToast('Purchase logged','ok');
+  _renderAcctPurchasing();
+};
+
+window._purchDeleteHistory=function(id){
+  if(!confirm('Delete this purchase record?'))return;
+  _purchSaveHist(_purchLoadHist().filter(x=>x.id!==id));
+  _renderAcctPurchasing();
+};
+
+window._purchExportCsv=function(){
+  const hist=_purchLoadHist();
+  const out=[['Date','Product','Supplier','Unit','Qty','UnitCost','Total','PO/Ref','Notes']];
+  hist.forEach(h=>{
+    out.push([h.date||'',h.product||'',h.supplier||'',h.unit||'',h.qty||0,h.unitCost||0,(Number(h.qty||0)*Number(h.unitCost||0)),h.ref||'',h.notes||'']);
+  });
+  const csv=out.map(r=>r.map(c=>{const s=String(c==null?'':c);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='purchasing-history-'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(a.href);
+  if(typeof showToast==='function')showToast('Exported','ok');
 };
 
 // === Tax & Compliance ===
@@ -96459,6 +96959,7 @@ window._acctChecklistExport=function(){
       if(v==='acct_vendors')setTimeout(_renderAcctVendors,80);
       if(v==='acct_customers')setTimeout(_renderAcctCustomers,80);
       if(v==='acct_invoices')setTimeout(_renderAcctInvoices,80);
+      if(v==='acct_purchasing')setTimeout(_renderAcctPurchasing,80);
       if(v==='acct_tax')setTimeout(_renderAcctTax,80);
       return r;
     };
@@ -163509,6 +164010,7 @@ gh+=_mtxTreeBody(rows);
   var ACCT_TABS=[
     {key:'ap',           label:'📤 Accounts Payable',           desc:'AP aging buckets, vendor balances, payment scheduling, dispute tracking.'},
     {key:'po',           label:'📋 Purchase Orders',            desc:'Open POs, receipt matching, 3-way match status, PO-to-AP reconciliation.'},
+    {key:'purchasing',   label:'🛒 Purchasing (3-supplier)',    desc:'Compare up to 3 supplier quotes per product (unit / specs / qty / cost / delivery / more) and see purchase history: NEW vs EXISTING supplier, times bought, quantities, spend, and last purchase date.'},
     {key:'ar',           label:'📥 Accounts Receivable',        desc:'AR aging, customer balances, credit limits, expected collection dates.'},
     {key:'collections',  label:'📞 Collections',                desc:'Overdue customer list, collection emails draft (AI), escalation queue.'},
     {key:'assets',       label:'🏭 Fixed Assets',               desc:'PPE register, depreciation schedule, impairment review, disposals.'},
@@ -163740,6 +164242,33 @@ gh+=_mtxTreeBody(rows);
     h+=panelClose();
     return h;
   }
+  function acctRenderPurchasing(co){
+    // Snapshot from the local Purchasing workspace (comparisons + history)
+    var comps=[],hist=[];
+    try{comps=JSON.parse(localStorage.getItem('hydroPro_acct_purch_comparisons')||'[]');}catch(e){}
+    try{hist=JSON.parse(localStorage.getItem('hydroPro_acct_purch_history')||'[]');}catch(e){}
+    var open=comps.filter(function(c){return c.status!=='closed';}).length;
+    var awarded=comps.filter(function(c){return c.status==='awarded';}).length;
+    var spend=hist.reduce(function(a,h){return a+(Number(h.qty)||0)*(Number(h.unitCost)||0);},0);
+    var supSet={};hist.forEach(function(h){if(h.supplier)supSet[(h.supplier||'').trim().toLowerCase()]=1;});
+    var prodSet={};hist.forEach(function(h){if(h.product)prodSet[(h.product||'').trim().toLowerCase()]=1;});
+    var h='';
+    h+=panelOpen('🛒','Purchasing — 3-supplier comparison','Compare quotes · track new/existing suppliers · last purchase date');
+    h+='<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:12px;">';
+    [['Comparisons',comps.length],['Open',open],['Awarded',awarded],['Suppliers used',Object.keys(supSet).length],['Total spend',fmtP(spend)]].forEach(function(kv){
+      h+='<div style="padding:12px;border:1px solid #244;background:linear-gradient(135deg,rgba(46,204,155,.07),rgba(66,165,245,.04));border-radius:8px;"><div style="font-size:18px;font-weight:800;font-family:monospace;color:#e8f5e9;">'+esc(kv[1])+'</div><div style="font-size:10.5px;color:#9fc7bb;margin-top:2px;">'+esc(kv[0])+'</div></div>';
+    });
+    h+='</div>';
+    h+='<div style="font-size:12px;color:#cdebcf;line-height:1.6;margin-bottom:10px;">'
+      +'<strong style="color:#9ff5f1;">Full workspace</strong> lets you: log products to compare, add up to 3 supplier quotes side-by-side '
+      +'(unit / specs / qty / cost / delivery / payment terms / warranty / other notes), auto-flag the cheapest, mark each supplier as '
+      +'<b style="color:#5fe07a;">EXISTING</b> or <b style="color:#84fff9;">NEW</b>, and — when existing — show how many times you bought that exact product from them, '
+      +'total quantities and cost, plus the <b>last purchase date</b>.'
+      +'</div>';
+    h+='<div><button onclick="if(typeof switchView===\'function\'){switchView(\'acct_purchasing\');} if(window.__hnxACC&&window.__hnxACC.close)window.__hnxACC.close();" style="background:linear-gradient(135deg,#1d7a5f,#0c5b46);border:none;color:#fff;border-radius:9px;padding:10px 18px;font-weight:800;cursor:pointer;font-size:13px;">🛒 Open Purchasing workspace</button></div>';
+    h+=panelClose();
+    return h;
+  }
   function acctRenderAr(co){
     var aging=loadAging(co,'ar');
     if(aging && aging.parsed && aging.parsed.rows.length){
@@ -163936,6 +164465,7 @@ gh+=_mtxTreeBody(rows);
         switch(tabKey){
           case 'ap': return acctRenderAp(co);
           case 'po': return acctRenderPo(co);
+          case 'purchasing': return acctRenderPurchasing(co);
           case 'ar': return acctRenderAr(co);
           case 'collections': return acctRenderCollections(co);
           case 'assets': return acctRenderAssets(co);
