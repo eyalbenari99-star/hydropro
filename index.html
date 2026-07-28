@@ -21501,6 +21501,14 @@ function switchView(v,skipModuleCheck){
       const btn=document.getElementById('modBtn-'+targetModule);
       if(btn)btn.classList.add('active');
       renderModuleHeader(targetModule);
+      // Full cross-module sync. Several layers (HN Brain, topbar module picker, overview
+      // rollup, brain tabs) sync ONLY inside switchModule wrappers — this branch changes
+      // module without switchModule, so without these calls they all go stale and keep
+      // showing the previous module's content on top of the new view.
+      try{window.HN_currentModule=targetModule;}catch(e){}
+      try{if(typeof hnxSyncModulePicker==='function')hnxSyncModulePicker(targetModule);}catch(e){}
+      try{if(targetModule!=='overview')document.querySelectorAll('.hn-overview-rollup').forEach(x=>x.remove());}catch(e){}
+      try{if(typeof injectAllBrainTabs==='function'){setTimeout(injectAllBrainTabs,80);setTimeout(injectAllBrainTabs,400);}}catch(e){}
     }
   }
 
@@ -88831,6 +88839,22 @@ function _purchEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c)
 function _purchFmtDate(d){if(!d)return '—';const dt=new Date(d);if(isNaN(dt))return _purchEsc(d);return dt.toISOString().slice(0,10);}
 function _purchFmtMoney(v){const n=Number(v||0);if(!n)return '—';return '₱'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
 
+// Shared unit list for every purchasing form (PR items, quick-tools history, comparisons).
+// _purchUnitOptions returns <option> HTML; a pre-existing custom value is kept selectable.
+var _PURCH_UNITS=['pc','set','pair','dozen','box','pack','bag','sack','carton','tray','bundle','roll','sheet','pallet','crate','drum','bottle','can','tube','spool','coil','ream','kg','g','ton','L','mL','gal','m','cm','mm','ft','in','m²','m³','board ft','truckload','lot','service','hour','day'];
+function _purchUnitOptions(selected){
+  var sel=(selected==null?'':String(selected)).trim();
+  var html='<option value="">— unit —</option>';
+  var found=false;
+  for(var i=0;i<_PURCH_UNITS.length;i++){
+    var u=_PURCH_UNITS[i];
+    var hit=(u===sel);if(hit)found=true;
+    html+='<option value="'+_purchEsc(u)+'"'+(hit?' selected':'')+'>'+_purchEsc(u)+'</option>';
+  }
+  if(sel&&!found)html+='<option value="'+_purchEsc(sel)+'" selected>'+_purchEsc(sel)+'</option>';
+  return html;
+}
+
 // Given a product and supplier, return history stats
 function _purchLookupHistory(product,supplier){
   const hist=_purchLoadHist();
@@ -88964,7 +88988,7 @@ function _purchRenderCompareTab(comps,suppliers,products){
       <div style="display:grid;grid-template-columns:1fr;gap:6px;">
         <input class="input" id="pcS${n}_name" list="purchSupplierList" placeholder="Supplier name">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-          <input class="input" id="pcS${n}_unit" placeholder="Unit (pc/kg/box…)">
+          <select class="input" id="pcS${n}_unit">${_purchUnitOptions('')}</select>
           <input class="input" id="pcS${n}_qty" type="number" step="0.01" placeholder="Qty">
         </div>
         <input class="input" id="pcS${n}_specs" placeholder="Specs / grade / size">
@@ -89139,7 +89163,7 @@ function _purchRenderHistoryTab(hist,suppliers,products){
       <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Product *</div><input id="phProduct" class="input" list="purchProductList" placeholder="Product"></div>
       <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Supplier *</div><input id="phSupplier" class="input" list="purchSupplierList" placeholder="Supplier"></div>
       <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Date</div><input id="phDate" type="date" class="input" value="${new Date().toISOString().slice(0,10)}"></div>
-      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Unit</div><input id="phUnit" class="input" placeholder="pc"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Unit</div><select id="phUnit" class="input">${_purchUnitOptions('')}</select></div>
       <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Qty</div><input id="phQty" type="number" step="0.01" class="input"></div>
       <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Unit cost</div><input id="phUnitCost" type="number" step="0.01" class="input"></div>
       <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">PO / ref #</div><input id="phRef" class="input" placeholder="PO-…"></div>
@@ -89567,7 +89591,7 @@ window._purchOpenOutreach=function(prefill){
       +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Product *</div><input id="poutProduct" class="input" placeholder="e.g. Rockwool cube 100×100" value="'+_purchEsc(prefill.product||'')+'"></div>'
       +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Specs</div><input id="poutSpecs" class="input" placeholder="grade / size" value="'+_purchEsc(prefill.specs||'')+'"></div>'
       +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Qty</div><input id="poutQty" type="number" step="0.01" class="input" value="'+_purchEsc(prefill.qty||'')+'"></div>'
-      +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Unit</div><input id="poutUnit" class="input" placeholder="pc" value="'+_purchEsc(prefill.unit||'')+'"></div>'
+      +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Unit</div><select id="poutUnit" class="input">'+_purchUnitOptions(prefill.unit||'')+'</select></div>'
       +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Need by</div><input id="poutNeedBy" type="date" class="input" value="'+_purchEsc(prefill.needBy||'')+'"></div>'
       +'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:1px;">Est. value ₱</div><input id="poutEstValue" type="number" step="0.01" class="input" placeholder="qty × unit" value="'+_purchEsc(estValue||'')+'"></div>'
     +'</div>'
@@ -89981,6 +90005,17 @@ function fdate(d){return _purchFmtDate(d);}
 function uid(p){return p+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
 function today(){return new Date().toISOString().slice(0,10);}
 function who(){try{var u=(typeof getCurrentUser==='function'?getCurrentUser():null)||{};return u.fullName||u.name||u.username||'user';}catch(e){return 'user';}}
+// Approval authority: Purchasing Manager / Accounting Manager and above.
+// Mapped onto the app's role engine: admin + admin_secondary always; otherwise
+// the managePayroll permission (held by the accounting/finance-manager roles).
+function canApprovePurch(){
+  try{
+    var u=(typeof getCurrentUser==='function'?getCurrentUser():null)||{};
+    if(u.role==='admin'||u.role==='admin_secondary')return true;
+    if(typeof can==='function'&&can('managePayroll'))return true;
+    return false;
+  }catch(e){return false;}
+}
 function toast(m,t){if(typeof showToast==='function')showToast(m,t||'ok');}
 function num(prefix){
   var c={};try{c=JSON.parse(localStorage.getItem(K.counters)||'{}');}catch(e){}
@@ -90115,7 +90150,7 @@ function rPRForm(){
     '<td style="width:26%;"><input class="pp-in" placeholder="Item / description *" value="'+esc(it.desc||'')+'" onchange="__PURPRO.dif('+i+',\'desc\',this.value)"></td>'+
     '<td style="width:10%;"><input class="pp-in" placeholder="Code" value="'+esc(it.code||'')+'" onchange="__PURPRO.dif('+i+',\'code\',this.value)"></td>'+
     '<td style="width:8%;"><input class="pp-in" type="number" step="0.01" placeholder="Qty" value="'+esc(it.qty||'')+'" onchange="__PURPRO.dif('+i+',\'qty\',this.value)"></td>'+
-    '<td style="width:7%;"><input class="pp-in" placeholder="Unit" value="'+esc(it.unit||'')+'" onchange="__PURPRO.dif('+i+',\'unit\',this.value)"></td>'+
+    '<td style="width:8%;"><select class="pp-in" onchange="__PURPRO.dif('+i+',\'unit\',this.value)">'+_purchUnitOptions(it.unit)+'</select></td>'+
     '<td style="width:10%;"><input class="pp-in" type="number" step="0.01" placeholder="Est ₱/u" value="'+esc(it.unitCost||'')+'" onchange="__PURPRO.dif('+i+',\'unitCost\',this.value)"></td>'+
     '<td style="width:12%;"><input class="pp-in" placeholder="Brand" value="'+esc(it.brand||'')+'" onchange="__PURPRO.dif('+i+',\'brand\',this.value)"></td>'+
     '<td style="width:12%;"><input class="pp-in" placeholder="Warehouse" value="'+esc(it.warehouse||'')+'" onchange="__PURPRO.dif('+i+',\'warehouse\',this.value)"></td>'+
@@ -90179,8 +90214,12 @@ function rStage(pr){
   }else if(st==='AI Validation'){
     h+=rAIPanel(pr);
   }else if(st==='Department Approval'){
-    h+='<p style="font-size:12px;color:var(--text2);">Level-1 approval. Approver is recorded in the workflow log.</p>'+
-      actBtn('✅ Approve','__PURPRO.deptApprove(\''+pr.id+'\',true)',true)+' '+actBtn('❌ Reject to Draft','__PURPRO.deptApprove(\''+pr.id+'\',false)');
+    if(canApprovePurch()){
+      h+='<p style="font-size:12px;color:var(--text2);">Level-1 approval — restricted to Purchasing Manager / Accounting Manager and above. Approver is recorded in the workflow log.</p>'+
+        actBtn('✅ Approve','__PURPRO.deptApprove(\''+pr.id+'\',true)',true)+' '+actBtn('❌ Reject to Draft','__PURPRO.deptApprove(\''+pr.id+'\',false)');
+    }else{
+      h+='<p style="font-size:12px;color:var(--warn);font-weight:700;">🔒 Waiting for approval — only Purchasing Manager / Accounting Manager and above can approve this stage. Your role does not have approval authority.</p>';
+    }
   }else if(st==='Purchasing Review'){
     h+='<p style="font-size:12px;color:var(--text2);">Purchasing assigns handling and confirms the request is procurement-ready.</p>'+actBtn('✅ Reviewed — proceed','__PURPRO.simpleAdvance(\''+pr.id+'\',\'Purchasing review complete\')',true);
   }else if(st==='Inventory Verification'){
@@ -90253,16 +90292,15 @@ function rSourcing(pr){
   var list=geo.suppliers.slice(0,14);
   S._sourcing=list; // module-state: survives the storage round-trip in createRFQ
   var rows=list.map(function(s,i){
-    var ok=s.email||s.phone;
-    return '<tr style="'+(s.inRadius===false?'opacity:.45;':'')+'"><td><input type="checkbox" class="ppSrcPick" data-i="'+i+'"'+(ok?'':' disabled')+'></td>'+
-    '<td><b>'+esc(s.name)+'</b><div style="font-size:10px;color:var(--text3);">'+esc(s.contact||'')+'</div></td>'+
+    return '<tr style="'+(s.inRadius===false?'opacity:.45;':'')+'"><td><input type="checkbox" class="ppSrcPick" data-i="'+i+'"></td>'+
+    '<td><b style="cursor:pointer;border-bottom:1px dotted var(--text3);" title="Supplier 360° — all data + sources" onclick="__PURPRO.sup360N(this.dataset.n)" data-n="'+esc(s.name).replace(/"/g,'&quot;')+'">'+esc(s.name)+'</b><div style="font-size:10px;color:var(--text3);">'+esc(s.contact||'')+'</div></td>'+
     '<td style="font-family:var(--mono);font-size:11px;">'+esc(s.email||'—')+'</td>'+
     '<td style="font-family:var(--mono);font-size:11px;">'+esc(s.phone||'—')+'</td>'+
-    '<td style="font-size:10px;">'+(s.hasProductHistory?'<span class="pp-chip" style="background:var(--ok);color:#fff;">HISTORY</span>':s.ordersCount?'<span class="pp-chip" style="background:var(--info);color:#fff;">EXISTING</span>':'<span class="pp-chip" style="background:var(--warn);color:#000;">NEW</span>')+(s.distanceKm!=null?' 📍'+_purchFmtKm(s.distanceKm):'')+'</td>'+
-    '<td style="font-size:10px;color:var(--text3);">'+(s.ordersCount?s.ordersCount+' orders · '+money(s.pastSpend):'—')+'</td></tr>';
+    '<td style="font-size:10px;"><span style="cursor:pointer;" title="Open full history drill-down" onclick="__PURPRO.sup360N(this.dataset.n)" data-n="'+esc(s.name).replace(/"/g,'&quot;')+'">'+(s.hasProductHistory?'<span class="pp-chip" style="background:var(--ok);color:#fff;">HISTORY</span>':s.ordersCount?'<span class="pp-chip" style="background:var(--info);color:#fff;">EXISTING</span>':'<span class="pp-chip" style="background:var(--warn);color:#000;">NEW</span>')+'</span>'+(s.distanceKm!=null?' 📍'+_purchFmtKm(s.distanceKm):'')+'</td>'+
+    '<td style="font-size:10px;color:var(--text3);cursor:pointer;" title="Open full history drill-down" onclick="__PURPRO.sup360N(this.dataset.n)" data-n="'+esc(s.name).replace(/"/g,'&quot;')+'">'+(s.ordersCount?s.ordersCount+' orders · '+money(s.pastSpend):'—')+'</td></tr>';
   }).join('');
-  return '<p style="font-size:12px;color:var(--text2);">Nexi found <b>'+list.length+'</b> candidates'+(geo.radius!=null?' · radius '+geo.radius+' km ('+esc(geo.tier.label||'')+')':'')+' · est. order '+money(est)+'. Pick suppliers for the RFQ (need contact info).</p>'+
-  '<table class="pp-tbl"><thead><tr><th></th><th>Supplier</th><th>Email</th><th>Phone</th><th>Tags</th><th>History</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+  return '<p style="font-size:12px;color:var(--text2);">Nexi found <b>'+list.length+'</b> candidates'+(geo.radius!=null?' · radius '+geo.radius+' km ('+esc(geo.tier.label||'')+')':'')+' · est. order '+money(est)+'. Pick suppliers for the RFQ — missing email/phone can be added at the RFQ stage.</p>'+
+  '<table class="pp-tbl"><thead><tr><th style="width:34px;"><input type="checkbox" title="Select all" onclick="__PURPRO.srcAll(this.checked)"></th><th>Supplier</th><th>Email</th><th>Phone</th><th>Tags</th><th>History</th></tr></thead><tbody>'+rows+'</tbody></table>'+
   '<div style="display:flex;gap:8px;margin-top:10px;align-items:center;">'+
   '<label style="font-size:11px;">Closing date <input class="pp-in" type="date" id="ppRfqClose" style="width:140px;display:inline-block;" value="'+new Date(Date.now()+7*86400000).toISOString().slice(0,10)+'"></label>'+
   actBtn('📨 Create RFQ with selected','__PURPRO.createRFQ(\''+pr.id+'\')',true)+'</div>';
@@ -90286,8 +90324,8 @@ function rRFQPanel(pr){
       '<label style="font-size:10px;">Terms<input class="pp-in" id="ppQp" style="width:120px;" value="'+esc(q?q.payTerms:'')+'"></label>'+
       '<label style="font-size:10px;">Warranty<input class="pp-in" id="ppQw" style="width:110px;" value="'+esc(q?q.warranty:'')+'"></label>'+
       actBtn('💾 Save quote','__PURPRO.saveQuote(\''+rfq.id+'\','+i+')',true)+actBtn('✕','__PURPRO.quoteToggle(null)')+'</div></td></tr>':'';
-    return '<tr><td><b>'+esc(s.name)+'</b></td>'+
-    '<td style="font-family:var(--mono);font-size:11px;">'+esc(s.email||s.phone||'—')+'</td>'+
+    return '<tr><td><b style="cursor:pointer;border-bottom:1px dotted var(--text3);" title="Supplier 360° — all data + sources" onclick="__PURPRO.sup360N(this.dataset.n)" data-n="'+esc(s.name).replace(/"/g,'&quot;')+'">'+esc(s.name)+'</b></td>'+
+    '<td style="font-family:var(--mono);font-size:11px;">'+esc(s.email||s.phone||'—')+' <button class="btn btn-outline" style="padding:1px 6px;font-size:10px;" title="Add / edit email & phone" onclick="__PURPRO.rfqContact(\''+rfq.id+'\','+i+')">✎</button></td>'+
     '<td>'+(q?'<span class="pp-chip" style="background:var(--ok);color:#fff;">QUOTED '+money(q.total)+'</span>':s.sentAt?'<span class="pp-chip" style="background:var(--info);color:#fff;">SENT</span>':'<span class="pp-chip" style="background:var(--surface3);color:var(--text3);">PENDING</span>')+'</td>'+
     '<td style="font-size:11px;">'+(s.sentAt?new Date(s.sentAt).toISOString().slice(5,16).replace('T',' '):'—')+'</td>'+
     '<td style="white-space:nowrap;">'+(s.email?actBtn('✉ Email','__PURPRO.sendRFQ(\''+rfq.id+'\','+i+',\'email\')'):'')+' '+(s.phone?actBtn('📱 SMS','__PURPRO.sendRFQ(\''+rfq.id+'\','+i+',\'sms\')'):'')+'</td>'+
@@ -90459,7 +90497,7 @@ function rScorecard(){
   return '<p style="font-size:11.5px;color:var(--text3);">System-generated from transactions — scores cannot be edited manually. Weights: on-time 35% · quality accept 35% · RFQ reply 30%.</p>'+
     '<table class="pp-tbl"><thead><tr><th>Supplier</th><th style="text-align:right;">Score</th><th style="text-align:right;">On-time</th><th style="text-align:right;">Accept rate</th><th style="text-align:right;">Reply rate</th><th style="text-align:right;">Orders</th><th style="text-align:right;">Spend</th></tr></thead><tbody>'+
     list.map(function(s){var sc=s.score;var c=sc==null?'var(--text3)':sc>=85?'var(--ok)':sc>=60?'var(--warn)':'var(--danger)';
-      return '<tr><td><b>'+esc(s.name)+'</b></td><td style="text-align:right;"><span class="pp-chip" style="background:'+c+';color:#fff;">'+(sc==null?'—':sc)+'</span></td>'+
+      return '<tr><td><b style="cursor:pointer;border-bottom:1px dotted var(--text3);" title="Supplier 360°" onclick="__PURPRO.sup360N(this.dataset.n)" data-n="'+esc(s.name).replace(/"/g,'&quot;')+'">'+esc(s.name)+'</b></td><td style="text-align:right;"><span class="pp-chip" style="background:'+c+';color:#fff;">'+(sc==null?'—':sc)+'</span></td>'+
       '<td style="text-align:right;font-family:var(--mono);">'+(s.onTimePct==null?'—':s.onTimePct+'%')+'</td>'+
       '<td style="text-align:right;font-family:var(--mono);">'+(s.accPct==null?'—':s.accPct+'%')+'</td>'+
       '<td style="text-align:right;font-family:var(--mono);">'+(s.replyPct==null?'—':s.replyPct+'%')+'</td>'+
@@ -90542,6 +90580,7 @@ window.__PURPRO={
     audit('pr:override',pr.number,reason.trim());toast('Override recorded');renderPurchPro();
   },
   deptApprove:function(id,ok){
+    if(!canApprovePurch()){toast('Approval requires Purchasing Manager / Accounting Manager or above','warn');return;}
     var pr=getPR(id);if(!pr)return;
     if(ok){advance(pr,'Approved by '+who());}
     else{var why=prompt('Rejection reason:');if(why===null)return;pr.status='Draft';pr.workflow.push({stage:'Draft',at:Date.now(),by:who(),note:'REJECTED: '+(why||'')});savePR(pr);audit('pr:rejected',pr.number,why||'');}
@@ -90589,6 +90628,116 @@ window.__PURPRO={
       finish('sms-app');
     }
   },
+  srcAll:function(on){
+    [].slice.call(document.querySelectorAll('.ppSrcPick')).forEach(function(b){b.checked=!!on;});
+  },
+  sup360N:function(name){
+    if(!name)return;
+    var k=name.trim().toLowerCase();
+    var srcBlock=function(icon,src,rowsHtml){
+      return '<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--surface2);">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">'+
+        '<b style="font-size:12px;">'+icon+' '+esc(src.title)+'</b>'+
+        '<span class="pp-chip" style="background:var(--surface3);color:var(--accent);">source: '+esc(src.tag)+'</span></div>'+
+        (rowsHtml||'<div style="font-size:11px;color:var(--text3);">No data in this source.</div>')+'</div>';
+    };
+    var kv=function(l,v){return v?'<div style="font-size:11.5px;padding:1px 0;"><span style="color:var(--text3);">'+esc(l)+':</span> '+esc(String(v))+'</div>':'';};
+    var html='';
+    // 1 · Vendors master
+    var ven=null;try{ven=(JSON.parse(localStorage.getItem('hydroPro_acct_vendors')||'[]')).find(function(v){return (v.name||'').trim().toLowerCase()===k;});}catch(e){}
+    html+=srcBlock('📇',{title:'Contact record',tag:'Accounting → Vendors master'},ven?(kv('Contact',ven.contact)+kv('Email',ven.email)+kv('Phone',ven.phone)+kv('TIN',ven.tin)):'');
+    // 2 · Inventory Master suppliers
+    var im=null;try{im=(JSON.parse(localStorage.getItem('hydroPro_inv_suppliers_v1')||'[]')).find(function(v){return (v.name||'').trim().toLowerCase()===k;});}catch(e){}
+    html+=srcBlock('🗂️',{title:'Inventory Master record',tag:'Inventory → Master Data'},im?(kv('Contact',im.contact)+kv('Email',im.email)+kv('Phone',im.phone)+kv('Reliability score',im.score)+kv('Status',im.status||'Active')+kv('Notes',im.notes)):'');
+    // 3 · SOS Inventory items
+    var sosItems=[];try{if(window.__hnxSos&&window.__hnxSos.getItems)sosItems=(window.__hnxSos.getItems()||[]).filter(function(it){return ((it.vendorName||it.vendor||it.supplier||it.supplierName||'')+'').trim().toLowerCase()===k;});}catch(e){}
+    html+=srcBlock('📦',{title:'Items where this is the preferred vendor ('+sosItems.length+')',tag:'SOS Inventory (live cache)'},
+      sosItems.length?sosItems.slice(0,8).map(function(it){return '<div style="font-size:11.5px;padding:1px 0;">'+esc(it.name||it.description||'')+(it.purchaseCost?' · last cost '+money(it.purchaseCost):'')+'</div>';}).join('')+(sosItems.length>8?'<div style="font-size:10px;color:var(--text3);">+'+(sosItems.length-8)+' more</div>':''):'');
+    // 4 · Purchase history — summary + FULL order-by-order drill-down
+    var hh=_purchLoadHist().filter(function(x){return (x.supplier||'').trim().toLowerCase()===k;});
+    var spend=hh.reduce(function(a,x){return a+(Number(x.totalAmount)||Number(x.qty||0)*Number(x.unitCost||0));},0);
+    var lastD=hh.map(function(x){return x.date||'';}).sort().slice(-1)[0]||'';
+    var prods={};hh.forEach(function(x){if(x.product)prods[x.product.trim()]=1;});
+    var drill='';
+    if(hh.length){
+      var sortedH=hh.slice().sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});
+      drill='<div style="max-height:280px;overflow:auto;margin-top:8px;border:1px solid var(--border);border-radius:6px;">'+
+        '<table class="pp-tbl" style="min-width:560px;"><thead><tr><th>Date</th><th>Product</th><th style="text-align:right;">Qty</th><th style="text-align:right;">₱/u</th><th style="text-align:right;">Total</th><th>PO / ref</th><th>Source</th><th>Status</th></tr></thead><tbody>'+
+        sortedH.map(function(r){
+          var tot=Number(r.totalAmount)||Number(r.qty||0)*Number(r.unitCost||0);
+          return '<tr><td style="font-family:var(--mono);font-size:10.5px;white-space:nowrap;">'+fdate(r.date)+'</td>'+
+          '<td style="font-size:11px;">'+esc(r.product||'')+(r.notes?'<div style="font-size:9.5px;color:var(--text3);">'+esc(String(r.notes).slice(0,60))+'</div>':'')+'</td>'+
+          '<td style="text-align:right;font-family:var(--mono);font-size:10.5px;">'+Number(r.qty||0)+' '+esc(r.unit||'')+(r.receivedQty?'<div style="font-size:9.5px;color:var(--text3);">rcvd '+r.receivedQty+'</div>':'')+'</td>'+
+          '<td style="text-align:right;font-family:var(--mono);font-size:10.5px;">'+money(r.unitCost)+'</td>'+
+          '<td style="text-align:right;font-family:var(--mono);font-size:10.5px;"><b>'+money(tot)+'</b></td>'+
+          '<td style="font-family:var(--mono);font-size:10px;">'+esc(r.ref||r.poNumber||'—')+'</td>'+
+          '<td><span class="pp-chip" style="background:var(--surface3);color:var(--text2);">'+esc(r.source||'manual')+'</span></td>'+
+          '<td style="font-size:10px;">'+esc(r.status||'')+'</td></tr>';
+        }).join('')+
+        '</tbody></table></div>'+
+        '<div style="font-size:9.5px;color:var(--text3);margin-top:3px;">All '+hh.length+' orders shown, newest first — scroll inside the table.</div>';
+    }
+    html+=srcBlock('📜',{title:'Purchase history — '+hh.length+' orders (full drill-down)',tag:'SOS PO import + GRN postings + manual'},
+      hh.length?(kv('Total spend',money(spend))+kv('Last purchase',lastD)+kv('Distinct products',Object.keys(prods).length)+
+      Object.keys(prods).slice(0,6).map(function(p){return '<span class="pp-chip" style="background:var(--surface3);color:var(--text2);margin:1px;">'+esc(p)+'</span>';}).join('')+drill):'');
+    // 5 · Workspace transactions
+    var wPos=L(K.pos).filter(function(p){return (p.supplier||'').trim().toLowerCase()===k;});
+    var wRfqs=L(K.rfqs).filter(function(r){return r.suppliers.some(function(s){return (s.name||'').trim().toLowerCase()===k;});});
+    var sent=0,quoted=0;wRfqs.forEach(function(r){r.suppliers.forEach(function(s){if((s.name||'').trim().toLowerCase()!==k)return;if(s.sentAt)sent++;if(s.quote)quoted++;});});
+    html+=srcBlock('🛒',{title:'Purchasing workspace activity',tag:'13-stage workflow (this app)'},
+      (wPos.length||wRfqs.length)?(kv('Purchase orders',wPos.length?wPos.map(function(p){return p.number+' ('+p.status+')';}).join(' · '):'')+kv('RFQs involved',wRfqs.length)+kv('RFQs sent / quoted',sent+' / '+quoted)):'');
+    // 6 · Nexi outreach log
+    var oo=_purchLoadOutreach().filter(function(o){return (o.supplier||'').trim().toLowerCase()===k;});
+    html+=srcBlock('📬',{title:'RFQ outreach — '+oo.length+' messages',tag:'Nexi RFQ log'},
+      oo.length?(kv('Last contact',oo.length?new Date(Math.max.apply(null,oo.map(function(o){return o.sentAt||0;}))).toISOString().slice(0,10):'')+kv('Replies (quoted)',oo.filter(function(o){return o.responseStatus==='quoted';}).length+' / '+oo.length)):'');
+    // 7 · Location
+    var loc=(typeof _purchGetSupplierLocation==='function')?_purchGetSupplierLocation(name):null;
+    html+=srcBlock('📍',{title:'Location',tag:'Supplier locations store'},loc?(kv('Coordinates',(loc.lat!=null&&loc.lng!=null)?loc.lat+', '+loc.lng:'')+kv('Address',loc.address||loc.city||loc.country)):'');
+    // 8 · Out-of-system lookups
+    var q=encodeURIComponent(name+' Philippines supplier');
+    html+='<div style="border:1px dashed var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;"><b style="font-size:12px;">🌐 Out-of-system lookup</b><span class="pp-chip" style="background:var(--surface3);color:var(--warn);">source: external web</span></div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;">'+
+      '<a class="btn btn-outline" style="font-size:11px;padding:4px 10px;" target="_blank" rel="noopener" href="https://www.google.com/search?q='+q+'">🔎 Google</a>'+
+      '<a class="btn btn-outline" style="font-size:11px;padding:4px 10px;" target="_blank" rel="noopener" href="https://www.google.com/maps/search/'+q+'">🗺 Maps</a>'+
+      '<a class="btn btn-outline" style="font-size:11px;padding:4px 10px;" target="_blank" rel="noopener" href="https://www.google.com/search?q='+encodeURIComponent(name+' SEC registration Philippines')+'">🏛 SEC / registration</a>'+
+      '</div>'+
+      '<div style="font-size:10px;color:var(--text3);margin-top:5px;">Automatic web enrichment (crawling supplier sites into this profile) requires the /nexi/supplier-search worker route — a browser app cannot crawl external sites directly. Links open live searches instead.</div></div>';
+    // Modal shell
+    var old=document.getElementById('ppSup360');if(old)old.remove();
+    var m=document.createElement('div');
+    m.id='ppSup360';
+    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:10070;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto;';
+    m.innerHTML='<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;max-width:640px;width:100%;padding:18px;max-height:90vh;overflow-y:auto;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'+
+      '<div style="font-size:14px;font-weight:800;">🏭 '+esc(name)+' — Supplier 360°</div>'+
+      '<button onclick="document.getElementById(\'ppSup360\').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;">✕</button></div>'+
+      '<div style="font-size:10.5px;color:var(--text3);margin-bottom:10px;">Every block states its data source. Empty blocks mean that system holds nothing for this supplier yet.</div>'+
+      html+'</div>';
+    document.body.appendChild(m);
+  },
+  rfqContact:function(rfqId,idx){
+    var rfq=getRFQ(rfqId);if(!rfq)return;
+    var s=rfq.suppliers[idx];if(!s)return;
+    var email=prompt('Email for '+s.name+' (blank = keep):',s.email||'');
+    if(email===null)return;
+    var phone=prompt('Phone / SMS for '+s.name+' (blank = keep):',s.phone||'');
+    if(phone===null)return;
+    if(email.trim())s.email=email.trim();
+    if(phone.trim())s.phone=phone.trim();
+    saveRFQ(rfq);
+    // Remember the contact on the Vendors master so Nexi finds it next time
+    try{
+      var vk='hydroPro_acct_vendors';
+      var vendors=JSON.parse(localStorage.getItem(vk)||'[]');
+      var hit=vendors.find(function(v){return (v.name||'').trim().toLowerCase()===s.name.trim().toLowerCase();});
+      if(hit){if(s.email&&!hit.email)hit.email=s.email;if(s.phone&&!hit.phone)hit.phone=s.phone;}
+      else vendors.push({id:'e_rfq_'+Date.now().toString(36),createdAt:Date.now(),name:s.name,contact:'',email:s.email||'',phone:s.phone||'',tin:'',source:'rfq-contact'});
+      localStorage.setItem(vk,JSON.stringify(vendors));
+    }catch(e){}
+    audit('rfq:contact',rfq.number,s.name+' '+(s.email||'')+' '+(s.phone||''));
+    toast('Contact saved for '+s.name);renderPurchPro();
+  },
   quoteToggle:function(k){S.quoteOpen=(S.quoteOpen===k?null:k);renderPurchPro();},
   saveQuote:function(rfqId,idx){
     var rfq=getRFQ(rfqId);if(!rfq)return;
@@ -90599,6 +90748,7 @@ window.__PURPRO={
     S.quoteOpen=null;toast('Quote saved');renderPurchPro();
   },
   award:function(prId,recName){
+    if(!canApprovePurch()){toast('Awarding requires Purchasing Manager / Accounting Manager or above','warn');return;}
     var pr=getPR(prId);if(!pr)return;
     var rfq=getRFQ(pr.rfqId);if(!rfq)return;
     var chosen=(document.getElementById('ppAwardSel')||{}).value||recName;
@@ -90621,6 +90771,7 @@ window.__PURPRO={
     toast('Awarded — PO draft '+po.number);renderPurchPro();
   },
   issuePO:function(prId){
+    if(!canApprovePurch()){toast('Issuing a PO requires Purchasing Manager / Accounting Manager or above','warn');return;}
     var pr=getPR(prId);var po=pr&&getPO(pr.poId);if(!po)return;
     if(!confirm('Issue '+po.number+' to '+po.supplier+' for '+po.total+'? This becomes an official obligation and cannot be edited (amendments only).'))return;
     po.status='Issued';po.issuedAt=Date.now();savePO(po);
