@@ -5911,6 +5911,9 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 <div class="view" id="view-inv_requests"><div id="invRequestsBody"></div></div>
 <div class="view" id="view-inv_master"><div id="invMasterBody"></div></div>
 <div class="view" id="view-inv_purchase"><div id="invPurchaseBody"></div></div>
+<!-- Purchasing (Accounting sub-module): static containers — switchView() hard-crashes on a missing view div -->
+<div class="view" id="view-acct_purch_pro"></div>
+<div class="view" id="view-acct_purchasing"></div>
 <div class="view" id="view-inv_duplicates"><div id="invDupBody"></div></div>
 <div class="view" id="view-inv_audit"><div id="invAuditBody"></div></div>
 <div class="view" id="view-inv_copilot"><div id="invCopilotBody"></div></div>
@@ -20707,11 +20710,16 @@ const MODULES={
     ]
   },
   // =========== ACCOUNTING (opens the full-screen workspace; see Accounting Stage 2 block) ===========
+  // views[] MUST list every classic in-app accounting view: findModuleForView() falls back to
+  // 'production' for any view id not registered here, which routes the user to the Brain screen.
   accounting:{
     icon:'🧮',
     name:'ACCOUNTING',
-    description:'Accounting workspace — per company (APTI/APAC/GLHI): Dashboard, Financial Statements (BS/Income/Equity/Cash Flow/Notes), Auditor-AI, Payroll, Reports. Opens a full-screen overlay (window.hnxOpenAccounting).',
-    views:[]
+    description:'Accounting workspace — per company (APTI/APAC/GLHI): Dashboard, Financial Statements (BS/Income/Equity/Cash Flow/Notes), Auditor-AI, Payroll, Reports. Opens a full-screen overlay (window.hnxOpenAccounting). Purchasing runs as classic in-app views.',
+    views:[
+      {id:'acct_purch_pro',  label:'🛒 Purchasing',             perm:null, title:'Purchasing Workspace — 13-stage procurement workflow: PR → AI gate → sourcing → RFQ → quotes → award → PO → receiving → invoice 3-way match → scorecard → analytics'},
+      {id:'acct_purchasing', label:'🧰 Purchasing Quick Tools', perm:null, title:'3-supplier comparisons · SOS purchase history · Nexi RFQ outreach (email/SMS) · geo-scoped supplier search'}
+    ]
   },
   // =========== PAYROLL (now reached only inside Accounting) ===========
   payroll:{
@@ -56535,7 +56543,9 @@ function defaultModuleAccessForRole(role,moduleId){
     fleet:{viewKey:'viewFleet', manageKey:'manageFleet'},
     licenses:{viewKey:'viewLicenses', manageKey:'manageLicenses'},
     projects:{viewKey:'viewProjects', manageKey:'manageProjects'},
-    admin:{viewKey:'manageUsers', manageKey:'manageUsers'}
+    admin:{viewKey:'manageUsers', manageKey:'manageUsers'},
+    // Purchasing lives under accounting; finance roles (managePayroll) get access by default
+    accounting:{viewKey:'managePayroll', manageKey:'managePayroll'}
   };
   const m=moduleToRolePerm[moduleId];
   if(!m)return 'none';
