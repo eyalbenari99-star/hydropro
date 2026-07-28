@@ -20718,7 +20718,20 @@ const MODULES={
     description:'Accounting workspace — per company (APTI/APAC/GLHI): Dashboard, Financial Statements (BS/Income/Equity/Cash Flow/Notes), Auditor-AI, Payroll, Reports. Opens a full-screen overlay (window.hnxOpenAccounting). Purchasing runs as classic in-app views.',
     views:[
       {id:'acct_purch_pro',  label:'🛒 Purchasing',             perm:null, title:'Purchasing Workspace — 13-stage procurement workflow: PR → AI gate → sourcing → RFQ → quotes → award → PO → receiving → invoice 3-way match → scorecard → analytics'},
-      {id:'acct_purchasing', label:'🧰 Purchasing Quick Tools', perm:null, title:'3-supplier comparisons · SOS purchase history · Nexi RFQ outreach (email/SMS) · geo-scoped supplier search'}
+      {id:'acct_purchasing', label:'🧰 Purchasing Quick Tools', perm:null, title:'3-supplier comparisons · SOS purchase history · Nexi RFQ outreach (email/SMS) · geo-scoped supplier search'},
+      // Hidden: bolt-on accounting views — registered so findModuleForView routes them
+      // to ACCOUNTING (they used to fall back to production and jump to the Brain).
+      {id:'acct_dash',        label:'Dashboard',      perm:null, hidden:true},
+      {id:'acct_checklist',   label:'Checklist',      perm:null, hidden:true},
+      {id:'acct_quickbooks',  label:'QuickBooks',     perm:null, hidden:true},
+      {id:'acct_transactions',label:'Transactions',   perm:null, hidden:true},
+      {id:'acct_pnl',         label:'P&L',            perm:null, hidden:true},
+      {id:'acct_cashflow',    label:'Cash Flow',      perm:null, hidden:true},
+      {id:'acct_balance',     label:'Balance Sheet',  perm:null, hidden:true},
+      {id:'acct_vendors',     label:'Vendors',        perm:null, hidden:true},
+      {id:'acct_customers',   label:'Customers',      perm:null, hidden:true},
+      {id:'acct_invoices',    label:'Invoices',       perm:null, hidden:true},
+      {id:'acct_tax',         label:'Tax',            perm:null, hidden:true}
     ]
   },
   // =========== PAYROLL (now reached only inside Accounting) ===========
@@ -21004,6 +21017,10 @@ function findModuleForView(viewId){
   for(const [modId,mod] of Object.entries(MODULES)){
     if(mod.views.some(v=>v.id===viewId))return modId;
   }
+  // Unknown view (bolt-on patch view): STAY in the current module instead of
+  // jumping to production. 31 patch views were bouncing users to the
+  // Production/Brain screen because of the old hard 'production' fallback.
+  if(typeof currentModule==='string'&&MODULES[currentModule])return currentModule;
   return 'production';
 }
 let currentModule='production';
@@ -21514,7 +21531,16 @@ function switchView(v,skipModuleCheck){
 
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(x=>x.classList.remove('active'));
-  document.getElementById('view-'+v).classList.add('active');
+  // Auto-create missing view containers: 35 bolt-on views create theirs lazily,
+  // and a missing div here used to throw (TypeError on null.classList), killing
+  // the rest of switchView and leaving the app in a half-switched state.
+  let _tv=document.getElementById('view-'+v);
+  if(!_tv){
+    _tv=document.createElement('div');
+    _tv.className='view';_tv.id='view-'+v;
+    (document.getElementById('appMain')||document.body).appendChild(_tv);
+  }
+  _tv.classList.add('active');
   markActiveSubTab(v);
   // Legacy: also update old nav-tab active state for compatibility
   const map={dashboard:0,wall:1,checklist:2,supervisor:3,hr:4,attendance:5,history:6,users:7,audit:8};
@@ -90291,15 +90317,19 @@ function rSourcing(pr){
   var geo=(typeof _purchApplyRadius==='function')?_purchApplyRadius(gathered,est,null):{suppliers:gathered,radius:null,tier:{label:'—'}};
   var list=geo.suppliers.slice(0,14);
   S._sourcing=list; // module-state: survives the storage round-trip in createRFQ
+  var withCoords=list.filter(function(s){return s.distanceKm!=null;}).length;
   var rows=list.map(function(s,i){
+    var dn=esc(s.name).replace(/"/g,'&quot;');
     return '<tr style="'+(s.inRadius===false?'opacity:.45;':'')+'"><td><input type="checkbox" class="ppSrcPick" data-i="'+i+'"></td>'+
-    '<td><b style="cursor:pointer;border-bottom:1px dotted var(--text3);" title="Supplier 360° — all data + sources" onclick="__PURPRO.sup360N(this.dataset.n)" data-n="'+esc(s.name).replace(/"/g,'&quot;')+'">'+esc(s.name)+'</b><div style="font-size:10px;color:var(--text3);">'+esc(s.contact||'')+'</div></td>'+
+    '<td><b style="cursor:pointer;border-bottom:1px dotted var(--text3);" title="Supplier 360° — all data + sources" onclick="__PURPRO.sup360N(this.dataset.n)" data-n="'+dn+'">'+esc(s.name)+'</b><div style="font-size:10px;color:var(--text3);">'+esc(s.contact||'')+'</div></td>'+
     '<td style="font-family:var(--mono);font-size:11px;">'+esc(s.email||'—')+'</td>'+
-    '<td style="font-family:var(--mono);font-size:11px;">'+esc(s.phone||'—')+'</td>'+
-    '<td style="font-size:10px;"><span style="cursor:pointer;" title="Open full history drill-down" onclick="__PURPRO.sup360N(this.dataset.n)" data-n="'+esc(s.name).replace(/"/g,'&quot;')+'">'+(s.hasProductHistory?'<span class="pp-chip" style="background:var(--ok);color:#fff;">HISTORY</span>':s.ordersCount?'<span class="pp-chip" style="background:var(--info);color:#fff;">EXISTING</span>':'<span class="pp-chip" style="background:var(--warn);color:#000;">NEW</span>')+'</span>'+(s.distanceKm!=null?' 📍'+_purchFmtKm(s.distanceKm):'')+'</td>'+
-    '<td style="font-size:10px;color:var(--text3);cursor:pointer;" title="Open full history drill-down" onclick="__PURPRO.sup360N(this.dataset.n)" data-n="'+esc(s.name).replace(/"/g,'&quot;')+'">'+(s.ordersCount?s.ordersCount+' orders · '+money(s.pastSpend):'—')+'</td></tr>';
+    '<td style="font-family:var(--mono);font-size:11px;">'+esc(s.phone||'—')+' <button class="btn btn-outline" style="padding:1px 6px;font-size:10px;" title="Add / edit email & phone (saved to Vendors master)" onclick="__PURPRO.srcContact('+i+')">✎</button></td>'+
+    '<td style="font-size:10px;"><span style="cursor:pointer;" title="Open full history drill-down" onclick="__PURPRO.sup360N(this.dataset.n)" data-n="'+dn+'">'+(s.hasProductHistory?'<span class="pp-chip" style="background:var(--ok);color:#fff;">HISTORY</span>':s.ordersCount?'<span class="pp-chip" style="background:var(--info);color:#fff;">EXISTING</span>':'<span class="pp-chip" style="background:var(--warn);color:#000;">NEW</span>')+'</span> '+
+    (s.distanceKm!=null?'📍'+_purchFmtKm(s.distanceKm):'<span class="pp-chip" style="background:var(--surface3);color:var(--text3);cursor:pointer;" title="No coordinates yet — add to enable radius filtering" onclick="__PURPRO.srcLoc('+i+')">📍 add</span>')+'</td>'+
+    '<td style="font-size:10px;color:var(--text3);cursor:pointer;" title="Open full history drill-down" onclick="__PURPRO.sup360N(this.dataset.n)" data-n="'+dn+'">'+(s.ordersCount?s.ordersCount+' orders · '+money(s.pastSpend):'—')+'</td></tr>';
   }).join('');
-  return '<p style="font-size:12px;color:var(--text2);">Nexi found <b>'+list.length+'</b> candidates'+(geo.radius!=null?' · radius '+geo.radius+' km ('+esc(geo.tier.label||'')+')':'')+' · est. order '+money(est)+'. Pick suppliers for the RFQ — missing email/phone can be added at the RFQ stage.</p>'+
+  return '<p style="font-size:12px;color:var(--text2);">Nexi found <b>'+list.length+'</b> candidates'+(geo.radius!=null?' · radius '+geo.radius+' km ('+esc(geo.tier.label||'')+')':'')+' · est. order '+money(est)+'. Pick suppliers for the RFQ — add missing email/phone with ✎ (works here and at the RFQ stage).</p>'+
+  (withCoords<list.length?'<div style="padding:7px 10px;background:rgba(255,179,0,.08);border-left:3px solid var(--warn);border-radius:6px;font-size:11px;color:var(--text2);margin-bottom:8px;">📍 <b>'+withCoords+' of '+list.length+'</b> suppliers have coordinates — "near me" radius filtering only works for suppliers with a saved location. SOS Inventory provides vendor <i>names only</i> (no address, phone, or email). Click a supplier\'s <b>📍 add</b> chip to save its location once; it is remembered for every future search. Automatic geocoding from the web requires the /nexi/geocode worker route (roadmap).</div>':'')+
   '<table class="pp-tbl"><thead><tr><th style="width:34px;"><input type="checkbox" title="Select all" onclick="__PURPRO.srcAll(this.checked)"></th><th>Supplier</th><th>Email</th><th>Phone</th><th>Tags</th><th>History</th></tr></thead><tbody>'+rows+'</tbody></table>'+
   '<div style="display:flex;gap:8px;margin-top:10px;align-items:center;">'+
   '<label style="font-size:11px;">Closing date <input class="pp-in" type="date" id="ppRfqClose" style="width:140px;display:inline-block;" value="'+new Date(Date.now()+7*86400000).toISOString().slice(0,10)+'"></label>'+
@@ -90630,6 +90660,39 @@ window.__PURPRO={
   },
   srcAll:function(on){
     [].slice.call(document.querySelectorAll('.ppSrcPick')).forEach(function(b){b.checked=!!on;});
+  },
+  srcContact:function(i){
+    var s=S._sourcing&&S._sourcing[i];if(!s)return;
+    var email=prompt('Email for '+s.name+' (blank = keep):',s.email||'');
+    if(email===null)return;
+    var phone=prompt('Phone / SMS for '+s.name+' (blank = keep):',s.phone||'');
+    if(phone===null)return;
+    if(email.trim())s.email=email.trim();
+    if(phone.trim())s.phone=phone.trim();
+    try{
+      var vk='hydroPro_acct_vendors';
+      var vendors=JSON.parse(localStorage.getItem(vk)||'[]');
+      var hit=vendors.find(function(v){return (v.name||'').trim().toLowerCase()===s.name.trim().toLowerCase();});
+      if(hit){if(s.email)hit.email=s.email;if(s.phone)hit.phone=s.phone;}
+      else vendors.push({id:'e_src_'+Date.now().toString(36),createdAt:Date.now(),name:s.name,contact:'',email:s.email||'',phone:s.phone||'',tin:'',source:'sourcing-contact'});
+      localStorage.setItem(vk,JSON.stringify(vendors));
+    }catch(e){}
+    audit('supplier:contact',s.name,(s.email||'')+' '+(s.phone||''));
+    toast('Contact saved for '+s.name);renderPurchPro();
+  },
+  srcLoc:function(i){
+    var s=S._sourcing&&S._sourcing[i];if(!s)return;
+    var lat=prompt('Latitude for '+s.name+' (e.g. 14.6532):','');
+    if(lat===null)return;
+    var lng=prompt('Longitude for '+s.name+' (e.g. 121.0498):','');
+    if(lng===null)return;
+    var addr=prompt('Address / city (optional):','');
+    if(typeof _purchSetSupplierLocation==='function'&&lat.trim()&&lng.trim()){
+      _purchSetSupplierLocation(s.name,{lat:Number(lat),lng:Number(lng),address:addr||''});
+      audit('supplier:location',s.name,lat+','+lng);
+      toast('Location saved for '+s.name);
+    }
+    renderPurchPro();
   },
   sup360N:function(name){
     if(!name)return;
