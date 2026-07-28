@@ -88935,6 +88935,7 @@ window._renderAcctPurchasing=function(){
       ${tabBtn('suppliers','🏭 Suppliers Ledger')}
       ${tabBtn('outreach','📬 Nexi RFQ Log')}
       <div style="flex:1;"></div>
+      <button class="btn btn-primary" style="padding:6px 14px;font-size:12px;" onclick="switchView('acct_purch_pro')" title="Full 13-stage procurement workflow: PR → AI gate → RFQ → award → PO → receiving → invoice matching">🚀 Full Workflow</button>
       <button class="btn btn-primary" style="padding:6px 14px;font-size:12px;background:linear-gradient(135deg,#1d7a5f,#0c5b46);" onclick="_purchOpenOutreach({})">🤖 Nexi · Find & contact suppliers</button>
       <button class="btn btn-outline" style="padding:6px 12px;font-size:11px;" onclick="_purchOpenLocationSettings()" title="Set your base location and how the search radius grows with order value">📍 Location &amp; radius</button>
       <button class="btn btn-outline" style="padding:6px 12px;font-size:11px;" onclick="_purchExportCsv()">⬇ Export CSV</button>
@@ -89943,6 +89944,760 @@ window._purchExportCsv=function(){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='purchasing-history-'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(a.href);
   if(typeof showToast==='function')showToast('Exported','ok');
 };
+
+// =====================================================================
+// === PURCHASING WORKSPACE v1 — full 13-stage workflow (ACC-PUR)    ===
+// =====================================================================
+// Implements the developer pack in-app: PR → AI Validation → Approval →
+// Review → Inventory Verification → Sourcing → RFQ → Quotation
+// Evaluation → Award → PO → Receiving → Completed, plus Mission
+// Control, Invoices (3-way match), Supplier Scorecard, Analytics.
+// Reuses: SOS cache (_purchSosItemHint), supplier union
+// (_purchGatherAllSuppliers), geo radius (_purchApplyRadius), EmailJS
+// (_sendViaEmailJs), outreach log, purchase history (GRN posts here).
+(function(){
+'use strict';
+if(window.__PURPRO)return;
+
+var K={prs:'hydroPro_purch_prs',rfqs:'hydroPro_purch_rfqs',pos:'hydroPro_purch_pos',grns:'hydroPro_purch_grns',invs:'hydroPro_purch_invoices',counters:'hydroPro_purch_counters',audit:'hydroPro_purch_audit'};
+var STAGES=['Draft','Submitted','AI Validation','Department Approval','Purchasing Review','Inventory Verification','Supplier Sourcing','RFQ','Quotation Evaluation','Approval','Purchase Order','Receiving','Completed'];
+var QTY_TOL=0.02, PRICE_TOL=0.01; // 3-way match tolerances
+
+function L(k){try{var v=JSON.parse(localStorage.getItem(k));return Array.isArray(v)?v:[];}catch(e){return [];}}
+function Sv(k,a){localStorage.setItem(k,JSON.stringify(a));}
+function esc(s){return _purchEsc(s);}
+function money(v){return _purchFmtMoney(v);}
+function fdate(d){return _purchFmtDate(d);}
+function uid(p){return p+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
+function today(){return new Date().toISOString().slice(0,10);}
+function who(){try{var u=(typeof getCurrentUser==='function'?getCurrentUser():null)||{};return u.fullName||u.name||u.username||'user';}catch(e){return 'user';}}
+function toast(m,t){if(typeof showToast==='function')showToast(m,t||'ok');}
+function num(prefix){
+  var c={};try{c=JSON.parse(localStorage.getItem(K.counters)||'{}');}catch(e){}
+  var y=new Date().getFullYear();
+  c[prefix]=c[prefix]||{};c[prefix][y]=(c[prefix][y]||0)+1;
+  localStorage.setItem(K.counters,JSON.stringify(c));
+  return prefix+'-'+y+'-'+String(c[prefix][y]).padStart(6,'0');
+}
+function audit(action,ref,detail){
+  var a=L(K.audit);a.push({at:Date.now(),by:who(),action:action,ref:ref||'',detail:detail||''});
+  if(a.length>2000)a=a.slice(-2000);
+  Sv(K.audit,a);
+}
+function prTotal(pr){return (pr.items||[]).reduce(function(a,it){return a+Number(it.qty||0)*Number(it.unitCost||0);},0);}
+function stageIdx(pr){return Math.max(0,STAGES.indexOf(pr.status));}
+function getPR(id){return L(K.prs).find(function(x){return x.id===id;});}
+function savePR(pr){var a=L(K.prs);var i=a.findIndex(function(x){return x.id===pr.id;});if(i>=0)a[i]=pr;else a.push(pr);Sv(K.prs,a);}
+function getRFQ(id){return L(K.rfqs).find(function(x){return x.id===id;});}
+function saveRFQ(r){var a=L(K.rfqs);var i=a.findIndex(function(x){return x.id===r.id;});if(i>=0)a[i]=r;else a.push(r);Sv(K.rfqs,a);}
+function getPO(id){return L(K.pos).find(function(x){return x.id===id;});}
+function savePO(p){var a=L(K.pos);var i=a.findIndex(function(x){return x.id===p.id;});if(i>=0)a[i]=p;else a.push(p);Sv(K.pos,a);}
+function advance(pr,note){
+  var i=stageIdx(pr);
+  if(i>=STAGES.length-1)return;
+  pr.status=STAGES[i+1];
+  pr.workflow=pr.workflow||[];
+  pr.workflow.push({stage:pr.status,at:Date.now(),by:who(),note:note||''});
+  savePR(pr);audit('stage:'+pr.status,pr.number,note||'');
+}
+
+// ---------- UI state ----------
+var S={tab:'mission',prId:null,quoteOpen:null,draft:null};
+
+function css(){
+  if(document.getElementById('purproCss'))return;
+  var s=document.createElement('style');s.id='purproCss';
+  s.textContent='.pp-nav{display:flex;gap:5px;flex-wrap:wrap;margin:0 0 14px;}'+
+  '.pp-nav button{padding:6px 13px;font-size:12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;font-weight:700;}'+
+  '.pp-nav button.on{background:linear-gradient(135deg,#1d7a5f,#0c5b46);color:#fff;border-color:transparent;}'+
+  '.pp-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px;}'+
+  '.pp-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px;}'+
+  '.pp-kpi>div{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;}'+
+  '.pp-kpi .v{font-size:22px;font-weight:800;font-family:var(--mono);}'+
+  '.pp-kpi .l{font-size:10.5px;color:var(--text3);margin-top:2px;}'+
+  '.pp-pipe{display:flex;gap:4px;flex-wrap:wrap;margin:10px 0;}'+
+  '.pp-pipe span{font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--border);color:var(--text3);font-weight:700;}'+
+  '.pp-pipe span.done{background:rgba(46,125,90,.15);color:var(--ok);border-color:var(--ok);}'+
+  '.pp-pipe span.cur{background:var(--accent2);color:#fff;border-color:transparent;}'+
+  '.pp-tbl{width:100%;border-collapse:collapse;font-size:12px;}'+
+  '.pp-tbl th{text-align:left;padding:7px 9px;background:var(--surface3);font-size:10px;text-transform:uppercase;color:var(--text3);letter-spacing:.5px;}'+
+  '.pp-tbl td{padding:7px 9px;border-bottom:1px solid var(--border);vertical-align:top;}'+
+  '.pp-chip{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800;}'+
+  '.pp-in{width:100%;font-size:12px;padding:6px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);}';
+  document.head.appendChild(s);
+}
+function statusChip(st){
+  var c=st==='Completed'?'var(--ok)':st==='Draft'?'var(--text3)':/RFQ|Quotation|Sourcing/.test(st)?'var(--accent2)':/Receiving|Purchase Order/.test(st)?'var(--warn)':'var(--info)';
+  return '<span class="pp-chip" style="background:'+c+';color:#fff;">'+esc(st)+'</span>';
+}
+
+// ---------- render root ----------
+window.renderPurchPro=function(){
+  css();
+  var view=document.getElementById('view-acct_purch_pro');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-acct_purch_pro';(document.getElementById('appMain')||document.body).appendChild(view);}
+  var tabs=[['mission','🎯 Mission Control'],['prs','📝 Purchase Requests'],['rfqs','📨 RFQs'],['pos','📄 Purchase Orders'],['recv','📦 Receiving'],['invs','🧾 Invoices'],['score','🏭 Scorecard'],['analytics','📈 Analytics']];
+  var nav='<div class="pp-nav">'+tabs.map(function(t){return '<button class="'+(S.tab===t[0]?'on':'')+'" onclick="__PURPRO.tab(\''+t[0]+'\')">'+t[1]+'</button>';}).join('')+
+    '<div style="flex:1;"></div><button onclick="switchView(\'acct_purchasing\')" title="Quick comparison tools">↩ Quick tools</button></div>';
+  var body='';
+  try{
+    if(S.tab==='mission')body=rMission();
+    else if(S.tab==='prs')body=S.prId?rPRDetail():S.draft?rPRForm():rPRList();
+    else if(S.tab==='rfqs')body=rRFQList();
+    else if(S.tab==='pos')body=rPOList();
+    else if(S.tab==='recv')body=rRecvList();
+    else if(S.tab==='invs')body=rInvoices();
+    else if(S.tab==='score')body=rScorecard();
+    else if(S.tab==='analytics')body=rAnalytics();
+  }catch(e){body='<div class="pp-card" style="color:var(--danger);">Render error: '+esc(e.message)+'</div>';}
+  view.innerHTML='<div class="section-title">🛒 Purchasing Workspace <span style="font-size:11px;color:var(--text3);font-family:var(--mono);">13-stage workflow · ACC-PUR v1</span></div>'+nav+body;
+};
+
+// ---------- Screen 001 · Mission Control ----------
+function rMission(){
+  var prs=L(K.prs),rfqs=L(K.rfqs),pos=L(K.pos),invs=L(K.invs);
+  var open=prs.filter(function(p){return p.status!=='Completed';});
+  var cnt=function(st){return prs.filter(function(p){return p.status===st;}).length;};
+  var issued=pos.filter(function(p){return p.status!=='Draft';});
+  var kpi='<div class="pp-kpi">'+
+    [['Purchase Requests',prs.length,'open '+open.length],
+     ['Awaiting approval',cnt('Department Approval')+cnt('Approval'),'dept + award'],
+     ['RFQs',rfqs.length,'open '+rfqs.filter(function(r){return r.status==='Open';}).length],
+     ['Purchase Orders',pos.length,'issued '+issued.length],
+     ['Invoices',invs.length,'exceptions '+invs.filter(function(i){return i.matchStatus==='Exception';}).length],
+     ['Open value',money(open.reduce(function(a,p){return a+prTotal(p);},0)),'estimated'],
+    ].map(function(c){return '<div><div class="v">'+c[1]+'</div><div class="l">'+esc(c[0])+' · '+esc(String(c[2]))+'</div></div>';}).join('')+'</div>';
+  // Alerts
+  var alerts=[];
+  var td=today();
+  rfqs.forEach(function(r){if(r.status==='Open'&&r.closingDate&&r.closingDate<td)alerts.push(['⏰ RFQ '+r.number+' past closing date','rfqs']);});
+  pos.forEach(function(p){var pr=getPR(p.prId)||{};if(p.status==='Issued'&&pr.needBy&&pr.needBy<td)alerts.push(['🚚 PO '+p.number+' past required delivery date','pos']);});
+  invs.forEach(function(i){if(i.matchStatus==='Exception')alerts.push(['🧾 Invoice '+i.number+' has a match exception','invs']);});
+  open.forEach(function(p){if(p.needBy&&p.needBy<td)alerts.push(['📌 '+p.number+' still open past need-by date','prs']);});
+  var alertsHtml='<div class="pp-card"><div style="font-weight:800;font-size:12px;margin-bottom:8px;">🚨 Alerts ('+alerts.length+')</div>'+
+    (alerts.length?alerts.slice(0,10).map(function(a){return '<div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="__PURPRO.tab(\''+a[1]+'\')">'+esc(a[0])+'</div>';}).join(''):'<div style="color:var(--text3);font-size:12px;">All clear.</div>')+'</div>';
+  // Priority queue
+  var queue=open.slice().sort(function(a,b){return (a.needBy||'9999').localeCompare(b.needBy||'9999');}).slice(0,10);
+  var qHtml='<div class="pp-card"><div style="font-weight:800;font-size:12px;margin-bottom:8px;">📋 Priority queue</div>'+
+    (queue.length?'<table class="pp-tbl"><thead><tr><th>PR</th><th>Title</th><th>Stage</th><th>Need by</th><th>Value</th></tr></thead><tbody>'+
+      queue.map(function(p){return '<tr style="cursor:pointer;" onclick="__PURPRO.openPR(\''+p.id+'\')"><td style="font-family:var(--mono);">'+esc(p.number)+'</td><td>'+esc(p.title)+'</td><td>'+statusChip(p.status)+'</td><td style="font-family:var(--mono);">'+fdate(p.needBy)+'</td><td style="font-family:var(--mono);">'+money(prTotal(p))+'</td></tr>';}).join('')+
+      '</tbody></table>':'<div style="color:var(--text3);font-size:12px;">No open requests. <a href="javascript:void(0)" onclick="__PURPRO.newPR()" style="color:var(--accent);">Create the first one →</a></div>')+'</div>';
+  // Timeline
+  var tl=L(K.audit).slice(-12).reverse();
+  var tlHtml='<div class="pp-card"><div style="font-weight:800;font-size:12px;margin-bottom:8px;">🕐 Activity timeline</div>'+
+    (tl.length?tl.map(function(e){return '<div style="font-size:11px;padding:3px 0;border-bottom:1px solid var(--border);"><span style="font-family:var(--mono);color:var(--text3);">'+new Date(e.at).toISOString().slice(5,16).replace('T',' ')+'</span> · <b>'+esc(e.action)+'</b> '+esc(e.ref)+' <span style="color:var(--text3);">'+esc(e.by)+'</span></div>';}).join(''):'<div style="color:var(--text3);font-size:12px;">No activity yet.</div>')+'</div>';
+  return kpi+'<div style="display:grid;grid-template-columns:1.4fr 1fr;gap:12px;"><div>'+qHtml+tlHtml+'</div>'+alertsHtml+'</div>'+
+    '<div style="margin-top:4px;"><button class="btn btn-primary" onclick="__PURPRO.newPR()">➕ New Purchase Request</button></div>';
+}
+
+// ---------- Screen 002 · PR list + form ----------
+function rPRList(){
+  var prs=L(K.prs).slice().sort(function(a,b){return (b.createdAt||0)-(a.createdAt||0);});
+  return '<div style="margin-bottom:10px;"><button class="btn btn-primary" onclick="__PURPRO.newPR()">➕ New Purchase Request</button></div>'+
+    (prs.length?'<table class="pp-tbl"><thead><tr><th>PR</th><th>Title</th><th>Dept</th><th>Stage</th><th>Priority</th><th>Need by</th><th style="text-align:right;">Est. value</th></tr></thead><tbody>'+
+    prs.map(function(p){return '<tr style="cursor:pointer;" onclick="__PURPRO.openPR(\''+p.id+'\')"><td style="font-family:var(--mono);">'+esc(p.number)+'</td><td><b>'+esc(p.title)+'</b></td><td>'+esc(p.dept||'—')+'</td><td>'+statusChip(p.status)+'</td><td>'+esc(p.priority||'Normal')+'</td><td style="font-family:var(--mono);">'+fdate(p.needBy)+'</td><td style="text-align:right;font-family:var(--mono);">'+money(prTotal(p))+'</td></tr>';}).join('')+
+    '</tbody></table>':'<div class="pp-card" style="text-align:center;color:var(--text3);">No purchase requests yet.</div>');
+}
+function rPRForm(){
+  var d=S.draft;
+  var itemRow=function(it,i){
+    return '<tr>'+
+    '<td style="width:26%;"><input class="pp-in" placeholder="Item / description *" value="'+esc(it.desc||'')+'" onchange="__PURPRO.dif('+i+',\'desc\',this.value)"></td>'+
+    '<td style="width:10%;"><input class="pp-in" placeholder="Code" value="'+esc(it.code||'')+'" onchange="__PURPRO.dif('+i+',\'code\',this.value)"></td>'+
+    '<td style="width:8%;"><input class="pp-in" type="number" step="0.01" placeholder="Qty" value="'+esc(it.qty||'')+'" onchange="__PURPRO.dif('+i+',\'qty\',this.value)"></td>'+
+    '<td style="width:7%;"><input class="pp-in" placeholder="Unit" value="'+esc(it.unit||'')+'" onchange="__PURPRO.dif('+i+',\'unit\',this.value)"></td>'+
+    '<td style="width:10%;"><input class="pp-in" type="number" step="0.01" placeholder="Est ₱/u" value="'+esc(it.unitCost||'')+'" onchange="__PURPRO.dif('+i+',\'unitCost\',this.value)"></td>'+
+    '<td style="width:12%;"><input class="pp-in" placeholder="Brand" value="'+esc(it.brand||'')+'" onchange="__PURPRO.dif('+i+',\'brand\',this.value)"></td>'+
+    '<td style="width:12%;"><input class="pp-in" placeholder="Warehouse" value="'+esc(it.warehouse||'')+'" onchange="__PURPRO.dif('+i+',\'warehouse\',this.value)"></td>'+
+    '<td style="width:12%;"><input class="pp-in" placeholder="Remarks" value="'+esc(it.remarks||'')+'" onchange="__PURPRO.dif('+i+',\'remarks\',this.value)"></td>'+
+    '<td><button class="btn btn-outline" style="padding:3px 8px;font-size:10px;color:var(--danger);" onclick="__PURPRO.delItem('+i+')">✕</button></td></tr>';
+  };
+  return '<div class="pp-card"><div style="font-weight:800;margin-bottom:10px;">📝 New Purchase Request</div>'+
+    '<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px;">'+
+    '<div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:3px;">Title *</div><input class="pp-in" id="ppfTitle" maxlength="150" value="'+esc(d.title||'')+'" onchange="__PURPRO.df(\'title\',this.value)"></div>'+
+    '<div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:3px;">Department *</div><input class="pp-in" value="'+esc(d.dept||'')+'" onchange="__PURPRO.df(\'dept\',this.value)"></div>'+
+    '<div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:3px;">Project</div><input class="pp-in" value="'+esc(d.project||'')+'" onchange="__PURPRO.df(\'project\',this.value)"></div>'+
+    '<div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:3px;">Need by *</div><input class="pp-in" type="date" value="'+esc(d.needBy||'')+'" onchange="__PURPRO.df(\'needBy\',this.value)"></div>'+
+    '</div>'+
+    '<div style="display:grid;grid-template-columns:1fr 3fr;gap:8px;margin-bottom:10px;">'+
+    '<div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:3px;">Priority</div><select class="pp-in" onchange="__PURPRO.df(\'priority\',this.value)">'+['Normal','High','Urgent','Emergency'].map(function(x){return '<option'+(d.priority===x?' selected':'')+'>'+x+'</option>';}).join('')+'</select></div>'+
+    '<div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:3px;">Justification * (min 30 chars)</div><input class="pp-in" maxlength="3000" value="'+esc(d.justification||'')+'" onchange="__PURPRO.df(\'justification\',this.value)"></div>'+
+    '</div>'+
+    '<table class="pp-tbl"><thead><tr><th>Item *</th><th>Code</th><th>Qty *</th><th>Unit</th><th>Est ₱/u</th><th>Pref. brand</th><th>Warehouse</th><th>Remarks</th><th></th></tr></thead><tbody>'+
+    d.items.map(itemRow).join('')+'</tbody></table>'+
+    '<div style="margin-top:8px;display:flex;gap:8px;">'+
+    '<button class="btn btn-outline" onclick="__PURPRO.addItem()">➕ Add line</button>'+
+    '<div style="flex:1;"></div>'+
+    '<button class="btn btn-outline" onclick="__PURPRO.cancelDraft()">Cancel</button>'+
+    '<button class="btn btn-primary" onclick="__PURPRO.saveDraft()">💾 Save Draft</button>'+
+    '</div></div>';
+}
+
+// ---------- PR detail: pipeline + stage panel ----------
+function pipeline(pr){
+  var cur=stageIdx(pr);
+  return '<div class="pp-pipe">'+STAGES.map(function(st,i){
+    return '<span class="'+(i<cur?'done':i===cur?'cur':'')+'">'+(i<cur?'✓ ':'')+esc(st)+'</span>';
+  }).join('')+'</div>';
+}
+function itemsTable(items,withCost){
+  return '<table class="pp-tbl"><thead><tr><th>#</th><th>Item</th><th>Code</th><th style="text-align:right;">Qty</th><th>Unit</th>'+(withCost?'<th style="text-align:right;">₱/u</th><th style="text-align:right;">Total</th>':'')+'</tr></thead><tbody>'+
+    items.map(function(it,i){return '<tr><td>'+(i+1)+'</td><td><b>'+esc(it.desc)+'</b>'+(it.brand?'<div style="font-size:10px;color:var(--text3);">'+esc(it.brand)+'</div>':'')+'</td><td style="font-family:var(--mono);">'+esc(it.code||'—')+'</td><td style="text-align:right;font-family:var(--mono);">'+Number(it.qty||0)+'</td><td>'+esc(it.unit||'')+'</td>'+(withCost?'<td style="text-align:right;font-family:var(--mono);">'+money(it.unitCost)+'</td><td style="text-align:right;font-family:var(--mono);"><b>'+money(Number(it.qty||0)*Number(it.unitCost||0))+'</b></td>':'')+'</tr>';}).join('')+
+    '</tbody></table>';
+}
+function rPRDetail(){
+  var pr=getPR(S.prId);
+  if(!pr){S.prId=null;return rPRList();}
+  var head='<div class="pp-card"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">'+
+    '<div><span style="font-family:var(--mono);font-weight:800;color:var(--accent);">'+esc(pr.number)+'</span> · <b>'+esc(pr.title)+'</b> '+statusChip(pr.status)+
+    '<div style="font-size:11px;color:var(--text3);margin-top:3px;">'+esc(pr.dept||'')+(pr.project?' · '+esc(pr.project):'')+' · need by '+fdate(pr.needBy)+' · '+esc(pr.priority||'Normal')+' · est '+money(prTotal(pr))+' · by '+esc(pr.createdBy||'')+'</div></div>'+
+    '<button class="btn btn-outline" style="font-size:11px;" onclick="__PURPRO.backPR()">← All requests</button></div>'+pipeline(pr)+'</div>';
+  var stagePanel=rStage(pr);
+  var wf='<div class="pp-card"><div style="font-weight:800;font-size:12px;margin-bottom:6px;">🕐 Workflow history</div>'+
+    (pr.workflow||[]).slice().reverse().map(function(w){return '<div style="font-size:11px;padding:3px 0;border-bottom:1px solid var(--border);"><b>'+esc(w.stage)+'</b> · '+new Date(w.at).toISOString().slice(0,16).replace('T',' ')+' · '+esc(w.by)+(w.note?' — '+esc(w.note):'')+'</div>';}).join('')+'</div>';
+  return head+stagePanel+'<div class="pp-card">'+itemsTable(pr.items,true)+'</div>'+wf;
+}
+
+function actBtn(label,fn,primary){return '<button class="btn '+(primary?'btn-primary':'btn-outline')+'" style="font-size:12px;" onclick="'+fn+'">'+label+'</button>';}
+
+function rStage(pr){
+  var st=pr.status,h='<div class="pp-card"><div style="font-weight:800;margin-bottom:8px;">▶ Current stage: '+esc(st)+'</div>';
+  if(st==='Draft'){
+    h+='<p style="font-size:12px;color:var(--text2);">Review the request, then submit for AI validation.</p>'+actBtn('🚀 Submit','__PURPRO.submitPR(\''+pr.id+'\')',true);
+  }else if(st==='Submitted'){
+    h+='<p style="font-size:12px;color:var(--text2);">Submitted. Run Nexi\'s procurement analysis (Screen 003 — the AI gate).</p>'+actBtn('🤖 Run AI analysis','__PURPRO.runAI(\''+pr.id+'\')',true);
+  }else if(st==='AI Validation'){
+    h+=rAIPanel(pr);
+  }else if(st==='Department Approval'){
+    h+='<p style="font-size:12px;color:var(--text2);">Level-1 approval. Approver is recorded in the workflow log.</p>'+
+      actBtn('✅ Approve','__PURPRO.deptApprove(\''+pr.id+'\',true)',true)+' '+actBtn('❌ Reject to Draft','__PURPRO.deptApprove(\''+pr.id+'\',false)');
+  }else if(st==='Purchasing Review'){
+    h+='<p style="font-size:12px;color:var(--text2);">Purchasing assigns handling and confirms the request is procurement-ready.</p>'+actBtn('✅ Reviewed — proceed','__PURPRO.simpleAdvance(\''+pr.id+'\',\'Purchasing review complete\')',true);
+  }else if(st==='Inventory Verification'){
+    var stock=pr.items.map(function(it){var hint=(typeof _purchSosItemHint==='function')?_purchSosItemHint(it.desc||it.code):null;return '<div style="font-size:11.5px;padding:3px 0;">'+esc(it.desc)+': '+(hint?('SOS on-hand <b>'+hint.onHand+'</b>'+(hint.vendor?' · preferred '+esc(hint.vendor):'')):'<span style="color:var(--text3);">no SOS match</span>')+'</div>';}).join('');
+    h+='<p style="font-size:12px;color:var(--text2);">Fresh SOS check before contacting suppliers:</p>'+stock+'<div style="margin-top:8px;">'+actBtn('✅ Verified — proceed to sourcing','__PURPRO.simpleAdvance(\''+pr.id+'\',\'Inventory verified\')',true)+'</div>';
+  }else if(st==='Supplier Sourcing'){
+    h+=rSourcing(pr);
+  }else if(st==='RFQ'){
+    h+=rRFQPanel(pr);
+  }else if(st==='Quotation Evaluation'){
+    h+=rEvalPanel(pr);
+  }else if(st==='Approval'){
+    h+=rAwardPanel(pr);
+  }else if(st==='Purchase Order'){
+    h+=rPOPanel(pr);
+  }else if(st==='Receiving'){
+    h+=rGRNPanel(pr);
+  }else if(st==='Completed'){
+    h+='<p style="font-size:12px;color:var(--ok);font-weight:700;">✓ Procurement completed.</p>';
+  }
+  return h+'</div>';
+}
+
+// ---------- Screen 003 · AI analysis ----------
+function analyzePR(pr){
+  var hist=_purchLoadHist();
+  var others=L(K.prs).filter(function(p){return p.id!==pr.id&&p.status!=='Completed';});
+  var items=pr.items.map(function(it){
+    var q=(it.desc||'').toLowerCase();
+    var hint=(typeof _purchSosItemHint==='function')?_purchSosItemHint(it.desc||it.code):null;
+    var hh=hist.filter(function(x){return q&&(x.product||'').toLowerCase().indexOf(q)>=0&&Number(x.unitCost)>0;});
+    var prices=hh.map(function(x){return Number(x.unitCost);});
+    var avg=prices.length?prices.reduce(function(a,b){return a+b;},0)/prices.length:0;
+    var min=prices.length?Math.min.apply(null,prices):0;
+    var dup=others.find(function(p){return (p.items||[]).some(function(x){return (x.desc||'').toLowerCase()===q&&Math.abs(Number(x.qty||0)-Number(it.qty||0))<=Number(it.qty||0)*0.2;});});
+    var rec,conf,savings=0;
+    var onHand=hint?Number(hint.onHand||0):0;
+    if(onHand>=Number(it.qty||0)&&onHand>0){rec='No purchase — stock covers need ('+onHand+' on hand). Internal transfer.';conf=95;savings=Number(it.qty||0)*Number(it.unitCost||avg||0);}
+    else if(dup){rec='Possible duplicate of '+dup.number+' — review / merge before buying.';conf=75;}
+    else if(avg&&Number(it.unitCost||0)>avg*1.15){rec='Purchase, but negotiate — estimate is '+Math.round((it.unitCost/avg-1)*100)+'% above historical avg '+money(avg)+'.';conf=80;}
+    else {rec='Purchase required.';conf=88;}
+    return {desc:it.desc,qty:it.qty,onHand:onHand,histCount:hh.length,avg:avg,min:min,last:hh.length?hh[hh.length-1].unitCost:0,dup:dup?dup.number:null,rec:rec,conf:conf,savings:savings};
+  });
+  var allCovered=items.length>0&&items.every(function(i){return /No purchase/.test(i.rec);});
+  var overall=allCovered?'Purchase Not Required — inventory / transfers cover every line.':'Purchase Required — proceed to supplier sourcing.';
+  return {at:Date.now(),items:items,overall:overall,purchaseRequired:!allCovered,totalSavings:items.reduce(function(a,i){return a+(i.savings||0);},0)};
+}
+function rAIPanel(pr){
+  var a=pr.aiAnalysis;
+  if(!a)return '<p style="font-size:12px;">Analysis not run yet.</p>'+actBtn('🤖 Run AI analysis','__PURPRO.runAI(\''+pr.id+'\')',true);
+  var cards=a.items.map(function(i){
+    return '<div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;background:var(--surface2);">'+
+    '<b>'+esc(i.desc)+'</b> <span style="font-family:var(--mono);font-size:11px;color:var(--text3);">need '+i.qty+'</span>'+
+    '<div style="font-size:11.5px;margin-top:4px;">SOS on-hand: <b>'+i.onHand+'</b> · past buys: '+i.histCount+(i.avg?' · avg '+money(i.avg)+' · min '+money(i.min):'')+(i.dup?' · <span style="color:var(--warn);">dup: '+esc(i.dup)+'</span>':'')+'</div>'+
+    '<div style="font-size:12px;margin-top:5px;">→ <b>'+esc(i.rec)+'</b> <span class="pp-chip" style="background:var(--surface3);color:'+(i.conf>=85?'var(--ok)':'var(--warn)')+';">'+i.conf+'%</span>'+(i.savings?' · save '+money(i.savings):'')+'</div></div>';
+  }).join('');
+  return '<div style="padding:8px 10px;background:'+(a.purchaseRequired?'rgba(66,165,245,.08)':'rgba(46,125,90,.10)')+';border-left:3px solid '+(a.purchaseRequired?'var(--accent2)':'var(--ok)')+';border-radius:6px;font-size:12.5px;font-weight:700;margin-bottom:10px;">🤖 '+esc(a.overall)+(a.totalSavings?' · potential savings '+money(a.totalSavings):'')+'</div>'+cards+
+  '<div style="display:flex;gap:8px;margin-top:8px;">'+
+  actBtn(a.purchaseRequired?'✅ Accept — proceed to approval':'✅ Accept — close as not-required','__PURPRO.aiAccept(\''+pr.id+'\')',true)+
+  actBtn('✋ Override (justify)','__PURPRO.aiOverride(\''+pr.id+'\')')+
+  '</div>';
+}
+
+// ---------- Screen 004 · sourcing ----------
+function rSourcing(pr){
+  var est=prTotal(pr);
+  var firstDesc=(pr.items[0]||{}).desc||'';
+  var gathered=(typeof _purchGatherAllSuppliers==='function')?_purchGatherAllSuppliers(firstDesc):[];
+  var geo=(typeof _purchApplyRadius==='function')?_purchApplyRadius(gathered,est,null):{suppliers:gathered,radius:null,tier:{label:'—'}};
+  var list=geo.suppliers.slice(0,14);
+  S._sourcing=list; // module-state: survives the storage round-trip in createRFQ
+  var rows=list.map(function(s,i){
+    var ok=s.email||s.phone;
+    return '<tr style="'+(s.inRadius===false?'opacity:.45;':'')+'"><td><input type="checkbox" class="ppSrcPick" data-i="'+i+'"'+(ok?'':' disabled')+'></td>'+
+    '<td><b>'+esc(s.name)+'</b><div style="font-size:10px;color:var(--text3);">'+esc(s.contact||'')+'</div></td>'+
+    '<td style="font-family:var(--mono);font-size:11px;">'+esc(s.email||'—')+'</td>'+
+    '<td style="font-family:var(--mono);font-size:11px;">'+esc(s.phone||'—')+'</td>'+
+    '<td style="font-size:10px;">'+(s.hasProductHistory?'<span class="pp-chip" style="background:var(--ok);color:#fff;">HISTORY</span>':s.ordersCount?'<span class="pp-chip" style="background:var(--info);color:#fff;">EXISTING</span>':'<span class="pp-chip" style="background:var(--warn);color:#000;">NEW</span>')+(s.distanceKm!=null?' 📍'+_purchFmtKm(s.distanceKm):'')+'</td>'+
+    '<td style="font-size:10px;color:var(--text3);">'+(s.ordersCount?s.ordersCount+' orders · '+money(s.pastSpend):'—')+'</td></tr>';
+  }).join('');
+  return '<p style="font-size:12px;color:var(--text2);">Nexi found <b>'+list.length+'</b> candidates'+(geo.radius!=null?' · radius '+geo.radius+' km ('+esc(geo.tier.label||'')+')':'')+' · est. order '+money(est)+'. Pick suppliers for the RFQ (need contact info).</p>'+
+  '<table class="pp-tbl"><thead><tr><th></th><th>Supplier</th><th>Email</th><th>Phone</th><th>Tags</th><th>History</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+  '<div style="display:flex;gap:8px;margin-top:10px;align-items:center;">'+
+  '<label style="font-size:11px;">Closing date <input class="pp-in" type="date" id="ppRfqClose" style="width:140px;display:inline-block;" value="'+new Date(Date.now()+7*86400000).toISOString().slice(0,10)+'"></label>'+
+  actBtn('📨 Create RFQ with selected','__PURPRO.createRFQ(\''+pr.id+'\')',true)+'</div>';
+}
+
+// ---------- Screens 005-006 · RFQ + quotes ----------
+function rfqBody(pr){
+  var lines=pr.items.map(function(it,i){return (i+1)+'. '+it.desc+(it.code?' ['+it.code+']':'')+' — '+it.qty+' '+(it.unit||'');}).join('\n');
+  return 'Hello,\n\nWe request your best quotation for:\n\n'+lines+'\n\nRequired by: '+(pr.needBy||'-')+'\n\nPlease reply with unit prices, total, lead time (days), payment terms, and warranty.\n\nThank you,\n'+who()+'\nAteretPaz';
+}
+function rRFQPanel(pr){
+  var rfq=getRFQ(pr.rfqId);
+  if(!rfq)return '<p style="font-size:12px;color:var(--danger);">RFQ record missing.</p>';
+  var quoted=rfq.suppliers.filter(function(s){return s.quote;}).length;
+  var rows=rfq.suppliers.map(function(s,i){
+    var q=s.quote;
+    var open=S.quoteOpen===rfq.id+':'+i;
+    var quoteForm=open?'<tr><td colspan="6" style="background:var(--surface2);"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:end;padding:4px;">'+
+      '<label style="font-size:10px;">Total ₱<input class="pp-in" type="number" step="0.01" id="ppQt" style="width:110px;" value="'+esc(q?q.total:'')+'"></label>'+
+      '<label style="font-size:10px;">Lead days<input class="pp-in" type="number" id="ppQd" style="width:80px;" value="'+esc(q?q.deliveryDays:'')+'"></label>'+
+      '<label style="font-size:10px;">Terms<input class="pp-in" id="ppQp" style="width:120px;" value="'+esc(q?q.payTerms:'')+'"></label>'+
+      '<label style="font-size:10px;">Warranty<input class="pp-in" id="ppQw" style="width:110px;" value="'+esc(q?q.warranty:'')+'"></label>'+
+      actBtn('💾 Save quote','__PURPRO.saveQuote(\''+rfq.id+'\','+i+')',true)+actBtn('✕','__PURPRO.quoteToggle(null)')+'</div></td></tr>':'';
+    return '<tr><td><b>'+esc(s.name)+'</b></td>'+
+    '<td style="font-family:var(--mono);font-size:11px;">'+esc(s.email||s.phone||'—')+'</td>'+
+    '<td>'+(q?'<span class="pp-chip" style="background:var(--ok);color:#fff;">QUOTED '+money(q.total)+'</span>':s.sentAt?'<span class="pp-chip" style="background:var(--info);color:#fff;">SENT</span>':'<span class="pp-chip" style="background:var(--surface3);color:var(--text3);">PENDING</span>')+'</td>'+
+    '<td style="font-size:11px;">'+(s.sentAt?new Date(s.sentAt).toISOString().slice(5,16).replace('T',' '):'—')+'</td>'+
+    '<td style="white-space:nowrap;">'+(s.email?actBtn('✉ Email','__PURPRO.sendRFQ(\''+rfq.id+'\','+i+',\'email\')'):'')+' '+(s.phone?actBtn('📱 SMS','__PURPRO.sendRFQ(\''+rfq.id+'\','+i+',\'sms\')'):'')+'</td>'+
+    '<td>'+actBtn(q?'✏ Edit quote':'➕ Log quote','__PURPRO.quoteToggle(\''+rfq.id+':'+i+'\')')+'</td></tr>'+quoteForm;
+  }).join('');
+  return '<p style="font-size:12px;color:var(--text2);"><b>'+esc(rfq.number)+'</b> · closing '+fdate(rfq.closingDate)+' · '+quoted+'/'+rfq.suppliers.length+' quotes in.</p>'+
+    '<table class="pp-tbl"><thead><tr><th>Supplier</th><th>Contact</th><th>Status</th><th>Sent</th><th>Send</th><th>Quote</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    '<div style="margin-top:10px;">'+(quoted>0?actBtn('➡ Proceed to evaluation ('+quoted+' quotes)','__PURPRO.simpleAdvance(\''+pr.id+'\',\'Quotes received: '+quoted+'\')',true):'<span style="font-size:11px;color:var(--text3);">Log at least one quote to proceed.</span>')+'</div>';
+}
+function rEvalPanel(pr){
+  var rfq=getRFQ(pr.rfqId);
+  var qs=rfq?rfq.suppliers.filter(function(s){return s.quote;}):[];
+  if(!qs.length)return '<p style="font-size:12px;color:var(--danger);">No quotes.</p>';
+  var min=Math.min.apply(null,qs.map(function(s){return Number(s.quote.total);}));
+  var rows=qs.map(function(s){
+    var q=s.quote,cheap=Number(q.total)===min;
+    return '<tr'+(cheap?' style="background:rgba(46,125,90,.08);"':'')+'><td><b>'+esc(s.name)+'</b>'+(cheap?' <span class="pp-chip" style="background:var(--warn);color:#000;">💰 CHEAPEST</span>':'')+'</td>'+
+    '<td style="text-align:right;font-family:var(--mono);"><b>'+money(q.total)+'</b></td>'+
+    '<td style="text-align:right;font-family:var(--mono);">'+(q.deliveryDays||'—')+' d</td>'+
+    '<td>'+esc(q.payTerms||'—')+'</td><td>'+esc(q.warranty||'—')+'</td>'+
+    '<td style="font-family:var(--mono);font-size:11px;">'+new Date(q.at).toISOString().slice(5,10)+'</td></tr>';
+  }).join('');
+  return '<p style="font-size:12px;color:var(--text2);">Side-by-side evaluation. Cheapest is highlighted; the award decision is the next stage.</p>'+
+    '<table class="pp-tbl"><thead><tr><th>Supplier</th><th style="text-align:right;">Total</th><th style="text-align:right;">Lead</th><th>Terms</th><th>Warranty</th><th>Quoted</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    '<div style="margin-top:10px;">'+actBtn('➡ Proceed to award','__PURPRO.simpleAdvance(\''+pr.id+'\',\'Evaluation complete\')',true)+'</div>';
+}
+
+// ---------- Screen 008 · award ----------
+function rAwardPanel(pr){
+  var rfq=getRFQ(pr.rfqId);
+  var qs=rfq?rfq.suppliers.filter(function(s){return s.quote;}):[];
+  if(!qs.length)return '<p style="font-size:12px;color:var(--danger);">No quotes to award.</p>';
+  var sorted=qs.slice().sort(function(a,b){return Number(a.quote.total)-Number(b.quote.total);});
+  var recName=sorted[0].name;
+  var opts=qs.map(function(s){return '<option value="'+esc(s.name)+'"'+(s.name===recName?' selected':'')+'>'+esc(s.name)+' — '+money(s.quote.total)+(s.name===recName?' (recommended)':'')+'</option>';}).join('');
+  var reason='Lowest total '+money(sorted[0].quote.total)+(sorted.length>1?' · saves '+money(Number(sorted[1].quote.total)-Number(sorted[0].quote.total))+' vs next':'')+(sorted[0].quote.deliveryDays?' · lead '+sorted[0].quote.deliveryDays+' d':'');
+  return '<div style="padding:8px 10px;background:rgba(46,125,90,.10);border-left:3px solid var(--ok);border-radius:6px;font-size:12.5px;margin-bottom:10px;"><b>🤖 Nexi recommends: '+esc(recName)+'</b><div style="font-size:11.5px;margin-top:2px;">'+esc(reason)+'</div></div>'+
+    '<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">'+
+    '<label style="font-size:11px;">Award to<select class="pp-in" id="ppAwardSel" style="min-width:260px;">'+opts+'</select></label>'+
+    actBtn('🏅 Approve award → generate PO','__PURPRO.award(\''+pr.id+'\',\''+esc(recName).replace(/'/g,'')+'\')',true)+'</div>'+
+    '<div style="font-size:10.5px;color:var(--text3);margin-top:6px;">Choosing a supplier other than the recommendation will require a written justification (recorded permanently).</div>';
+}
+
+// ---------- Screen 009 · PO ----------
+function rPOPanel(pr){
+  var po=getPO(pr.poId);
+  if(!po)return '<p style="font-size:12px;color:var(--danger);">PO record missing.</p>';
+  var head='<p style="font-size:12px;"><b style="font-family:var(--mono);color:var(--accent);">'+esc(po.number)+'</b> · '+esc(po.supplier)+' · total <b>'+money(po.total)+'</b> · status <b>'+esc(po.status)+'</b>'+(po.revisions&&po.revisions.length?' · rev '+po.revisions.length:'')+'</p>';
+  if(po.status==='Draft'){
+    return head+'<p style="font-size:11.5px;color:var(--text2);">Issuing makes the PO an official company obligation. It becomes immutable — later changes create amendments.</p>'+
+      actBtn('📤 Issue PO','__PURPRO.issuePO(\''+pr.id+'\')',true);
+  }
+  var mailto='mailto:'+encodeURIComponent(po.supplierEmail||'')+'?subject='+encodeURIComponent('Purchase Order '+po.number)+'&body='+encodeURIComponent('Please find our purchase order '+po.number+' — total '+po.total+'. Items:\n'+po.items.map(function(it,i){return (i+1)+'. '+it.desc+' — '+it.qty+' '+(it.unit||'')+' @ '+it.unitCost;}).join('\n'));
+  return head+'<div style="display:flex;gap:8px;flex-wrap:wrap;">'+
+    (po.supplierEmail?'<a class="btn btn-outline" style="font-size:12px;" href="'+mailto+'">✉ Email PO to supplier</a>':'')+
+    actBtn('📝 Amendment','__PURPRO.amendPO(\''+pr.id+'\')')+
+    actBtn('➡ Move to receiving','__PURPRO.simpleAdvance(\''+pr.id+'\',\'PO issued — awaiting delivery\')',true)+'</div>'+
+    ((po.revisions||[]).length?'<div style="margin-top:8px;font-size:11px;color:var(--text3);">'+(po.revisions||[]).map(function(r,i){return 'Rev '+(i+1)+': '+esc(r.reason)+' ('+esc(r.by)+')';}).join('<br>')+'</div>':'');
+}
+
+// ---------- Screen 010 · GRN ----------
+function rGRNPanel(pr){
+  var po=getPO(pr.poId);
+  if(!po)return '<p style="font-size:12px;color:var(--danger);">PO missing.</p>';
+  var grns=L(K.grns).filter(function(g){return g.poId===po.id;});
+  var recvd={};grns.forEach(function(g){(g.lines||[]).forEach(function(l){recvd[l.line]=(recvd[l.line]||0)+Number(l.accepted||0);});});
+  var rows=po.items.map(function(it,i){
+    var got=recvd[i]||0,remaining=Math.max(0,Number(it.qty)-got);
+    return '<tr><td>'+esc(it.desc)+'</td><td style="text-align:right;font-family:var(--mono);">'+it.qty+'</td>'+
+    '<td style="text-align:right;font-family:var(--mono);color:var(--ok);">'+got+'</td>'+
+    '<td style="text-align:right;font-family:var(--mono);'+(remaining>0?'color:var(--warn);':'')+'">'+remaining+'</td>'+
+    '<td><input class="pp-in" type="number" min="0" step="0.01" style="width:80px;" id="ppGacc'+i+'" placeholder="accept"></td>'+
+    '<td><input class="pp-in" type="number" min="0" step="0.01" style="width:80px;" id="ppGrej'+i+'" placeholder="reject"></td></tr>';
+  }).join('');
+  var fully=po.items.every(function(it,i){return (recvd[i]||0)>=Number(it.qty);});
+  var prior=grns.length?'<div style="font-size:11px;color:var(--text3);margin-top:6px;">'+grns.map(function(g){return esc(g.number)+' · '+fdate(g.date)+' · '+esc(g.receiver);}).join('<br>')+'</div>':'';
+  return '<p style="font-size:12px;color:var(--text2);">Receiving is not acceptance — enter accepted and rejected quantities per line. Accepted lines post to Purchase History.</p>'+
+    '<table class="pp-tbl"><thead><tr><th>Item</th><th style="text-align:right;">Ordered</th><th style="text-align:right;">Accepted so far</th><th style="text-align:right;">Remaining</th><th>Accept now</th><th>Reject now</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">'+actBtn('📦 Record GRN','__PURPRO.recordGRN(\''+pr.id+'\')',true)+
+    (fully?actBtn('✅ Complete procurement','__PURPRO.completePR(\''+pr.id+'\')',true):'<span style="font-size:11px;color:var(--text3);align-self:center;">Complete unlocks when all lines fully accepted (or use it anyway with confirmation).</span>'+actBtn('Complete anyway','__PURPRO.completePR(\''+pr.id+'\')'))+'</div>'+prior;
+}
+
+// ---------- lists: RFQs / POs / GRNs ----------
+function rRFQList(){
+  var rfqs=L(K.rfqs).slice().reverse();
+  return rfqs.length?'<table class="pp-tbl"><thead><tr><th>RFQ</th><th>PR</th><th>Suppliers</th><th>Quotes</th><th>Closing</th><th>Status</th></tr></thead><tbody>'+
+    rfqs.map(function(r){var pr=getPR(r.prId)||{};return '<tr style="cursor:pointer;" onclick="__PURPRO.openPR(\''+r.prId+'\')"><td style="font-family:var(--mono);">'+esc(r.number)+'</td><td>'+esc(pr.number||'')+' '+esc(pr.title||'')+'</td><td>'+r.suppliers.length+'</td><td>'+r.suppliers.filter(function(s){return s.quote;}).length+'</td><td style="font-family:var(--mono);">'+fdate(r.closingDate)+'</td><td>'+esc(r.status)+'</td></tr>';}).join('')+
+    '</tbody></table>':'<div class="pp-card" style="text-align:center;color:var(--text3);">No RFQs yet — they are created from a PR at the Supplier Sourcing stage.</div>';
+}
+function rPOList(){
+  var pos=L(K.pos).slice().reverse();
+  return pos.length?'<table class="pp-tbl"><thead><tr><th>PO</th><th>Supplier</th><th>PR</th><th style="text-align:right;">Total</th><th>Status</th><th>Issued</th></tr></thead><tbody>'+
+    pos.map(function(p){var pr=getPR(p.prId)||{};return '<tr style="cursor:pointer;" onclick="__PURPRO.openPR(\''+p.prId+'\')"><td style="font-family:var(--mono);">'+esc(p.number)+'</td><td><b>'+esc(p.supplier)+'</b></td><td>'+esc(pr.number||'')+'</td><td style="text-align:right;font-family:var(--mono);">'+money(p.total)+'</td><td>'+esc(p.status)+'</td><td style="font-family:var(--mono);font-size:11px;">'+(p.issuedAt?new Date(p.issuedAt).toISOString().slice(0,10):'—')+'</td></tr>';}).join('')+
+    '</tbody></table>':'<div class="pp-card" style="text-align:center;color:var(--text3);">No purchase orders yet — generated at the Award stage.</div>';
+}
+function rRecvList(){
+  var grns=L(K.grns).slice().reverse();
+  return grns.length?'<table class="pp-tbl"><thead><tr><th>GRN</th><th>PO</th><th>Date</th><th>Receiver</th><th style="text-align:right;">Accepted</th><th style="text-align:right;">Rejected</th></tr></thead><tbody>'+
+    grns.map(function(g){var po=getPO(g.poId)||{};var acc=(g.lines||[]).reduce(function(a,l){return a+Number(l.accepted||0);},0);var rej=(g.lines||[]).reduce(function(a,l){return a+Number(l.rejected||0);},0);return '<tr style="cursor:pointer;" onclick="__PURPRO.openPR(\''+(po.prId||'')+'\')"><td style="font-family:var(--mono);">'+esc(g.number)+'</td><td style="font-family:var(--mono);">'+esc(po.number||'')+'</td><td style="font-family:var(--mono);">'+fdate(g.date)+'</td><td>'+esc(g.receiver)+'</td><td style="text-align:right;font-family:var(--mono);color:var(--ok);">'+acc+'</td><td style="text-align:right;font-family:var(--mono);color:var(--danger);">'+rej+'</td></tr>';}).join('')+
+    '</tbody></table>':'<div class="pp-card" style="text-align:center;color:var(--text3);">No goods receipts yet — recorded at the Receiving stage of a PR.</div>';
+}
+
+// ---------- Screen 011 · invoices / 3-way match ----------
+function matchInvoice(inv){
+  var po=getPO(inv.poId);
+  if(!po)return 'Exception';
+  var poTotal=Number(po.total||0);
+  var grns=L(K.grns).filter(function(g){return g.poId===po.id;});
+  var accValue=0;
+  grns.forEach(function(g){(g.lines||[]).forEach(function(l){var it=po.items[l.line]||{};accValue+=Number(l.accepted||0)*Number(it.unitCost||0);});});
+  var amt=Number(inv.amount||0);
+  if(Math.abs(amt-poTotal)<=poTotal*PRICE_TOL){
+    return accValue>=amt*(1-QTY_TOL)?'Matched':'Waiting GRN';
+  }
+  return 'Exception';
+}
+function rInvoices(){
+  var invs=L(K.invs).slice().reverse();
+  var pos=L(K.pos).filter(function(p){return p.status!=='Draft';});
+  var form='<div class="pp-card"><div style="font-weight:800;font-size:12px;margin-bottom:8px;">➕ Log supplier invoice</div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">'+
+    '<label style="font-size:10px;">PO<select class="pp-in" id="ppInvPo" style="min-width:220px;">'+pos.map(function(p){return '<option value="'+p.id+'">'+esc(p.number)+' · '+esc(p.supplier)+' · '+money(p.total)+'</option>';}).join('')+'</select></label>'+
+    '<label style="font-size:10px;">Invoice #<input class="pp-in" id="ppInvNum" style="width:140px;"></label>'+
+    '<label style="font-size:10px;">Date<input class="pp-in" type="date" id="ppInvDate" style="width:140px;" value="'+today()+'"></label>'+
+    '<label style="font-size:10px;">Amount ₱<input class="pp-in" type="number" step="0.01" id="ppInvAmt" style="width:130px;"></label>'+
+    actBtn('💾 Log & match','__PURPRO.addInvoice()',true)+'</div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-top:5px;">Three-way match: PO ±'+(PRICE_TOL*100)+'% price tolerance · GRN coverage ±'+(QTY_TOL*100)+'%. Exceptions block approval until resolved.</div></div>';
+  var rows=invs.map(function(inv){
+    var po=getPO(inv.poId)||{};
+    var c=inv.matchStatus==='Matched'?'var(--ok)':inv.matchStatus==='Exception'?'var(--danger)':'var(--warn)';
+    return '<tr><td style="font-family:var(--mono);">'+esc(inv.number)+'</td><td>'+esc(po.number||'')+' · '+esc(po.supplier||'')+'</td>'+
+    '<td style="font-family:var(--mono);">'+fdate(inv.date)+'</td><td style="text-align:right;font-family:var(--mono);">'+money(inv.amount)+'</td>'+
+    '<td><span class="pp-chip" style="background:'+c+';color:#fff;">'+esc(inv.matchStatus)+'</span></td>'+
+    '<td>'+esc(inv.status)+'</td>'+
+    '<td style="white-space:nowrap;">'+(inv.status!=='Approved'?(inv.matchStatus==='Matched'?actBtn('✅ Approve','__PURPRO.approveInvoice(\''+inv.id+'\',false)',true):actBtn('⚠ Force approve','__PURPRO.approveInvoice(\''+inv.id+'\',true)')):'')+' '+actBtn('↻','__PURPRO.rematch(\''+inv.id+'\')')+'</td></tr>';
+  }).join('');
+  return form+(invs.length?'<table class="pp-tbl"><thead><tr><th>Invoice</th><th>PO · Supplier</th><th>Date</th><th style="text-align:right;">Amount</th><th>Match</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>':'<div class="pp-card" style="text-align:center;color:var(--text3);">No invoices logged.</div>');
+}
+
+// ---------- Screen 012 · scorecard ----------
+function rScorecard(){
+  var pos=L(K.pos).filter(function(p){return p.status!=='Draft';});
+  var grns=L(K.grns),rfqs=L(K.rfqs);
+  var by={};
+  pos.forEach(function(p){
+    var k=p.supplier;by[k]=by[k]||{name:k,orders:0,spend:0,onTime:0,onTimeN:0,acc:0,rej:0,sent:0,quoted:0};
+    by[k].orders++;by[k].spend+=Number(p.total||0);
+    var pr=getPR(p.prId)||{};
+    var gs=grns.filter(function(g){return g.poId===p.id;});
+    gs.forEach(function(g){
+      by[k].onTimeN++;if(!pr.needBy||g.date<=pr.needBy)by[k].onTime++;
+      (g.lines||[]).forEach(function(l){by[k].acc+=Number(l.accepted||0);by[k].rej+=Number(l.rejected||0);});
+    });
+  });
+  rfqs.forEach(function(r){r.suppliers.forEach(function(s){var k=s.name;by[k]=by[k]||{name:k,orders:0,spend:0,onTime:0,onTimeN:0,acc:0,rej:0,sent:0,quoted:0};if(s.sentAt)by[k].sent++;if(s.quote)by[k].quoted++;});});
+  var list=Object.values(by).map(function(s){
+    s.onTimePct=s.onTimeN?Math.round(s.onTime/s.onTimeN*100):null;
+    s.accPct=(s.acc+s.rej)>0?Math.round(s.acc/(s.acc+s.rej)*100):null;
+    s.replyPct=s.sent?Math.round(s.quoted/s.sent*100):null;
+    var parts=[],w=[];
+    if(s.onTimePct!=null){parts.push(s.onTimePct*0.35);w.push(0.35);}
+    if(s.accPct!=null){parts.push(s.accPct*0.35);w.push(0.35);}
+    if(s.replyPct!=null){parts.push(s.replyPct*0.30);w.push(0.30);}
+    var tw=w.reduce(function(a,b){return a+b;},0);
+    s.score=tw?Math.round(parts.reduce(function(a,b){return a+b;},0)/tw):null;
+    return s;
+  }).sort(function(a,b){return (b.score||0)-(a.score||0);});
+  if(!list.length)return '<div class="pp-card" style="text-align:center;color:var(--text3);">Scorecard builds itself from POs, deliveries and RFQ replies — complete a procurement to see it.</div>';
+  return '<p style="font-size:11.5px;color:var(--text3);">System-generated from transactions — scores cannot be edited manually. Weights: on-time 35% · quality accept 35% · RFQ reply 30%.</p>'+
+    '<table class="pp-tbl"><thead><tr><th>Supplier</th><th style="text-align:right;">Score</th><th style="text-align:right;">On-time</th><th style="text-align:right;">Accept rate</th><th style="text-align:right;">Reply rate</th><th style="text-align:right;">Orders</th><th style="text-align:right;">Spend</th></tr></thead><tbody>'+
+    list.map(function(s){var sc=s.score;var c=sc==null?'var(--text3)':sc>=85?'var(--ok)':sc>=60?'var(--warn)':'var(--danger)';
+      return '<tr><td><b>'+esc(s.name)+'</b></td><td style="text-align:right;"><span class="pp-chip" style="background:'+c+';color:#fff;">'+(sc==null?'—':sc)+'</span></td>'+
+      '<td style="text-align:right;font-family:var(--mono);">'+(s.onTimePct==null?'—':s.onTimePct+'%')+'</td>'+
+      '<td style="text-align:right;font-family:var(--mono);">'+(s.accPct==null?'—':s.accPct+'%')+'</td>'+
+      '<td style="text-align:right;font-family:var(--mono);">'+(s.replyPct==null?'—':s.replyPct+'%')+'</td>'+
+      '<td style="text-align:right;font-family:var(--mono);">'+s.orders+'</td>'+
+      '<td style="text-align:right;font-family:var(--mono);">'+money(s.spend)+'</td></tr>';}).join('')+'</tbody></table>';
+}
+
+// ---------- Screen 013 · analytics ----------
+function rAnalytics(){
+  var prs=L(K.prs),pos=L(K.pos).filter(function(p){return p.status!=='Draft';}),rfqs=L(K.rfqs);
+  var spend=pos.reduce(function(a,p){return a+Number(p.total||0);},0);
+  var cycles=prs.filter(function(p){return p.poId&&getPO(p.poId)&&getPO(p.poId).issuedAt;}).map(function(p){return (getPO(p.poId).issuedAt-p.createdAt)/86400000;});
+  var avgCycle=cycles.length?(cycles.reduce(function(a,b){return a+b;},0)/cycles.length).toFixed(1):'—';
+  var savings=0;
+  rfqs.forEach(function(r){
+    var qs=r.suppliers.filter(function(s){return s.quote;}).map(function(s){return Number(s.quote.total);});
+    if(qs.length>=2&&r.awardedTotal!=null)savings+=Math.max.apply(null,qs)-Number(r.awardedTotal);
+  });
+  // monthly spend last 6 months
+  var months={};
+  pos.forEach(function(p){if(!p.issuedAt)return;var m=new Date(p.issuedAt).toISOString().slice(0,7);months[m]=(months[m]||0)+Number(p.total||0);});
+  var keys=Object.keys(months).sort().slice(-6);
+  var mx=Math.max.apply(null,keys.map(function(k){return months[k];}).concat([1]));
+  var bars=keys.map(function(k){var v=months[k];return '<div style="display:flex;align-items:center;gap:8px;font-size:11px;margin-bottom:4px;"><span style="font-family:var(--mono);width:60px;">'+k+'</span><div style="flex:1;background:var(--surface2);border-radius:4px;height:14px;"><div style="width:'+Math.round(v/mx*100)+'%;height:100%;background:linear-gradient(90deg,#1d7a5f,#2ea77f);border-radius:4px;"></div></div><span style="font-family:var(--mono);min-width:90px;text-align:right;">'+money(v)+'</span></div>';}).join('');
+  var top={};pos.forEach(function(p){top[p.supplier]=(top[p.supplier]||0)+Number(p.total||0);});
+  var topList=Object.keys(top).map(function(k){return [k,top[k]];}).sort(function(a,b){return b[1]-a[1];}).slice(0,8);
+  return '<div class="pp-kpi">'+
+    [['Total spend',money(spend)],['POs issued',pos.length],['Avg cycle (days)',avgCycle],['Negotiation savings',money(savings)],['Open PRs',prs.filter(function(p){return p.status!=='Completed';}).length],['Completed',prs.filter(function(p){return p.status==='Completed';}).length]]
+    .map(function(c){return '<div><div class="v">'+c[1]+'</div><div class="l">'+esc(c[0])+'</div></div>';}).join('')+'</div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'+
+    '<div class="pp-card"><div style="font-weight:800;font-size:12px;margin-bottom:8px;">📅 Monthly spend</div>'+(bars||'<div style="color:var(--text3);font-size:12px;">No issued POs yet.</div>')+'</div>'+
+    '<div class="pp-card"><div style="font-weight:800;font-size:12px;margin-bottom:8px;">🏭 Top suppliers by spend</div>'+
+    (topList.length?topList.map(function(t){return '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border);"><span>'+esc(t[0])+'</span><span style="font-family:var(--mono);">'+money(t[1])+'</span></div>';}).join(''):'<div style="color:var(--text3);font-size:12px;">—</div>')+'</div></div>';
+}
+
+// ---------- controller ----------
+window.__PURPRO={
+  tab:function(t){S.tab=t;S.prId=null;S.draft=null;renderPurchPro();},
+  openPR:function(id){if(!id)return;S.tab='prs';S.prId=id;S.draft=null;renderPurchPro();},
+  backPR:function(){S.prId=null;renderPurchPro();},
+  newPR:function(){S.tab='prs';S.prId=null;S.draft={title:'',dept:'',project:'',needBy:'',priority:'Normal',justification:'',items:[{}]};renderPurchPro();},
+  df:function(f,v){if(S.draft)S.draft[f]=v;},
+  dif:function(i,f,v){if(S.draft&&S.draft.items[i])S.draft.items[i][f]=v;},
+  addItem:function(){S.draft.items.push({});renderPurchPro();},
+  delItem:function(i){S.draft.items.splice(i,1);if(!S.draft.items.length)S.draft.items.push({});renderPurchPro();},
+  cancelDraft:function(){S.draft=null;renderPurchPro();},
+  saveDraft:function(){
+    var d=S.draft;
+    if(!d.title.trim()){alert('Title is required.');return;}
+    if(!d.dept.trim()){alert('Department is required.');return;}
+    if(!d.needBy){alert('Need-by date is required.');return;}
+    if((d.justification||'').trim().length<30){alert('Justification must be at least 30 characters.');return;}
+    var items=d.items.filter(function(it){return (it.desc||'').trim()&&Number(it.qty)>0;});
+    if(!items.length){alert('At least one line item with description and quantity.');return;}
+    var pr={id:uid('pr'),number:num('PR'),title:d.title.trim(),dept:d.dept.trim(),project:(d.project||'').trim(),needBy:d.needBy,priority:d.priority||'Normal',justification:d.justification.trim(),
+      items:items.map(function(it){return {desc:(it.desc||'').trim(),code:(it.code||'').trim(),qty:Number(it.qty),unit:(it.unit||'').trim(),unitCost:Number(it.unitCost||0),brand:(it.brand||'').trim(),warehouse:(it.warehouse||'').trim(),remarks:(it.remarks||'').trim()};}),
+      status:'Draft',createdBy:who(),createdAt:Date.now(),revision:1,workflow:[{stage:'Draft',at:Date.now(),by:who(),note:'created'}],overrides:[]};
+    savePR(pr);audit('pr:create',pr.number,pr.title);toast('Created '+pr.number);
+    S.draft=null;S.prId=pr.id;renderPurchPro();
+  },
+  submitPR:function(id){var pr=getPR(id);if(!pr)return;advance(pr,'Submitted by '+who());toast(pr.number+' submitted');renderPurchPro();},
+  runAI:function(id){
+    var pr=getPR(id);if(!pr)return;
+    if(pr.status==='Submitted')advance(pr,'AI analysis started');
+    pr.aiAnalysis=analyzePR(pr);savePR(pr);audit('pr:ai',pr.number,pr.aiAnalysis.overall);
+    renderPurchPro();
+  },
+  aiAccept:function(id){
+    var pr=getPR(id);if(!pr||!pr.aiAnalysis)return;
+    if(pr.aiAnalysis.purchaseRequired){advance(pr,'AI accepted: purchase required');}
+    else{pr.status='Completed';pr.workflow.push({stage:'Completed',at:Date.now(),by:who(),note:'Closed — AI: purchase not required (stock/transfer covers need)'});savePR(pr);audit('pr:closed-no-purchase',pr.number,'');}
+    toast('Recorded');renderPurchPro();
+  },
+  aiOverride:function(id){
+    var pr=getPR(id);if(!pr)return;
+    var reason=prompt('Override justification (required, recorded permanently):');
+    if(!reason||!reason.trim())return;
+    pr.overrides.push({at:Date.now(),by:who(),stage:pr.status,reason:reason.trim()});
+    advance(pr,'OVERRIDE: '+reason.trim());
+    audit('pr:override',pr.number,reason.trim());toast('Override recorded');renderPurchPro();
+  },
+  deptApprove:function(id,ok){
+    var pr=getPR(id);if(!pr)return;
+    if(ok){advance(pr,'Approved by '+who());}
+    else{var why=prompt('Rejection reason:');if(why===null)return;pr.status='Draft';pr.workflow.push({stage:'Draft',at:Date.now(),by:who(),note:'REJECTED: '+(why||'')});savePR(pr);audit('pr:rejected',pr.number,why||'');}
+    renderPurchPro();
+  },
+  simpleAdvance:function(id,note){var pr=getPR(id);if(!pr)return;advance(pr,note);renderPurchPro();},
+  createRFQ:function(prId){
+    var pr=getPR(prId);if(!pr||!S._sourcing)return;
+    var picks=[].slice.call(document.querySelectorAll('.ppSrcPick:checked')).map(function(b){return S._sourcing[Number(b.dataset.i)];}).filter(Boolean);
+    if(!picks.length){alert('Pick at least one supplier.');return;}
+    var closing=(document.getElementById('ppRfqClose')||{}).value||new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+    var rfq={id:uid('rfq'),number:num('RFQ'),prId:pr.id,status:'Open',closingDate:closing,createdAt:Date.now(),
+      suppliers:picks.map(function(s){return {name:s.name,email:s.email||'',phone:s.phone||'',sentAt:null,channel:null,quote:null};})};
+    saveRFQ(rfq);pr.rfqId=rfq.id;advance(pr,'RFQ '+rfq.number+' created · '+picks.length+' suppliers');
+    audit('rfq:create',rfq.number,picks.map(function(s){return s.name;}).join(', '));
+    toast(rfq.number+' created');renderPurchPro();
+  },
+  sendRFQ:function(rfqId,idx,channel){
+    var rfq=getRFQ(rfqId);if(!rfq)return;
+    var s=rfq.suppliers[idx];var pr=getPR(rfq.prId);if(!s||!pr)return;
+    var subject='RFQ '+rfq.number+' · '+pr.title;
+    var bodyTxt=rfqBody(pr);
+    var finish=function(delivery){
+      s.sentAt=Date.now();s.channel=channel;saveRFQ(rfq);
+      try{
+        var o=_purchLoadOutreach();
+        o.push({id:uid('rfqmsg'),sentAt:Date.now(),product:pr.title,supplier:s.name,supplierEmail:s.email,supplierPhone:s.phone,subject:subject,message:bodyTxt,qty:0,unit:'',specs:'',needBy:pr.needBy,requester:who(),channel:channel,delivery:delivery,status:delivery==='emailjs'?'sent':'opened',responseStatus:'pending',responseAt:null,quotedUnitCost:null,quotedDeliveryDays:null,responseNotes:'RFQ '+rfq.number});
+        _purchSaveOutreach(o);
+      }catch(e){}
+      audit('rfq:send',rfq.number,s.name+' via '+channel);
+      renderPurchPro();
+    };
+    if(channel==='email'&&s.email){
+      if(typeof _emailJsConfigured==='function'&&_emailJsConfigured()&&typeof _sendViaEmailJs==='function'){
+        _sendViaEmailJs(s.email,subject,bodyTxt).then(function(ok){
+          if(ok){finish('emailjs');toast('Emailed '+s.name);}
+          else{window.open('mailto:'+encodeURIComponent(s.email)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(bodyTxt),'_blank');finish('mailto');}
+        });
+      }else{
+        window.open('mailto:'+encodeURIComponent(s.email)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(bodyTxt),'_blank');finish('mailto');
+      }
+    }else if(channel==='sms'&&s.phone){
+      var short=bodyTxt.length>360?bodyTxt.slice(0,360)+'…':bodyTxt;
+      try{window.open('sms:'+encodeURIComponent(s.phone)+'?body='+encodeURIComponent(short),'_blank');}catch(e){}
+      finish('sms-app');
+    }
+  },
+  quoteToggle:function(k){S.quoteOpen=(S.quoteOpen===k?null:k);renderPurchPro();},
+  saveQuote:function(rfqId,idx){
+    var rfq=getRFQ(rfqId);if(!rfq)return;
+    var total=Number((document.getElementById('ppQt')||{}).value||0);
+    if(!total){alert('Quote total is required.');return;}
+    rfq.suppliers[idx].quote={total:total,deliveryDays:Number((document.getElementById('ppQd')||{}).value||0),payTerms:(document.getElementById('ppQp')||{}).value||'',warranty:(document.getElementById('ppQw')||{}).value||'',at:Date.now()};
+    saveRFQ(rfq);audit('rfq:quote',rfq.number,rfq.suppliers[idx].name+' '+total);
+    S.quoteOpen=null;toast('Quote saved');renderPurchPro();
+  },
+  award:function(prId,recName){
+    var pr=getPR(prId);if(!pr)return;
+    var rfq=getRFQ(pr.rfqId);if(!rfq)return;
+    var chosen=(document.getElementById('ppAwardSel')||{}).value||recName;
+    var sup=rfq.suppliers.find(function(s){return s.name===chosen&&s.quote;});
+    if(!sup){alert('Chosen supplier has no quote.');return;}
+    if(chosen!==recName){
+      var why=prompt('You are overriding Nexi\'s recommendation ('+recName+'). Business justification (required):');
+      if(!why||!why.trim())return;
+      pr.overrides.push({at:Date.now(),by:who(),stage:'Approval',reason:why.trim()});
+      audit('award:override',pr.number,chosen+' over '+recName+': '+why.trim());
+    }
+    var est=prTotal(pr);
+    var factor=est>0?Number(sup.quote.total)/est:1;
+    var po={id:uid('po'),number:num('PO'),prId:pr.id,rfqId:rfq.id,supplier:sup.name,supplierEmail:sup.email||'',status:'Draft',createdAt:Date.now(),issuedAt:null,revisions:[],
+      items:pr.items.map(function(it){return {desc:it.desc,code:it.code,qty:it.qty,unit:it.unit,unitCost:Math.round(Number(it.unitCost||0)*factor*100)/100};}),
+      total:Number(sup.quote.total),deliveryDays:sup.quote.deliveryDays||null,payTerms:sup.quote.payTerms||'',warranty:sup.quote.warranty||''};
+    savePO(po);pr.poId=po.id;rfq.status='Awarded';rfq.awardedTo=chosen;rfq.awardedTotal=Number(sup.quote.total);saveRFQ(rfq);
+    advance(pr,'Awarded to '+chosen+' · '+money(sup.quote.total)+' · PO draft '+po.number);
+    audit('award',pr.number,chosen+' '+sup.quote.total);
+    toast('Awarded — PO draft '+po.number);renderPurchPro();
+  },
+  issuePO:function(prId){
+    var pr=getPR(prId);var po=pr&&getPO(pr.poId);if(!po)return;
+    if(!confirm('Issue '+po.number+' to '+po.supplier+' for '+po.total+'? This becomes an official obligation and cannot be edited (amendments only).'))return;
+    po.status='Issued';po.issuedAt=Date.now();savePO(po);
+    audit('po:issue',po.number,po.supplier+' '+po.total);toast(po.number+' issued');renderPurchPro();
+  },
+  amendPO:function(prId){
+    var pr=getPR(prId);var po=pr&&getPO(pr.poId);if(!po)return;
+    var reason=prompt('Amendment reason (required, creates a revision):');
+    if(!reason||!reason.trim())return;
+    po.revisions=po.revisions||[];po.revisions.push({at:Date.now(),by:who(),reason:reason.trim()});
+    savePO(po);audit('po:amend',po.number,reason.trim());toast('Amendment recorded');renderPurchPro();
+  },
+  recordGRN:function(prId){
+    var pr=getPR(prId);var po=pr&&getPO(pr.poId);if(!po)return;
+    var lines=[];
+    po.items.forEach(function(it,i){
+      var acc=Number((document.getElementById('ppGacc'+i)||{}).value||0);
+      var rej=Number((document.getElementById('ppGrej'+i)||{}).value||0);
+      if(acc>0||rej>0)lines.push({line:i,accepted:acc,rejected:rej});
+    });
+    if(!lines.length){alert('Enter accepted or rejected quantities on at least one line.');return;}
+    var g={id:uid('grn'),number:num('GRN'),poId:po.id,date:today(),receiver:who(),lines:lines,createdAt:Date.now()};
+    var a=L(K.grns);a.push(g);Sv(K.grns,a);
+    if(po.status==='Issued')po.status='Partially Delivered';
+    var recvd={};L(K.grns).filter(function(x){return x.poId===po.id;}).forEach(function(x){(x.lines||[]).forEach(function(l){recvd[l.line]=(recvd[l.line]||0)+Number(l.accepted||0);});});
+    if(po.items.every(function(it,i){return (recvd[i]||0)>=Number(it.qty);}))po.status='Fully Delivered';
+    savePO(po);
+    // Post accepted quantities into the shared purchase-history log
+    try{
+      var hist=_purchLoadHist();
+      lines.forEach(function(l){
+        if(!(Number(l.accepted)>0))return;
+        var it=po.items[l.line]||{};
+        hist.push({id:uid('ph_grn'),source:'grn',date:g.date,product:it.desc||'',supplier:po.supplier,unit:it.unit||'',qty:Number(l.accepted),unitCost:Number(it.unitCost||0),ref:po.number,notes:'GRN '+g.number,createdAt:Date.now()});
+      });
+      _purchSaveHist(hist);
+    }catch(e){}
+    audit('grn:record',g.number,po.number);toast(g.number+' recorded');renderPurchPro();
+  },
+  completePR:function(prId){
+    var pr=getPR(prId);if(!pr)return;
+    var inv=L(K.invs).find(function(i){return i.poId===pr.poId&&i.matchStatus==='Matched';});
+    if(!confirm('Complete '+pr.number+'?'+(inv?' Invoice matched ✓':' No matched invoice yet — you can still complete and match later.')))return;
+    var po=getPO(pr.poId);if(po&&po.status==='Fully Delivered'){po.status='Closed';savePO(po);}
+    pr.status='Completed';pr.workflow.push({stage:'Completed',at:Date.now(),by:who(),note:inv?'Completed · invoice matched':'Completed · invoice pending'});
+    savePR(pr);audit('pr:completed',pr.number,'');toast(pr.number+' completed');renderPurchPro();
+  },
+  addInvoice:function(){
+    var poId=(document.getElementById('ppInvPo')||{}).value;
+    var n=((document.getElementById('ppInvNum')||{}).value||'').trim();
+    var amt=Number((document.getElementById('ppInvAmt')||{}).value||0);
+    if(!poId||!n||!amt){alert('PO, invoice number and amount are required.');return;}
+    if(L(K.invs).some(function(i){return i.number.toLowerCase()===n.toLowerCase()&&i.poId===poId;})){alert('Duplicate invoice number for this PO — blocked.');return;}
+    var inv={id:uid('inv'),number:n,poId:poId,date:(document.getElementById('ppInvDate')||{}).value||today(),amount:amt,status:'Pending',createdAt:Date.now()};
+    inv.matchStatus=matchInvoice(inv);
+    var a=L(K.invs);a.push(inv);Sv(K.invs,a);
+    audit('invoice:log',n,inv.matchStatus);toast('Invoice logged — '+inv.matchStatus);renderPurchPro();
+  },
+  rematch:function(id){var a=L(K.invs);var i=a.find(function(x){return x.id===id;});if(!i)return;i.matchStatus=matchInvoice(i);Sv(K.invs,a);renderPurchPro();},
+  approveInvoice:function(id,force){
+    var a=L(K.invs);var inv=a.find(function(x){return x.id===id;});if(!inv)return;
+    if(force){
+      var why=prompt('Force-approving a non-matched invoice. Justification (required):');
+      if(!why||!why.trim())return;
+      inv.forceReason=why.trim();audit('invoice:force-approve',inv.number,why.trim());
+    }
+    inv.status='Approved';inv.approvedBy=who();inv.approvedAt=Date.now();
+    Sv(K.invs,a);audit('invoice:approve',inv.number,'');toast('Invoice approved');renderPurchPro();
+  }
+};
+
+// ---------- wire into the app ----------
+(function hook(){
+  function attempt(){
+    if(!window.switchView||window.switchView.__purproHooked)return;
+    var orig=window.switchView;
+    window.switchView=function(v){
+      var r=orig.apply(this,arguments);
+      if(v==='acct_purch_pro')setTimeout(window.renderPurchPro,80);
+      return r;
+    };
+    window.switchView.__purproHooked=true;
+  }
+  setInterval(attempt,4000);setTimeout(attempt,600);
+  setTimeout(function(){if(typeof VIEW_TO_MODULE!=='undefined')VIEW_TO_MODULE.acct_purch_pro='accounting';},800);
+})();
+})();
 
 // === Tax & Compliance ===
 const ACCT_TAX_KEY='hydroPro_acct_tax_filings';
