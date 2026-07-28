@@ -176,8 +176,86 @@ const sec1 = [
   callout('Design stance', 'This is a decision-support and audit layer on top of SOS + QB. Every write goes to localStorage under the hydroPro_* prefix used throughout the app — no new backend services required to run it.'),
 ];
 
+// -------- helpers for coverage-matrix cells --------
+const STATUS_COLORS = { done: '1E7A5F', partial: 'B08018', roadmap: '6B7280' };
+const statusCell = (kind) => {
+  const label = kind === 'done' ? '✓ DONE' : kind === 'partial' ? '◐ PARTIAL' : '⬚ ROADMAP';
+  return cell([ new TextRun({ text: label, bold: true, size: 18, color: STATUS_COLORS[kind] }) ]);
+};
+
+const covRow = (num, name, status, notesText) => [
+  cell([ new TextRun({ text: String(num), font: 'Consolas', size: 20, bold: true, color: ACCENT }) ]),
+  cell([ new TextRun({ text: name, size: 20, bold: true, color: INK }) ]),
+  statusCell(status),
+  cellT(notesText),
+];
+
+const sec2Coverage = [
+  h1('2. Coverage of the handoff outline'),
+  p([t('The initial developer-handoff outline lists '), new TextRun({ text: '16 primary screens', bold: true, size: 22 }), t(', '), new TextRun({ text: '5 core integrations', bold: true, size: 22 }), t(' and '), new TextRun({ text: '6 security requirements', bold: true, size: 22 }), t('. This section maps each item to the current build so the developer knows exactly what to pick up, what to finish, and what is still open.')]),
+  p([new TextRun({ text: 'Legend: ', size: 22, color: INK }), new TextRun({ text: '✓ DONE', bold: true, size: 22, color: STATUS_COLORS.done }), t(' = built and merged on branch  ·  '), new TextRun({ text: '◐ PARTIAL', bold: true, size: 22, color: STATUS_COLORS.partial }), t(' = data + logic exist, a dedicated screen still to build  ·  '), new TextRun({ text: '⬚ ROADMAP', bold: true, size: 22, color: STATUS_COLORS.roadmap }), t(' = not yet built; unlock path noted.')]),
+
+  h3('2.1  Primary screens (16)'),
+  buildTable([
+    ['#', 'Screen', 'Status', 'Where it lives / what to finish'],
+    covRow('1', 'Purchasing Mission Control', 'partial',
+      'The Purchasing view header carries a live stats banner (comparisons, open, products, suppliers, spend) + integration strip (SOS/QB connection, sync counters). A dedicated "mission control" landing that folds in KPIs, alerts, and drill-through cards is the next step — reuse hnxDashboard render patterns.'),
+    covRow('2', 'Purchase Requests', 'roadmap',
+      'A form for a requester to raise a purchase need before it becomes a comparison. Add a new tab "📥 Requests" storing hydroPro_acct_purch_requests[{id, requester, product, qty, unit, needBy, reason, dept, status:new|approved|converted}]. "Convert to comparison" button seeds a comparison card.'),
+    covRow('3', 'SOS Inventory Check', 'done',
+      'Header banner reads window.__hnxSos.getMeta() live; comparison cards include a "SOS item hint" row from _purchSosItemHint(product) — preferred vendor, SKU, last purchase cost, on-hand. Purchase history import from /sos/purchase-orders via _purchSyncFromSOS().'),
+    covRow('4', 'Supplier Discovery', 'done',
+      'Nexi outreach modal + _purchGatherAllSuppliers() unions Inventory Master, Accounting Vendors, SOS items’ preferred vendors, past PO vendors, and past-outreach responders. Includes the geo-scoped radius filter (§10). Web-found suppliers can be added inline and are persisted to Vendors master.'),
+    covRow('5', 'Supplier Qualification', 'partial',
+      'Suppliers already carry a reliability "score" field on hydroPro_inv_suppliers_v1 and Nexi shows a reply-rate chip. A dedicated qualification screen (docs on file, cert expiry, credit check, quality-audit score, blacklist flag) still to build — extend the vendor record with qualification.{status, certs[], credit, docs[], nextReviewOn}.'),
+    covRow('6', 'RFQ Builder', 'done',
+      'Editable RFQ template with variable substitution ({{product}} {{qty}} {{unit}} {{specs}} {{needBy}} {{supplierContact}} {{requester}} {{companyName}}) in the outreach modal. "Save as default template" persists it in hydroPro_acct_purch_rfq_template.'),
+    covRow('7', 'Email/SMS Communication Center', 'done',
+      'RFQ dispatch via EmailJS auto-send (silent) → mailto: fallback, and SMS via device sms: URL scheme (body ≤ 380 chars). Every dispatch appended to hydroPro_acct_purch_outreach. The 📬 Nexi RFQ Log tab is the "center" — filter, preview body, mark responses.'),
+    covRow('8', 'Quotation Management', 'done',
+      'On each 📬 RFQ Log row: response dropdown (pending / quoted / declined / no-response), quoted unit cost, lead days, notes. Marking "quoted" with a unit price auto-appends a soft quote-record to Purchase History (source:"rfq-quote") so it surfaces in comparisons.'),
+    covRow('9', 'Quote Comparison', 'done',
+      'Comparisons tab — up to 3 suppliers per product, side-by-side matrix (unit / specs / qty / unit cost / total / delivery / payment terms / warranty / notes), cheapest badge auto-computed, per-supplier NEW/EXISTING/HAS-HISTORY tagging, per-product history sub-row.'),
+    covRow('10', 'Negotiation Center', 'partial',
+      'Replies come back into the RFQ Log where the user can update the quote. A dedicated thread view (versioned quotes, counter-offer template, expiry date, revisions log) is roadmap — extend outreach records with revisions[]:[{ts, side, unitCost, deliveryDays, terms, notes}].'),
+    covRow('11', 'Approval Workflow', 'roadmap',
+      'Awards are direct today. Add approvalRules{smallLimit, mediumLimit, largeLimit, approverBySize} on the base config; gate _purchAward() to insert an approvalRequest record when total ≥ threshold; render an "🔐 Pending approvals" tray for the approver(s).'),
+    covRow('12', 'Purchase Order', 'partial',
+      'PO data is READ from SOS via _purchSyncFromSOS() and rendered as history. Writing a NEW PO back into SOS is roadmap — add a POST route on the hnx-sync worker (/sos/purchase-orders POST) and hook _purchCreatePO(compId) on award.'),
+    covRow('13', 'Receiving', 'partial',
+      'Each SOS-imported history row already carries qty + receivedQty; a "partial" status is preserved when the PO is not fully received. A dedicated receiving screen (per-PO checklist, defects/short-shipment log, three-way match indicator) still to build.'),
+    covRow('14', 'Supplier Evaluation', 'partial',
+      '🏭 Suppliers Ledger rolls up orders count, total spend, last purchase, activity status (ACTIVE / DORMANT / NEW). Reliability score exists on the base record. A scheduled quarterly-review page (delivery on-time %, defect rate, price stability, response speed) is roadmap.'),
+    covRow('15', 'Reports', 'partial',
+      'CSV export of purchase history is wired (source, status, ref, receivedQty columns included). A dedicated Reports screen with saved views + charts (spend by supplier, spend by category, price variance vs baseline, reply-rate by supplier) is roadmap.'),
+    covRow('16', 'Security & Audit', 'partial',
+      'Immutability of SOS-imported rows and of RFQ dispatch data is enforced in _purchDeleteHistory() and _purchOutreachSetResponse(). Every write stamps requester from getCurrentUser(). A dedicated audit trail viewer (who/what/when timeline, filterable) still to build. See §12 for the encryption + MFA + role notes.'),
+  ], [5, 26, 13, 56]),
+
+  h3('2.2  Core integrations (5)'),
+  buildTable([
+    ['Integration', 'Status', 'How it wires in'],
+    [ cellB('SOS Inventory'), statusCell('done'), cellT('Read via window.__hnxApi("/sos/purchase-orders") for PO history import; window.__hnxSos.getItems() for the item hint row + preferred vendor fallback; window.__hnxSos.getMeta() for connection state. Write-back (create PO) roadmap.') ],
+    [ cellB('Email'), statusCell('done'), cellT('Silent send via existing EmailJS integration (_sendViaEmailJs). mailto: fallback when EmailJS not configured. Full body archived in the outreach log.') ],
+    [ cellB('SMS'), statusCell('done'), cellT('Device sms: URL scheme (opens native composer). Silent auto-send is roadmap — Twilio-backed /nexi/sms worker route.') ],
+    [ cellB('Accounting (QB)'), statusCell('partial'), cellT('Read hydroPro_acct_qb_v1 for connection-state hint only. Bill-line ingest is roadmap — add a Make scenario for Bills-by-Vendor-with-Lines feeding _purchSyncFromQB(). Comparisons + PO awards will eventually push bill drafts back.') ],
+    [ cellB('AI Recommendation Engine'), statusCell('done'), cellT('Registered as a Nexi domain via registerNexiDomain(). Answers ranked-supplier questions ("who supplies X", "best price on X", "suppliers near me", "supplier reply rate", "how many RFQs sent") over live stored data. See §9.') ],
+  ], [22, 15, 63]),
+
+  h3('2.3  Security & audit requirements (6)'),
+  buildTable([
+    ['Requirement', 'Status', 'How it is met'],
+    [ cellB('Role-based access'), statusCell('done'), cellT('The Purchasing sub-tab sits inside Accounting and inherits the module\'s permission gate via VIEW_TO_MODULE / can(). The Accounting role has full manage on this domain; other roles get view-or-none per the existing PERMS engine.') ],
+    [ cellB('MFA'), statusCell('roadmap'), cellT('Session/MFA is an app-wide concern (currently handled by the cloud-login worker for staff sign-in). No purchasing-specific MFA prompt exists on award/send — recommended to add a step-up MFA prompt before _purchAward() when order value > large-threshold.') ],
+    [ cellB('Audit trail'), statusCell('partial'), cellT('Every write carries createdAt / updatedAt / updatedBy where the app already has that pattern. Outreach rows are immutable after dispatch (only response fields editable). Dedicated audit viewer TBD — reuse the existing hydroPro_audit_log renderer.') ],
+    [ cellB('Encryption'), statusCell('roadmap'), cellT('localStorage is not encrypted at rest. For sensitive supplier data recommend either (a) migrating to the app\'s existing IndexedDB store with a per-user derived key, or (b) proxying reads through the hnx-sync worker with encrypted server-side storage.') ],
+    [ cellB('Approval limits'), statusCell('roadmap'), cellT('Same as §2.1 item 11. Config lives on the base object (approvalRules), gate lives on _purchAward().') ],
+    [ cellB('Supplier isolation'), statusCell('done'), cellT('Suppliers keyed by lowercased name; every collection filters by supplier. No supplier can see another\'s quote — the outreach log is per-supplier per-RFQ, dispatched one message per supplier via EmailJS/mailto/sms; no bcc/mass-send is ever used.') ],
+  ], [22, 15, 63]),
+];
+
 const sec2 = [
-  h1('2. Where it lives'),
+  h1('3. Where it lives'),
   bullet([new TextRun({ text: 'Primary view: ', size: 22, color: INK }), mono('acct_purchasing'), t(' — registered in the app-wide '), mono('switchView()'), t(' dispatcher the same way '), mono('acct_vendors'), t(', '), mono('acct_customers'), t(' and '), mono('acct_invoices'), t(' are. Mounted lazily inside '), mono('#appMain'), t('.')]),
   bullet([t('Module attribution: '), mono('VIEW_TO_MODULE'), t(' gets '), mono("acct_purchasing: 'accounting'"), t(' so the module header and permission checks resolve correctly.')]),
   bullet([t('Deep-link from Accountant-AI overlay: a new '), mono('purchasing'), t(' entry in '), mono('ACCT_TABS'), t(' renders a summary panel + an "Open Purchasing workspace" button that closes the overlay and calls '), mono("switchView('acct_purchasing')"), t('.')]),
@@ -186,7 +264,7 @@ const sec2 = [
 ];
 
 const sec3 = [
-  h1('3. Four tabs'),
+  h1('4. Four tabs'),
   p([t('The view surfaces one header (banner + integration status + action strip) and four working tabs.')]),
   buildTable([
     ['Tab', 'What it does', 'Writes to'],
@@ -214,7 +292,7 @@ const sec3 = [
 ];
 
 const sec4 = [
-  h1('4. Data model — storage keys'),
+  h1('5. Data model — storage keys'),
   p([t('Everything is stored in '), mono('localStorage'), t(' under the '), mono('hydroPro_*'), t(' prefix used across the app. Nothing new is written to a backend without going through the existing hnx-sync worker (SOS pulls only).')]),
   buildTable([
     ['Key', 'Shape', 'Purpose'],
@@ -312,7 +390,7 @@ const sec4 = [
 ];
 
 const sec5 = [
-  h1('5. Comparison logic'),
+  h1('6. Comparison logic'),
   bullet([new TextRun({ text: 'Cheapest badge · ', bold: true, size: 22 }), t('for each supplier column, '), mono('total = qty × unitCost'), t('. Only columns with a positive total are eligible; the lowest wins the 💰 CHEAPEST tag. Ties resolve to first-filled.')]),
   bullet([new TextRun({ text: 'Award vs cheapest · ', bold: true, size: 22 }), t('the buyer’s choice can differ from the cheapest — the column with the buyer’s award gets a green top-border and a ✓ Chosen action; the cheapest tag stays independently. When a comparison has no explicit award yet, the cheapest is used as the visual default.')]),
   bullet([new TextRun({ text: 'NEW / EXISTING supplier badge · ', bold: true, size: 22 }), t('a supplier is EXISTING if their name appears in the merged history OR in the Vendors master (case-insensitive, trimmed). Otherwise NEW. Computed at render time.')]),
@@ -321,7 +399,7 @@ const sec5 = [
 ];
 
 const sec6 = [
-  h1('6. Purchase history sources'),
+  h1('7. Purchase history sources'),
   p([t('Three streams merged into one log; every row carries a '), mono('source'), t(' tag so an audit can trace it back.')]),
   buildTable([
     ['Source', 'How it lands', 'Editable?'],
@@ -334,7 +412,7 @@ const sec6 = [
 ];
 
 const sec7 = [
-  h1('7. Nexi outreach flow — RFQ email & SMS'),
+  h1('8. Nexi outreach flow — RFQ email & SMS'),
   p([t('Entry points: the header primary button, or "🤖 Ask Nexi for more quotes" on any comparison card. Both open the outreach modal, prefilled with product / qty / unit / need-by from the card if launched from context.')]),
 
   h3('7.1  Five-step flow'),
@@ -355,7 +433,7 @@ const sec7 = [
 ];
 
 const sec8 = [
-  h1('8. Nexi intelligence — registered domain'),
+  h1('9. Nexi intelligence — registered domain'),
   p([t('The purchasing sub-module registers a Nexi domain via '), mono('registerNexiDomain()'), t(' (the same hook Irrigation, Logistics, Inventory etc. use). The registration exposes the three collections and provides a custom '), mono('answer(qLower)'), t(' function.')]),
 
   buildTable([
@@ -371,7 +449,7 @@ const sec8 = [
 ];
 
 const sec9 = [
-  h1('9. Geo-scoped supplier search — the rule'),
+  h1('10. Geo-scoped supplier search — the rule'),
   p([new TextRun({ text: 'Value determines geography. ', bold: true, size: 22 }), t('A ₱4,000 pack of consumables shouldn’t be sourced from another country. A ₱1.2M capex order shouldn’t be limited to the barangay. The system encodes that judgement so Nexi doesn’t need to be reminded, and every buyer follows the same rule.')]),
 
   h3('9.1  Default tier ladder'),
@@ -412,7 +490,7 @@ const sec9 = [
 ];
 
 const sec10 = [
-  h1('10. Permissions & audit'),
+  h1('11. Permissions & audit'),
   bullet([t('Accounting role has full manageHR/payroll access and read-only on operational modules — the Purchasing sub-tab sits within Accounting and inherits the module’s permission gate.')]),
   bullet([t('Each outreach row records '), mono('requester'), t(' from the current user profile ('), mono('getCurrentUser()'), t('). Once dispatched, an RFQ’s body and dispatch metadata are immutable; only the response fields ('), mono('responseStatus, quotedUnitCost, quotedDeliveryDays, responseNotes'), t(') are editable.')]),
   bullet([t('SOS-imported history rows are protected from manual deletion. '), mono('_purchDeleteHistory()'), t(' explicitly refuses them and tells the user to delete the PO in SOS or use "Clear SOS-imported rows".')]),
@@ -420,7 +498,7 @@ const sec10 = [
 ];
 
 const sec11 = [
-  h1('11. Wiring points — globals & hooks'),
+  h1('12. Wiring points — globals & hooks'),
   buildTable([
     ['Global / hook', 'Direction', 'Purpose'],
     [ cellCode('switchView(v)'), cellT('hooked'), cellT('Registers acct_purchasing in the dispatcher.') ],
@@ -438,7 +516,7 @@ const sec11 = [
 ];
 
 const sec12 = [
-  h1('12. Public function surface'),
+  h1('13. Public function surface'),
   p([t('Functions the developer will most often need to reach for or extend. All are on '), mono('window'), t(' unless noted.')]),
   buildTable([
     ['Function', 'Purpose'],
@@ -463,7 +541,7 @@ const sec12 = [
 ];
 
 const sec13 = [
-  h1('13. Limits & roadmap'),
+  h1('14. Limits & roadmap'),
   p([t('Nothing on this list breaks the current model. Each extension either adds a stored field, adds one worker route, or plugs a new signal into the same tier lookup / merged history log.')]),
   buildTable([
     ['Not yet', 'Why', 'What unlocks it'],
@@ -483,7 +561,7 @@ const sec13 = [
 ];
 
 const sec14 = [
-  h1('14. Deliverable checklist for the developer'),
+  h1('15. Deliverable checklist for the developer'),
   bullet([t('Pull branch '), mono('claude/accounting-purchasing-suppliers-5p94sz'), t('.')]),
   bullet([t('Open '), mono('index.html'), t(' in a browser. Sign in.')]),
   bullet([t('Console: '), mono("switchView('acct_purchasing')"), t(' to open the sub-tab.')]),
@@ -501,6 +579,7 @@ const sec14 = [
 const children = [
   ...cover,
   ...sec1,
+  ...sec2Coverage,
   ...sec2,
   ...sec3,
   ...sec4,
