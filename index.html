@@ -90683,42 +90683,69 @@ window.__PURPRO={
 };
 
 // ---------- wire into the app ----------
+// switchView() requires the <div class="view" id="view-XXX"> container to ALREADY exist,
+// otherwise it fails silently and the watchdog bounces to the Brain view. So the container
+// is pre-created at load AND immediately before every switch.
+function ensurePurchProView(){
+  if(document.getElementById('view-acct_purch_pro'))return;
+  var c=document.createElement('div');
+  c.id='view-acct_purch_pro';c.className='view';
+  var host=document.getElementById('appMain')||((document.querySelector('.view')||{}).parentNode)||document.body;
+  if(host&&host.appendChild)host.appendChild(c);
+}
 (function hook(){
   function attempt(){
+    ensurePurchProView();
     if(!window.switchView||window.switchView.__purproHooked)return;
     var orig=window.switchView;
     window.switchView=function(v){
+      if(v==='acct_purch_pro')ensurePurchProView();
       var r=orig.apply(this,arguments);
       if(v==='acct_purch_pro')setTimeout(window.renderPurchPro,80);
       return r;
     };
     window.switchView.__purproHooked=true;
   }
-  setInterval(attempt,4000);setTimeout(attempt,600);
+  setInterval(attempt,4000);setTimeout(attempt,600);setTimeout(attempt,1500);
   setTimeout(function(){if(typeof VIEW_TO_MODULE!=='undefined')VIEW_TO_MODULE.acct_purch_pro='accounting';},800);
 })();
 
-// ---------- visible entry: 🛒 Purchasing button in the Accounting overlay menu ----------
-// The Accounting sidebar button opens the full-screen overlay (window.hnxOpenAccounting),
-// whose menu bar (#hnxaccTabs) knows nothing about Purchasing and repaints itself on every
-// interaction. This watcher re-injects a prominent Purchasing button whenever it is missing.
+// ---------- visible entry: 🛒 Purchasing inside the Accounting overlay SECTION dropdown ----------
+// The overlay menu is native <select> drop boxes (p212). Its SECTION list comes from a
+// closure-local NAV array we cannot reach, and the bar repaints on every interaction —
+// so this watcher appends a "🛒 Purchasing" <option> to the rendered SECTION select and
+// wraps its onchange to intercept the pick (close overlay → open the workspace).
 (function injectPurchasingEntry(){
+  var VAL='__hnx_purchasing';
   function inject(){
-    var tabs=document.getElementById('hnxaccTabs');
-    if(!tabs||document.getElementById('hnxaccPurchBtn'))return;
-    var btn=document.createElement('div');
-    btn.id='hnxaccPurchBtn';
-    btn.textContent='🛒 Purchasing';
-    btn.title='Purchasing sub-module — 13-stage procurement workflow (PR → AI gate → RFQ → award → PO → receiving → invoices)';
-    btn.style.cssText='cursor:pointer;font-size:12px;font-weight:800;padding:7px 13px;border-radius:8px;border:1px solid #2ecc9b;color:#06120d;background:#2ecc9b;white-space:nowrap;display:inline-block;';
-    btn.onclick=function(){
-      try{if(window.__hnxACC&&window.__hnxACC.close)window.__hnxACC.close();}catch(e){}
-      if(typeof switchView==='function')switchView('acct_purch_pro');
-    };
-    // Menu bar's first child is the flex chip row — append there so it sits inline with the other tabs
-    var bar=tabs.firstElementChild;
-    if(bar&&bar.style&&(bar.style.display||'').indexOf('flex')>=0)bar.appendChild(btn);
-    else tabs.appendChild(btn);
+    var selects=document.querySelectorAll('#hnxaccTabs select');
+    for(var i=0;i<selects.length;i++){
+      var sel=selects[i];
+      // Same heuristic the app itself uses to find the SECTION select among COMPANY/SECTION/SUB-TAB
+      if(!/(CFO|ACCOUNTANT|Auditor|Matrices|Statements)/i.test(sel.textContent||''))continue;
+      if(!sel.querySelector('option[value="'+VAL+'"]')){
+        var o=document.createElement('option');
+        o.value=VAL;o.textContent='🛒 Purchasing';
+        sel.appendChild(o);
+      }
+      if(!sel.__purchWrapped){
+        var orig=sel.onchange;
+        sel.onchange=function(e){
+          if(this.value===VAL){
+            var s=this;
+            setTimeout(function(){try{if(s.options[0])s.value=s.options[0].value;}catch(_){}},60);
+            try{if(window.__hnxACC&&window.__hnxACC.close)window.__hnxACC.close();}catch(_){}
+            try{ensurePurchProView();}catch(_){}
+            if(typeof switchView==='function')switchView('acct_purch_pro');
+            setTimeout(function(){if(typeof window.renderPurchPro==='function')window.renderPurchPro();},150);
+            return;
+          }
+          return orig?orig.call(this,e):undefined;
+        };
+        sel.__purchWrapped=true;
+      }
+      break; // SECTION select found and patched — done
+    }
   }
   setInterval(inject,600);
   setTimeout(inject,900);
