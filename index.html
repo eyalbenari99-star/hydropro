@@ -197345,46 +197345,84 @@ function __n2Theme(t){
    contained. Now we read the HR store defensively: try the loadEmployees()
    accessor first (returns the array), fall back to a direct localStorage read
    of hydroPro_employees so the cockpit works even before HR is initialized. */
+/* v12.91-cockpit-photo: photos still not appearing on the Digital Twin.
+   Three widening fixes on top of v12.90-p3:
+   (1) UNION BOTH employee stores — hydroPro_employees (payroll list) AND
+       hydroPro_hr_employees (HR module's own record). Different flows in
+       the app write to different stores; fleet already unions them at
+       line ~75238 and cockpit should too. Merged by id (first-wins) so
+       the same person isn't double-counted.
+   (2) WIDER FIELD DETECTION — some HR forms store the greenhouse under
+       ghAssigned, others use gh/greenhouse/ghNo/assignedGH/location, or
+       encode "GH1" inside a "dept" / "department" string like "GH1 Team".
+       Match against any of those and also against a dept/department field
+       that contains the GH token as a whole word.
+   (3) PHOTO-PREFERRING TIEBREAKER — within the same rank tier, prefer an
+       employee who actually has a photo. Old rank-only sort picked the
+       Team Leader even if their photo field was empty while a Supervisor
+       in the same GH had one uploaded, so the card showed initials even
+       though a usable photo existed on the roster. */
 function __n2LoadEmployeesSafe(){
-  var emps=null;
-  try{ if(typeof loadEmployees==='function'){ var r=loadEmployees(); if(Array.isArray(r)) emps=r; } }catch(e){}
-  if(!emps){ try{ if(typeof employees!=='undefined' && Array.isArray(employees)) emps=employees; }catch(e){} }
-  if(!emps){ try{ emps=JSON.parse(localStorage.getItem('hydroPro_employees')||'[]'); if(!Array.isArray(emps)) emps=[]; }catch(e){ emps=[]; } }
-  return emps||[];
+  var stores=[];
+  try{ if(typeof loadEmployees==='function'){ var r=loadEmployees(); if(Array.isArray(r)) stores.push(r); } }catch(e){}
+  try{ if(typeof employees!=='undefined' && Array.isArray(employees)) stores.push(employees); }catch(e){}
+  try{ var a=JSON.parse(localStorage.getItem('hydroPro_employees')||'[]'); if(Array.isArray(a)) stores.push(a); }catch(e){}
+  try{ var b=JSON.parse(localStorage.getItem('hydroPro_hr_employees')||'[]'); if(Array.isArray(b)) stores.push(b); }catch(e){}
+  /* union by id, preferring the entry that has a photo when duplicates exist */
+  var byId={},order=[];
+  stores.forEach(function(list){
+    list.forEach(function(e){
+      if(!e) return;
+      var k=e.id!=null?String(e.id):(e.username||e.name||'');
+      if(!k) return;
+      if(!(k in byId)){ byId[k]=e; order.push(k); }
+      else if(!byId[k].photo && e.photo){ byId[k]=Object.assign({},byId[k],e); } /* upgrade with photo-bearing copy */
+    });
+  });
+  return order.map(function(k){return byId[k];});
 }
 function __n2LookupLead(ghName){
   try{
     var emps = __n2LoadEmployeesSafe();
     var target=String(ghName||'').trim();
     var targetLC=target.toLowerCase();
+    var targetNorm=target.replace(/[\s-]/g,'').toLowerCase();
+    /* v12.91: word-boundary match against a longer string, e.g. "GH1 Production Team" contains "GH1" as a whole word */
+    var wordRe=new RegExp('\\b'+target.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','i');
     var matches = emps.filter(function(e){
       if(!e) return false;
-      /* v12.90-p3: match ghAssigned array OR single-value gh/greenhouse/ghNo fields;
-         normalize case so "GH-01" == "gh-01" == "GH 01" all count. */
       var gs=[];
       if(Array.isArray(e.ghAssigned)) gs=gs.concat(e.ghAssigned);
-      if(e.gh) gs.push(e.gh);
-      if(e.greenhouse) gs.push(e.greenhouse);
-      if(e.ghNo) gs.push(e.ghNo);
+      ['gh','greenhouse','ghNo','assignedGH','location'].forEach(function(f){ if(e[f]) gs.push(e[f]); });
       for(var i=0;i<gs.length;i++){
-        var s=String(gs[i]||'').trim();
-        if(!s) continue;
+        var s=String(gs[i]||'').trim(); if(!s) continue;
         if(s===target) return true;
         if(s.toLowerCase()===targetLC) return true;
-        if(s.replace(/[\s-]/g,'').toLowerCase()===target.replace(/[\s-]/g,'').toLowerCase()) return true;
+        if(s.replace(/[\s-]/g,'').toLowerCase()===targetNorm) return true;
       }
+      /* also accept when dept/department string embeds the GH token as a whole word */
+      if(e.dept && wordRe.test(String(e.dept))) return true;
+      if(e.department && wordRe.test(String(e.department))) return true;
       return false;
     });
     var rank = {'Team Leader':0,'Supervisor':1,'Lead Technician':2,'Production Specialist':3,'Technical Operator':4,'Worker':5,'Trainee / Sanitation':6};
     matches.sort(function(a,b){
       var ra = rank[a.role] !== undefined ? rank[a.role] : 99;
       var rb = rank[b.role] !== undefined ? rank[b.role] : 99;
-      return ra - rb;
+      if(ra!==rb) return ra-rb;
+      /* v12.91: within the same rank tier, prefer employees who actually have a photo */
+      var pa=a.photo?0:1, pb=b.photo?0:1;
+      return pa-pb;
     });
     var lead = matches[0];
     if(!lead) return {name:'— No team lead assigned —', role:'Assign in HR', ini:'?', ch:'CH-'+ghName.replace(/[^0-9]/g,'').padStart(2,'0'), photo:'', id:''};
+    /* v12.91: if the top-ranked person still has no photo, look for ANY
+       matched employee in this GH with a photo and use their photo on the
+       card (name/role stay the leader's). Better a real face than initials. */
+    var photo=lead.photo||'';
+    if(!photo){ for(var j=0;j<matches.length;j++){ if(matches[j].photo){ photo=matches[j].photo; break; } } }
     var initials = (lead.name||'?').split(/[\s,]+/).filter(Boolean).slice(0,2).map(function(w){return w[0]?w[0].toUpperCase():'';}).join('') || '?';
-    return {name: lead.name, role: (lead.role||'Team Member'), ini: initials, ch:'CH-'+ghName.replace(/[^0-9]/g,'').padStart(2,'0'), photo: lead.photo||'', id: lead.id||''};
+    return {name: lead.name, role: (lead.role||'Team Member'), ini: initials, ch:'CH-'+ghName.replace(/[^0-9]/g,'').padStart(2,'0'), photo: photo, id: lead.id||''};
   }catch(e){ return {name:'—',role:'—',ini:'?',ch:'—',photo:''}; }
 }
 
@@ -197401,12 +197439,15 @@ function __n2Runtime(g){
   var scanH = 6 + Math.floor(r(seed+'sh')*10); var scanM = Math.floor(r(seed+'sm')*60);
   var photoH = scanH + 1; var photoM = Math.floor(r(seed+'pm')*60);
   var emps = __n2LoadEmployeesSafe();
+  var _gn=String(g.n||'').toLowerCase();
+  var _gnRe=new RegExp('\\b'+String(g.n||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','i');
   var ghEmps = emps.filter(function(e){
     if(!e) return false;
     var gs=[];
     if(Array.isArray(e.ghAssigned)) gs=gs.concat(e.ghAssigned);
-    if(e.gh) gs.push(e.gh); if(e.greenhouse) gs.push(e.greenhouse); if(e.ghNo) gs.push(e.ghNo);
-    return gs.some(function(s){ s=String(s||'').trim(); return s===g.n || s.toLowerCase()===String(g.n).toLowerCase(); });
+    ['gh','greenhouse','ghNo','assignedGH','location'].forEach(function(f){ if(e[f]) gs.push(e[f]); });
+    if(gs.some(function(s){ return String(s||'').trim().toLowerCase()===_gn; })) return true;
+    return (e.dept && _gnRe.test(String(e.dept))) || (e.department && _gnRe.test(String(e.department)));
   });
   var lastScanBy = ghEmps.length ? (ghEmps[Math.floor(r(seed+'sb')*ghEmps.length)].name||'').split(' ')[0] : 'Nexi';
   return {
