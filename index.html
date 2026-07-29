@@ -197255,12 +197255,43 @@ function __n2Theme(t){
 
 
 // ============ v2.0: HR TEAM LEAD LOOKUP ============
+/* v12.90-p3 COCKPIT-LEAD-PHOTO: the old code read window.employees, but the HR
+   module declares employees with `let` at the top level of its script — that
+   creates a global identifier but does NOT attach a property to window, so
+   window.employees was always undefined and every cockpit card showed
+   "— No team lead assigned —" with no photo, regardless of what the HR record
+   contained. Now we read the HR store defensively: try the loadEmployees()
+   accessor first (returns the array), fall back to a direct localStorage read
+   of hydroPro_employees so the cockpit works even before HR is initialized. */
+function __n2LoadEmployeesSafe(){
+  var emps=null;
+  try{ if(typeof loadEmployees==='function'){ var r=loadEmployees(); if(Array.isArray(r)) emps=r; } }catch(e){}
+  if(!emps){ try{ if(typeof employees!=='undefined' && Array.isArray(employees)) emps=employees; }catch(e){} }
+  if(!emps){ try{ emps=JSON.parse(localStorage.getItem('hydroPro_employees')||'[]'); if(!Array.isArray(emps)) emps=[]; }catch(e){ emps=[]; } }
+  return emps||[];
+}
 function __n2LookupLead(ghName){
   try{
-    var emps = window.employees || [];
+    var emps = __n2LoadEmployeesSafe();
+    var target=String(ghName||'').trim();
+    var targetLC=target.toLowerCase();
     var matches = emps.filter(function(e){
-      if(!e || !Array.isArray(e.ghAssigned)) return false;
-      return e.ghAssigned.indexOf(ghName) >= 0;
+      if(!e) return false;
+      /* v12.90-p3: match ghAssigned array OR single-value gh/greenhouse/ghNo fields;
+         normalize case so "GH-01" == "gh-01" == "GH 01" all count. */
+      var gs=[];
+      if(Array.isArray(e.ghAssigned)) gs=gs.concat(e.ghAssigned);
+      if(e.gh) gs.push(e.gh);
+      if(e.greenhouse) gs.push(e.greenhouse);
+      if(e.ghNo) gs.push(e.ghNo);
+      for(var i=0;i<gs.length;i++){
+        var s=String(gs[i]||'').trim();
+        if(!s) continue;
+        if(s===target) return true;
+        if(s.toLowerCase()===targetLC) return true;
+        if(s.replace(/[\s-]/g,'').toLowerCase()===target.replace(/[\s-]/g,'').toLowerCase()) return true;
+      }
+      return false;
     });
     var rank = {'Team Leader':0,'Supervisor':1,'Lead Technician':2,'Production Specialist':3,'Technical Operator':4,'Worker':5,'Trainee / Sanitation':6};
     matches.sort(function(a,b){
@@ -197287,8 +197318,14 @@ function __n2Runtime(g){
   var tasksDone = Math.floor(r(seed+'t')*8); var tasksTot = tasksDone + Math.floor(r(seed+'tt')*4);
   var scanH = 6 + Math.floor(r(seed+'sh')*10); var scanM = Math.floor(r(seed+'sm')*60);
   var photoH = scanH + 1; var photoM = Math.floor(r(seed+'pm')*60);
-  var emps = window.employees || [];
-  var ghEmps = emps.filter(function(e){ return e && Array.isArray(e.ghAssigned) && e.ghAssigned.indexOf(g.n) >= 0; });
+  var emps = __n2LoadEmployeesSafe();
+  var ghEmps = emps.filter(function(e){
+    if(!e) return false;
+    var gs=[];
+    if(Array.isArray(e.ghAssigned)) gs=gs.concat(e.ghAssigned);
+    if(e.gh) gs.push(e.gh); if(e.greenhouse) gs.push(e.greenhouse); if(e.ghNo) gs.push(e.ghNo);
+    return gs.some(function(s){ s=String(s||'').trim(); return s===g.n || s.toLowerCase()===String(g.n).toLowerCase(); });
+  });
   var lastScanBy = ghEmps.length ? (ghEmps[Math.floor(r(seed+'sb')*ghEmps.length)].name||'').split(' ')[0] : 'Nexi';
   return {
     radio: g.state === 'warn' ? 'warn' : (r(seed+'rd')>0.9 ? 'off' : 'on'),
