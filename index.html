@@ -21918,7 +21918,49 @@ function inferType(dept){
 }
 function saveEmployees(){
   localStorage.setItem(HR_KEY,JSON.stringify(employees));
+  /* v12.90-p4: HR record changed → refresh top-right chip so a just-uploaded
+     photo (or one that arrived via cross-device sync) shows immediately. */
+  try{ if(typeof refreshTopbarAvatar==='function') refreshTopbarAvatar(); }catch(e){}
 }
+/* v12.90-p4: top-right chip refresher — re-runs the HR-photo lookup for the
+   currently signed-in user and updates #userAvatar. Safe to call any time. */
+function refreshTopbarAvatar(){
+  try{
+    var av=document.getElementById('userAvatar'); if(!av) return;
+    var u=(typeof getCurrentUser==='function')?getCurrentUser():null;
+    if(!u){ av.textContent='U'; av.style.backgroundImage=''; av.style.color=''; return; }
+    var initial=(u.fullname||u.username||'?').charAt(0).toUpperCase();
+    var photo=null;
+    var emps=JSON.parse(localStorage.getItem('hydroPro_employees')||'[]');
+    if(Array.isArray(emps)){
+      var uname=String(u.username||'').toLowerCase();
+      var email=String(u.email||'').toLowerCase();
+      var linked=emps.find(function(e){
+        if(!e) return false;
+        if(u.empId && String(e.id||'')===String(u.empId)) return true;
+        var eu=String(e.username||'').toLowerCase();
+        var lu=String(e.linkedUser||'').toLowerCase();
+        var ee=String(e.email||'').toLowerCase();
+        if(uname && (eu===uname || lu===uname)) return true;
+        if(email && ee===email) return true;
+        return false;
+      });
+      if(linked && linked.photo) photo=linked.photo;
+    }
+    if(photo){
+      av.textContent='';
+      av.style.backgroundImage="url('"+String(photo).replace(/'/g,"\\'")+"')";
+      av.style.backgroundSize='cover'; av.style.backgroundPosition='center';
+      av.style.color='transparent';
+    } else {
+      av.textContent=initial; av.style.backgroundImage=''; av.style.color='';
+    }
+  }catch(e){}
+}
+/* Also refresh when a cross-device sync brings a new hydroPro_employees blob in. */
+window.addEventListener('storage', function(ev){
+  try{ if(ev && ev.key==='hydroPro_employees') refreshTopbarAvatar(); }catch(e){}
+});
 
 function renderHRView(){
   if(!can('viewHR')&&!can('manageHR')){showToast('Access denied','warn');return;}
@@ -70676,7 +70718,47 @@ function showApp(){
   const roleDisplay={admin:'ADMIN',admin_secondary:'ADMIN·2',accounting:'ACCOUNTING',supervisor:'SUPERVISOR',operator:'OPERATOR'};
   roleEl.textContent=roleDisplay[u.role]||u.role;
   roleEl.className='user-role-badge '+((u.role==='admin'||u.role==='admin_secondary')?'admin':'');
-  document.getElementById('userAvatar').textContent=(u.fullname||u.username).charAt(0).toUpperCase();
+  /* v12.90-p4 TOPBAR-AVATAR-FROM-HR: match the logged-in cloud user to their HR
+     employee record (by username, linkedUser, empId, or email) and use that
+     record's photo as the top-right avatar. Falls back to the first-letter
+     initial (previous behavior) when no HR record, no linked record, or no
+     photo. Applied here (login) and also refreshed by refreshTopbarAvatar()
+     below so an HR photo upload / cross-device sync updates the chip
+     immediately without needing to log out. */
+  (function(){
+    var av=document.getElementById('userAvatar'); if(!av) return;
+    var initial=(u.fullname||u.username||'?').charAt(0).toUpperCase();
+    var photo=null;
+    try{
+      var emps=JSON.parse(localStorage.getItem('hydroPro_employees')||'[]');
+      if(Array.isArray(emps)){
+        var uname=String(u.username||'').toLowerCase();
+        var email=String(u.email||'').toLowerCase();
+        var linked=emps.find(function(e){
+          if(!e) return false;
+          if(u.empId && String(e.id||'')===String(u.empId)) return true;
+          var eu=String(e.username||'').toLowerCase();
+          var lu=String(e.linkedUser||'').toLowerCase();
+          var ee=String(e.email||'').toLowerCase();
+          if(uname && (eu===uname || lu===uname)) return true;
+          if(email && ee===email) return true;
+          return false;
+        });
+        if(linked && linked.photo) photo=linked.photo;
+      }
+    }catch(e){}
+    if(photo){
+      av.textContent='';
+      av.style.backgroundImage="url('"+String(photo).replace(/'/g,"\\'")+"')";
+      av.style.backgroundSize='cover';
+      av.style.backgroundPosition='center';
+      av.style.color='transparent';
+    } else {
+      av.textContent=initial;
+      av.style.backgroundImage='';
+      av.style.color='';
+    }
+  })();
   // Apply role-based UI visibility
   applyRoleUI();
   // Show site picker
