@@ -22506,6 +22506,8 @@ function openEmployeeModal(empId){
     onEmpDeptChange();
     document.getElementById('emp201Summary').innerHTML='Save the employee first, then open their 201 file from the Employee List.';
     _editingEmpPhoto=null;
+    /* v12.95: restore any auto-saved draft from a previous interrupted Add session */
+    if(_restoreEmpFormDraft()){ title.textContent='👤 ADD EMPLOYEE · draft restored'; }
     updateEmpPhotoPreview();
   }
   // Listen for dept change to update GH/Pro Level visibility
@@ -22839,8 +22841,7 @@ function saveEmployee(opts){
       rec.createdBy=orig.createdBy;
       employees[i]=rec;
     }
-    audit&&audit('emp_edit',`Edited ${name} (${rec.id})`);
-    if(!_silent) showToast('Employee updated','ok');
+    if(!_silent){ audit&&audit('emp_edit',`Edited ${name} (${rec.id})`); showToast('Employee updated','ok'); }
   } else {
     rec.createdAt=Date.now();
     rec.createdBy=(getCurrentUser()||{}).username||'unknown';
@@ -22869,13 +22870,63 @@ function saveEmployee(opts){
     }
   }catch(e){console.warn('Could not save level:',e);}
   if(!_silent){
+    try{ localStorage.removeItem('hydroPro_emp_form_draft_v1'); }catch(_){}
     document.getElementById('empModal').classList.remove('open');
     renderHR();
   }
 }
-/* v12.93: auto-save wrapper the universal engine calls on every keystroke.
-   Wraps saveEmployee in silent mode so nothing pops up / closes / re-renders. */
-window._autosaveEmployee = function(){ try{ saveEmployee({silent:true}); }catch(e){ try{console.warn('_autosaveEmployee:',e);}catch(_){} } };
+/* ===== v12.95 NEW-EMPLOYEE FORM DRAFT =====
+   Silent saves must NOT create records for a not-yet-saved employee: the first
+   keystroke would push a premature record, and every keystroke after that hits
+   the ID-collision guard and silently stops persisting anything. Instead,
+   while adding a NEW employee we capture the whole form to a draft key on
+   every keystroke and rehydrate it the next time Add Employee opens — so a
+   crash/close mid-entry loses nothing, and the record is only truly created
+   by the manual Save button (which also clears the draft). */
+function _captureEmpFormDraft(){
+  try{
+    var f={};
+    ['empId','empName','empNickname','empBirthday','empStatus','empDept','empRole','empType','empTitle','empLevel','empRate','empDateHired','empContractEnd','empAddress','empPhone','empEmail','empEmergName','empEmergPhone','empEmergRel','empCivilStatus','empSSS','empPHIC','empHDMF','empTIN','empNotes','empLastWorkingDay','empStatusReason','empNumChildren','empSpouseName','empDeptManages'].forEach(function(id){
+      var el=document.getElementById(id); if(el) f[id]=el.value;
+    });
+    f.__gh=Array.from(document.querySelectorAll('#empGHChips .emp-gh-chip.active')).map(function(c){return c.dataset.gh;});
+    f.__photo=_editingEmpPhoto||'';
+    f.__dependents=Array.isArray(_editingDependents)?_editingDependents:[];
+    f.__ts=Date.now();
+    localStorage.setItem('hydroPro_emp_form_draft_v1', JSON.stringify(f));
+  }catch(e){ try{console.warn('_captureEmpFormDraft:',e);}catch(_){} }
+}
+function _restoreEmpFormDraft(){
+  try{
+    var raw=localStorage.getItem('hydroPro_emp_form_draft_v1'); if(!raw) return false;
+    var f=JSON.parse(raw); if(!f||typeof f!=='object') return false;
+    Object.keys(f).forEach(function(id){
+      if(id.indexOf('__')===0) return;
+      var el=document.getElementById(id); if(el&&f[id]!=null&&f[id]!=='') el.value=f[id];
+    });
+    if(f.empTitle){ try{ hnxFillEmpTitleSelect(f.empTitle); }catch(_){} }
+    (f.__gh||[]).forEach(function(g){
+      var chip=document.querySelector('#empGHChips [data-gh="'+g+'"]'); if(chip) chip.classList.add('active');
+    });
+    if(f.__photo){ _editingEmpPhoto=f.__photo; try{ updateEmpPhotoPreview(); }catch(_){} }
+    if(Array.isArray(f.__dependents)&&f.__dependents.length){ _editingDependents=f.__dependents; try{ renderDependentsList(); }catch(_){} }
+    try{ onEmpStatusChange(); onEmpRoleChange(); onEmpDeptChange(); onEmpLevelChange(); }catch(_){}
+    return true;
+  }catch(e){ return false; }
+}
+/* v12.95: auto-save wrapper the universal engine calls on every keystroke.
+   - closed modal → no-op (flushAll pings every enrolled container on tab-hide,
+     even hidden static modals; without this guard a stale form re-saves)
+   - editing an existing employee → silent in-place save
+   - adding a NEW employee → capture form draft only (no record creation) */
+window._autosaveEmployee = function(){
+  try{
+    var modal=document.getElementById('empModal');
+    if(!modal || !modal.classList.contains('open')) return;
+    if(_editingEmpId){ saveEmployee({silent:true}); }
+    else{ _captureEmpFormDraft(); }
+  }catch(e){ try{console.warn('_autosaveEmployee:',e);}catch(_){} }
+};
 
 function deleteCurrentEmployee(){
   if(!_editingEmpId)return;
@@ -55979,8 +56030,8 @@ function _saveMemoInternal(newStatus, opts){
     if(_silent && m.id) _editingMemoId = m.id;
   }
   saveMemos();
+  if(_silent) return; /* v12.95: audit + archive + close only on manual save — no per-keystroke audit spam */
   audit('memo_save',`Memo ${m.id} saved as ${newStatus}: ${m.title}`);
-  if(_silent) return;
   // v2.84 — Auto-archive to 201 file when memo is finalized (status='pending')
   try{
     if(newStatus==='pending'&&typeof archiveMemoTo201==='function'){
@@ -129573,8 +129624,18 @@ body.hnx-mobile-locked { overflow: hidden; }
       hnxRmCloseModal();window._hnxRenderRecurringMatrix();
     }
   };
-  /* v12.94: auto-save wrapper used by the universal engine */
-  window._autosaveRmCell=function(){ try{ window.hnxRmSave({silent:true}); }catch(e){ try{console.warn('_autosaveRmCell:',e);}catch(_){} } };
+  /* v12.94: auto-save wrapper used by the universal engine.
+     v12.95: guard on the overlay being visible — flushAll pings every enrolled
+     container on tab-hide, and #hnxRmModal is a static div that persists after
+     close; re-firing with the stale _rmCur would re-log an old cell with a
+     fresh timestamp, falsifying the completion log's 'at' time. */
+  window._autosaveRmCell=function(){
+    try{
+      var ov=document.getElementById('hnxRmOv');
+      if(!ov || ov.style.display==='none' || !ov.style.display) return;
+      window.hnxRmSave({silent:true});
+    }catch(e){ try{console.warn('_autosaveRmCell:',e);}catch(_){} }
+  };
 
   function freqOptions(sel){
     var F=window.FREQ_LABELS||{daily:'Daily',daily_one_table:'Daily — one table/day',once_per_week:'Once per week',weekly:'Weekly',weekly_one_per_day:'Weekly — one per day',monthly:'Monthly',quarterly:'Quarterly',semi_annual:'Semi-annual',annual:'Annual'};
