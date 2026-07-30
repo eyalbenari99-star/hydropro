@@ -3534,6 +3534,7 @@ td[data-edit-pool]:hover{box-shadow:inset 0 0 0 2px var(--accent);}
 .pay-num.neg{color:var(--danger);}
 .pay-num.pos{color:var(--ok);}
 .pay-table-scroll{max-height:70vh;overflow:auto;}
+@media print{.pay-table-scroll{max-height:none!important;overflow:visible!important;}}/* v13.12 PAY-F12b: Print no longer truncates the table to the visible 70vh slice */
 
 .pay-status-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-family:var(--sans);}
 .pay-status-draft{background:rgba(158,158,158,0.2);color:var(--text2);}
@@ -53922,9 +53923,12 @@ function upsertPayrollRun(run){
   /* v13.12 PAY-F2: stamp updatedAt so the 20s cloud merge (which ranks by
      updatedAt||raisedAt||createdAt||ts, never approvedAt) can't let a stale
      draft from another device silently un-approve a locked run. */
-  run.updatedAt=Date.now();
   const list=loadPayrollRuns();
   const i=list.findIndex(r=>r.id===run.id);
+  /* v13.12 PAY-F2b: a locked run can never be replaced by a non-approved copy of itself —
+     there is no reopen flow, so such a write is always a stale draft (offline device / race). */
+  if(i>=0&&list[i]&&list[i].status==='approved'&&run.status!=='approved')return;
+  run.updatedAt=Date.now();
   if(i>=0)list[i]=run;else list.push(run);
   savePayrollRuns(list);
 }
@@ -53939,6 +53943,19 @@ function fmtDateShort(d){
    local-midnight dates back one day in UTC+8, offsetting every pay period. */
 function payLocalYMD(d){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+/* v13.12 PAY-F5b: office runs approved BEFORE the timezone fix are stored under UTC-shifted ids
+   (start/end one day earlier: 10-24 / 25-9 instead of 11-25 / 26-10). Resolve the period to the
+   legacy id whenever only the legacy run exists — otherwise a paid half would reappear as a fresh
+   approvable draft under the new id (double-pay + inflated 13th-month). Manual adds and allowances
+   are keyed by the same string, so they follow automatically. */
+function payShiftYMD(sd,days){const d=new Date(sd+'T00:00:00');d.setDate(d.getDate()+days);return payLocalYMD(d);}
+function payOfficeRunId(period){
+  if(!period||!period.start||!period.end)return`office_${(period||{}).start}_${(period||{}).end}`;
+  const nid=`office_${period.start}_${period.end}`;
+  if(getPayrollRun(nid))return nid;
+  const lid=`office_${payShiftYMD(period.start,-1)}_${payShiftYMD(period.end,-1)}`;
+  return getPayrollRun(lid)?lid:nid;
 }
 
 function getWeekPeriod(refDate){
@@ -54078,7 +54095,11 @@ function calcEmployeePayroll(emp,periodStart,periodEnd,periodType){
         const t=b.awardedAt||b.addedAt||0;
         if(!t)return true; // no date on record — keep legacy behavior
         const ds=payLocalYMD(new Date(t));
-        return ds>=periodStart&&ds<=periodEnd;
+        /* v13.12 PAY-F7b: carry an unpaid bonus FORWARD until it is paid (a bonus staged after its
+           period was approved must surface in the next open draft, not vanish forever); only exclude
+           bonuses staged after this period ends. Double-pay across two open drafts is blocked at
+           approval by _reverifyReferralBonusesForRun + paidInPayroll. */
+        return ds<=periodEnd;
       });
       bonuses.forEach(b=>{
         const amt=Number(b.amount||0);
@@ -54361,7 +54382,11 @@ function renderPayrollOps(){
      still a draft — a stored draft otherwise went stale, and Approve/Export/payslip
      all read the stored lines, not what is on screen. Never touch approved runs. */
   if(!existing||existing.status==='draft'){
-    upsertPayrollRun({id:runId,type:'weekly',periodStart:period.start,periodEnd:period.end,payday:period.payday,status:'draft',lines,totals,createdAt:existing?(existing.createdAt||Date.now()):Date.now()});
+    /* v13.12 PAY-F2b: only re-persist when the numbers actually changed — an idle re-render
+       re-stamping updatedAt could out-rank a fresh approval from another device in the cloud merge */
+    if(!existing||JSON.stringify({l:existing.lines,t:existing.totals})!==JSON.stringify({l:lines,t:totals})){
+      upsertPayrollRun({id:runId,type:'weekly',periodStart:period.start,periodEnd:period.end,payday:period.payday,status:'draft',lines,totals,createdAt:existing?(existing.createdAt||Date.now()):Date.now()});
+    }
   }
 }
 
@@ -54412,7 +54437,7 @@ function payOpsAddEmpDialog(){
   const opts=candidates.sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(e=>{
     const dept=deptById(e.dept);
     const rate=e.rateOverride||e.rate||0;
-    return `<option value="${e.id}">${e.name} — ${dept?dept.name:e.dept} — ₱${rate.toFixed(2)}/day</option>`;
+    return `<option value="${e.id}">${e.name} — ${dept?dept.name:e.dept}${canViewSalaries()?' — ₱'+rate.toFixed(2)+'/day':''}</option>`;
   }).join('');
 
   const overlay=document.createElement('div');
@@ -54452,12 +54477,13 @@ function payOpsAddEmpConfirm(){
 }
 
 function payOpsApprove(){
+  if(typeof can==='function'&&!can('managePayroll')){showToast('Access denied','warn');return;} /* v13.12 PAY-F11b */
   const runId=`ops_${_payOpsCurrentPeriod.start}_${_payOpsCurrentPeriod.end}`;
   const run=getPayrollRun(runId);
   if(!run){showToast('Nothing to approve','warn');return;}
   /* v13.12 PAY-F7: strip bonuses already paid in another run before totalling */
   try{if(_reverifyReferralBonusesForRun(run))upsertPayrollRun(run);}catch(e){console.warn('Referral re-verify err',e);}
-  if(!confirm(`Approve and LOCK operations payroll for ${_payOpsCurrentPeriod.label}?\n\nTotal net pay: ₱${(run.totals.netPay||0).toFixed(2)}\n${run.lines.length} employees\n\nOnce locked, the run cannot be edited without reopening it.`))return;
+  if(!confirm(`Approve and LOCK operations payroll for ${_payOpsCurrentPeriod.label}?\n\nTotal net pay: ${canViewSalaries()?'₱'+(run.totals.netPay||0).toFixed(2):'(hidden)'}\n${run.lines.length} employees\n\nOnce locked, the run cannot be edited without reopening it.`))return;
   run.status='approved';
   run.approvedAt=Date.now();
   run.approvedBy=(getCurrentUser()||{}).fullname||(getCurrentUser()||{}).username||'';
@@ -54520,7 +54546,7 @@ function renderPayrollOffice(){
   const officeEmps=getOfficeEmployees();
 
   // v2.83 — Include manually-added employees (one-off additions outside auto-list)
-  const periodKey=`office_${period.start}_${period.end}`;
+  const periodKey=payOfficeRunId(period); /* v13.12 PAY-F5b: falls back to the pre-fix (UTC-shifted) id when that run exists, so approved history isn't re-created as a fresh draft */
   const manualIds=getManualAddsForPeriod(periodKey);
   const manualEmps=manualIds.map(id=>{
     if(officeEmps.find(e=>e.id===id))return null;
@@ -54754,7 +54780,11 @@ function renderPayrollOffice(){
      still a draft — a stored draft otherwise went stale, and Approve/Export/payslip
      all read the stored lines, not what is on screen. Never touch approved runs. */
   if(!existing||existing.status==='draft'){
-    upsertPayrollRun({id:runId,type:'semi_monthly',periodStart:period.start,periodEnd:period.end,status:'draft',lines,totals,createdAt:existing?(existing.createdAt||Date.now()):Date.now()});
+    /* v13.12 PAY-F2b: only re-persist when the numbers actually changed — an idle re-render
+       re-stamping updatedAt could out-rank a fresh approval from another device in the cloud merge */
+    if(!existing||JSON.stringify({l:existing.lines,t:existing.totals})!==JSON.stringify({l:lines,t:totals})){
+      upsertPayrollRun({id:runId,type:'semi_monthly',periodStart:period.start,periodEnd:period.end,status:'draft',lines,totals,createdAt:existing?(existing.createdAt||Date.now()):Date.now()});
+    }
   }
 }
 
@@ -54772,7 +54802,7 @@ function payOfficeShiftMonth(dir){
 }
 function payOfficeRecalc(){
   if(!confirm('Recalculate this period\'s payroll?\n\nAny manual edits will be discarded.'))return;
-  const runId=`office_${_payOfficeCurrentPeriod.start}_${_payOfficeCurrentPeriod.end}`;
+  const runId=payOfficeRunId(_payOfficeCurrentPeriod); /* v13.12 PAY-F5b */
   const run=getPayrollRun(runId);
   if(run&&run.status==='approved'){showToast('Cannot recalculate approved payroll','warn');return;}
   const list=loadPayrollRuns().filter(r=>r.id!==runId);
@@ -54811,7 +54841,7 @@ function payOfficeResetGovOverride(empId){
   delete overrides[empId];
   localStorage.setItem('hydroPro_office_gov_overrides',JSON.stringify(overrides));
   audit('payroll_gov_override_reset',`Office: ${empId} reset to auto`);
-  const runId=`office_${_payOfficeCurrentPeriod.start}_${_payOfficeCurrentPeriod.end}`;
+  const runId=payOfficeRunId(_payOfficeCurrentPeriod); /* v13.12 PAY-F5b */
   const list=loadPayrollRuns().filter(r=>r.id!==runId);
   savePayrollRuns(list);
   renderPayrollOffice();
@@ -54824,7 +54854,7 @@ function payOfficeResetGovOverride(empId){
 function payOfficeAddEmpDialog(){
   if(!_payOfficeCurrentPeriod){showToast('No period selected','warn');return;}
   const period=_payOfficeCurrentPeriod;
-  const periodKey=`office_${period.start}_${period.end}`;
+  const periodKey=payOfficeRunId(period); /* v13.12 PAY-F5b */
   const run=getPayrollRun(periodKey);
   if(run&&run.status==='approved'){showToast('Cannot add to approved payroll','warn');return;}
 
@@ -54848,7 +54878,7 @@ function payOfficeAddEmpDialog(){
   const opts=candidates.sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(e=>{
     const dept=deptById(e.dept);
     const rate=e.rateOverride||e.rate||0;
-    return `<option value="${e.id}">${e.name} — ${dept?dept.name:e.dept} — ₱${rate.toFixed(2)}/day</option>`;
+    return `<option value="${e.id}">${e.name} — ${dept?dept.name:e.dept}${canViewSalaries()?' — ₱'+rate.toFixed(2)+'/day':''}</option>`;
   }).join('');
 
   const overlay=document.createElement('div');
@@ -54877,7 +54907,7 @@ function payOfficeAddEmpConfirm(){
   const sel=document.getElementById('payAddEmpSelect');
   if(!sel||!sel.value){showToast('Pick an employee','warn');return;}
   const empId=sel.value;
-  const periodKey=`office_${_payOfficeCurrentPeriod.start}_${_payOfficeCurrentPeriod.end}`;
+  const periodKey=payOfficeRunId(_payOfficeCurrentPeriod); /* v13.12 PAY-F5b */
   addManualPayrollEmp(periodKey,empId);
   // Clear cached run so it recomputes
   const list=loadPayrollRuns().filter(r=>r.id!==periodKey);
@@ -54888,7 +54918,7 @@ function payOfficeAddEmpConfirm(){
   showToast('✓ Employee added to period','ok');
 }
 function _payOfficeRemoveManual(empId){
-  const periodKey=`office_${_payOfficeCurrentPeriod.start}_${_payOfficeCurrentPeriod.end}`;
+  const periodKey=payOfficeRunId(_payOfficeCurrentPeriod); /* v13.12 PAY-F5b */
   const run=getPayrollRun(periodKey);
   if(run&&run.status==='approved'){showToast('Cannot edit approved payroll','warn');return;}
   if(!confirm('Remove this manually-added employee from the current period?\nAuto-included employees cannot be removed this way.'))return;
@@ -54985,9 +55015,10 @@ function _payAllowCatAdd(){
 // v2.83 — Manage Allowances for ONE employee in current period
 // ============================================================
 function payOfficeManageAllowancesDialog(empId){
+  if(!canViewSalaries()){showToast('\u{1F512} Salary access required','warn');return;} /* v13.12 PAY-F11b: dialog shows and CHANGES pay */
   if(!_payOfficeCurrentPeriod){showToast('No period selected','warn');return;}
   const period=_payOfficeCurrentPeriod;
-  const periodKey=`office_${period.start}_${period.end}`;
+  const periodKey=payOfficeRunId(period); /* v13.12 PAY-F5b */
   const run=getPayrollRun(periodKey);
   const locked=run&&run.status==='approved';
   const emp=employees.find(e=>e.id===empId);
@@ -55074,7 +55105,7 @@ function payOfficeManageAllowancesDialog(empId){
   document.body.appendChild(overlay);
 }
 function _payAllowEntryAdd(empId){
-  const periodKey=`office_${_payOfficeCurrentPeriod.start}_${_payOfficeCurrentPeriod.end}`;
+  const periodKey=payOfficeRunId(_payOfficeCurrentPeriod); /* v13.12 PAY-F5b */
   const run=getPayrollRun(periodKey);
   if(run&&run.status==='approved'){showToast('Cannot edit approved payroll','warn');return;}
   const catId=(document.getElementById('newAllowCat')||{}).value||'';
@@ -55095,7 +55126,7 @@ function _payAllowEntryAdd(empId){
   showToast('✓ Allowance added','ok');
 }
 function _payAllowEntryDelete(empId,idx){
-  const periodKey=`office_${_payOfficeCurrentPeriod.start}_${_payOfficeCurrentPeriod.end}`;
+  const periodKey=payOfficeRunId(_payOfficeCurrentPeriod); /* v13.12 PAY-F5b */
   const run=getPayrollRun(periodKey);
   if(run&&run.status==='approved'){showToast('Cannot edit approved payroll','warn');return;}
   if(!confirm('Delete this allowance entry?'))return;
@@ -55114,6 +55145,7 @@ function _payAllowEntryDelete(empId,idx){
 // v2.83 — Final Pay Slip (with pro-rated 13th month, DOLE formula)
 // ============================================================
 function payOfficeFinalPayDialog(empId){
+  if(!canViewSalaries()){showToast('\u{1F512} Salary access required','warn');return;} /* v13.12 PAY-F11b */
   const emp=employees.find(e=>e.id===empId);
   if(!emp){showToast('Employee not found','warn');return;}
   if(!emp.lastWorkingDay){showToast('Set Last Working Day in HR first','warn');return;}
@@ -55182,12 +55214,13 @@ function payOfficeFinalPayDialog(empId){
   document.body.appendChild(overlay);
 }
 function payOfficeApprove(){
-  const runId=`office_${_payOfficeCurrentPeriod.start}_${_payOfficeCurrentPeriod.end}`;
+  if(typeof can==='function'&&!can('managePayroll')){showToast('Access denied','warn');return;} /* v13.12 PAY-F11b */
+  const runId=payOfficeRunId(_payOfficeCurrentPeriod); /* v13.12 PAY-F5b */
   const run=getPayrollRun(runId);
   if(!run){showToast('Nothing to approve','warn');return;}
   /* v13.12 PAY-F7: strip bonuses already paid in another run before totalling */
   try{if(_reverifyReferralBonusesForRun(run))upsertPayrollRun(run);}catch(e){console.warn('Referral re-verify err',e);}
-  if(!confirm(`Approve and LOCK office payroll for ${_payOfficeCurrentPeriod.label}?\n\nTotal net pay: ₱${(run.totals.netPay||0).toFixed(2)}\n${run.lines.length} employees`))return;
+  if(!confirm(`Approve and LOCK office payroll for ${_payOfficeCurrentPeriod.label}?\n\nTotal net pay: ${canViewSalaries()?'₱'+(run.totals.netPay||0).toFixed(2):'(hidden)'}\n${run.lines.length} employees`))return;
   run.status='approved';
   run.approvedAt=Date.now();
   run.approvedBy=(getCurrentUser()||{}).fullname||(getCurrentUser()||{}).username||'';
@@ -55264,7 +55297,7 @@ function _reverifyReferralBonusesForRun(run){
 function payOfficeExportCSV(){
   /* v13.12 PAY-F11: exports contain full salaries — require salary access */
   if(!canViewSalaries()){showToast('🔒 Salary access required to export payroll','warn');return;}
-  const run=getPayrollRun(`office_${_payOfficeCurrentPeriod.start}_${_payOfficeCurrentPeriod.end}`);
+  const run=getPayrollRun(payOfficeRunId(_payOfficeCurrentPeriod)); /* v13.12 PAY-F5b */
   if(!run){showToast('Nothing to export','warn');return;}
   const rows=[['Name','Type','Dept','Daily Rate','Days Worked','Abs Unauth','Abs Auth','Basic Pay','Memo+','Memo-','Referral Bonus','Gross','SSS','PHIC','HDMF','Tax','Net Pay']];
   run.lines.forEach(l=>{
@@ -55289,6 +55322,7 @@ function payOfficePrint(){
 // INDIVIDUAL PAYROLL LINE VIEW (click employee row)
 // ============================================================
 function openPayrollLine(runId,empId,periodType){
+  if(!canViewSalaries()){showToast('\u{1F512} Salary access required','warn');return;} /* v13.12 PAY-F11b: the detail modal shows rate/gov/tax/net */
   const run=getPayrollRun(runId);
   if(!run){showToast('Payroll run not found','warn');return;}
   const line=run.lines.find(l=>l.empId===empId);
@@ -55511,6 +55545,7 @@ function payHistoryOpen(runId){
     switchView('payroll_ops');
   } else {
     _payOfficeCurrentPeriod={start:run.periodStart,end:run.periodEnd,label:`${fmtDateShort(run.periodStart)} — ${fmtDateShort(run.periodEnd)}`};
+    try{const _d=parseInt(String(run.periodStart).slice(8,10),10);_payOfficeHalf=(_d>=25||_d<=5)?'second':'first';}catch(e){} /* v13.12 PAY-F6b: sync the half toggle (legacy ids start on the 10th/25th, new on the 11th/26th) */
     switchView('payroll_office');
   }
 }
@@ -81302,9 +81337,11 @@ window._drillSecIncidents=function(filter){
 // memo / gov / tax / net). Click any row → opens the per-employee detail modal.
 window._drillPayroll=function(kind,filter){
   if(typeof openDrillDown!=='function')return;
+  /* v13.12 PAY-F11b: drill-downs list every employee's rate and net — same gate as the tables' mask */
+  if(typeof canViewSalaries==='function'&&!canViewSalaries()){if(typeof showToast==='function')showToast('\u{1F512} Salary access required','warn');return;}
   const period=(kind==='ops')?(window._payOpsCurrentPeriod||{}):(window._payOfficeCurrentPeriod||{});
   if(!period.start||!period.end){alert('No active payroll period.');return;}
-  const runId=`${kind}_${period.start}_${period.end}`;
+  const runId=(kind==='office'&&typeof payOfficeRunId==='function')?payOfficeRunId(period):`${kind}_${period.start}_${period.end}`;
   const run=(typeof getPayrollRun==='function')?getPayrollRun(runId):null;
   if(!run||!run.lines||!run.lines.length){alert('No payroll lines in this period yet. Click "Recalculate" first.');return;}
   const lines=run.lines.slice();
@@ -138873,6 +138910,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     if(typeof getSemiMonthPeriod === 'function'){
       // auto-detect half from the date
       window._payOfficeCurrentPeriod = getSemiMonthPeriod(date);
+      if(window._payOfficeCurrentPeriod&&window._payOfficeCurrentPeriod.half)window._payOfficeHalf=window._payOfficeCurrentPeriod.half; /* v13.12 PAY-F6b: keep the half toggle in sync */
     }
     var ov = document.getElementById('hnx-office-period-overlay');
     if(ov) ov.remove();
