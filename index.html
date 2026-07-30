@@ -16303,7 +16303,9 @@ function _hnxCountUp(root){
 }
 
 // ===================== STATE =====================
-const TODAY = new Date().toISOString().slice(0,10);
+/* v13.14 RPT-F3: local (PH) calendar day — toISOString() is UTC, so between 12am and 8am PHT the
+   checklist state key (SKEY) and the daily-report label/filenames all pointed at YESTERDAY. */
+const TODAY = (d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'))(new Date());
 const SKEY = 'hydroPro_'+TODAY;
 let state = {};
 
@@ -16673,7 +16675,12 @@ function loadRecurringCompletions(){try{const v=JSON.parse(localStorage.getItem(
 function saveRecurringCompletions(obj){try{localStorage.setItem(RECURRING_KEY,JSON.stringify(obj||{}));}catch(e){}}
 function _recKey(date,taskId,gh){return `${date}__${taskId}__${gh||'all'}`;}
 function _dowShort(d){return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];}
-function _todayISO(){return new Date().toISOString().slice(0,10);}
+/* v13.14 LOG-F3: local (UTC+8 wall-clock) Y-M-D. toISOString() is the UTC date, which
+   lags the Philippine day until 08:00 — completions ticked in the early morning were
+   keyed under yesterday and re-shown as PENDING/Missed. Shared helper for every
+   "today" in this script scope (also used by PACK-F2 / SEC-F1 / LOG-F5 fixes). */
+function hnxLocalToday(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function _todayISO(){return hnxLocalToday();}
 function expandGhRange(s){
   if(!s)return [];
   const txt=String(s).replace(/\s+/g,'').toUpperCase();
@@ -16912,7 +16919,7 @@ function _renderDbOpenCalls(){
   target.innerHTML=`
     <div class="section-title" style="display:flex;align-items:center;gap:10px;">📞 Production Open Calls
       <span style="font-size:11px;color:var(--text3);font-weight:400;">— ${open.length} open</span>
-      <span style="margin-left:auto;"><button class="btn btn-outline" style="font-size:11px;padding:5px 10px;" onclick="switchView('my_calls')">View all →</button></span>
+      <span style="margin-left:auto;"><button class="btn btn-outline" style="font-size:11px;padding:5px 10px;" onclick="try{_myCallsModuleFilter='production'}catch(e){};switchView('my_calls')">View all →</button></span><!-- v13.14 RPT-F6: scope My Calls to production, matching the panel's own filter (same pattern as the per-module Open Issues sub-tabs) -->
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;margin-bottom:14px;">
       ${open.map(c=>{
@@ -17821,6 +17828,214 @@ window.MCC_LIVE.inv_cmd=function(){
 
     return {kpis:kpis, aiRows:aiRows, boxes:boxes, alerts:alerts};
   }catch(e){ console.warn('[MCC] inv_cmd live failed', e); return null; }
+};
+
+/* v13.14 PACK-F4 · live packaging command-center — replaces pack_cmd's permanently
+   hardcoded demo numbers ("4,820 cases", "Capacity Tue: 94%", …) with real KPIs from
+   collectWashTrimData / the W&T session store and _packLoadMaterials. Where a KPI
+   cannot be computed from real data it shows '—' instead of a fabricated number. */
+window.MCC_LIVE.pack_cmd=function(){
+  try{
+    var today=(typeof hnxLocalToday==='function')?hnxLocalToday():new Date().toISOString().slice(0,10);
+    var wt=null;
+    try{ if(typeof collectWashTrimData==='function') wt=collectWashTrimData(today); }catch(e){}
+    var session=null;
+    try{ if(typeof loadWTSessions==='function') session=(loadWTSessions()||{})[today]||null; }catch(e){}
+    var ptIssued=!!(session&&session.pickTicket&&session.pickTicket.issuedAt);
+    var sumSubmitted=!!(session&&session.summary&&session.summary.submittedAt);
+    var produced=0,target=0,kg=0;
+    try{
+      if(session&&typeof WT_PRODUCT_TYPES!=='undefined'){
+        WT_PRODUCT_TYPES.forEach(function(p){
+          var t=((session.pickTicket||{}).outputs||[]).find(function(o){return o.productId===p.id;});
+          target+=t?(parseInt(t.count)||0):0;
+          var out=((session.summary||{}).outputs||{})[p.id]||{};
+          var pr=parseInt(out.produced)||0;
+          produced+=pr; kg+=pr*(p.targetGrams||0)/1000;
+        });
+      }
+    }catch(e){}
+    var match=target>0?Math.round(produced/target*100):null;
+
+    // ---------- materials (real stored inventory) ----------
+    var mats=[];
+    try{ if(typeof _packLoadMaterials==='function') mats=_packLoadMaterials()||[]; }catch(e){}
+    var low=mats.filter(function(m){return m.stock<=m.reorderPoint;});
+    var matValue=mats.reduce(function(s,m){return s+(m.stock*m.unitCost);},0);
+
+    // ---------- open packaging calls ----------
+    var openCalls=[], urgent=0;
+    try{
+      var issues=(typeof loadIssues==='function'?loadIssues():[])||[];
+      openCalls=issues.filter(function(i){ return i&&i.module==='packaging'&&['open','assigned','in_progress'].indexOf(i.status)>=0; });
+      urgent=openCalls.filter(function(i){ return i.priority==='critical'||i.priority==='urgent'; }).length;
+    }catch(e){}
+
+    var kpis=[
+      {l:'Bags produced today', v:produced>0?String(produced):'—', s:target?('target '+target):'no pick-ticket target', tone:produced?(match!=null?(match>=95?'ok':match>=80?'warn':'crit'):'ok'):''},
+      {l:'Kg packed today', v:kg>0?kg.toFixed(1)+' kg':'—', s:sumSubmitted?'summary submitted':(ptIssued?'summary pending':'no session yet'), tone:sumSubmitted?'ok':(ptIssued?'warn':'')},
+      {l:'Pick Ticket', v:ptIssued?'✓ Issued':'—', s:ptIssued?('for '+today):'not issued today', tone:ptIssued?'ok':'warn'},
+      {l:'Materials low', v:String(low.length), s:mats.length?(mats.length+' SKUs tracked'):'no materials data', tone:low.length?(low.length>3?'crit':'warn'):'ok'}
+    ];
+    var aiRows=[
+      {l:'🎯 Target match', v:match!=null?match+'%':'—', c:match!=null?(match>=95?'ok':match>=80?'warn':''):''},
+      {l:'📦 Bags vs target', v:target?(produced+'/'+target):'—', c:''},
+      {l:'📞 Open packaging calls', v:String(openCalls.length), c:openCalls.length?(urgent?'warn':''):'ok'},
+      {l:'⚠ Low-stock materials', v:String(low.length), c:low.length?'warn':'ok'},
+      {l:'💰 Materials value', v:mats.length?('₱'+Math.round(matValue).toLocaleString()):'—', c:''}
+    ];
+    var boxes=[
+      {i:'📦', t:'Output Today', v:produced>0?String(produced):'—', c:produced?'ok':'', s:target?('target '+target+' bags'):'issue a Pick Ticket to set a target'},
+      {i:'⚖', t:'Kg Packed', v:kg>0?kg.toFixed(1):'—', c:kg>0?'ok':'', s:sumSubmitted?'from submitted end-of-day summary':'awaiting end-of-day summary'},
+      {i:'🎯', t:'Target Match', v:match!=null?(match+'%'):'—', c:match!=null?(match>=95?'ok':'warn'):'', s:match!=null?(produced+' of '+target+' bags'):'needs target + output data'},
+      {i:'📋', t:'Session Status', v:ptIssued?(sumSubmitted?'DONE':'OPEN'):'—', c:ptIssued?(sumSubmitted?'ok':'warn'):'', s:ptIssued?(sumSubmitted?'pick ticket + summary in':'summary still pending'):'no W&T session today'},
+      {i:'⚠️', t:'Low Stock', v:String(low.length), c:low.length?'warn':'ok', s:low.length?low.slice(0,2).map(function(m){return m.name;}).join(' · '):'all above reorder point'},
+      {i:'💰', t:'Materials Value', v:mats.length?('₱'+Math.round(matValue).toLocaleString()):'—', c:'ok', s:mats.length+' materials tracked'}
+    ];
+    var alerts=[];
+    try{ ((wt&&wt.alerts)||[]).forEach(function(a){ alerts.push({tone:a.priority==='critical'?'crit':'warn', title:a.text, msg:"From today's Wash & Trim session"}); }); }catch(e){}
+    low.slice(0,2).forEach(function(m){ alerts.push({tone:'warn', title:m.name+' low', msg:m.stock+' '+m.unit+' left · reorder at '+m.reorderPoint}); });
+    if(urgent) alerts.push({tone:'crit', title:urgent+' urgent packaging call'+(urgent>1?'s':''), msg:'Open calls need attention now'});
+    if(!alerts.length) alerts.push({tone:'ok', title:'Packaging nominal', msg:session?'Session on track · materials OK':'No W&T session logged today'});
+    return {kpis:kpis, aiRows:aiRows, boxes:boxes, alerts:alerts};
+  }catch(e){ console.warn('[MCC] pack_cmd live failed', e); return null; }
+};
+
+/* v13.14 SEC-F3 · live security command-center — replaces sec_cmd's permanently
+   static numbers ("0 incidents", "12/14 patrols", "1 active alert") with real data:
+   incidents 24h from hydroPro_sec_incidents, today's patrol coverage from
+   hydroPro_sec_patrols. Where no real data exists it shows '—'. */
+window.MCC_LIVE.sec_cmd=function(){
+  try{
+    var today=(typeof hnxLocalToday==='function')?hnxLocalToday():new Date().toISOString().slice(0,10);
+
+    // ---------- incidents ----------
+    var incidents=[];
+    try{ if(typeof loadSecIncidents==='function') incidents=loadSecIncidents()||[]; }catch(e){}
+    var cutoff=Date.now()-86400000;
+    var inc24=incidents.filter(function(i){ if(!i)return false; var t=i.createdAt||(i.date?new Date(i.date+'T00:00:00').getTime():0); return t>=cutoff; });
+    var openInc=incidents.filter(function(i){ return i&&!i.resolved; });
+
+    // ---------- today's patrol coverage ----------
+    var patrols={};
+    try{ if(typeof loadSecPatrols==='function') patrols=loadSecPatrols()||{}; }catch(e){}
+    var dayP=patrols[today];
+    var rounds=(dayP&&dayP.rounds)||[];
+    var done=0,missedScans=0,total=0,fullRounds=0,missedRounds=0;
+    rounds.forEach(function(r){
+      var scans=r.scans||[];
+      var miss=scans.filter(function(s){return s.missing;}).length;
+      total+=scans.length; missedScans+=miss; done+=scans.length-miss;
+      if(scans.length&&miss===scans.length)missedRounds++;
+      else if(scans.length&&miss===0)fullRounds++;
+    });
+    var coverage=total>0?Math.round(done/total*100):null;
+    var dates=Object.keys(patrols).sort();
+    var lastDate=dates.length?dates[dates.length-1]:null;
+
+    var kpis=[
+      {l:'Incidents 24h', v:String(inc24.length), s:inc24.length?'see Incidents log':'all clear', tone:inc24.length?'crit':'ok'},
+      {l:'Patrol coverage', v:coverage!=null?(coverage+'%'):'—', s:rounds.length?(done+'/'+total+' scans · '+rounds.length+' rounds'):('no report for '+today), tone:coverage==null?'':(coverage>=95?'ok':coverage>=80?'warn':'crit')},
+      {l:'Rounds today', v:rounds.length?String(rounds.length):'—', s:rounds.length?(fullRounds+' complete · '+missedRounds+' fully missed'):'upload the RFID report', tone:missedRounds?'crit':(rounds.length?'ok':'')},
+      {l:'Open incidents', v:String(openInc.length), s:openInc.length?'unresolved':'none unresolved', tone:openInc.length?'warn':'ok'}
+    ];
+    var aiRows=[
+      {l:'🚨 Incidents 24h', v:String(inc24.length), c:inc24.length?'warn':'ok'},
+      {l:'🚶 Missed scans today', v:rounds.length?String(missedScans):'—', c:missedScans?'warn':(rounds.length?'ok':'')},
+      {l:'📊 Coverage today', v:coverage!=null?(coverage+'%'):'—', c:coverage!=null?(coverage>=95?'ok':'warn'):''},
+      {l:'🛂 Last report on file', v:lastDate||'—', c:lastDate===today?'ok':(lastDate?'warn':'')},
+      {l:'📋 Incidents on file', v:String(incidents.length), c:''}
+    ];
+    var boxes=[
+      {i:'🚶', t:'Patrol Coverage', v:coverage!=null?(coverage+'%'):'—', c:coverage!=null?(coverage>=95?'ok':'warn'):'', s:rounds.length?(done+' of '+total+' checkpoint scans done'):'no patrol report uploaded for today'},
+      {i:'🚨', t:'Incidents 24h', v:String(inc24.length), c:inc24.length?'warn':'ok', s:inc24.length?'logged in the last 24h':'no incidents in the last 24h'},
+      {i:'⚠️', t:'Missed Scans', v:rounds.length?String(missedScans):'—', c:missedScans?'warn':(rounds.length?'ok':''), s:rounds.length?(missedRounds?(missedRounds+' round(s) entirely missed'):'no rounds fully missed'):'upload report to compute'},
+      {i:'🛂', t:'Rounds Logged', v:rounds.length?String(rounds.length):'—', c:rounds.length?'ok':'', s:rounds.length?('for '+today):'none for today yet'},
+      {i:'📋', t:'Open Incidents', v:String(openInc.length), c:openInc.length?'warn':'ok', s:openInc.length?'awaiting resolution':'all resolved'},
+      {i:'📈', t:'Reports On File', v:String(dates.length), c:dates.length?'ok':'', s:lastDate?('latest '+lastDate):'no uploads yet'}
+    ];
+    var alerts=[];
+    if(missedRounds) alerts.push({tone:'crit', title:missedRounds+' patrol round'+(missedRounds>1?'s':'')+' entirely missed today', msg:'Guard scanned no checkpoints — investigate now'});
+    if(coverage!=null&&coverage<80) alerts.push({tone:'warn', title:'Patrol coverage low ('+coverage+'%)', msg:missedScans+' checkpoint scans missed today'});
+    inc24.slice(0,2).forEach(function(i){ alerts.push({tone:(i.priority==='critical')?'crit':'warn', title:i.title||'Security incident', msg:((i.category||'')+(i.time?' · '+i.time:''))||'See Incidents log'}); });
+    if(!dayP) alerts.push({tone:'warn', title:'No patrol report for '+today, msg:'Upload the RFID report (🛂 RFID Upload) or use ⚡ Live Patrol'});
+    if(!alerts.length) alerts.push({tone:'ok', title:'Security nominal', msg:'Coverage on track · no incidents in 24h'});
+    return {kpis:kpis, aiRows:aiRows, boxes:boxes, alerts:alerts};
+  }catch(e){ console.warn('[MCC] sec_cmd live failed', e); return null; }
+};
+
+/* v13.14 QC-F7 · live QC command-center — replaces qc_cmd's static demo numbers
+   ("128 inspections / 94.2% pass rate") with real signals from the QC module
+   (inspections, rejections, open QC tickets). Merged over the static config. */
+window.MCC_LIVE.qc_cmd=function(){
+  try{
+    var _d0=new Date();
+    var today=_d0.getFullYear()+'-'+String(_d0.getMonth()+1).padStart(2,'0')+'-'+String(_d0.getDate()).padStart(2,'0');
+    var insp=(typeof _qcLoadInspections==='function')?(_qcLoadInspections()||[]):[];
+    var rej=(typeof _qcLoadRejections==='function')?(_qcLoadRejections()||[]):[];
+    function dstr(x){ return String((x&&x.date)||'').slice(0,10); } // v57/v61 loader patches may append T00:00:00
+    function in7(x){ var t=new Date(dstr(x)+'T00:00:00').getTime(); return !isNaN(t)&&(Date.now()-t)<7*86400000; }
+
+    var inspToday=insp.filter(function(i){return dstr(i)===today;});
+    var insp7=insp.filter(in7);
+    var passed7=insp7.filter(function(i){return i&&i.passed;}).length;
+    var failed7=insp7.length-passed7;
+    var failedToday=inspToday.filter(function(i){return i&&!i.passed;}).length;
+    var passRate7=insp7.length?Math.round(passed7/insp7.length*100):null;
+
+    var rejToday=rej.filter(function(r){return dstr(r)===today;});
+    var rej7=rej.filter(in7);
+    var rejKg7=rej7.reduce(function(a,r){return a+(parseFloat(r&&r.qty)||0);},0);
+
+    // defect + facility hot-spots (7d)
+    var defCount={},facFail={};
+    insp7.forEach(function(i){
+      if(!i)return;
+      (i.defects||[]).forEach(function(dd){ defCount[dd]=(defCount[dd]||0)+1; });
+      if(!i.passed&&i.facility)facFail[i.facility]=(facFail[i.facility]||0)+1;
+    });
+    var topDefect=Object.keys(defCount).sort(function(a,b){return defCount[b]-defCount[a];})[0]||null;
+    var topFacility=Object.keys(facFail).sort(function(a,b){return facFail[b]-facFail[a];})[0]||null;
+
+    // open QC tickets (same source as renderQCCalls)
+    var openCalls=0,critCalls=0;
+    try{
+      var issues=JSON.parse(localStorage.getItem('hydroPro_issues_v2')||'[]')||[];
+      issues.forEach(function(i){
+        if(!i||i.module!=='quality')return;
+        if(['open','assigned','in_progress'].indexOf(i.status)>=0){ openCalls++; if(i.priority==='critical'||i.priority==='urgent')critCalls++; }
+      });
+    }catch(e){}
+
+    var kpis=[
+      {l:'Inspections today', v:String(inspToday.length), s:insp7.length+' in last 7d', tone:inspToday.length?'ok':''},
+      {l:'Pass rate (7d)', v:passRate7!=null?passRate7+'%':'—', s:insp7.length?(passed7+' pass · '+failed7+' fail'):'no inspections yet', tone:passRate7==null?'':(passRate7>=90?'ok':passRate7>=70?'warn':'crit')},
+      {l:'Rejections (7d)', v:String(rej7.length), s:rej7.length?(rejKg7.toFixed(1)+' kg rejected'):'none logged', tone:rej7.length?'warn':'ok'},
+      {l:'Open QC calls', v:String(openCalls), s:critCalls?(critCalls+' critical'):'none critical', tone:critCalls?'crit':(openCalls?'warn':'ok')}
+    ];
+    var aiRows=[
+      {l:'🎯 Pass rate (7d)', v:passRate7!=null?passRate7+'%':'—', c:passRate7==null?'':(passRate7>=90?'ok':'warn')},
+      {l:'📉 Failed today', v:String(failedToday), c:failedToday?'warn':'ok'},
+      {l:'🔬 Top defect (7d)', v:topDefect||'—', c:topDefect?'warn':''},
+      {l:'🏭 Fail hot-spot (7d)', v:topFacility?(topFacility+' ×'+facFail[topFacility]):'—', c:topFacility?'warn':''},
+      {l:'📊 Rejected kg (7d)', v:rej7.length?rejKg7.toFixed(1)+' kg':'—', c:rej7.length?'warn':'ok'}
+    ];
+    var boxes=[
+      {i:'🛡', t:'Pass Rate (7d)', v:passRate7!=null?passRate7+'%':'—', c:passRate7==null?'':(passRate7>=90?'ok':'warn'), s:insp7.length?(insp7.length+' inspections in 7d'):'no inspections yet'},
+      {i:'🔍', t:'Inspections Today', v:String(inspToday.length), c:inspToday.length?'ok':'', s:inspToday.length?(failedToday?failedToday+' failed today':'all passed today'):'none logged yet'},
+      {i:'❌', t:'Rejections (7d)', v:String(rej7.length), c:rej7.length?'warn':'ok', s:rej7.length?(rejKg7.toFixed(1)+' kg · '+rejToday.length+' today'):'none logged'},
+      {i:'🐛', t:'Top Defect (7d)', v:topDefect?('×'+defCount[topDefect]):'—', c:topDefect?'warn':'ok', s:topDefect||'no defects recorded'},
+      {i:'🏭', t:'Fail Hot-spot', v:topFacility||'—', c:topFacility?'warn':'ok', s:topFacility?(facFail[topFacility]+' failed inspections in 7d'):'no failures in 7d'},
+      {i:'📞', t:'Open QC Calls', v:String(openCalls), c:openCalls?(critCalls?'crit':'warn'):'ok', s:critCalls?(critCalls+' critical · act now'):'no critical tickets'}
+    ];
+    var alerts=[];
+    if(failedToday) alerts.push({tone:'warn', title:failedToday+' failed inspection'+(failedToday>1?'s':'')+' today', msg:(topFacility?('Check '+topFacility+' — '):'')+'review defects and rework'});
+    if(rej7.length) alerts.push({tone:'warn', title:rejKg7.toFixed(1)+' kg rejected in 7d', msg:rej7.length+' rejection'+(rej7.length>1?'s':'')+' logged — see Rejections Log'});
+    if(critCalls) alerts.push({tone:'crit', title:critCalls+' critical QC call'+(critCalls>1?'s':''), msg:'Open tickets need attention now'});
+    if(!alerts.length) alerts.push({tone:'ok', title:insp.length?'Quality nominal':'No QC data yet', msg:insp.length?'No failures today · no open rejections':'Log inspections and rejections to light up this board'});
+
+    return {kpis:kpis, aiRows:aiRows, boxes:boxes, alerts:alerts};
+  }catch(e){ console.warn('[MCC] qc_cmd live failed', e); return null; }
 };
 
 
@@ -20266,8 +20481,10 @@ function setMgrRange(preset){
   else if(preset==='7d'){start.setDate(end.getDate()-6);}
   else if(preset==='30d'){start.setDate(end.getDate()-29);}
   else if(preset==='all'){start=new Date(2020,0,1);}
-  document.getElementById('mgrStart').value=start.toISOString().slice(0,10);
-  document.getElementById('mgrEnd').value=end.toISOString().slice(0,10);
+  /* v13.14 RPT-F5: local (PH) date parts — toISOString() is UTC, shifting the presets one day early during 12am–8am PHT */
+  const _mgrIso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  document.getElementById('mgrStart').value=_mgrIso(start);
+  document.getElementById('mgrEnd').value=_mgrIso(end);
   renderMgrSummary();
 }
 function getMgrDates(){
@@ -20278,7 +20495,7 @@ function getMgrDates(){
   let d=new Date(start+'T00:00:00');
   const e=new Date(end+'T00:00:00');
   while(d<=e){
-    const ds=d.toISOString().slice(0,10);
+    const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');/* v13.14 RPT-F5: d is LOCAL midnight — toISOString() rendered the previous UTC day, shifting the whole range back one day */
     if(localStorage.getItem('hydroPro_'+ds))dates.push(ds);
     d.setDate(d.getDate()+1);
   }
@@ -21558,13 +21775,16 @@ function switchView(v,skipModuleCheck){
     'ir_dash':'irr_dash',   /* Irrigation typo alias */
     'lg_dash':'log_dash',   /* Logistics typo alias */
     'sec_module':'sec_dash', /* Security dashboard alias */
-    'licenses':'lic_registry', /* v13.05 HR-F2: HR "📜 Licenses" sub-tab + hr_cmd nav grid route to the real Licenses registry — 'licenses' itself has no route/renderer (blank pane + Production header) */
+    'licenses':'admin_ai', /* v13.14 LIC-F4 (was v13.05 HR-F2 → lic_registry): HR "📜 Licenses" sub-tab + hr_cmd nav grid now land on the REAL license tracker (Admin-AI, Licenses & Permits tab) — lic_registry is a "Coming Soon" stub with no data */
     'irr_pools':'irr_nutrients',      /* v13.13 IRR-F6: legacy id used by dashboard tiles/alerts — real Pool Monitor view */
     'irr_calibration':'irr_systems'   /* v13.13 IRR-F6: legacy id — real Calibration view */
   };
   if(__STALE_ALIASES[v]){
     try{ console.warn('[switchView] stale view id "'+v+'" → routing to "'+__STALE_ALIASES[v]+'"'); }catch(_){}
+    var __rawAliasedV=v;
     v = __STALE_ALIASES[v];
+    /* v13.14 LIC-F4: when the Licenses entry points route to Admin-AI, preselect its Licenses & Permits tab */
+    if(__rawAliasedV==='licenses'&&v==='admin_ai'){ try{ if(window.__hnxADMINAI)window.__hnxADMINAI.tab='lic'; }catch(_){} }
   }
   // Guard: permission-based views
   const guards={
@@ -21576,10 +21796,10 @@ function switchView(v,skipModuleCheck){
     it_cctv:'viewMaintenance',it_radios:'viewMaintenance',it_devices:'viewMaintenance',it_prj11:'viewMaintenance',
     irr_dash:'viewIrrigation',irr_schedule:'viewIrrigation',irr_drums:'viewIrrigation',irr_nutrients:'viewIrrigation',irr_systems:'viewIrrigation',irr_smart_dose:'viewIrrigation',irr_ai_insights:'viewIrrigation',irr_predictions:'viewIrrigation',irr_recurring:'viewIrrigation',irr_open_calls:'viewIrrigation',
     inv_dash:'viewInventory',inv_stock:'viewInventory',inv_movements:'viewInventory',inv_categories:'viewInventory',inv_velocity:'viewInventory',inv_diagnostics:'viewInventory',inv_requests:'viewInventory',inv_master:'viewInventory',
-    pack_dash:'viewPackaging',pack_materials:'viewPackaging',pack_operations:'viewPackaging',
+    pack_dash:'viewPackaging',pack_materials:'viewPackaging',pack_operations:'viewPackaging',pack_washtrim:'viewPackaging',pack_calls:'viewPackaging',pack_checklist:'viewPackaging',pack_cmd:'viewPackaging',pack_duties:'viewPackaging', /* v13.14 PACK-F3: these views bypassed the viewPackaging gate (console/#hash deep links) */
     log_dash:'viewLogistics',log_deliveries:'viewLogistics',log_routes:'viewLogistics',log_vehicles:'viewLogistics',log_recurring:'viewLogistics',log_open_calls:'viewLogistics',log_megabox_matrix:'viewLogistics',
     crm_dash:'viewCRM',crm_reminders:'viewCRM',crm_leads:'viewCRM',crm_customers:'viewCRM',crm_marketing:'viewCRM',crm_pipeline:'viewCRM',crm_catalog:'viewCRM',crm_quotes:'viewCRM',crm_orders:'viewCRM',crm_sales:'viewCRM',
-    qc_dash:'viewQuality',qc_inspections:'viewQuality',qc_rejections:'viewQuality',qc_standards:'viewQuality',qc_prod_inspection:'viewQuality',
+    qc_dash:'viewQuality',qc_inspections:'viewQuality',qc_rejections:'viewQuality',qc_standards:'viewQuality',qc_prod_inspection:'viewQuality',qc_cmd:'viewQuality',qc_calls:'viewQuality',qc_sop:'viewQuality',/* v13.14 QC-F5: the other 3 registered QC views were missing here, so direct switchView() bypassed the permission guard */
     fleet_dash:'viewFleet',fleet_vehicles:'viewFleet',fleet_drivers:'viewFleet',fleet_fuel:'viewFleet',fleet_logistics_coord:'viewFleet',
     lic_dash:'viewLicenses',lic_registry:'viewLicenses',lic_expiring:'viewLicenses',lic_compliance:'viewLicenses',
     prj_dash:'viewProjects',prj_active:'viewProjects',prj_planning:'viewProjects',prj_completed:'viewProjects',
@@ -26179,7 +26399,19 @@ function loadEmailRouting(){
 function saveEmailRouting(r){localStorage.setItem(EMAIL_ROUTING_KEY,JSON.stringify(r));}
 
 function loadReportSchedules(){
-  try{return JSON.parse(localStorage.getItem(REPORT_SCHEDULES_KEY)||'[]');}catch(e){return [];}
+  try{
+    const arr=JSON.parse(localStorage.getItem(REPORT_SCHEDULES_KEY)||'[]');
+    if(!Array.isArray(arr))return [];
+    /* v13.14 RPT-F1: the Reports-Hub scheduler (_saveSchedule) writes {recipients:"a,b",enabled} into the
+       SAME localStorage key — normalize both shapes here so renderReportScheduler/renderScheduleCard
+       never crash on string recipients and enabled-only entries aren't misfiled as PAUSED. */
+    arr.forEach(s=>{
+      if(!s||typeof s!=='object')return;
+      if(typeof s.recipients==='string')s.recipients=s.recipients.split(',').map(x=>x.trim()).filter(Boolean);
+      if(s.active===undefined&&s.enabled!==undefined)s.active=!!s.enabled;
+    });
+    return arr;
+  }catch(e){return [];}
 }
 function saveReportSchedules(arr){localStorage.setItem(REPORT_SCHEDULES_KEY,JSON.stringify(arr));}
 
@@ -26527,9 +26759,9 @@ function renderReportScheduler(){
     <div class="section-title">📨 Report Scheduler</div>
 
     <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--ok);border-radius:8px;margin-bottom:16px;font-size:12px;color:var(--text2);">
-      <strong>📬 Schedule recurring reports</strong> — now delivered <strong>fully automatically by the cloud</strong>. ✅
-      <br>Once a schedule is active, the server emails it on time all by itself — no app open, no clicks needed.
-      <br>Tap <strong>📧 Send Test Email Now</strong> below to confirm delivery is working.
+      <!-- v13.14 RPT-F2: copy corrected — sending is mailto:/EmailJS from THIS app while it is open (due banner + Send Now); there is no server-side scheduler firing while the app is closed -->
+      <strong>📬 Schedule recurring reports</strong> — reminders &amp; one-click sending <strong>from this app</strong>.
+      <br>When a schedule comes due it appears under <strong>🔴 DUE NOW</strong> (and as a banner when the app opens). Tap <strong>📤 Send Now</strong> to email it via your mail app — or configure <strong>⚡ Auto-Send Setup</strong> (EmailJS) so due reports go out automatically <em>while the app is open</em>. Nothing is sent while the app is closed.
       <br><strong>🛡 Domain policy:</strong> All recipients must end in <code>@abapardes.com.ph</code>.
     </div>
 
@@ -29981,7 +30213,7 @@ function getWTSession(date){
 }
 
 let _wtTab='pick_ticket';      // pick_ticket | checklist | summary | crew | history
-let _wtDate=new Date().toISOString().slice(0,10);
+let _wtDate=hnxLocalToday();   /* v13.14 PACK-F2: farm-local (UTC+8) session day — UTC keyed the first ~8h of every day under yesterday's session */
 
 function renderWashTrim(){
   if(_wtTab==='pick_ticket')renderWTPickTicket();
@@ -30177,7 +30409,7 @@ function renderWTPickTicket(){
     <!-- ACTIONS -->
     <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
       ${!pt.issuedAt?`<button class="btn btn-submit" onclick="wtIssuePickTicket()">✅ Issue Pick Ticket & Lock</button>`:`<button class="btn btn-outline" onclick="wtUnissuePickTicket()">↺ Reopen for editing</button>`}
-      <button class="btn btn-outline" onclick="switchWTTab('session')">→ Go to Daily Process</button>
+      <button class="btn btn-outline" onclick="switchWTTab('checklist')">→ Go to Daily Process</button><!-- v13.14 PACK-F1: 'session' is not a W&T tab (copy-paste from Pool Cleaning) — route to the Phase Checklist, the actual next step -->
       <button class="btn btn-outline" onclick="wtExportPickTicket()">📊 Export Pick Ticket</button>
     </div>
   `;
@@ -31991,11 +32223,15 @@ function scanStatus(date, checkpointId, expectedTime){
 }
 
 // === LIVE PATROL MAIN VIEW ===
-let _liveDate=new Date().toISOString().slice(0,10);
+/* v13.14 SEC-F1: default to the farm-local (UTC+8) day and re-derive on every
+   render/scan until the user explicitly picks a date (__secLiveDateTouched) —
+   toISOString() bucketed 00:00-07:59 scans under the previous calendar day. */
+let _liveDate=hnxLocalToday();
 let _liveGuardId='';
 let _liveAutoCheckTimer=null;
 
 function renderSecLive(){
+  if(!window.__secLiveDateTouched)_liveDate=hnxLocalToday(); /* v13.14 SEC-F1 */
   const checkpoints=loadSecCheckpoints();
   const patrol=getLivePatrol(_liveDate);
   const employees=(typeof loadEmployees==='function')?loadEmployees():[];
@@ -32115,7 +32351,7 @@ function renderSecLive(){
           <option value="">— Select guard —</option>
           ${guardEmps.map(e=>`<option value="${e.id}" ${e.id===_liveGuardId?'selected':''}>${e.name}${e.nickname?` (${e.nickname})`:''}</option>`).join('')}
         </select>
-        <input type="date" class="att-date-input" value="${_liveDate}" onchange="_liveDate=this.value;renderSecLive();">
+        <input type="date" class="att-date-input" value="${_liveDate}" onchange="_liveDate=this.value;window.__secLiveDateTouched=true;renderSecLive();">
       </div>
     </div>
 
@@ -32210,6 +32446,7 @@ function renderSecLive(){
 
 // === SCAN ACTIONS ===
 function secLogScan(checkpointId){
+  if(!window.__secLiveDateTouched)_liveDate=hnxLocalToday(); /* v13.14 SEC-F1: re-derive at scan time so a session left open never buckets a scan under a stale day */
   if(!_liveGuardId){
     showToast('Select the guard on duty first','warn');
     return;
@@ -33088,7 +33325,7 @@ function collectWashTrimData(date){
 
       status=totalProduced===0?'inactive':targetMatch>=95?'ok':targetMatch>=80?'warn':'danger';
 
-      if(ptIssued&&!summarySubmitted&&date<=new Date().toISOString().slice(0,10))alerts.push({priority:'warn',text:'W&T summary not submitted yet',cta:`switchView('pack_washtrim');`});
+      if(ptIssued&&!summarySubmitted&&date<=hnxLocalToday())alerts.push({priority:'warn',text:'W&T summary not submitted yet',cta:`switchView('pack_washtrim');`}); /* v13.14 PACK-F2: compare against farm-local (UTC+8) day */
       if(targetMatch!=null&&targetMatch<80)alerts.push({priority:'warn',text:`W&T short of target by ${totalTarget-totalProduced} bags (${targetMatch}%)`,cta:`switchView('pack_washtrim');`});
     } else {
       facts.push({label:'Status',value:'No session',tone:'mute'});
@@ -52531,12 +52768,16 @@ function loadSecGuards(){
 function saveSecGuards(arr){localStorage.setItem(SEC_GUARDS_KEY,JSON.stringify(arr));}
 
 // Current state
-let _secReportDate=new Date().toISOString().slice(0,10);
+/* v13.14 SEC-F1: default report date = farm-local (UTC+8) day, re-derived on each
+   render until the user explicitly picks a date (see __secReportDateTouched), so a
+   session left open across midnight doesn't keep writing/reading yesterday's bucket. */
+let _secReportDate=hnxLocalToday();
 
 // ============================================================
 // SECURITY DASHBOARD
 // ============================================================
 function renderSecDash(){
+  if(!window.__secReportDateTouched)_secReportDate=hnxLocalToday(); /* v13.14 SEC-F1: re-derive local "today" each render */
   const patrols=loadSecPatrols();
   const checkpoints=loadSecCheckpoints();
   const incidents=loadSecIncidents();
@@ -52566,7 +52807,7 @@ function renderSecDash(){
     const total=done+missed;
     const pct=total>0?Math.round((done/total)*100):0;
     const cls=pct>=95?'ok':pct>=80?'warn':'danger';
-    return `<div class="sec-report-item" onclick="_secReportDate='${d}';switchView('sec_patrol');">
+    return `<div class="sec-report-item" onclick="_secReportDate='${d}';window.__secReportDateTouched=true;switchView('sec_patrol');">
       <div class="sec-report-icon">${cls==='ok'?'✅':cls==='warn'?'⚠️':'🚨'}</div>
       <div>
         <div class="sec-report-date">${new Date(d).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</div>
@@ -52583,7 +52824,7 @@ function renderSecDash(){
   // 8am-deadline reminder: if today's report not uploaded and current time is past 08:00 → show critical banner
   const _now=new Date();
   const _hr=_now.getHours();
-  const _todayKey=_now.toISOString().slice(0,10);
+  const _todayKey=hnxLocalToday(); /* v13.14 SEC-F1: local (UTC+8) day — toISOString() said "yesterday" until 08:00, mis-firing the overdue banner */
   const _hasToday=!!patrols[_todayKey];
   const _pastDeadline=_hr>=8;
   const uploadReminderHTML=(!_hasToday)?`
@@ -52706,6 +52947,7 @@ function renderSecDash(){
 // RFID PATROL REPORT VIEWER & UPLOAD
 // ============================================================
 function renderSecPatrol(){
+  if(!window.__secReportDateTouched)_secReportDate=hnxLocalToday(); /* v13.14 SEC-F1: re-derive local "today" each render */
   const patrols=loadSecPatrols();
   const checkpoints=loadSecCheckpoints();
   const todayPatrol=patrols[_secReportDate];
@@ -52821,7 +53063,7 @@ function renderSecPatrol(){
     <div class="sec-report-toolbar">
       <div>
         <div class="irr-sign-label">Report Date</div>
-        <input type="date" class="att-date-input" value="${_secReportDate}" onchange="_secReportDate=this.value;renderSecPatrol();">
+        <input type="date" class="att-date-input" value="${_secReportDate}" onchange="_secReportDate=this.value;window.__secReportDateTouched=true;renderSecPatrol();">
       </div>
       <div style="flex:1;"></div>
       ${todayPatrol?`<button class="btn btn-outline" onclick="secPreviewEmailReport('${_secReportDate}')" title="See compliance email before sending">👁 Preview Email</button>
@@ -53542,7 +53784,7 @@ function secAddIncident(){
   incidents.push({
     id:'INC_'+Date.now(),
     title,description,category,priority,
-    date:new Date().toISOString().slice(0,10),
+    date:hnxLocalToday(), /* v13.14 SEC-F1: farm-local (UTC+8) date — UTC mis-dated incidents logged before 08:00 */
     time,
     reportedBy:((getCurrentUser()||{}).fullname)||((getCurrentUser()||{}).username)||'unknown',
     createdAt:Date.now(),
@@ -53722,8 +53964,14 @@ function secComputeCompliance(date){
   (dayData.rounds||[]).forEach(round=>{
     const roundTime=round.time||round.roundTime||'';
     (round.scans||[]).forEach(s=>{
-      const cp=checkpoints.find(c=>c.id===s.checkpointId||c.name===s.checkpoint);
-      const cpName=cp?cp.name:(s.checkpoint||'Unknown');
+      /* v13.14 SEC-F2: scans carry checkpointName (never 'checkpoint'), and RFID
+         report numbering (1-10 / 1-16) collides with the unrelated master checkpoint
+         ids — matching by numeric id relabeled e.g. "GATE 1" as "Main Gate" in the
+         compliance email. Prefer the scan's own name; only fall back to an id match
+         (for location lookup / legacy scans) when the scan has no name. */
+      const scanName=s.checkpointName||s.checkpoint||'';
+      const cp=scanName?checkpoints.find(c=>c.name===scanName):checkpoints.find(c=>c.id===s.checkpointId);
+      const cpName=scanName||(cp?cp.name:'Unknown');
       const cpLoc=cp?cp.location:'';
       if(s.missing){
         missed.push({round:roundTime,checkpoint:cpName,location:cpLoc,guard:round.guard||dayData.guard||'—'});
@@ -60348,7 +60596,7 @@ function renderQC(tab){
         <table class="cctv-inventory-table">
           <thead><tr><th>Date</th><th>Facility</th><th>Product</th><th>Grade</th><th>Defects</th><th>Inspector</th><th>Pass</th></tr></thead>
           <tbody>${insp.slice(-10).reverse().map(i=>`<tr>
-            <td style="font-family:var(--mono);font-size:11px;">${i.date}</td>
+            <td style="font-family:var(--mono);font-size:11px;">${String(i.date||'').slice(0,10)/* v13.14 QC-F3: v57 patch appends T00:00:00 on read */}</td>
             <td>${i.facility||'—'}</td>
             <td>${i.product||'—'}</td>
             <td>${i.grade||'—'}</td>
@@ -60362,7 +60610,7 @@ function renderQC(tab){
   }
   else if(_qcTab==='inspections'){
     const rows=insp.slice().reverse().map(i=>`<tr>
-      <td style="font-family:var(--mono);font-size:11px;">${i.date}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${String(i.date||'').slice(0,10)/* v13.14 QC-F3: v57 patch appends T00:00:00 on read */}</td>
       <td>${i.facility||'—'}</td>
       <td>${i.product||'—'}</td>
       <td><span class="role-badge" style="background:var(--surface3);color:${i.grade==='Premium'?'#4caf50':i.grade==='Reject'?'#ef5350':'var(--text2)'};font-size:10px;">${i.grade||'—'}</span></td>
@@ -60389,7 +60637,7 @@ function renderQC(tab){
   }
   else if(_qcTab==='rejections'){
     const rows=rej.slice().reverse().map(r=>`<tr>
-      <td style="font-family:var(--mono);font-size:11px;">${r.date}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${String(r.date||'').slice(0,10)/* v13.14 QC-F4: v61 patch appends T00:00:00 on read */}</td>
       <td>${r.facility||'—'}</td>
       <td>${r.product||'—'}</td>
       <td style="font-family:var(--mono);text-align:right;">${r.qty} ${r.unit||'kg'}</td>
@@ -60442,6 +60690,8 @@ function renderQC(tab){
   }
 }
 
+/* v13.14 QC-F1/F2: local (PH) date for the modal defaults — toISOString() is UTC, which pre-filled yesterday between 12am and 8am PHT */
+function _qcTodayLocal(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function qcOpenAddInspection(){
   const facilities=['GH1','GH2','GH3','GH4','GH5','GH6','GH7','GH8','GH9','GH10','PRJ11','PRJ12','GH15','GH16'];
   const u=getCurrentUser();
@@ -60452,7 +60702,7 @@ function qcOpenAddInspection(){
     <div class="modal-header"><div class="modal-title">+ New QC Inspection</div><button class="modal-close" onclick="document.getElementById('qcInspModal').remove();">✕</button></div>
     <div class="modal-body">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        <div class="emp-field"><label class="field-label">Date *</label><input type="date" id="qcInsp_date" class="users-input" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="emp-field"><label class="field-label">Date *</label><input type="date" id="qcInsp_date" class="users-input" value="${_qcTodayLocal()}"></div>
         <div class="emp-field"><label class="field-label">Facility *</label><select id="qcInsp_facility" class="users-input">${facilities.map(f=>`<option value="${f}">${f}</option>`).join('')}</select></div>
         <div class="emp-field"><label class="field-label">Product *</label><select id="qcInsp_product" class="users-input" onchange="qcUpdateDefects()">${Object.entries(QC_STANDARDS).map(([k,s])=>`<option value="${s.name}">${s.name}</option>`).join('')}</select></div>
         <div class="emp-field"><label class="field-label">Grade</label><select id="qcInsp_grade" class="users-input">${QC_STANDARDS.lettuce.grades.map(g=>`<option value="${g}">${g}</option>`).join('')}</select></div>
@@ -60514,7 +60764,7 @@ function qcOpenAddRejection(){
     <div class="modal-header"><div class="modal-title">+ Log Rejection</div><button class="modal-close" onclick="document.getElementById('qcRejModal').remove();">✕</button></div>
     <div class="modal-body">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        <div class="emp-field"><label class="field-label">Date *</label><input type="date" id="qcRej_date" class="users-input" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="emp-field"><label class="field-label">Date *</label><input type="date" id="qcRej_date" class="users-input" value="${_qcTodayLocal()}"></div>
         <div class="emp-field"><label class="field-label">Facility</label><select id="qcRej_facility" class="users-input">${facilities.map(f=>`<option value="${f}">${f}</option>`).join('')}</select></div>
         <div class="emp-field"><label class="field-label">Product *</label><input type="text" id="qcRej_product" class="users-input" placeholder="e.g. Romaine lettuce"></div>
         <div class="emp-field"><label class="field-label">Quantity (kg)</label><input type="number" step="0.1" id="qcRej_qty" class="users-input" placeholder="0.0"></div>
@@ -60555,7 +60805,7 @@ function qcExportCSV(type){
   if(!data.length){if(typeof showToast==='function')showToast('Nothing to export','warn');return;}
   const cols=type==='inspections'?['date','facility','product','grade','inspector','passed','defects','note']:['date','facility','product','qty','reason','note'];
   const rows=[cols];
-  data.forEach(r=>{rows.push(cols.map(c=>{const v=r[c];return Array.isArray(v)?v.join('; '):(v===undefined||v===null?'':String(v));}));});
+  data.forEach(r=>{rows.push(cols.map(c=>{const v=r[c];if(Array.isArray(v))return v.join('; ');if(v===undefined||v===null)return '';return c==='date'?String(v).slice(0,10):String(v);/* v13.14 QC-F4: v57/v61 loader patches append T00:00:00 to dates — trim at export time */}));});
   const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob=new Blob([csv],{type:'text/csv'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`qc-${type}_${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(a.href);
@@ -73370,6 +73620,7 @@ const MODULE_ROUTE_MAP={
   it:                {group:'office',    dept:'it',         area:''},
   it_radios:         {group:'office',    dept:'it',         area:''},
   security:          {group:'operations',dept:'security',area:''},
+  quality:           {group:'operations',dept:'quality',area:''}, /* v13.14 QC-F8: "Raise QC Call" (openCallModal('quality',…)) now pre-fills the Quality Control department */
   fleet_dash:        {group:'operations',dept:'logistics',area:''},
   fleet_vehicles:    {group:'operations',dept:'logistics',area:''},
   fleet_drivers:     {group:'operations',dept:'logistics',area:''},
@@ -77047,7 +77298,7 @@ function renderFleetGps(){
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   view.classList.add('active');
 
-  const today=new Date().toISOString().slice(0,10);
+  const today=hnxLocalToday(); /* v13.14 LOG-F5: default to the farm-local (UTC+8) day — UTC gave yesterday before 08:00 */
   if(!_gpsSelDate)_gpsSelDate=today;
   const veh=loadFVeh();
   if(!_gpsSelVehId&&veh.length)_gpsSelVehId=veh[0].id;
@@ -84226,6 +84477,26 @@ function _packLoadMaterials(){
   }catch(e){return PACK_DEFAULT_MATERIALS;}
 }
 function _packSaveMaterials(m){try{localStorage.setItem(PACK_MATERIALS_KEY,JSON.stringify(m));}catch(e){}}
+/* v13.14 PACK-F5: minimal stock-adjustment (receive/consume) — the Materials view was
+   permanently read-only, so stock/low-stock/value never changed. Prompt for a signed
+   delta + reason, persist via _packSaveMaterials, re-render. */
+window._packAdjustStock=function(id){
+  const materials=_packLoadMaterials();
+  const m=materials.find(x=>x.id===id);
+  if(!m){if(typeof showToast==='function')showToast('Material not found','warn');return;}
+  const raw=prompt(`Adjust stock for "${m.name}" (current: ${m.stock} ${m.unit}).\nEnter a delta — positive to receive, negative to consume (e.g. 50 or -12):`);
+  if(raw==null||String(raw).trim()==='')return;
+  const delta=parseFloat(raw);
+  if(isNaN(delta)||delta===0){if(typeof showToast==='function')showToast('Enter a non-zero number (e.g. 50 or -12)','warn');return;}
+  if(m.stock+delta<0){if(typeof showToast==='function')showToast(`Cannot go below zero — current stock is ${m.stock} ${m.unit}`,'warn');return;}
+  const reason=prompt('Reason for adjustment (e.g. received shipment, W&T consumption, damaged):')||'';
+  m.stock=m.stock+delta;
+  m.lastAdjust={delta,reason,at:Date.now(),by:((typeof getCurrentUser==='function'?getCurrentUser():null)||{}).username||'user'};
+  _packSaveMaterials(materials);
+  if(typeof audit==='function')try{audit('pack_material_adjust',`${delta>0?'+':''}${delta} ${m.unit} — ${m.name}${reason?' · '+reason:''}`);}catch(e){}
+  if(typeof showToast==='function')showToast(`✓ ${m.name}: ${delta>0?'+':''}${delta} ${m.unit} → now ${m.stock} ${m.unit}`,'ok');
+  renderPackagingMaterials();
+};
 function _packLoadTargets(){
   try{
     const t=JSON.parse(localStorage.getItem(PACK_TARGETS_KEY)||'null');
@@ -84292,7 +84563,7 @@ window.renderPackagingDash=function(){
     {id:'rte_500',name:'RTE 500g',targetGrams:500}
   ];
 
-  const today=new Date().toISOString().slice(0,10);
+  const today=hnxLocalToday(); /* v13.14 PACK-F2: farm-local (UTC+8) calendar day, not UTC */
   const cutoff7=Date.now()-7*86400000;
   const cutoff30=Date.now()-30*86400000;
 
@@ -84529,6 +84800,7 @@ window.renderPackagingMaterials=function(){
         <td style="padding:9px 11px;text-align:right;font-family:var(--mono);font-size:11px;font-weight:700;">₱${value}</td>
         <td style="padding:9px 11px;text-align:left;font-size:11px;color:var(--text3);">${_esc(m.supplier||'—')}</td>
         <td style="padding:9px 11px;text-align:center;"><span style="font-family:var(--mono);font-size:9px;font-weight:800;color:${toneCol};letter-spacing:.5px;">${tone.toUpperCase()}</span></td>
+        <td style="padding:9px 11px;text-align:center;"><button class="btn btn-outline" style="padding:3px 9px;font-size:10px;" onclick="_packAdjustStock('${_esc(m.id)}')" title="Receive (+) or consume (−) stock">± Adjust</button></td>
       </tr>`;
     }).join('');
     return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:14px 16px;margin-bottom:14px;">
@@ -84542,6 +84814,7 @@ window.renderPackagingMaterials=function(){
           <th style="padding:8px 11px;text-align:right;font-size:10px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.5px;color:var(--text3);">Value</th>
           <th style="padding:8px 11px;text-align:left;font-size:10px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.5px;color:var(--text3);">Supplier</th>
           <th style="padding:8px 11px;text-align:center;font-size:10px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.5px;color:var(--text3);">Status</th>
+          <th style="padding:8px 11px;text-align:center;font-size:10px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.5px;color:var(--text3);"></th>
         </tr></thead>
         <tbody>${itemsHtml}</tbody>
       </table></div>
@@ -99160,6 +99433,7 @@ const _MOD_CHECKLIST_VIEWS={
   hr:'hr_checklist',
   it:'it_checklist',
   quality:'qc_checklist',
+  qc:'qc_checklist', /* v13.14 QC-F6: alias — MCC_CONFIGS.qc_cmd uses mod:'qc', so _mccAnalysisStage's checklist button fell back to checklist_rollup */
   inventory:'inv_checklist',
   security:'sec_checklist',
   maintenance:'maint_checklist',
@@ -102789,7 +103063,133 @@ window.uploadRfidReportFile=async function(input){
     const all=loadRfidReports();
     all.push(report);
     saveRfidReports(all);
-    if(typeof showToast==='function')showToast(`Uploaded — ${parsed.plans.length} plans, ${compliance}% compliance`,'ok');
+
+    /* v13.14 SEC-F4: this tab used to be a silent second copy of the data — uploads were
+       stored only under SEC_RFID_KEY, invisible to the Dashboard, compliance email and
+       sec_cmd (which read hydroPro_sec_patrols), and never raised missed-checkpoint issues.
+       Mirror the parsed plans into the main hydroPro_sec_patrols structure (same
+       round/scan shape secHandlePatrolFile produces) and raise the same createIssue()
+       calls. SEC_RFID_KEY is still written above so the Trends tab keeps working. */
+    let issueCount=0;
+    try{
+      const _months={Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
+      const _toISO=t=>{const m=String(t||'').match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);return m?`${m[3]}-${_months[m[2].slice(0,3)]||'01'}-${String(m[1]).padStart(2,'0')}`:'';};
+      const _hhmm=t=>{const m=String(t||'').match(/(\d{1,2}:\d{2})/);return m?m[1]:String(t||'');};
+      const _by=((typeof getCurrentUser==='function'?getCurrentUser():null)||{});
+      const uploader=_by.fullname||_by.username||'unknown';
+      // Convert plans → main-store rounds, grouped by the plan's (local report) start date
+      const roundsByDate={};
+      parsed.plans.forEach(p=>{
+        const iso=_toISO(p.startTime)||parsed.dateFrom;
+        if(!iso)return;
+        const round={
+          startTime:p.startTime,
+          endTime:p.endTime,
+          timeWindow:`${_hhmm(p.startTime)} — ${_hhmm(p.endTime)}`,
+          guard:p.guard||'GUARD',
+          scans:(p.checkpoints||[]).map(c=>({checkpointId:c.n,checkpointName:c.name,readerCode:c.readerCode||null,actualTime:c.patrolTime||null,missing:!!c.missed}))
+        };
+        (roundsByDate[iso]=roundsByDate[iso]||[]).push(round);
+      });
+      // Zone detection — same markers secHandlePatrolFile uses
+      const newRounds=[];
+      Object.keys(roundsByDate).forEach(iso=>{
+        const dayRounds=roundsByDate[iso];
+        let zone='unknown';
+        try{
+          const allNames=dayRounds.flatMap(r=>(r.scans||[]).map(s=>(s.checkpointName||'').toUpperCase()));
+          const aSet=new Set(allNames);
+          const newPropMarkers=['GATE 1','GATE 2','GATE 3','POST LED','BARRACKS','GH10 FENCE','MIDDLE'];
+          const abaMarkers=['GENERATOR','PACKAGING','CHEMICAL ROOM','DEEPWELL','OVERHEAD TANK','ELECTRICAL ROOM'];
+          const newPropHits=newPropMarkers.filter(m=>Array.from(aSet).some(n=>n.includes(m))).length;
+          const abaHits=abaMarkers.filter(m=>Array.from(aSet).some(n=>n.includes(m))).length;
+          if(newPropHits>=2)zone='NEW PROPERTY';
+          else if(abaHits>=2)zone='ABA MAIN';
+        }catch(e){}
+        dayRounds.forEach(r=>{r.zone=zone;newRounds.push(r);});
+        // Merge into the main patrol store (same zone-merge rules as secHandlePatrolFile)
+        const patrols=loadSecPatrols();
+        const existing=patrols[iso];
+        if(existing&&existing.rounds&&existing.rounds.length){
+          const sameZoneRounds=(existing.rounds||[]).filter(r=>r.zone===zone);
+          if(sameZoneRounds.length){
+            existing.rounds=existing.rounds.filter(r=>r.zone!==zone).concat(dayRounds);
+          } else {
+            existing.rounds=existing.rounds.concat(dayRounds);
+          }
+          existing.fileName=(existing.fileName?existing.fileName+' + ':'')+file.name;
+          existing.uploadedAt=Date.now();
+          existing.uploadedBy=uploader;
+          existing.zones=Array.from(new Set([...(existing.zones||[]),zone]));
+          patrols[iso]=existing;
+        } else {
+          patrols[iso]={
+            reportDate:iso,
+            rounds:dayRounds,
+            guards:1,
+            guardNames:['GUARD'],
+            zones:[zone],
+            fileName:file.name,
+            uploadedAt:Date.now(),
+            uploadedBy:uploader
+          };
+        }
+        saveSecPatrols(patrols);
+        if(typeof audit==='function')try{audit('sec_patrol_upload',`Uploaded ${zone} RFID patrol report for ${iso}: ${dayRounds.length} rounds (via RFID Patrol Reports tab)`);}catch(e){}
+      });
+      // Auto-raise issues for missed rounds — same rules as secHandlePatrolFile
+      newRounds.forEach(r=>{
+        const missed=(r.scans||[]).filter(s=>s.missing).length;
+        const total=(r.scans||[]).length;
+        const rDate=_toISO(r.startTime)||parsed.dateFrom||'';
+        if(total>0&&missed===total){
+          try{
+            createIssue({
+              module:'security',
+              title:`🚨 Entire patrol round missed: ${r.timeWindow}`,
+              description:`Guard did not scan ANY of the ${total} checkpoints during this round.\n\nDate: ${rDate}\nGuard: ${r.guard||'Unknown'}\n\nInvestigate immediately — possible guard absence, sleeping, or emergency.`,
+              priority:'critical'
+            });
+            issueCount++;
+          }catch(e){}
+        } else if(missed>=total/2&&total>0){
+          try{
+            createIssue({
+              module:'security',
+              title:`⚠ ${missed}/${total} checkpoints missed in round ${r.timeWindow}`,
+              description:`Guard missed majority of checkpoints.\n\nDate: ${rDate}\nGuard: ${r.guard||'Unknown'}\n\nMissed checkpoints: ${r.scans.filter(s=>s.missing).map(s=>s.checkpointName).join(', ')}`,
+              priority:'warning'
+            });
+            issueCount++;
+          }catch(e){}
+        }
+      });
+      // Checkpoint missing in EVERY round (broken reader?) — same rule as secHandlePatrolFile
+      const checkpoints=(typeof loadSecCheckpoints==='function')?loadSecCheckpoints():[];
+      checkpoints.forEach(cp=>{
+        let totalOccurrences=0,missingCount=0;
+        newRounds.forEach(r=>{
+          const scan=(r.scans||[]).find(s=>s.checkpointId===cp.id||s.checkpointName===cp.name);
+          if(scan){
+            totalOccurrences++;
+            if(scan.missing)missingCount++;
+          }
+        });
+        if(totalOccurrences>=3&&missingCount===totalOccurrences){
+          try{
+            createIssue({
+              module:'security',
+              title:`🔧 Checkpoint "${cp.name}" missing in ALL ${totalOccurrences} rounds`,
+              description:`This checkpoint was not scanned in a single round of this report — the RFID reader may be broken or the patrol path is skipping it.\n\nDate: ${parsed.dateFrom||''}\nLocation: ${cp.location||'—'}\n\nAction: Check RFID reader hardware and/or confirm patrol route.`,
+              priority:'critical'
+            });
+            issueCount++;
+          }catch(e){}
+        }
+      });
+    }catch(e){console.warn('RFID → main patrol store sync failed',e);}
+
+    if(typeof showToast==='function')showToast(`Uploaded — ${parsed.plans.length} plans, ${compliance}% compliance${issueCount?` · ${issueCount} issue${issueCount>1?'s':''} raised`:''}`,issueCount?'warn':'ok');
     // Re-render the view
     renderSecRfid();
     // Reset input
@@ -115851,10 +116251,13 @@ var qrcode = function() {
   function renderDailyReportView(){
     const body = document.querySelector('#hnx-daily_report-body');
     if(!body) return;
-    if(!window._hnxRptState) window._hnxRptState = { dateStr: new Date().toISOString().slice(0,10) };
+    /* v13.14 RPT-F4: local (PH) dates — toISOString() is UTC, so before 8am the view opened on
+       yesterday, the Today button pointed at yesterday, and max blocked selecting the real today */
+    const _rptIso = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    if(!window._hnxRptState) window._hnxRptState = { dateStr: _rptIso(new Date()) };
     const st = window._hnxRptState;
-    const today = new Date().toISOString().slice(0,10);
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0,10);
+    const today = _rptIso(new Date());
+    const yesterday = _rptIso(new Date(Date.now() - 86400000));
 
     let r;
     try{ r = _hnxBuildDailyReport(st.dateStr); }catch(e){ console.warn('[Report]', e); r = null; }
@@ -159305,12 +159708,14 @@ gh+=_mtxTreeBody(rows);
     }
 
     // Data sources
-    var deliveries = load('hydroPro_deliveries_v1', []) || [];
+    var deliveries = load('hydroPro_log_deliveries', []) || []; /* v13.14 LOG-F1: read the key the Deliveries screen actually writes (was hydroPro_deliveries_v1 — a Crates/Cold-Storage key) */
     var vehicles   = load('hydroPro_fleet_vehicles', []) || [];
     var drivers    = load('hydroPro_fleet_drivers', []) || [];
     var fuelLog    = load('hydroPro_fleet_fuel', []) || [];
     var allCalls   = load('hydroPro_calls', []) || [];
-    var openCalls  = allCalls.filter(function(c){ return c && c.department==='logistics' && c.status!=='closed' && c.status!=='resolved'; });
+    /* v13.14 LOG-F2: use the canonical closed check — closeCall() writes closed_fixed/closed_finalize/closed_cant_fix, never 'closed'/'resolved' */
+    var isClosed   = (typeof isCallClosed==='function')?isCallClosed:function(c){ return ['closed_fixed','closed_finalize','closed_cant_fix'].indexOf(c.status)>=0; };
+    var openCalls  = allCalls.filter(function(c){ return c && c.department==='logistics' && !isClosed(c); });
 
     var today = new Date().toISOString().substring(0,10);
     var week  = Date.now() - 7*86400000;
@@ -161670,7 +162075,8 @@ gh+=_mtxTreeBody(rows);
   function S(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
   function esc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function uid(p){ return (p||'a')+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5); }
-  function todayISO(){ return new Date().toISOString().slice(0,10); }
+  function localISO(d){ return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }/* v13.14 LIC-F1/F2: local (PH) date parts */
+  function todayISO(){ return localISO(new Date()); }/* v13.14 LIC-F1: was toISOString() (UTC) — off by one day before 8am PHT, inconsistent with parseD() which parses local */
   function parseD(s){ if(!s) return null; var d=new Date(s+'T00:00:00'); return isNaN(d)?null:d; }
   function daysUntil(s){ var d=parseD(s); if(!d) return null; return Math.round((d - new Date(todayISO()+'T00:00:00'))/86400000); }
   function fmtDate(s){ var d=parseD(s); if(!d) return '—'; return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
@@ -161725,7 +162131,7 @@ gh+=_mtxTreeBody(rows);
     // combined basis: time (interval days) AND usage (interval km) — whichever is more urgent wins
     var out={dueDate:a.nextDue||'', du:null, tone:'ok', label:'OK', kmLeft:null, kmLabel:'', basis:'none', nextDueKm:null};
     if(!a.nextDue && a.lastService && a.intervalDays){
-      var d=parseD(a.lastService); if(d){ d.setDate(d.getDate()+Number(a.intervalDays)); out.dueDate=d.toISOString().slice(0,10); }
+      var d=parseD(a.lastService); if(d){ d.setDate(d.getDate()+Number(a.intervalDays)); out.dueDate=localISO(d); }/* v13.14 LIC-F2: local (PH) serialization — toISOString() shifted the due date one day early */
     }
     var timeTone=null;
     if(out.dueDate){ var du=daysUntil(out.dueDate); out.du=du; timeTone = du<0?'crit':(du<=14?'warn':'ok'); }
@@ -162031,7 +162437,7 @@ gh+=_mtxTreeBody(rows);
     var items=L(KEY.lic,[]); var l=items.filter(function(x){return x.id===id;})[0]; if(!l)return;
     var months=prompt('Renewed! Roll expiry forward by how many months?','12'); if(months==null)return;
     var m=parseInt(months,10)||12; var base=parseD(l.expiry)||new Date(); base.setMonth(base.getMonth()+m);
-    l.issue=todayISO(); l.expiry=base.toISOString().slice(0,10);
+    l.issue=todayISO(); l.expiry=localISO(base);/* v13.14 LIC-F2: local (PH) serialization — toISOString() is UTC, stored the renewed expiry one day early */
     if(l.cost){ logCost('Licenses','Renewal: '+l.name,l.cost,l.id); }
     S(KEY.lic,items); auditLog('admin_lic_renew',l.name+' +'+m+'mo'); toast('Renewed → '+fmtDate(l.expiry),'ok'); AA.render();
   };
@@ -162209,6 +162615,18 @@ gh+=_mtxTreeBody(rows);
     var er=L(KEY.empReq,{}); if(!er[empId])er[empId]={}; var rec=er[empId][typeId]||{status:'Missing'};
     var order=['Missing','Pending','Active']; var i=order.indexOf(rec.status); rec.status=order[(i+1)%order.length];
     if(rec.status==='Active' && !rec.issue) rec.issue=todayISO();
+    /* v13.14 LIC-F3: renewable types (NBI, Medical…) alert off rec.expiry, but no UI path ever set it —
+       capture an expiry when the requirement goes Active (default: issue + type.months, local serialization) */
+    if(rec.status==='Active'){
+      var t=reqTypes().filter(function(x){return x.id===typeId;})[0];
+      if(t&&t.renew){
+        var base=parseD(rec.issue)||new Date(); base.setMonth(base.getMonth()+(Number(t.months)||12));
+        var def=localISO(base);
+        var exp=prompt('Expiry date for '+t.name+' (YYYY-MM-DD):',rec.expiry||def);
+        if(exp!==null){ exp=(exp||'').trim(); rec.expiry=exp||def; }
+        else if(!rec.expiry){ rec.expiry=def; }
+      }
+    }
     er[empId][typeId]=rec; S(KEY.empReq,er); AA.render();
   };
   AA.exportReq=function(){
@@ -162621,7 +163039,7 @@ gh+=_mtxTreeBody(rows);
   function parseD(s){ if(!s)return null; var d=new Date(String(s).slice(0,10)+'T00:00:00'); return isNaN(d)?null:d; }
   function daysUntil(s){ var d=parseD(s); if(!d)return null; return Math.round((d-new Date(todayISO()+'T00:00:00'))/86400000); }
   function fmtDate(s){ var d=parseD(s); if(!d)return (s?String(s):'\u2014'); return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
-  function addMonths(s,m){ var d=parseD(s)||new Date(); d.setMonth(d.getMonth()+m); return d.toISOString().slice(0,10); }
+  function addMonths(s,m){ var d=parseD(s)||new Date(); d.setMonth(d.getMonth()+m); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }/* v13.14 LIC-F2: serialize from local (PH) parts — toISOString() is UTC, wrote the date one day early */
   function peso(n){ n=Number(n)||0; return '\u20b1'+n.toLocaleString('en-PH',{minimumFractionDigits:n%1?2:0,maximumFractionDigits:2}); }
   function toast(m,t){ try{ if(typeof showToast==='function') showToast(m,t||'ok'); }catch(e){} }
   function curName(){ try{ if(typeof getCurrentUser==='function'){ var u=getCurrentUser(); if(u)return u.username; } }catch(e){} return 'admin'; }
@@ -170257,7 +170675,12 @@ function install(){
        which stole .active back to an empty div after the base rendered the
        aliased view (blank pane). Rewriting v first keeps all three steps
        (container, base call, re-activation) on the same real view id. */
-    try{ if(window.__HNX_VIEW_ALIASES && window.__HNX_VIEW_ALIASES[v]) v = window.__HNX_VIEW_ALIASES[v]; }catch(e){}
+    try{ if(window.__HNX_VIEW_ALIASES && window.__HNX_VIEW_ALIASES[v]){
+      /* v13.14 LIC-F4: 'licenses' routes to the real Admin-AI tracker — preselect its Licenses & Permits
+         tab HERE too, because this outermost wrapper rewrites v before the base alias block can see it. */
+      if(v==='licenses'&&window.__HNX_VIEW_ALIASES[v]==='admin_ai'&&window.__hnxADMINAI)window.__hnxADMINAI.tab='lic';
+      v = window.__HNX_VIEW_ALIASES[v];
+    } }catch(e){}
     /* v13.11 PROD-F1: views with a BESPOKE wrapper (crops_matrix renders into
        view-dashboard + a body class) must not get a container pre-created or
        re-activated here — that stole .active onto an empty div → blank pane. */
@@ -171806,7 +172229,7 @@ window._nexiAnswerFromDomains=function(qRaw){
 
   /* executive: anything expiring / overdue this week */
   if(/(expir|overdue|due (this|next) week|due soon|renewals?)/.test(q)){
-    var lic=arr('hydroPro_lic_registry').concat(arr('hydroPro_admin_licenses'));
+    var lic=arr('hydroPro_admin_licenses_v1');/* v13.14 LIC-F5: real Admin-AI key (KEY.lic) — 'hydroPro_lic_registry'/'hydroPro_admin_licenses' are never written anywhere */
     var now=Date.now(), wk=now+7*864e5, soon=[];
     lic.forEach(function(x){ var dt=Date.parse(x.expiry||x.expiryDate||x.dueDate||''); if(!isNaN(dt)&&dt<=wk){ soon.push((x.name||x.title||'license')+(dt<now?' (EXPIRED)':'')); } });
     if(soon.length)return soon.length+' license/permit item'+(soon.length===1?'':'s')+' need attention within a week: '+soon.slice(0,6).join(', ')+(soon.length>6?'…':'')+'. Open Licenses → Expiring for the full list.'+E;
@@ -199242,7 +199665,14 @@ function who(){ try{ var u=(typeof getCurrentUser==='function')?getCurrentUser()
 function load(){ try{ return JSON.parse(localStorage.getItem(STORE)||'{}')||{}; }catch(e){ return {}; } }
 function save(s){ try{ localStorage.setItem(STORE, JSON.stringify(s)); }catch(e){} }
 var STATE=load(); if(!STATE.tasks) STATE.tasks={};
-function rec(n){ if(!STATE.tasks[n]) STATE.tasks[n]={assignee:'',done:false,when:'',by:'',details:'',notes:''}; return STATE.tasks[n]; }
+/* v13.14 LOG-F4: local (UTC+8 wall-clock) date + Daily-task lookup so 'D' duties reset each new local day */
+function localToday(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+var DAILY_N={}; SEED.forEach(function(t){ if(t.f==='D') DAILY_N[t.n]=1; });
+function rec(n){ if(!STATE.tasks[n]) STATE.tasks[n]={assignee:'',done:false,when:'',by:'',details:'',notes:''};
+  var r=STATE.tasks[n];
+  /* v13.14 LOG-F4: a Daily task ticked on a previous local day reads as not-done today (records without doneDate = legacy ticks, also stale) */
+  if(DAILY_N[n]&&r.done&&r.doneDate!==localToday()){ r.done=false; r.when=''; r.by=''; r.doneDate=''; }
+  return r; }
 function persist(){ save(STATE); try{ if(window.__hnxCloudSync&&window.__hnxCloudSync.push) window.__hnxCloudSync.push(); }catch(e){} }
 
 // ---- HR roster (Logistics/Packaging) for the assignee dropdown ----
@@ -199385,7 +199815,7 @@ function shipTab(){
   if(!sosOn()) return '<div style="padding:16px;">'+sosOff('shipments vs plan')+'</div>';
   var sh=shipRows();
   var plan=STATE.shipPlan||{};
-  var today=new Date().toISOString().slice(0,10);
+  var today=localToday(); /* v13.14 PACK-F2: local (UTC+8) calendar day, not UTC */
   var todayShip=sh.filter(function(s){ return (s.date||'').slice(0,10)===today; });
   var pv=(plan[today]==null?'':plan[today]);
   var diff=(pv===''?null:fnum(pv)-todayShip.length);
@@ -199459,11 +199889,11 @@ try{
 window.__hnxDUTIES={
   tab:function(k){ var p=k.split(':'); if(p[0]==='pos'){ CUR.pos=p[1]; CUR.sub='tasks'; } else { CUR.sub=p[1]; } render(); },
   freq:function(f){ CUR.freq=f; render(); },
-  toggle:function(n){ var r=rec(n); r.done=!r.done; if(r.done){ r.when=new Date().toLocaleString(); r.by=who(); } else { r.when=''; r.by=''; } persist(); render(); },
+  toggle:function(n){ var r=rec(n); r.done=!r.done; if(r.done){ r.when=new Date().toLocaleString(); r.by=who(); r.doneDate=localToday(); /* v13.14 LOG-F4: stamp completion date so Daily tasks auto-reset */ } else { r.when=''; r.by=''; r.doneDate=''; } persist(); render(); },
   assign:function(n,v){ if(!admin()){ toast('Assigning is supervisor/admin only','warn'); return; } rec(n).assignee=v; persist(); render(); },
   field:function(n,f,v){ if(f==='details'&&!admin()) return; rec(n)[f]=v; persist(); },
   cold:function(key,v){ STATE.coldCount=STATE.coldCount||{}; STATE.coldCount[key]=v; persist(); render(); },
-  plan:function(v){ STATE.shipPlan=STATE.shipPlan||{}; STATE.shipPlan[new Date().toISOString().slice(0,10)]=v; persist(); render(); },
+  plan:function(v){ STATE.shipPlan=STATE.shipPlan||{}; STATE.shipPlan[localToday()]=v; persist(); render(); }, /* v13.14 PACK-F2: key plan by local (UTC+8) day, matching shipTab */
   loadPO:function(n){
     var host=document.getElementById(n?('sosPO_'+n):'hnxDutiesPO');
     var api=(typeof window.__hnxApi==='function')?window.__hnxApi:null;
@@ -199511,7 +199941,7 @@ window.hnxOpenDuties=function(pos){
   function apply(v){
     window.__hnxCurView=v;
     if(v==='log_duties'){ window.hnxOpenDuties('SVL'); return true; }
-    if(v==='pack_duties'){ window.hnxOpenDuties('SVP'); return true; }
+    if(v==='pack_duties'){ /* v13.14 PACK-F3: enforce viewPackaging before opening the overlay; on deny fall through to base switchView so its guard map handles the refusal */ if(typeof window.can==='function'&&!window.can('viewPackaging')) return false; window.hnxOpenDuties('SVP'); return true; }
     if(typeof v==='string' && (v.indexOf('log_')===0||v.indexOf('fleet_')===0||v.indexOf('pack_')===0)) chip(); else chipOff();
     return false;
   }
