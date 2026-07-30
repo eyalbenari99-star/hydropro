@@ -17257,7 +17257,8 @@ function renderRecurringHub(){
     'prod_recurring':  'production',
     'maint_recurring': 'maintenance',
     'irr_recurring':   'irrigation',
-    'log_recurring':   'logistics'
+    'log_recurring':   'logistics',
+    'it_recurring':    'it' /* v13.05 IT-F7: pin the IT hub to IT tasks and hide module chips — chips had no IT option and one tap swapped the view's content to another module */
   };
   const cv=window.currentView||'prod_recurring';
   const moduleViewKey=VIEW_TO_MODULE[cv]||null;
@@ -17278,7 +17279,7 @@ function renderRecurringHub(){
   const stats=_recurringStats();
   // ── v2.46.221 — module filter chips ──
   const curModFilter=window._recurringModuleFilter||'production';
-  const modCounts={all:0,production:0,maintenance:0,irrigation:0,logistics:0};
+  const modCounts={all:0,production:0,maintenance:0,irrigation:0,logistics:0,it:0}; /* v13.05 IT-F7 */
   RECURRING_TASKS.forEach(t=>{modCounts.all++;const m=getTaskModule(t);if(modCounts[m]!=null)modCounts[m]++;});
   // v2.46.223 — Hide chips when we're inside a module-specific recurring view.
   // The module is already determined by the nav, so chips would be redundant/confusing.
@@ -17291,7 +17292,8 @@ function renderRecurringHub(){
         {id:'production',label:'Production',icon:'🌱',color:'#9ccc65'},
         {id:'maintenance',label:'Maintenance',icon:'🔧',color:'#42a5f5'},
         {id:'irrigation',label:'Irrigation',icon:'💧',color:'#4dd0e1'},
-        {id:'logistics',label:'Logistics',icon:'🚚',color:'#ffa726'}
+        {id:'logistics',label:'Logistics',icon:'🚚',color:'#ffa726'},
+        {id:'it',label:'IT',icon:'🖥',color:'#67c5ff'} /* v13.05 IT-F7 */
       ].map(m=>{
         const active=curModFilter===m.id;
         return `<button onclick="_setRecurringModuleFilter('${m.id}')" style="padding:6px 12px;border:1px solid ${active?m.color:'var(--border)'};border-radius:18px;background:${active?'rgba(255,255,255,0.04)':'transparent'};color:${active?m.color:'var(--text2)'};font-size:12px;font-weight:${active?'800':'600'};cursor:pointer;font-family:var(--sans);box-shadow:${active?'0 0 8px '+m.color+'33':'none'};transition:all 0.15s;">${m.icon} ${m.label} <span style="opacity:.65;font-family:var(--mono);font-size:11px;">(${modCounts[m.id]||0})</span></button>`;
@@ -17735,7 +17737,7 @@ window.MCC_LIVE.inv_cmd=function(){
     var draftPOs=0, draftVal=0;
     try{ var pos=JSON.parse(localStorage.getItem('hydroPro_inv_draft_pos_v1')||'[]')||[]; pos.forEach(function(p){ if((p.status||'draft')==='draft'){ draftPOs++; draftVal+=num(p.total); } }); }catch(e){}
     var pend=0;
-    try{ var rq=JSON.parse(localStorage.getItem('hydroPro_inv_requests_v1')||'[]')||[]; pend=rq.filter(function(r){ return r&&/pending|await|review/i.test(String(r.status||'')); }).length; }catch(e){}
+    try{ var rq=JSON.parse(localStorage.getItem('hydroPro_inv_requests_v1')||'[]')||[]; pend=rq.filter(function(r){ return r&&/submitted|await/i.test(String(r.status||'')); }).length; }catch(e){} /* v13.05 INVENTORY-F2: writer sets 'submitted', never 'pending' */
 
     var etaTxt=nearestETA!=null?(Math.round(nearestETA)+'d ('+String(nearestName).slice(0,16)+')'):(fcCount?'clear':'no signal');
     var crit=out;
@@ -20724,7 +20726,10 @@ const MODULES={
       {id:'reconcile',label:'🔄 Reconcile',perm:'manageHR',title:'Fingerprint import & reconciliation'},
       {id:'memos',label:'📋 Memos',perm:'manageHR'},
       {id:'issue_tracker',label:'🐞 Issue Tracker',perm:null,title:'Cross-module issue tracker — log any issue with priority, owner, status. Filter by category, status, GH/dept.'},
-      {id:'company_policies',label:'📁 Company Policies & Processes',perm:null,title:'Company-wide policies, SOPs, and processes organized by department. Imported from Google Drive folder structure.'}
+      {id:'company_policies',label:'📁 Company Policies & Processes',perm:null,title:'Company-wide policies, SOPs, and processes organized by department. Imported from Google Drive folder structure.'},
+      /* v13.05 HR-F1: registered (hidden — tab is injected via EXTRA_SUBTABS) so
+         findModuleForView('hr_final_pay') resolves to 'hr' instead of the 'production' fallback */
+      {id:'hr_final_pay',label:'💰 Final Pay (Separating)',perm:'manageHR',hidden:true}
     ]
   },
   // =========== ACCOUNTING (opens the full-screen workspace; see Accounting Stage 2 block) ===========
@@ -21503,7 +21508,8 @@ function switchView(v,skipModuleCheck){
     'hr_dash':'hr_cmd',     /* HR Command Center */
     'ir_dash':'irr_dash',   /* Irrigation typo alias */
     'lg_dash':'log_dash',   /* Logistics typo alias */
-    'sec_module':'sec_dash' /* Security dashboard alias */
+    'sec_module':'sec_dash', /* Security dashboard alias */
+    'licenses':'lic_registry' /* v13.05 HR-F2: HR "📜 Licenses" sub-tab + hr_cmd nav grid route to the real Licenses registry — 'licenses' itself has no route/renderer (blank pane + Production header) */
   };
   if(__STALE_ALIASES[v]){
     try{ console.warn('[switchView] stale view id "'+v+'" → routing to "'+__STALE_ALIASES[v]+'"'); }catch(_){}
@@ -21593,7 +21599,7 @@ function switchView(v,skipModuleCheck){
   if(v==='prod_recurring')renderRecurringHub();
   if(v==='maint_recurring'||v==='irr_recurring'||v==='log_recurring')renderRecurringHub();
   if(v==='log_megabox_matrix')renderLogMegaboxMatrix();
-  if(/_open_calls$/.test(v))renderModuleOpenCalls(v);
+  if(/_open_calls$/.test(v)&&v!=='it_open_calls')renderModuleOpenCalls(v); /* v13.05 IT-F3: it_open_calls has its own Dept×Subject grid renderer (P6) — the generic one destroyed its body div before it could paint */
   if(v==='prod_supervisor_matrix' && typeof renderSupervisorMatrix==='function')renderSupervisorMatrix();
   if(v==='prod_seedling_plan' && typeof renderSeedlingPlan==='function')renderSeedlingPlan();
   // v2.46.232 — Inject Matrix Quick-Switch dropdown into the top of every matrix view
@@ -22362,6 +22368,13 @@ function buildEmpCard(emp){
 function escapeHtml(s){
   if(s===null||s===undefined)return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;').replace(/'/g,'&#39;');
+}
+/* v13.05 HR-F8: escape a free-text value for interpolation inside an inline
+   onclick="fn('...')" handler — backslash-escapes JS quotes and entity-encodes
+   the HTML-special chars so the attribute and the markup can never be broken. */
+function escJsArg(s){
+  if(s===null||s===undefined)return '';
+  return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 /* ===== HNX p272 JOB POSITION DROPDOWN (injected) ===== */
@@ -23387,9 +23400,11 @@ function renderAttendance(){
     const attachTag=r&&r.authAttachment?`<span class="att-emp-tag attach">📎 Auth</span>`:'';
     const lateTag=r&&r.lateMinutes>0?`<span class="att-emp-tag" style="background:rgba(255,179,0,0.15);color:var(--warn);">+${r.lateMinutes}min</span>`:'';
     const sourceTag=r&&r.source==='fingerprint'?`<span class="att-emp-tag" style="background:rgba(66,165,245,0.15);color:var(--info);">👆 FP</span>`:'';
-    return `<div class="att-emp ${status}" onclick="openAttDay('${e.id}')">
-      <div class="att-emp-name">${e.name}</div>
-      <div class="att-emp-meta">${e.id} · ${dept.icon} ${dept.name}${e.nickname?' · '+e.nickname:''}</div>
+    /* v13.05 HR-F8: e.id/e.name are free-text HR fields — escape them so an
+       apostrophe in the id can't kill the inline handler or the markup */
+    return `<div class="att-emp ${status}" onclick="openAttDay('${escJsArg(e.id)}')">
+      <div class="att-emp-name">${escapeHtml(e.name)}</div>
+      <div class="att-emp-meta">${escapeHtml(e.id)} · ${dept.icon} ${dept.name}${e.nickname?' · '+escapeHtml(e.nickname):''}</div>
       <div class="att-emp-status-row">
         <span class="att-emp-badge ${status}">${statusLabel}</span>
         <span class="att-emp-times">${times}</span>
@@ -24132,6 +24147,10 @@ function analyzeReconcile(dateStr){
     if(rec.status==='present'||rec.status==='late'){
       const ti=rec.timeIn;
       const to=rec.timeOut;
+      /* v13.05 HR-F4: recAcceptIssue tags rec.reason with "[<section> reviewed ... — accepted]"
+         and recApproveLate sets rec.supervisorApproval — analyzeReconcile must honor both,
+         otherwise approved/accepted items reappear forever and the counters never shrink. */
+      const accepted=sec=>((rec.reason||'').indexOf('['+sec.replace(/_/g,' ')+' reviewed')!==-1);
 
       // Only IN, no OUT
       if(ti&&!to){
@@ -24146,12 +24165,12 @@ function analyzeReconcile(dateStr){
       if(ti){
         const [h,m]=ti.split(':').map(Number);
         const mins=h*60+m;
-        // Late (after 7:00)
-        if(mins>7*60){
+        // Late (after 7:00) — skip if a supervisor already approved it /* v13.05 HR-F4 */
+        if(mins>7*60&&!rec.supervisorApproval){
           out.late.push({empId:emp.id,emp,issue:`In at ${ti} (${mins-7*60} min late)`,rec});
         }
         // Early arrival (before 6:30)
-        if(mins<6*60+30){
+        if(mins<6*60+30&&!accepted('early_arrival')){
           out.early_arrival.push({empId:emp.id,emp,issue:`In at ${ti} (unusually early)`,rec});
         }
       }
@@ -24160,7 +24179,7 @@ function analyzeReconcile(dateStr){
       if(to){
         const [h,m]=to.split(':').map(Number);
         const mins=h*60+m;
-        if(mins>20*60){
+        if(mins>20*60&&!accepted('late_departure')){ /* v13.05 HR-F4 */
           out.late_departure.push({empId:emp.id,emp,issue:`Out at ${to} (after 20:00)`,rec});
         }
       }
@@ -24170,21 +24189,21 @@ function analyzeReconcile(dateStr){
         const [hI,mI]=ti.split(':').map(Number);
         const [hO,mO]=to.split(':').map(Number);
         const mins=(hO*60+mO)-(hI*60+mI);
-        if(mins<4*60&&mins>0){
+        if(mins<4*60&&mins>0&&!accepted('short_day')){ /* v13.05 HR-F4 */
           out.short_day.push({empId:emp.id,emp,issue:`${(mins/60).toFixed(1)} hours worked`,rec});
         }
-        if(mins>11*60){
+        if(mins>11*60&&!accepted('long_day')){ /* v13.05 HR-F4 */
           out.long_day.push({empId:emp.id,emp,issue:`${(mins/60).toFixed(1)} hours worked`,rec});
         }
       }
 
       // Multiple IN scans (from fpRaw data)
-      if(rec.fpRaw&&rec.fpRaw.scansCount>3){
+      if(rec.fpRaw&&rec.fpRaw.scansCount>3&&!accepted('multi_in')){ /* v13.05 HR-F4 */
         out.multi_in.push({empId:emp.id,emp,issue:`${rec.fpRaw.scansCount} scans recorded`,rec});
       }
 
       // Weekend work
-      if(isWeekend){
+      if(isWeekend&&!accepted('weekend')){ /* v13.05 HR-F4 */
         out.weekend.push({empId:emp.id,emp,issue:`Worked on ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][dayOfWeek]}`,rec});
       }
 
@@ -24250,8 +24269,8 @@ function renderReconcile(){
             <div class="rec-issue-meta">Name in ZK: "${it.fpName||'(blank)'}" · ${it.scansCount} scans today</div>
           </div>
           <div class="rec-issue-actions">
-            <button class="rec-action-btn primary" onclick="openFpMap('${it.fpId}','${(it.fpName||'').replace(/'/g,"\\'")}')">🔗 Map to Employee</button>
-            <button class="rec-action-btn" onclick="recDismiss('unmatched','${it.fpId}')">✕ Ignore</button>
+            <button class="rec-action-btn primary" onclick="openFpMap('${escJsArg(it.fpId)}','${escJsArg(it.fpName||'')}')">🔗 Map to Employee</button><!-- v13.05 HR-F8 -->
+            <button class="rec-action-btn" onclick="recDismiss('unmatched','${escJsArg(it.fpId)}')">✕ Ignore</button>
           </div>
         </div>`;
       }
@@ -24318,7 +24337,7 @@ function renderReconcile(){
 }
 
 function renderIssueActions(sectionId,it){
-  const empId=it.empId;
+  const empId=escJsArg(it.empId); /* v13.05 HR-F8: employee ids are free-text — escape before interpolating into inline onclick strings */
   switch(sectionId){
     case 'missing_scan':
       return `<button class="rec-action-btn primary" onclick="recFixMissing('${empId}')">🔧 Fix</button>`;
@@ -24643,7 +24662,7 @@ function openFpMap(fpId,fpName){
       ${unmatched.map(u=>`<div class="fp-map-row">
         <span class="fp-map-fpid">${u.uid}</span>
         <span class="fp-map-arrow">→</span>
-        <select style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 8px;border-radius:4px;font-size:12px;" onchange="fpMapQuick('${u.uid}',this.value)">
+        <select style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 8px;border-radius:4px;font-size:12px;" onchange="fpMapQuick('${escJsArg(u.uid)}',this.value)"><!-- v13.05 HR-F8 -->
           <option value="">— Select employee for ${u.uid} (${u.name||'unknown'}) —</option>
           ${empOpts.map(o=>`<option value="${o.id}">${o.name} (${o.id})</option>`).join('')}
         </select>
@@ -27230,20 +27249,22 @@ function buildBlockContent(blockId,schedule){
       // ===== INVENTORY =====
       case 'inv_stock':{
         try{
-          const items=JSON.parse(localStorage.getItem('hydroPro_inventory_items')||'[]');
+          /* v13.05 INVENTORY-F9: read the live stock store (_invLoadStock: onHand/minStock) — 'hydroPro_inventory_items' is never written */
+          const items=(typeof _invLoadStock==='function')?_invLoadStock():[];
           if(!Array.isArray(items))return '(Inventory data unavailable)\n';
-          const low=items.filter(i=>i.qty!=null&&i.minQty!=null&&i.qty<=i.minQty);
+          const low=items.filter(i=>i.minStock&&parseFloat(i.onHand)<=parseFloat(i.minStock));
           let out=`Total items: ${items.length}\nLow stock: ${low.length}\n`;
-          if(detail!=='summary'&&low.length){out+=`\nLow stock items:\n`;low.slice(0,10).forEach(i=>out+=`  • ${i.name||i.sku}: ${i.qty}/${i.minQty}\n`);}
+          if(detail!=='summary'&&low.length){out+=`\nLow stock items:\n`;low.slice(0,10).forEach(i=>out+=`  • ${i.name||i.sku}: ${i.onHand}/${i.minStock}\n`);}
           return out;
         }catch(e){return '(Inventory unavailable)\n';}
       }
       case 'inv_expiry':{
         try{
-          const items=JSON.parse(localStorage.getItem('hydroPro_inventory_items')||'[]');
-          if(!Array.isArray(items))return '(Inventory data unavailable)\n';
-          const expiring=items.filter(i=>{if(!i.expiry)return false;const d=Math.round((new Date(i.expiry)-new Date())/86400000);return d<=30&&d>=-7;});
-          return `Expiring/expired in 30d window: ${expiring.length}\n`;
+          /* v13.05 INVENTORY-F9: read the live lot store (_invLoadLots: expirationDate per lot) instead of the never-written key */
+          const allLots=(typeof _invLoadLots==='function')?_invLoadLots():{};
+          let expiring=0;
+          Object.keys(allLots).forEach(k=>{if(k.indexOf('_customDocs_')===0)return;(Array.isArray(allLots[k])?allLots[k]:[]).forEach(l=>{if(!l||!l.expirationDate)return;const d=Math.round((new Date(l.expirationDate)-new Date())/86400000);if(d<=30&&d>=-7)expiring++;});});
+          return `Expiring/expired in 30d window: ${expiring}\n`;
         }catch(e){return '(Inventory unavailable)\n';}
       }
 
@@ -27287,8 +27308,8 @@ function buildBlockContent(blockId,schedule){
         try{
           const v=JSON.parse(localStorage.getItem('hydroPro_fleet_vehicles')||'[]');
           if(!Array.isArray(v))return '(Fleet unavailable)\n';
-          const active=v.filter(x=>x.status==='active'||x.status==='in_use').length;
-          const maint=v.filter(x=>x.status==='maintenance').length;
+          const active=v.filter(x=>x.status==='active'||x.status==='in_use').length; /* v13.05 FLEET-F6: fleet stores 'active'/'maint' statuses */
+          const maint=v.filter(x=>x.status==='maint'||x.status==='maintenance').length;
           return `Total vehicles: ${v.length}\nActive: ${active} · In maintenance: ${maint}\n`;
         }catch(e){return '(Fleet unavailable)\n';}
       }
@@ -27301,7 +27322,7 @@ function buildBlockContent(blockId,schedule){
       }
       case 'fleet_fuel':{
         try{
-          const fuel=JSON.parse(localStorage.getItem('hydroPro_fuel_logs')||'[]');
+          const fuel=JSON.parse(localStorage.getItem('hydroPro_fleet_fuel')||'[]'); /* v13.05 FLEET-F6: fuel writer saves to hydroPro_fleet_fuel */
           if(!Array.isArray(fuel))return '(Fuel unavailable)\n';
           const cut=_rangeCutoff()||(Date.now()-7*86400000);
           const recent=fuel.filter(f=>(f.date?new Date(f.date).getTime():0)>=cut);
@@ -33887,22 +33908,22 @@ function renderItCctvDaily(){
       const ck=dayChecks[c.id]||{};
       const status=ck.status||'';
       const note=ck.note||'';
-      return `<tr class="cctv-row ${status?'cctv-row-'+status:''}">
-        <td class="cctv-id">${c.id}</td>
+      return `<tr class="cctv-row ${status?'cctv-row-'+status:''}"><!-- v13.05 IT-F6 -->
+        <td class="cctv-id">${_cctvH(c.id)}</td>
         <td class="cctv-ch">CH${c.channel}</td>
         <td>
-          <div class="cctv-name">${c.name}</div>
-          <div class="cctv-loc">${c.location||''}</div>
+          <div class="cctv-name">${_cctvH(c.name)}</div>
+          <div class="cctv-loc">${_cctvH(c.location||'')}</div>
         </td>
         <td class="cctv-status-cell">
           <div class="cctv-status-btns">
-            <button class="cctv-btn cctv-btn-online ${status==='online'?'active':''}" onclick="cctvSetStatus('${c.id}','online')" title="Online and recording">✓</button>
-            <button class="cctv-btn cctv-btn-offline ${status==='offline'?'active':''}" onclick="cctvSetStatus('${c.id}','offline')" title="Offline / disconnected">✕</button>
-            <button class="cctv-btn cctv-btn-issue ${status==='issue'?'active':''}" onclick="cctvSetStatus('${c.id}','issue')" title="Issue (blurry, lens dirty, angle moved, etc.)">⚠</button>
+            <button class="cctv-btn cctv-btn-online ${status==='online'?'active':''}" onclick="cctvSetStatus('${_cctvJs(c.id)}','online')" title="Online and recording">✓</button>
+            <button class="cctv-btn cctv-btn-offline ${status==='offline'?'active':''}" onclick="cctvSetStatus('${_cctvJs(c.id)}','offline')" title="Offline / disconnected">✕</button>
+            <button class="cctv-btn cctv-btn-issue ${status==='issue'?'active':''}" onclick="cctvSetStatus('${_cctvJs(c.id)}','issue')" title="Issue (blurry, lens dirty, angle moved, etc.)">⚠</button>
           </div>
         </td>
         <td>
-          <input type="text" class="cctv-note-input" placeholder="Note (optional)" value="${note.replace(/"/g,'&quot;')}" onchange="cctvSetNote('${c.id}',this.value)">
+          <input type="text" class="cctv-note-input" placeholder="Note (optional)" value="${_cctvH(note)}" onchange="cctvSetNote('${_cctvJs(c.id)}',this.value)">
         </td>
         <td class="cctv-meta">${ck.ts?new Date(ck.ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false}):'—'}<br><span style="font-size:9px;color:var(--text3);">${ck.by||''}</span></td>
       </tr>`;
@@ -33921,15 +33942,15 @@ function renderItCctvDaily(){
     return `<div class="cctv-nvr-section">
       <div class="cctv-nvr-header">
         <span style="font-size:18px;">📦</span>
-        <strong>${nvr.name}</strong>
-        <span class="cctv-nvr-loc">${nvr.location||''}</span>
+        <strong>${_cctvH(nvr.name)}</strong><!-- v13.05 IT-F6 -->
+        <span class="cctv-nvr-loc">${_cctvH(nvr.location||'')}</span>
         <span class="cctv-nvr-stats">
           <span>${cams.length} cameras</span>
           <span style="color:var(--ok);">✓ ${nvrOnline}</span>
           <span style="color:var(--danger);">✕ ${nvrOffline}</span>
           <span style="color:var(--warn);">⚠ ${nvrIssue}</span>
         </span>
-        <button class="btn btn-outline" style="font-size:10px;padding:4px 10px;" onclick="cctvBulkSet('${nvrId}','online')">All ✓</button>
+        <button class="btn btn-outline" style="font-size:10px;padding:4px 10px;" onclick="cctvBulkSet('${_cctvJs(nvrId)}','online')">All ✓</button><!-- v13.05 IT-F6 -->
       </div>
       <div class="cctv-nvr-body">
         <table class="cctv-table">
@@ -33985,6 +34006,10 @@ function renderItCctvDaily(){
   `;
 }
 
+/* v13.05 IT-F6: escape user-editable ids/names before interpolating into inline
+   handlers ('…') and markup — a quote or < in an edited id used to kill row buttons */
+function _cctvJs(s){return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function _cctvH(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function cctvSetStatus(camId,status){
   const all=loadCctvChecks();
   if(!all[_cctvDate])all[_cctvDate]={};
@@ -34097,33 +34122,33 @@ function renderItCctvInventory(){
   const rows=cameras.map(c=>{
     const nvr=nvrs.find(n=>n.id===c.nvrId);
     return `<tr>
-      <td><input type="text" value="${c.id}" onchange="cctvUpdate('${c.id}','id',this.value)" class="cctv-input mono"></td>
+      <td><input type="text" value="${_cctvH(c.id)}" onchange="cctvUpdate('${_cctvJs(c.id)}','id',this.value)" class="cctv-input mono"></td><!-- v13.05 IT-F6 -->
       <td>
-        <select onchange="cctvUpdate('${c.id}','nvrId',this.value)" class="cctv-input">
-          ${nvrs.map(n=>`<option value="${n.id}" ${c.nvrId===n.id?'selected':''}>${n.id}</option>`).join('')}
+        <select onchange="cctvUpdate('${_cctvJs(c.id)}','nvrId',this.value)" class="cctv-input">
+          ${nvrs.map(n=>`<option value="${_cctvH(n.id)}" ${c.nvrId===n.id?'selected':''}>${_cctvH(n.id)}</option>`).join('')}
         </select>
       </td>
-      <td><input type="number" min="1" max="32" value="${c.channel||''}" onchange="cctvUpdate('${c.id}','channel',parseInt(this.value)||1)" class="cctv-input mono" style="width:60px;"></td>
-      <td><input type="text" value="${c.name||''}" onchange="cctvUpdate('${c.id}','name',this.value)" class="cctv-input"></td>
-      <td><input type="text" value="${c.location||''}" onchange="cctvUpdate('${c.id}','location',this.value)" class="cctv-input"></td>
+      <td><input type="number" min="1" max="32" value="${c.channel||''}" onchange="cctvUpdate('${_cctvJs(c.id)}','channel',parseInt(this.value)||1)" class="cctv-input mono" style="width:60px;"></td>
+      <td><input type="text" value="${_cctvH(c.name||'')}" onchange="cctvUpdate('${_cctvJs(c.id)}','name',this.value)" class="cctv-input"></td>
+      <td><input type="text" value="${_cctvH(c.location||'')}" onchange="cctvUpdate('${_cctvJs(c.id)}','location',this.value)" class="cctv-input"></td>
       <td>
-        <select onchange="cctvUpdate('${c.id}','type',this.value)" class="cctv-input">
+        <select onchange="cctvUpdate('${_cctvJs(c.id)}','type',this.value)" class="cctv-input">
           <option value="bullet" ${c.type==='bullet'?'selected':''}>Bullet</option>
           <option value="dome" ${c.type==='dome'?'selected':''}>Dome</option>
           <option value="ptz" ${c.type==='ptz'?'selected':''}>PTZ</option>
           <option value="other" ${c.type==='other'?'selected':''}>Other</option>
         </select>
       </td>
-      <td><input type="text" value="${c.model||''}" onchange="cctvUpdate('${c.id}','model',this.value)" class="cctv-input" placeholder="Model"></td>
-      <td><input type="text" value="${c.ip||''}" onchange="cctvUpdate('${c.id}','ip',this.value)" class="cctv-input mono" placeholder="192.168.1.x"></td>
+      <td><input type="text" value="${_cctvH(c.model||'')}" onchange="cctvUpdate('${_cctvJs(c.id)}','model',this.value)" class="cctv-input" placeholder="Model"></td><!-- v13.05 IT-F6 -->
+      <td><input type="text" value="${_cctvH(c.ip||'')}" onchange="cctvUpdate('${_cctvJs(c.id)}','ip',this.value)" class="cctv-input mono" placeholder="192.168.1.x"></td>
       <td>
-        <select onchange="cctvUpdate('${c.id}','status',this.value)" class="cctv-input">
+        <select onchange="cctvUpdate('${_cctvJs(c.id)}','status',this.value)" class="cctv-input">
           <option value="active" ${c.status==='active'?'selected':''}>✓ Active</option>
           <option value="inactive" ${c.status==='inactive'?'selected':''}>○ Inactive</option>
           <option value="repair" ${c.status==='repair'?'selected':''}>🔧 Repair</option>
         </select>
       </td>
-      <td><button class="btn btn-outline" style="font-size:10px;padding:4px 10px;color:var(--danger);" onclick="cctvDeleteCamera('${c.id}')">🗑</button></td>
+      <td><button class="btn btn-outline" style="font-size:10px;padding:4px 10px;color:var(--danger);" onclick="cctvDeleteCamera('${_cctvJs(c.id)}')">🗑</button></td><!-- v13.05 IT-F6 -->
     </tr>`;
   }).join('');
 
@@ -34179,6 +34204,8 @@ function cctvUpdate(camId,field,value){
   const cams=loadCameras();
   const cam=cams.find(c=>c.id===camId);
   if(!cam)return;
+  /* v13.05 IT-F6: validate edited id — it gets interpolated into inline handlers */
+  if(field==='id'&&!/^[\w-]+$/.test(String(value))){showToast('Invalid ID — letters, digits, - and _ only','warn');renderItCctv();return;}
   cam[field]=value;
   saveCameras(cams);
   audit('cctv_update',`${camId} ${field}=${value}`);
@@ -34253,16 +34280,16 @@ function renderItCctvNvrs(){
     const used=`${camCount}/${n.channels}`;
     const usedPct=n.channels?Math.round(camCount/n.channels*100):0;
     return `<tr>
-      <td><input type="text" value="${n.id}" onchange="nvrUpdate('${n.id}','id',this.value)" class="cctv-input mono"></td>
-      <td><input type="text" value="${n.name||''}" onchange="nvrUpdate('${n.id}','name',this.value)" class="cctv-input"></td>
-      <td><input type="text" value="${n.location||''}" onchange="nvrUpdate('${n.id}','location',this.value)" class="cctv-input"></td>
-      <td><input type="number" min="1" max="64" value="${n.channels||8}" onchange="nvrUpdate('${n.id}','channels',parseInt(this.value)||8)" class="cctv-input mono" style="width:70px;"></td>
-      <td><input type="text" value="${n.model||''}" onchange="nvrUpdate('${n.id}','model',this.value)" class="cctv-input"></td>
+      <td><input type="text" value="${_cctvH(n.id)}" onchange="nvrUpdate('${_cctvJs(n.id)}','id',this.value)" class="cctv-input mono"></td><!-- v13.05 IT-F6 -->
+      <td><input type="text" value="${_cctvH(n.name||'')}" onchange="nvrUpdate('${_cctvJs(n.id)}','name',this.value)" class="cctv-input"></td>
+      <td><input type="text" value="${_cctvH(n.location||'')}" onchange="nvrUpdate('${_cctvJs(n.id)}','location',this.value)" class="cctv-input"></td>
+      <td><input type="number" min="1" max="64" value="${n.channels||8}" onchange="nvrUpdate('${_cctvJs(n.id)}','channels',parseInt(this.value)||8)" class="cctv-input mono" style="width:70px;"></td>
+      <td><input type="text" value="${_cctvH(n.model||'')}" onchange="nvrUpdate('${_cctvJs(n.id)}','model',this.value)" class="cctv-input"></td>
       <td>
         <span style="font-family:var(--mono);font-weight:700;color:${usedPct>=100?'var(--danger)':usedPct>=80?'var(--warn)':'var(--ok)'};">${used}</span>
       </td>
-      <td><input type="text" value="${n.notes||''}" onchange="nvrUpdate('${n.id}','notes',this.value)" class="cctv-input" placeholder="Notes"></td>
-      <td><button class="btn btn-outline" style="font-size:10px;padding:4px 10px;color:var(--danger);" onclick="nvrDelete('${n.id}')">🗑</button></td>
+      <td><input type="text" value="${_cctvH(n.notes||'')}" onchange="nvrUpdate('${_cctvJs(n.id)}','notes',this.value)" class="cctv-input" placeholder="Notes"></td><!-- v13.05 IT-F6 -->
+      <td><button class="btn btn-outline" style="font-size:10px;padding:4px 10px;color:var(--danger);" onclick="nvrDelete('${_cctvJs(n.id)}')">🗑</button></td>
     </tr>`;
   }).join('');
 
@@ -34306,6 +34333,8 @@ function nvrUpdate(nvrId,field,value){
   const nvrs=loadNvrs();
   const n=nvrs.find(x=>x.id===nvrId);
   if(!n)return;
+  /* v13.05 IT-F6: validate edited id — it gets interpolated into inline handlers */
+  if(field==='id'&&!/^[\w-]+$/.test(String(value))){showToast('Invalid ID — letters, digits, - and _ only','warn');renderItCctv();return;}
   n[field]=value;
   saveNvrs(nvrs);
   audit('nvr_update',`${nvrId} ${field}=${value}`);
@@ -34316,6 +34345,8 @@ function nvrAdd(){
   const nvrs=loadNvrs();
   const newId=prompt('NVR ID (e.g. NVR-4):','NVR-'+(nvrs.length+1));
   if(!newId)return;
+  /* v13.05 IT-F6: validate id — it gets interpolated into inline handlers */
+  if(!/^[\w-]+$/.test(newId)){showToast('Invalid ID — letters, digits, - and _ only','warn');return;}
   if(nvrs.find(n=>n.id===newId)){showToast('NVR ID already exists','warn');return;}
   nvrs.push({id:newId,name:'',location:'',channels:8,model:'',notes:''});
   saveNvrs(nvrs);
@@ -60397,6 +60428,8 @@ let _invCategoryFilter='all';
 let _invSearch='';
 
 function _invLoadStock(){try{return JSON.parse(localStorage.getItem(INV_STOCK_KEY)||'[]');}catch(e){return [];}}
+/* v13.05 INVENTORY-F1: raw manual-store reader — _invLoadStock is overridden later by the SOS-merged loader, and that merged view must never be written back via _invSaveStock */
+function _invLoadManualStock(){try{return JSON.parse(localStorage.getItem(INV_STOCK_KEY)||'[]');}catch(e){return [];}}
 function _invSaveStock(arr){try{localStorage.setItem(INV_STOCK_KEY,JSON.stringify(arr));}catch(e){}}
 function _invLoadMov(){try{return JSON.parse(localStorage.getItem(INV_MOVEMENTS_KEY)||'[]');}catch(e){return [];}}
 function _invSaveMov(arr){try{localStorage.setItem(INV_MOVEMENTS_KEY,JSON.stringify(arr));}catch(e){}}
@@ -60932,7 +60965,7 @@ function renderInv(tab){
     document.getElementById(target).innerHTML=`
       <div class="section-title">📋 Stock List</div>
       <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
-        <input type="text" class="users-input" style="max-width:240px;" placeholder="🔍 Search..." value="${_invSearch}" oninput="_invSearch=this.value;renderInv('stock');">
+        <input type="text" id="invStockSearch" class="users-input" style="max-width:240px;" placeholder="🔍 Search..." value="${_invSearch}" oninput="_invSearch=this.value;var _p=this.selectionStart;renderInv('stock');var _nf=document.getElementById('invStockSearch');if(_nf){_nf.focus();try{_nf.setSelectionRange(_p,_p);}catch(e){}}"><!-- v13.05 INVENTORY-F7: keep focus + caret across the wholesale re-render -->
         <select class="users-input" style="max-width:240px;" onchange="_invCategoryFilter=this.value;renderInv('stock');">
           <option value="all" ${_invCategoryFilter==='all'?'selected':''}>All categories</option>
           ${INV_CATEGORIES.map(c=>`<option value="${c.id}" ${_invCategoryFilter===c.id?'selected':''}>${c.name}</option>`).join('')}
@@ -61052,10 +61085,16 @@ function invSaveItem(){
     notes:document.getElementById('invF_notes').value.trim(),
     updatedAt:new Date().toISOString()
   };
-  const arr=_invLoadStock();
-  if(_invEditingId){const i=arr.findIndex(x=>x.id===_invEditingId);if(i>=0)arr[i]=item;}
-  else arr.push(item);
-  _invSaveStock(arr);
+  /* v13.05 INVENTORY-F1: edits to SOS rows persist via the overlay store (keyed by original sku||id, sku itself never overlaid); manual rows write only the manual store */
+  const _cur=_invEditingId?_invLoadStock().find(x=>x.id===_invEditingId):null;
+  if(_cur&&_cur._source==='sos'){
+    _invSosOverlaySet(_cur.sku||_cur.id,{name:item.name,category:item.category,unit:item.unit,onHand:item.onHand,minStock:item.minStock,unitCost:item.unitCost,location:item.location,supplier:item.supplier,notes:item.notes,updatedAt:item.updatedAt});
+  }else{
+    const arr=_invLoadManualStock();
+    if(_invEditingId){const i=arr.findIndex(x=>x.id===_invEditingId);if(i>=0)arr[i]=item;else arr.push(item);}
+    else arr.push(item);
+    _invSaveStock(arr);
+  }
   if(typeof audit==='function')audit('inv_item_save',`${sku}: ${name}`);
   if(typeof showToast==='function')showToast('✓ Saved','ok');
   document.getElementById('invItemModal').remove();
@@ -61063,8 +61102,11 @@ function invSaveItem(){
   renderInv();
 }
 function invDeleteItem(id){
+  /* v13.05 INVENTORY-F1: SOS-sourced rows cannot be deleted locally — they would reappear from the live SOS feed on the next render */
+  const _it=_invLoadStock().find(s=>s.id===id);
+  if(_it&&_it._source==='sos'){if(typeof showToast==='function')showToast('This item is synced from SOS — it can only be removed in SOS','warn');return;}
   if(!confirm('Delete this item? Movement history is kept.'))return;
-  _invSaveStock(_invLoadStock().filter(s=>s.id!==id));
+  _invSaveStock(_invLoadManualStock().filter(s=>s.id!==id));
   if(typeof showToast==='function')showToast('Deleted','warn');renderInv();
 }
 function invOpenMovement(itemId){
@@ -61110,7 +61152,15 @@ function invSaveMovement(){
   else if(type==='out')newHand=oldHand-qty;
   else if(type==='adjust')newHand=qty;
   item.onHand=newHand;
-  _invSaveStock(stock);
+  /* v13.05 INVENTORY-F1: SOS rows persist via the overlay store (applied after the SOS merge); manual rows write only the manual store — never the merged multi-MB SOS catalog */
+  if(item._source==='sos'){
+    _invSosOverlaySet(item.sku||item.id,{onHand:newHand});
+  }else{
+    const manual=_invLoadManualStock();
+    const mi=manual.find(s=>s.id===itemId);
+    if(mi)mi.onHand=newHand;
+    _invSaveStock(manual);
+  }
   // Log movement
   const u=getCurrentUser();
   const moves=_invLoadMov();
@@ -75335,8 +75385,8 @@ function renderFleetDashboard(){
     ]
   }) : '') + `<div class="section-title">🚐 Fleet Dashboard</div>
     <div class="fleet-stat-row">
-      <div class="fleet-stat-card" style="cursor:pointer;" onclick="(function(){const veh=loadFVeh();const drv=loadFDrv();const data=veh.map(v=>{const d=drv.find(x=>x.id===v.driverId);return {label:v.name||'(unnamed)',description:'Plate: '+(v.plate||'—')+' · Driver: '+(d?d.name:'unassigned')+' · Type: '+(v.type||'-'),module:'Fleet',priority:v.status==='maint'?'warning':v.status==='offline'?'-':'info',status:v.status||'-',ageStr:v.fuel!=null?v.fuel+'%':'—',_onClickJS:'switchView(\\'fleet_vehicles\\')'};});openDrillDown({title:'All Vehicles',subtitle:'Every vehicle in the fleet · click to open Vehicles view',scope:'custom',data:data});})()" title="Click to see all vehicles"><div class="fleet-stat-label">Vehicles</div><div class="fleet-stat-val">${veh.length}</div><div class="fleet-stat-sub">${active} active</div></div>
-      <div class="fleet-stat-card" style="cursor:pointer;" onclick="(function(){const drv=loadFDrv();const veh=loadFVeh();const data=drv.map(d=>{const myVeh=veh.find(v=>v.driverId===d.id);return {label:d.name||'(unnamed)',description:'License: '+(d.license||'—')+(myVeh?' · Vehicle: '+myVeh.name:' · No vehicle assigned'),module:'Fleet · Driver',priority:d.licenseExpiry&&d.licenseExpiry<new Date().toISOString().slice(0,10)?'critical':'info',status:d.status||'on roster',ageStr:'-',_onClickJS:'switchView(\\'fleet_drivers\\')'};});openDrillDown({title:'All Drivers',subtitle:'Every driver on roster · click to open Drivers view',scope:'custom',data:data});})()" title="Click to see all drivers"><div class="fleet-stat-label">Drivers</div><div class="fleet-stat-val">${drv.length}</div><div class="fleet-stat-sub">on roster</div></div>
+      <div class="fleet-stat-card" style="cursor:pointer;" onclick="(function(){const veh=loadFVeh();const drv=loadFDrv();const data=veh.map(v=>{const d=_fleetEmpById(v.driverId)||drv.find(x=>x.id===v.driverId);/* v13.05 FLEET-F3 */return {label:v.name||'(unnamed)',description:'Plate: '+(v.plate||'—')+' · Driver: '+(d?d.name:'unassigned')+' · Type: '+(v.type||'-'),module:'Fleet',priority:v.status==='maint'?'warning':v.status==='offline'?'-':'info',status:v.status||'-',ageStr:v.fuel!=null?v.fuel+'%':'—',_onClickJS:'switchView(\\'fleet_vehicles\\')'};});openDrillDown({title:'All Vehicles',subtitle:'Every vehicle in the fleet · click to open Vehicles view',scope:'custom',data:data});})()" title="Click to see all vehicles"><div class="fleet-stat-label">Vehicles</div><div class="fleet-stat-val">${veh.length}</div><div class="fleet-stat-sub">${active} active</div></div>
+      <div class="fleet-stat-card" style="cursor:pointer;" onclick="(function(){const drv=loadFDrv();const veh=loadFVeh();const data=drv.map(d=>{const myVeh=veh.find(v=>v.driverId===d.id||(v.driverId&&(((_fleetEmpById(v.driverId)||{}).name||'').toLowerCase()===(d.name||'').toLowerCase()&&(d.name||'').trim()!=='')));/* v13.05 FLEET-F3 */return {label:d.name||'(unnamed)',description:'License: '+(d.license||'—')+(myVeh?' · Vehicle: '+myVeh.name:' · No vehicle assigned'),module:'Fleet · Driver',priority:d.licenseExpiry&&d.licenseExpiry<new Date().toISOString().slice(0,10)?'critical':'info',status:d.status||'on roster',ageStr:'-',_onClickJS:'switchView(\\'fleet_drivers\\')'};});openDrillDown({title:'All Drivers',subtitle:'Every driver on roster · click to open Drivers view',scope:'custom',data:data});})()" title="Click to see all drivers"><div class="fleet-stat-label">Drivers</div><div class="fleet-stat-val">${drv.length}</div><div class="fleet-stat-sub">on roster</div></div>
       <div class="fleet-stat-card" style="cursor:pointer;" onclick="(function(){const veh=loadFVeh().filter(v=>v.fuel!=null&&Number(v.fuel)<30);const data=veh.map(v=>({label:v.name||'(unnamed)',description:'Plate '+(v.plate||'—')+' · Currently at '+(v.fuel||0)+'% fuel · '+(v.fuel<15?'CRITICAL — refuel immediately':'low — refuel soon'),module:'Fleet · Low Fuel',priority:v.fuel<15?'critical':'warning',status:v.status||'-',ageStr:v.fuel+'%',_onClickJS:'switchView(\\'fleet_fuel\\')'}));openDrillDown({title:'Low Fuel Vehicles',subtitle:'Vehicles with fuel level below 30% · refuel needed',scope:'custom',data:data});})()" title="Click to see low-fuel vehicles"><div class="fleet-stat-label">Low Fuel</div><div class="fleet-stat-val ${lowFuel>0?'warn':''}">${lowFuel}</div><div class="fleet-stat-sub">below 30%</div></div>
       <div class="fleet-stat-card" style="cursor:pointer;" onclick="switchView('fleet_fuel')" title="Click to open fuel log"><div class="fleet-stat-label">Fuel Logged</div><div class="fleet-stat-val">${totalFuel.toFixed(1)}<span style="font-size:13px;color:var(--text3);"> L</span></div><div class="fleet-stat-sub">all time</div></div>
       <div class="fleet-stat-card" style="cursor:pointer;" onclick="switchView('fleet_fuel')" title="Click to open fuel log"><div class="fleet-stat-label">Fuel Cost</div><div class="fleet-stat-val">${totalCost.toFixed(0)}</div><div class="fleet-stat-sub">all time</div></div>
@@ -75493,6 +75543,17 @@ function _fleetIsHelper(e){var t=_fleetTitle(e);return t.indexOf('helper')>=0||t
 function _fleetPersonOptions(emps,role,currentId){
   var match=role==='driver'?_fleetIsDriver:_fleetIsHelper;
   var list=emps.filter(function(e){return _fleetIsActive(e)&&match(e);});
+  /* v13.05 FLEET-F3: also list drivers added via the Drivers tab (hydroPro_fleet_drivers) so they are assignable */
+  if(role==='driver'&&typeof loadFDrv==='function'){
+    try{
+      loadFDrv().forEach(function(d){
+        if(!d||!d.id)return;
+        var nm=(d.name||'').trim().toLowerCase();
+        if(list.some(function(e){return String(e.id)===String(d.id)||(nm&&((e.name||'').trim().toLowerCase()===nm));}))return;
+        list.push(d);
+      });
+    }catch(e){}
+  }
   if(currentId&&!list.some(function(e){return String(e.id)===String(currentId);})){
     var cur=emps.find(function(e){return String(e.id)===String(currentId);});
     if(cur)list=[cur].concat(list);
@@ -75569,7 +75630,8 @@ function renderFleetDrivers(){
   else {
     html+=`<div class="fleet-table-wrap"><table class="fleet-table"><thead><tr><th>Name</th><th>License #</th><th>Phone</th><th>Vehicle</th><th>Notes</th><th></th></tr></thead><tbody>`;
     drv.forEach(d=>{
-      const v=veh.find(x=>x.driverId===d.id);
+      /* v13.05 FLEET-F3: also match trucks whose driverId points at an employee-store record with the same name */
+      const v=veh.find(x=>x.driverId===d.id||(x.driverId&&(((_fleetEmpById(x.driverId)||{}).name||'').toLowerCase()===(d.name||'').toLowerCase()&&(d.name||'').trim()!=='')));
       html+=`<tr>
         <td><input class="call-input" style="padding:5px 7px;font-size:12px;" value="${_esc(d.name||'')}" onchange="updFD('${d.id}','name',this.value)"></td>
         <td><input class="call-input" style="padding:5px 7px;font-size:12px;font-family:var(--mono);" value="${_esc(d.license||'')}" onchange="updFD('${d.id}','license',this.value)"></td>
@@ -76825,7 +76887,7 @@ function renderFleetGps(){
 
   const r=getGpsReport(_gpsSelDate,_gpsSelVehId,true);
   const v=veh.find(x=>x.id===_gpsSelVehId)||{};
-  const driver=drv.find(d=>d.id===v.driverId);
+  const driver=((typeof _fleetEmpById==='function')?_fleetEmpById(v.driverId):null)||drv.find(d=>d.id===v.driverId); /* v13.05 FLEET-F3: resolve employee-store driver ids too */
   const computed=_computeGpsStops(r.stops||[]);
 
   // Header info
@@ -77033,8 +77095,8 @@ function updGpsReportField(field,val){
 }
 
 // Export Excel matching the company's existing GPS REPORT format
-function exportGpsDailyExcel(date){
-  if(typeof XLSX==='undefined'){_toast('Excel library not loaded yet — try again in a moment','warn');return;}
+async function exportGpsDailyExcel(date){
+  try{await ensureXLSX();}catch(e){_toast('Could not load Excel library (needs internet)','warn');return;} /* v13.05 FLEET-F2: load XLSX on demand instead of failing forever */
   const all=loadGpsReports();
   const reports=Object.keys(all).filter(k=>k.startsWith(date+'::')).map(k=>all[k]);
   if(!reports.length){_toast('No GPS reports for this date','warn');return;}
@@ -77174,7 +77236,7 @@ window.addEventListener('storage',function(e){
 // template — extracts date, vehicles, stops, summary, and saves into localStorage.
 async function importGpsExcel(input){
   if(!input.files||!input.files[0])return;
-  if(typeof XLSX==='undefined'){_toast('Excel library not loaded — try again in a moment','warn');input.value='';return;}
+  try{await ensureXLSX();}catch(e){_toast('Could not load Excel library (needs internet)','warn');input.value='';return;} /* v13.05 FLEET-F2: load XLSX on demand instead of failing forever */
   const file=input.files[0];
   try{
     const data=await file.arrayBuffer();
@@ -77262,7 +77324,7 @@ function _parseGpsExcelRows(rows){
         if((r[3]||'').toUpperCase()==='ODO OUT'){odoOut=parseFloat(r[4])||odoOut;}
         if((r[3]||'').toUpperCase()==='ODO IN'){odoIn=parseFloat(r[4])||odoIn;}
         if((r[6]||'').toUpperCase()==='PER LITER'){perLiter=parseFloat(r[7])||perLiter;}
-        if((r[9]||'').toUpperCase()==='FILL UP- LITER'){fillUp=parseFloat(r[11])||fillUp;}
+        if((r[9]||'').toUpperCase()==='FILL UP- LITER'){fillUp=parseFloat(r[10])||parseFloat(r[11])||fillUp;} /* v13.05 FLEET-F4: exporter writes the value at col 10, not 11 */
         if((r[12]||'').toUpperCase().includes('DASH CAM')){
           const m=/DASH CAM\s*[-:]?\s*(\w+)/i.exec(r[12]);
           if(m)dashCam=m[1].toUpperCase();
@@ -94686,11 +94748,14 @@ window.renderHrMatrix=function(){
     if(issueId==='performance_review')return !!emp.lastReviewDate;
     // Exit / Turnover
     if(issueId==='exit_init')return _hrClearanceStatus(emp.id)!=='none';
-    if(issueId==='turnover_complete')return _hrClearanceStep(emp.id,'turnover');
+    /* v13.05 HR-F6: read the REAL HR_CLEARANCE_STEPS ids ('turnover_doc',
+       'final_pay_computed', 'coe_issued') — the old ids ('turnover','final_pay','coe')
+       were never written by the Clearance checkboxes, so these rows sat at 0% forever. */
+    if(issueId==='turnover_complete')return _hrClearanceStep(emp.id,'turnover_doc');
     if(issueId==='turnover_approved')return _hrClearanceStep(emp.id,'turnover_approved');
     if(issueId==='asset_returned')return _hrAllAssetsReturned(emp.id);
-    if(issueId==='final_pay_processed')return _hrClearanceStep(emp.id,'final_pay');
-    if(issueId==='coe_issued')return _hrClearanceStep(emp.id,'coe');
+    if(issueId==='final_pay_processed')return _hrClearanceStep(emp.id,'final_pay_computed');
+    if(issueId==='coe_issued')return _hrClearanceStep(emp.id,'coe_issued');
     if(issueId==='exit_interview')return _hrClearanceStep(emp.id,'exit_interview');
     // Legal / DOLE
     if(issueId==='legal_dole')return !!emp.doleCompliant!==false; // default true unless explicitly flagged
@@ -94890,6 +94955,7 @@ window.renderHrAssets=function(){
 const HR_CLEARANCE_STEPS=[
   {id:'resignation_letter',label:'Resignation letter received / dismissal notice issued',critical:true},
   {id:'turnover_doc',label:'Turnover document signed (handover of duties)',critical:true},
+  {id:'turnover_approved',label:'Turnover approved by manager',critical:true}, /* v13.05 HR-F6: real step backing the matrix "Turnover approved" row */
   {id:'assets_returned',label:'All issued assets returned (ID, uniform, key, equipment)',critical:true},
   {id:'access_revoked',label:'System access revoked (email, app, gates)',critical:true},
   {id:'final_pay_computed',label:'Final pay / 13th month / leave conversion computed',critical:true},
@@ -95236,12 +95302,16 @@ window._convertApplicantToEmployee=function(id){
     type:'Regular',
     phone:a.phone,email:a.email,
     hiredAt:hiredAt,
-    status:'active',
+    status:'Active', /* v13.05 HR-F3: capital A — Attendance/roster stats filter on status==='Active' exactly */
     referrerId:a.referrerId||null,    // v2.46.162 — preserve referrer for incentive tracking
     referrerName:a.referrerName||null,
     onboardingStarted:true
   });
   try{localStorage.setItem('hydroPro_hr_employees',JSON.stringify(employees));}catch(e){}
+  /* v13.05 HR-F3: also persist the shared roster (hydroPro_employees) — the push above went
+     into the in-memory roster array, but only the HR store was saved, so the hire vanished
+     from Attendance until the next-load reconcile. */
+  try{if(typeof saveEmployees==='function')saveEmployees();}catch(e){}
   // Initialize onboarding
   const onb=_loadOnboarding();
   onb[empId]={empId,startedAt:Date.now(),steps:{},completedAt:null};
@@ -95360,7 +95430,7 @@ window.renderHrOnboarding=function(){
     </div>`;
   }).join('');
   // Employees not yet started: offer to start
-  const notStarted=employees.filter(e=>!onbAll[e.id]&&e.status==='active');
+  const notStarted=employees.filter(e=>!onbAll[e.id]&&(e.status||'').toLowerCase()==='active'); /* v13.05 HR-F7: roster statuses are 'Active' (capital A) — exact lowercase match left the picker empty */
   view.innerHTML=`<div class="section-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">🎓 Onboarding Wizard
     <span style="font-size:11px;color:var(--text3);font-weight:400;">— ${inProgress.length} in progress · ${completed.length} completed</span>
   </div>
@@ -95929,7 +95999,10 @@ window._refreshReferralStatuses=function(){
     if(r.status==='paid'||r.status==='cancelled')return;
     const referee=employees.find(e=>e.id===r.refereeId);
     // If referee was terminated/inactive before qualifying → cancel
-    if(referee&&(referee.status==='terminated'||referee.status==='inactive')&&r.status==='pending'){
+    /* v13.05 HR-F5: real employee statuses are 'Terminated'/'Resigned'/'Released'/'Archived'/'Other'
+       (mixed case) — the old exact lowercase check never matched, so departed referees still
+       auto-qualified for the bonus. Compare case-insensitively against the real inactive set. */
+    if(referee&&/(resign|terminat|released|archived|inactive|other)/i.test(referee.status||'')&&r.status==='pending'){
       r.status='cancelled';
       r.cancelReason='Referee no longer employed before qualification';
       changed=true;
@@ -96593,11 +96666,17 @@ const INV_DOC_TEMPLATES={
 
 function _invDocsForItem(item){
   const cat=String(item.category||'').toLowerCase();
-  if(/chemical|fertili|pesticide|nutrient/.test(cat))return INV_DOC_TEMPLATES.chemical;
-  if(/food|harvest|produce|seed/.test(cat))return INV_DOC_TEMPLATES.food;
-  if(/pack|wrap|label|box|carton/.test(cat))return INV_DOC_TEMPLATES.packaging;
-  if(/equipment|tool|machine/.test(cat))return INV_DOC_TEMPLATES.equipment;
-  return INV_DOC_TEMPLATES.default;
+  let docs=INV_DOC_TEMPLATES.default;
+  if(/chemical|fertili|pesticide|nutrient/.test(cat))docs=INV_DOC_TEMPLATES.chemical;
+  else if(/food|harvest|produce|seed/.test(cat))docs=INV_DOC_TEMPLATES.food;
+  else if(/pack|wrap|label|box|carton/.test(cat))docs=INV_DOC_TEMPLATES.packaging;
+  else if(/equipment|tool|machine/.test(cat))docs=INV_DOC_TEMPLATES.equipment;
+  /* v13.05 INVENTORY-F8: append persisted custom docs for this item (stored by _invDocAddCustom) */
+  try{
+    const custom=_invLoadFiles()['_customDocs_'+(item.sku||item.id)];
+    if(custom&&custom.length)docs=docs.concat(custom);
+  }catch(e){}
+  return docs;
 }
 
 // ============================================================
@@ -96701,6 +96780,14 @@ function _invVelocityLabel(v){
   }
 }
 
+/* v13.05 INVENTORY-F5: escape a sku/id for HTML attributes (_invEscAttr) and for JS string literals inside inline handlers (_invEscJsAttr) */
+function _invEscAttr(s){s=String(s==null?'':s);return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function _invEscJsAttr(s){s=String(s==null?'':s);return _invEscAttr(s.replace(/\\/g,'\\\\').replace(/'/g,"\\'"));}
+/* v13.05 INVENTORY-F1: overlay store for local edits to SOS-sourced items — keyed by sku||id, applied after the SOS merge so edits/movements survive re-renders without copying the SOS catalog into hydroPro_inv_stock */
+var INV_SOS_OVERLAY_KEY='hydroPro_inv_sos_overlay_v1';
+function _invLoadSosOverlay(){try{return JSON.parse(localStorage.getItem(INV_SOS_OVERLAY_KEY)||'{}');}catch(e){return {};}}
+function _invSaveSosOverlay(o){try{localStorage.setItem(INV_SOS_OVERLAY_KEY,JSON.stringify(o));}catch(e){}}
+function _invSosOverlaySet(key,patch){var o=_invLoadSosOverlay();o[key]=Object.assign(o[key]||{},patch);_invSaveSosOverlay(o);}
 function _invLoadStock(){
   // p160: prefer real SOS data when connected, fall back to manual stock.
   // Merge: SOS items first, plus any manual items not in SOS (by SKU).
@@ -96708,6 +96795,11 @@ function _invLoadStock(){
   var manualStock = [];
   try{ manualStock = JSON.parse(localStorage.getItem('hydroPro_inv_stock')||'[]'); }catch(e){}
   if(sosStock.length === 0) return manualStock;
+  /* v13.05 INVENTORY-F1: apply locally-persisted edits on top of live SOS rows */
+  try{
+    var _ov=_invLoadSosOverlay();
+    sosStock=sosStock.map(function(s){ var p=_ov[s.sku||s.id]; return p?Object.assign({},s,p):s; });
+  }catch(e){}
   var sosSkus = {};
   sosStock.forEach(function(s){ if(s.sku) sosSkus[s.sku.toUpperCase()] = true; });
   var manualOnly = manualStock.filter(function(m){
@@ -96809,7 +96901,7 @@ window.renderInvFiles=function(){
     const icon=st.status==='critical'?'\u2715':st.status==='warning'?'\u26a0':'\u2713';
     const lotInfo=st.expired>0?`<span style="color:var(--danger);">${st.expired} expired</span>`:st.nearExp>0?`<span style="color:var(--warn);">${st.nearExp} near-exp</span>`:st.activeLots?`<span style="color:var(--ok);">${st.activeLots} lots</span>`:'<span style="color:var(--text3);">no lots</span>';
     const stockInfo=st.outOfStock?'<span style="color:var(--danger);font-weight:700;">OUT</span>':st.lowStock?'<span style="color:var(--warn);font-weight:700;">LOW</span>':'<span style="color:var(--text2);">'+st.onHand+'</span>';
-    return `<tr style="cursor:pointer;border-left:3px solid ${color};" onclick="_invSelectedSku='${(it.sku||it.id||'').replace(/'/g,'')}';renderInvFiles();">
+    return `<tr style="cursor:pointer;border-left:3px solid ${color};" onclick="_invSelectedSku='${_invEscJsAttr(it.sku||it.id||'')}';renderInvFiles();"> <!-- v13.05 INVENTORY-F5: escape instead of stripping quotes, so the detail lookup matches the raw sku -->
       <td style="font-weight:600;">${(it.name||'').replace(/[<>]/g,'')}</td>
       <td style="font-family:var(--mono);font-size:11px;">${(it.sku||it.id||'').replace(/[<>]/g,'')}</td>
       <td style="font-size:11px;">${(it.sosCategory||it.category||'\u2014').replace(/[<>]/g,'')}</td>
@@ -96845,6 +96937,9 @@ window.renderInvFiles=function(){
 
 function _invItemDetail(item){
   const sku=item.sku||item.id;
+  /* v13.05 INVENTORY-F5: escape the sku once — skuJ for inline JS handlers (quotes/backslashes), skuA for HTML attributes/ids */
+  const skuJ=_invEscJsAttr(sku);
+  const skuA=_invEscAttr(sku);
   const docs=_invDocsForItem(item);
   const allFiles=_invLoadFiles();
   const docState=allFiles[sku]||{};
@@ -96864,9 +96959,9 @@ function _invItemDetail(item){
       <td style="font-size:11px;">${s.addedBy||'—'}</td>
       <td style="font-size:11px;color:var(--text3);">${(s.notes||'').replace(/[<>]/g,'').slice(0,80)}</td>
       <td style="text-align:right;white-space:nowrap;">
-        ${present?'':`<label class="btn btn-primary" style="font-size:11px;padding:4px 10px;cursor:pointer;">📷 Upload<input type="file" accept="image/*,.pdf" style="display:none;" onchange="_invDocUpload('${sku}','${d.id}',this)"></label>`}
-        ${present?`<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="_invDocView('${sku}','${d.id}')">👁</button><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--danger);" onclick="_invDocRemove('${sku}','${d.id}')">🗑</button>`:''}
-        <button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="_invDocNote('${sku}','${d.id}')">📝</button>
+        ${present?'':`<label class="btn btn-primary" style="font-size:11px;padding:4px 10px;cursor:pointer;">📷 Upload<input type="file" accept="image/*,.pdf" style="display:none;" onchange="_invDocUpload('${skuJ}','${d.id}',this)"></label>`}
+        ${present?`<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="_invDocView('${skuJ}','${d.id}')">👁</button><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--danger);" onclick="_invDocRemove('${skuJ}','${d.id}')">🗑</button>`:''}
+        <button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="_invDocNote('${skuJ}','${d.id}')">📝</button>
       </td>
     </tr>`;
   }).join('');
@@ -96883,13 +96978,13 @@ function _invItemDetail(item){
       <td style="text-align:right;font-family:var(--mono);">${Number(l.qty||0)}</td>
       <td style="font-family:var(--mono);font-size:11px;color:${stColor};font-weight:700;">${stLabel}</td>
       <td style="font-size:11px;color:var(--text3);">${(l.notes||'').replace(/[<>]/g,'').slice(0,60)}</td>
-      <td style="text-align:right;"><button class="btn btn-outline" style="padding:3px 8px;font-size:10px;color:var(--danger);" onclick="_invLotRemove('${sku}','${l.id}')">🗑</button></td>
+      <td style="text-align:right;"><button class="btn btn-outline" style="padding:3px 8px;font-size:10px;color:var(--danger);" onclick="_invLotRemove('${skuJ}','${l.id}')">🗑</button></td>
     </tr>`;
   }).join('');
 
   return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
     <button class="btn btn-outline" onclick="_invSelectedSku=null;renderInvFiles();">← All items</button>
-    <div style="font-size:18px;font-weight:700;">📁 ${(item.name||'').replace(/[<>]/g,'')} <span style="font-size:11px;color:var(--text3);font-family:var(--mono);">· ${sku} · ${item.category||''}</span></div>
+    <div style="font-size:18px;font-weight:700;">📁 ${(item.name||'').replace(/[<>]/g,'')} <span style="font-size:11px;color:var(--text3);font-family:var(--mono);">· ${skuA} · ${item.category||''}</span></div>
     <div></div>
   </div>
   <div class="fleet-stat-row">
@@ -96905,7 +97000,7 @@ function _invItemDetail(item){
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       <div style="font-size:11px;color:var(--text3);">★ KEY = critical document required for compliance</div>
-      <button class="btn btn-outline" onclick="_invDocAddCustom('${sku}')">➕ Add custom document</button>
+      <button class="btn btn-outline" onclick="_invDocAddCustom('${skuJ}')">➕ Add custom document</button>
     </div>
     <div class="fleet-table-wrap"><table class="fleet-table" style="width:100%;font-size:12px;">
       <thead><tr><th>Document</th><th style="text-align:center;">Status</th><th>Date Added</th><th>By</th><th>Notes</th><th style="text-align:right;">Actions</th></tr></thead>
@@ -96916,12 +97011,12 @@ function _invItemDetail(item){
   <div class="section-title" style="margin-top:14px;">⏳ Lot / Batch Tracking (FEFO)</div>
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
     <div style="display:grid;grid-template-columns:1fr 130px 130px 100px 2fr auto;gap:8px;align-items:end;margin-bottom:10px;">
-      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Lot # / Batch ID</div><input id="invLotNum_${sku}" class="input" placeholder="e.g. LOT-2026-A123"></div>
-      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Received</div><input id="invLotRecv_${sku}" type="date" class="input" value="${new Date().toISOString().slice(0,10)}"></div>
-      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Expires</div><input id="invLotExp_${sku}" type="date" class="input"></div>
-      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Qty</div><input id="invLotQty_${sku}" type="number" step="0.01" class="input" placeholder="0"></div>
-      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Notes</div><input id="invLotNotes_${sku}" class="input" placeholder="Storage location / supplier"></div>
-      <div><button class="btn btn-primary" onclick="_invLotAdd('${sku}')">➕ Add lot</button></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Lot # / Batch ID</div><input id="invLotNum_${skuA}" class="input" placeholder="e.g. LOT-2026-A123"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Received</div><input id="invLotRecv_${skuA}" type="date" class="input" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Expires</div><input id="invLotExp_${skuA}" type="date" class="input"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Qty</div><input id="invLotQty_${skuA}" type="number" step="0.01" class="input" placeholder="0"></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Notes</div><input id="invLotNotes_${skuA}" class="input" placeholder="Storage location / supplier"></div>
+      <div><button class="btn btn-primary" onclick="_invLotAdd('${skuJ}')">➕ Add lot</button></div>
     </div>
     ${lots.length?`<table class="fleet-table" style="width:100%;font-size:12px;">
       <thead><tr><th>Lot #</th><th>Received</th><th>Expires</th><th style="text-align:right;">Qty</th><th>Status</th><th>Notes</th><th></th></tr></thead>
@@ -96969,16 +97064,15 @@ window._invDocNote=function(sku,docId){
   _invSaveFiles(all);renderInvFiles();
 };
 window._invDocAddCustom=function(sku){
+  /* v13.05 INVENTORY-F8: actually persist the custom doc definition; _invDocsForItem appends it to the template list */
   const name=prompt('Custom document name:');if(!name)return;
   const isCrit=confirm('Mark as CRITICAL?');
-  const items=_invLoadStock();
-  // Custom docs are tracked in the same docState — give them a unique ID
   const all=_invLoadFiles();
-  all[sku]=all[sku]||{};
-  // We need to store the doc definition itself
   all['_customDocs_'+sku]=all['_customDocs_'+sku]||[];
-  // (Simplified: just push into custom defs in a side key — for full feature would integrate with template lookup)
-  alert('Custom docs not yet persisted with templates — coming in next build. For now, use the existing doc list and notes field.');
+  all['_customDocs_'+sku].push({id:'custom_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),name:String(name).trim(),critical:isCrit});
+  try{_invSaveFiles(all);}catch(e){alert('Storage full.');return;}
+  if(typeof showToast==='function')showToast('Custom document added','ok');
+  renderInvFiles();
 };
 
 window._invLotAdd=function(sku){
@@ -97096,9 +97190,9 @@ window.renderInvExpiry=function(){
     return arr.map(l=>{
       const days=Math.floor((new Date(l.expirationDate)-new Date(today))/86400000);
       const isExp=days<0;
-      return `<tr style="cursor:pointer;${isExp?'background:rgba(239,83,80,0.06);':''}" onclick="_invSelectedSku='${l.sku}';switchView('inv_files');">
+      return `<tr style="cursor:pointer;${isExp?'background:rgba(239,83,80,0.06);':''}" onclick="_invSelectedSku='${_invEscJsAttr(l.sku)}';switchView('inv_files');"> <!-- v13.05 INVENTORY-F5 -->
         <td>${(l.itemName||'').replace(/[<>]/g,'')}</td>
-        <td style="font-family:var(--mono);font-size:11px;">${l.sku}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${_invEscAttr(l.sku)}</td>
         <td style="font-size:11px;">${l.category||'—'}</td>
         <td style="font-family:var(--mono);font-size:11px;">${(l.lotNumber||'').replace(/[<>]/g,'')}</td>
         <td style="font-family:var(--mono);font-size:11px;">${l.expirationDate}</td>
@@ -105397,7 +105491,7 @@ function _gpsMatchGeofence(lat,lng){
   cfg.geofences.forEach(g=>{
     if(g.lat==null||g.lng==null)return;
     const d=_gpsDist(lat,lng,Number(g.lat),Number(g.lng));
-    const r=Number(g.radiusM)||200;
+    const r=Number(g.radius!=null?g.radius:g.radiusM)||200; /* v13.05 FLEET-F7: honor Locations-tab 'radius' field, not just seeded 'radiusM' */
     if(d<=r&&d<bestD){best=g;bestD=d;}
   });
   return best?best.name:null;
@@ -140091,7 +140185,7 @@ body.hnx-mobile-locked { overflow: hidden; }
       <div class="it-section-title">📞 Open Calls Routed to IT (${itCalls.length})</div>
       <div class="hnx-pending-list">
         ${itCalls.length ? itCalls.map(c => `
-          <div class="hnx-pending-item" onclick="(function(){ if(typeof openCallDetail==='function'){openCallDetail('${c.id}');} else if(typeof switchView==='function'){switchView('my_calls');} })()">
+          <div class="hnx-pending-item" onclick="(function(){ /* v13.05 IT-F5: openCallDetail never existed — real fn is viewCallDetail */ if(typeof viewCallDetail==='function'){viewCallDetail('${c.id}');} else if(typeof switchView==='function'){switchView('my_calls');} })()">
             <div class="hnx-pi-info">
               <div class="hnx-pi-title">${((c.subject||'(no subject)')+'').replace(/[<>]/g,'')}</div>
               <div class="hnx-pi-meta">
@@ -140765,7 +140859,14 @@ body.hnx-mobile-locked { overflow: hidden; }
 
   // ── it_open_calls · IT Open-Call Grid (open IT calls by Dept × Subject) ──
   renderers.it_open_calls = function() {
-    const body = document.getElementById('hnx-it_open_calls-body');
+    /* v13.05 IT-F3: rebuild the body if something else replaced the view's innerHTML */
+    let body = document.getElementById('hnx-it_open_calls-body');
+    if (!body) {
+      const view = document.getElementById('view-it_open_calls');
+      if (!view) return;
+      view.innerHTML = '<div id="hnx-it_open_calls-body"></div>';
+      body = document.getElementById('hnx-it_open_calls-body');
+    }
     if (!body) return;
     const issues = getITIssues();
     const open = issues.filter(i => ['open','assigned','in_progress','resolved'].includes(i.status));
@@ -141602,13 +141703,15 @@ body.hnx-mobile-locked { overflow: hidden; }
   };
 
   renderers.it_daily_checklist = function() {
-    // p36: wire to the shared module-checklist engine (IT defaults already exist in MODULE_CHECKLIST_DEFAULTS.it)
-    if (typeof renderModuleChecklist === 'function') {
-      try { renderModuleChecklist('it','it_daily_checklist','☑️ IT Daily Checklist'); return; }
-      catch(e){ warn('it_daily_checklist engine fail:', e); }
+    /* v13.05 IT-F2: do NOT call renderModuleChecklist here — it replaced view innerHTML and
+       destroyed hnx-it_daily_checklist-body, so the dedicated P19 IT checklist (which renders
+       into that body at +120ms) could never paint. Leave the body intact for P19. */
+    var view = document.getElementById('view-it_daily_checklist');
+    if (view && !document.getElementById('hnx-it_daily_checklist-body')) {
+      view.innerHTML = '<div id="hnx-it_daily_checklist-body"></div>';
     }
     const b = document.getElementById('hnx-it_daily_checklist-body');
-    if (b) b.innerHTML = '<div style="padding:24px;color:var(--text3);">Checklist engine loading… reopen this tab in a moment.</div>';
+    if (b && !b.innerHTML) b.innerHTML = '<div style="padding:24px;color:var(--text3);">Checklist loading…</div>';
   };
 
   renderers.it_gh_fer_matrix = function() {
@@ -143892,8 +143995,10 @@ body.hnx-mobile-locked { overflow: hidden; }
       const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
       if(t.schedule && t.schedule[dow]){
         recDueToday++;
+        /* v13.05 IT-F4: markRecurringDone stores gh as 'SITE' (expandGhRange uppercases) — check both cases */
         const k = todayStr + '__' + t.id + '__site';
-        if(recCompletions[k]) recDoneToday++;
+        const kU = todayStr + '__' + t.id + '__SITE';
+        if(recCompletions[k] || recCompletions[kU]) recDoneToday++;
       }
     });
     const recCompliance = recDueToday > 0 ? Math.round((recDoneToday/recDueToday)*100) : 100;
@@ -155999,12 +156104,20 @@ gh+=_mtxTreeBody(rows);
 
   // Public entry point
   window.renderItStreamHealth = function(){
-    // Find the main content area — same target other IT renderers use
-    var target = document.getElementById('mainContent') || document.getElementById('content') || document.querySelector('.main-content') || document.body;
-    if(!target){ return; }
+    /* v13.05 IT-F1: render into the view's own container, never document.body — the old
+       mainContent/content/.main-content fallbacks don't exist, so this wiped the app DOM */
+    var target = document.getElementById('view-it_stream_health');
+    if(!target){
+      target = document.createElement('div');
+      target.id = 'view-it_stream_health';
+      target.className = 'view';
+      var sibling = document.querySelector('.view');
+      if(sibling && sibling.parentNode){ sibling.parentNode.appendChild(target); }
+      else { document.body.appendChild(target); }
+    }
     // If we already have a host, just re-render
     var host = document.getElementById('itStreamHealthHost');
-    if(!host){
+    if(!host || !target.contains(host)){
       host = document.createElement('div');
       host.id = 'itStreamHealthHost';
       target.innerHTML = '';
@@ -156327,14 +156440,25 @@ gh+=_mtxTreeBody(rows);
 
   // Public entry point — wired in the view dispatcher
   window.renderHrFinalPayDashboard = function(){
-    var target = document.getElementById('mainContent') || document.getElementById('content') || document.querySelector('.main-content') || document.body;
-    if(!target) return;
+    /* v13.05 HR-F1: render into this view's own container. The old fallback chain
+       (mainContent/content/.main-content) matched nothing, resolved to document.body
+       and did body.innerHTML='' — wiping the whole app DOM. Now we target the
+       #view-hr_final_pay div (created here if the nav wrapper hasn't yet) and never
+       clear anything outside it. */
+    var view = document.getElementById('view-hr_final_pay');
+    if(!view){
+      view = document.createElement('div');
+      view.className = 'view';
+      view.id = 'view-hr_final_pay';
+      (document.getElementById('appMain') || document.body).appendChild(view);
+    }
     var host = document.getElementById('hrFinalPayHost');
     if(!host){
       host = document.createElement('div');
       host.id = 'hrFinalPayHost';
-      target.innerHTML = '';
-      target.appendChild(host);
+      view.appendChild(host);
+    } else if(host.parentNode !== view){
+      view.appendChild(host);
     }
     render();
   };
@@ -157138,7 +157262,7 @@ gh+=_mtxTreeBody(rows);
     }
     if(!hits.length) return '<div style="padding:10px;color:var(--text3);font-size:12px;">No match'+(items.length?'':' \u2014 no SOS items loaded yet; tap Sync in Admin \u2192 SOS Inventory Sync')+'. Use \u201cNew item\u201d if it isn\u2019t in SOS.</div>';
     return hits.map(function(it){
-      var sku=String(it.sku||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      var sku=String(it.sku||it.id||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); /* v13.05 INVENTORY-F3: sos_ id is always present when sku is blank */
       return '<div onclick="__hnxInvReq.pickItem(\''+sku+'\')" style="padding:7px 10px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px;">'
         + '<strong>'+esc(it.name||'(no name)')+'</strong> <span style="color:var(--text3);font-family:var(--mono);">'+esc(it.sku||'')+'</span>'
         + '<span style="float:right;color:var(--text3);">on hand '+(num(it.onHand))+' \u00b7 '+P(it.unitCost)+'</span></div>';
@@ -157269,9 +157393,10 @@ gh+=_mtxTreeBody(rows);
     set:function(k,v,rerender){ if(!S.draft) S.draft=newDraft('inventory'); S.draft[k]=v; if(rerender) render(); },
     itemSearch:function(q){ S.itemQuery=q; var el=document.getElementById('reqItemResults'); if(el) el.innerHTML=itemResultsHtml(q); else render(); },
     pickItem:function(sku){
-      var it=sosItems().filter(function(x){return String(x.sku)===String(sku);})[0]; if(!it) return;
+      /* v13.05 INVENTORY-F3: match on sku||id so blank-SKU SOS items resolve to the clicked row, not the first blank-SKU item */
+      var it=sosItems().filter(function(x){return String(x.sku||x.id)===String(sku);})[0]; if(!it) return;
       var d=S.draft||(S.draft=newDraft('inventory'));
-      d.itemSku=it.sku||''; d.itemName=it.name||''; d.unit=it.unit||d.unit; d.unitCost=num(it.unitCost); d.onHand=num(it.onHand); d.category=it.sosCategory||d.category;
+      d.itemSku=it.sku||it.id||''; d.itemName=it.name||''; d.unit=it.unit||d.unit; d.unitCost=num(it.unitCost); d.onHand=num(it.onHand); d.category=it.sosCategory||d.category;
       S.itemQuery=''; render();
     },
     reset:function(){ S.draft=newDraft(S.draft?S.draft.reqModule:'inventory'); S.itemQuery=''; render(); },
@@ -157509,7 +157634,7 @@ gh+=_mtxTreeBody(rows);
     H+='<div style="font-size:11px;color:var(--text3);margin-bottom:12px;">'+(sosOn?items.length.toLocaleString()+' SOS items \u00b7 ':'')+enrichedCount+' enriched \u00b7 '+withBrand+' w/ brand \u00b7 '+withSup+' w/ supplier \u00b7 '+withCrit+' w/ criticality</div>';
 
     if(S.itemFilter==='enriched'){
-      var rows=Object.keys(im).map(function(sku){ var base=items.filter(function(i){return String(i.sku)===String(sku);})[0]||{sku:sku,name:'(not in current SOS pull)'}; return itemRow(base, im[sku]); });
+      var rows=Object.keys(im).map(function(sku){ var base=items.filter(function(i){return String(i.sku||i.id)===String(sku);})[0]||{sku:sku,name:'(not in current SOS pull)'}; return itemRow(base, im[sku]); }); /* v13.05 INVENTORY-F4 */
       H+= rows.length ? '<div class="tool-table-wrap">'+itemTable(rows.slice(0,150).join(''))+'</div>'+(rows.length>150?'<div style="font-size:11px;color:var(--text3);margin-top:6px;">Showing 150 of '+rows.length+'.</div>':'')
                       : '<div style="padding:40px;text-align:center;color:var(--text3);border:1px dashed var(--border);border-radius:10px;">No items enriched yet. Switch to Search, find an item, and tap it to add brand/supplier/criticality.</div>';
       return H;
@@ -157523,7 +157648,7 @@ gh+=_mtxTreeBody(rows);
   function itemTable(rowsHtml){ return '<table class="cctv-inventory-table"><thead><tr><th>Item</th><th>Category</th><th>Brand</th><th>Supplier</th><th style="text-align:center;">Critical</th><th style="text-align:right;">On hand</th></tr></thead><tbody>'+rowsHtml+'</tbody></table>'; }
   function itemRow(base, e){
     e=e||{};
-    var sku=String(base.sku||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    var sku=String(base.sku||base.id||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); /* v13.05 INVENTORY-F4: fall back to id so blank-SKU rows are clickable */
     var cat=e.category||base.sosCategory||'';
     var enriched=!!(e.brandId||e.supplierId||e.manufacturer||e.criticality||e.safetyStock||e.category||e.subcategory);
     return '<tr style="cursor:pointer;'+(enriched?'background:rgba(38,194,129,.05);':'')+'" onclick="__hnxInvMaster.editItem(\''+sku+'\')">'
@@ -157540,10 +157665,10 @@ gh+=_mtxTreeBody(rows);
     var items=sosItemsAll(); var hits=[];
     for(var i=0;i<items.length && hits.length<60;i++){ var it=items[i]; var hay=((it.name||'')+' '+(it.sku||'')).toLowerCase(); if(hay.indexOf(q)>=0) hits.push(it); }
     if(!hits.length) return '<div style="padding:14px;color:var(--text3);font-size:12px;border:1px dashed var(--border);border-radius:8px;">No match'+(items.length?'':' \u2014 no SOS items loaded; tap Sync in Admin \u2192 SOS')+'.</div>';
-    return '<div class="tool-table-wrap">'+itemTable(hits.map(function(it){ return itemRow(it, im[String(it.sku)]); }).join(''))+'</div>'+(hits.length>=60?'<div style="font-size:11px;color:var(--text3);margin-top:6px;">Showing first 60 matches \u2014 refine your search.</div>':'');
+    return '<div class="tool-table-wrap">'+itemTable(hits.map(function(it){ return itemRow(it, im[String(it.sku||it.id)]); }).join(''))+'</div>'+(hits.length>=60?'<div style="font-size:11px;color:var(--text3);margin-top:6px;">Showing first 60 matches \u2014 refine your search.</div>':'');
   }
   function itemEditor(im){
-    var sku=S.editSku; var base=sosItemsAll().filter(function(i){return String(i.sku)===String(sku);})[0]||{sku:sku,name:'(item)',sosCategory:'',onHand:0,unitCost:0,unit:''};
+    var sku=S.editSku; var base=sosItemsAll().filter(function(i){return String(i.sku||i.id)===String(sku);})[0]||{sku:sku,name:'(item)',sosCategory:'',onHand:0,unitCost:0,unit:''}; /* v13.05 INVENTORY-F4: key on sku||id */
     var e=im[sku]||{};
     var brands=loadBr().filter(function(b){return (b.status||'Active')==='Active';});
     var sups=loadSup().filter(function(s){return (s.status||'Active')==='Active';});
@@ -157614,7 +157739,7 @@ gh+=_mtxTreeBody(rows);
     // item master
     itemFilter:function(f){ S.itemFilter=f; S.editSku=null; render(); },
     itemSearch:function(q){ S.itemQuery=q; var el=document.getElementById('imResults'); if(el) el.innerHTML=itemResultsHtml(q, loadIM()); else render(); },
-    editItem:function(sku){ S.editSku=String(sku); render(); },
+    editItem:function(sku){ S.editSku=sku?String(sku):null; render(); }, /* v13.05 INVENTORY-F4: null (not '') is the closed sentinel; rows now pass sku||id so blank-SKU items open too */
     backItems:function(){ S.editSku=null; render(); },
     saveItem:function(){
       if(!canEdit()){ toast('No rights','warn'); return; }
@@ -157727,7 +157852,20 @@ gh+=_mtxTreeBody(rows);
       var list=(resp&&(resp.purchaseorders||resp.data||resp.items||resp.list))||(Array.isArray(resp)?resp:[]);
       var r=_parseOpenPOList(list);
       _openPO.map=r.map; _openPO.lines=r.lines; _openPO.names=r.names; _openPO.loaded=true; _openPO.loading=false; _openPO.err=null;
-      try{ if(typeof window.renderInvPurchase==='function' && document.getElementById('invPurchaseBody')) window.renderInvPurchase(); }catch(e){}
+      try{ if(typeof window.renderInvPurchase==='function' && document.getElementById('invPurchaseBody')){
+        /* v13.05 INVENTORY-F10: harvest user-edited Order-qty + budget inputs before the async re-render, reapply after (dirty = value differs from rendered default) */
+        var _keep={}, _focusId=null;
+        try{
+          var _ae=document.activeElement; if(_ae&&_ae.id&&(_ae.id.indexOf('pq_')===0||_ae.id==='poBudget')) _focusId=_ae.id;
+          var _els=document.getElementById('invPurchaseBody').querySelectorAll('input[id^="pq_"], #poBudget');
+          for(var _i=0;_i<_els.length;_i++){ if(_els[_i].value!==_els[_i].defaultValue) _keep[_els[_i].id]=_els[_i].value; }
+        }catch(_){}
+        window.renderInvPurchase();
+        try{
+          Object.keys(_keep).forEach(function(id){ var el=document.getElementById(id); if(el) el.value=_keep[id]; });
+          if(_focusId){ var _fe=document.getElementById(_focusId); if(_fe) _fe.focus(); }
+        }catch(_){}
+      } }catch(e){}
     }).catch(function(e){ _openPO.loading=false; _openPO.loaded=true; _openPO.err=(e&&e.message)||'fetch-failed'; });
   };
   window.hnxOpenPOQty=function(it){
@@ -158170,7 +158308,7 @@ gh+=_mtxTreeBody(rows);
     var actOpts='<option value="all">All actions ('+all.length+')</option>'+actKeys.map(function(k){ return '<option value="'+esc(k)+'"'+(S.action===k?' selected':'')+'>'+esc(k)+' ('+actions[k]+')</option>'; }).join('');
     var controls='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">'
       + '<select onchange="__hnxInvAudit.setAction(this.value)" class="users-input" style="max-width:240px;">'+actOpts+'</select>'
-      + '<input class="users-input" style="flex:1;min-width:180px;" placeholder="Search user / entity / value\u2026" value="'+esc(S.q)+'" oninput="__hnxInvAudit.search(this.value)">'
+      + '<input id="invAuditSearch" class="users-input" style="flex:1;min-width:180px;" placeholder="Search user / entity / value\u2026" value="'+esc(S.q)+'" oninput="__hnxInvAudit.search(this.value)">'
       + '<button class="btn btn-outline" onclick="__hnxInvAudit.exportCSV()">\u2b07 Export CSV</button>'
       + '</div>';
 
@@ -158201,7 +158339,7 @@ gh+=_mtxTreeBody(rows);
 
   window.__hnxInvAudit = {
     setAction:function(v){ S.action=v; render(); },
-    search:function(q){ S.q=q; var b=document.getElementById('invAuditBody'); /* light: re-render */ render(); },
+    search:function(q){ S.q=q; /* v13.05 INVENTORY-F7: restore focus + caret after the wholesale re-render (same pattern as forecast search) */ var f=document.getElementById('invAuditSearch'); var pos=f?f.selectionStart:null; render(); var nf=document.getElementById('invAuditSearch'); if(nf){ nf.focus(); if(pos!=null){ try{ nf.setSelectionRange(pos,pos); }catch(e){} } } },
     exportCSV:function(){
       try{
         var all=load();
@@ -158252,7 +158390,7 @@ gh+=_mtxTreeBody(rows);
     var cat={}; s.forEach(function(i){ var c=(i.sosCategory||'').trim()||'Uncategorized'; cat[c]=(cat[c]||0)+1; });
     var topCat=Object.keys(cat).sort(function(a,b){return cat[b]-cat[a];}).slice(0,8).map(function(c){ return c+' ('+cat[c]+')'; });
     var pos=jget('hydroPro_inv_draft_pos_v1')||[]; var drafts=pos.filter(function(p){return (p.status||'draft')==='draft';}).length;
-    var reqs=jget('hydroPro_inv_requests_v1')||[]; var pend=Array.isArray(reqs)?reqs.filter(function(r){ return r&&r.status&&/pending|await|review/i.test(r.status); }).length:0;
+    var reqs=jget('hydroPro_inv_requests_v1')||[]; var pend=Array.isArray(reqs)?reqs.filter(function(r){ return r&&r.status&&/submitted|await/i.test(r.status); }).length:0; /* v13.05 INVENTORY-F2: writer sets 'submitted', never 'pending' */
     var supL=sups(); var weakSup=supL.filter(function(x){ return num(x.score)>0 && num(x.score)<50; }).map(function(x){ return x.name+' ('+num(x.score)+')'; });
     var c='HydroNexis-AI inventory snapshot ('+new Date().toISOString().slice(0,10)+'):\n';
     c+='Total items: '+n+'. Total stock value: PHP '+Math.round(value).toLocaleString()+'.\n';
@@ -158516,7 +158654,7 @@ gh+=_mtxTreeBody(rows);
     var hero='';
     try{ if(typeof _hnxRenderDashHero==='function'){ hero=_hnxRenderDashHero({module:'inventory',icon:'\ud83d\udcc8',title:'Demand Forecasting',
       tagline:'Projects 30-day demand, days-of-cover and stock-out ETA from real request signals + any usage you feed in. Items with a live forecast stay Active.',
-      chips:[String(list.length)+' forecast', String(atRisk.length)+' at risk', win+'d window']}); } }catch(e){}
+      chips:[{label:'Forecast',value:String(list.length)},{label:'At risk',value:String(atRisk.length),tone:atRisk.length?'warn':''},{label:'Window',value:win+'d'}]}); } }catch(e){} /* v13.05 INVENTORY-F6: hero chips need {label,value,tone} objects, not strings */
 
     function kpi(label,val,cls){ return '<div class="pay-stat"><div class="pay-stat-label">'+label+'</div><div class="pay-stat-val'+(cls?(' '+cls):'')+'">'+val+'</div></div>'; }
     var kpis='<div class="pay-stats" style="margin:14px 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">'
@@ -167623,7 +167761,7 @@ function _drReportBlock(r,v,drv){
   const perL=Number(r.perLiter);
   const gasCost=(!isNaN(liters)&&!isNaN(perL))?liters*perL:null;
   const kmL=(km!=null&&!isNaN(liters)&&liters>0)?km/liters:null;
-  const d=drv.find(x=>x.id===(v.driverId||''));
+  const d=((typeof _fleetEmpById==='function')?_fleetEmpById(v.driverId):null)||drv.find(x=>x.id===(v.driverId||'')); /* v13.05 FLEET-F3: resolve employee-store driver ids too */
   let h=`<div style="border:1px solid var(--border,#444);border-radius:12px;padding:16px;margin-bottom:18px;">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
       <span style="font-size:16px;font-weight:800;">🚚 ${_tEsc(v.name||'—')}</span>
@@ -168633,6 +168771,16 @@ function _haversine(a,b,c,d){const R=6371,t=x=>x*Math.PI/180;const dLat=t(c-a),d
 function _hhmmss(ts){const d=new Date(ts);return d.toTimeString().slice(0,8);}
 
 window.autoStopConfig={stopSpeed:3,stopMinMin:5,radiusM:60};
+/* v13.05 FLEET-F5: hydrate stop-detection settings from the persisted GPS config so "Save settings" survives a reload */
+(function(){
+  try{
+    const c=(typeof loadFleetGpsConfig==='function')?loadFleetGpsConfig():null;
+    if(!c)return;
+    if(c.stopSpeed!=null&&!isNaN(Number(c.stopSpeed)))window.autoStopConfig.stopSpeed=Number(c.stopSpeed);
+    if(c.stopThresholdMin!=null&&!isNaN(Number(c.stopThresholdMin)))window.autoStopConfig.stopMinMin=Number(c.stopThresholdMin);
+    if(c.radiusM!=null&&!isNaN(Number(c.radiusM)))window.autoStopConfig.radiusM=Number(c.radiusM);
+  }catch(e){}
+})();
 
 window.detectStopsForVehicle=function(vehicleId,date){
   let all={};try{all=(typeof loadFleetGpsPositions==='function')?loadFleetGpsPositions():{};}catch(e){}
@@ -168661,7 +168809,7 @@ window.detectStopsForVehicle=function(vehicleId,date){
   function nameOf(lat,lng){
     try{
       const cfg=(typeof loadFleetGpsConfig==='function')?loadFleetGpsConfig():{};
-      const g=(cfg.geofences||[]).find(g=>_haversine(lat,lng,g.lat,g.lng)*1000<=(g.radius||120));
+      const g=(cfg.geofences||[]).find(g=>_haversine(lat,lng,g.lat,g.lng)*1000<=((g.radius!=null?g.radius:g.radiusM)||120)); /* v13.05 FLEET-F7: honor radiusM on seeded geofences */
       if(g)return g.name;
     }catch(e){}
     return lat.toFixed(4)+','+lng.toFixed(4);
@@ -168808,7 +168956,7 @@ window.renderFleetLocations=function(){
         <td><select class="call-select" style="padding:5px 7px;font-size:12px;" onchange="_locUpd(${i},'type',this.value)">${typeOpts(g.type)}</select></td>
         <td><input class="call-input" style="padding:5px 7px;font-size:12px;font-family:var(--mono);width:110px;" value="${g.lat!=null?g.lat:''}" onchange="_locUpd(${i},'lat',this.value)"></td>
         <td><input class="call-input" style="padding:5px 7px;font-size:12px;font-family:var(--mono);width:110px;" value="${g.lng!=null?g.lng:''}" onchange="_locUpd(${i},'lng',this.value)"></td>
-        <td><input class="call-input" type="number" style="padding:5px 7px;font-size:12px;width:80px;" value="${g.radius!=null?g.radius:120}" onchange="_locUpd(${i},'radius',this.value)"></td>
+        <td><input class="call-input" type="number" style="padding:5px 7px;font-size:12px;width:80px;" value="${g.radius!=null?g.radius:(g.radiusM!=null?g.radiusM:120)}" onchange="_locUpd(${i},'radius',this.value)"></td><!-- v13.05 FLEET-F7: show radiusM for seeded geofences instead of a fake 120 -->
         <td style="white-space:nowrap;"><button class="btn-mini" onclick="_locUseMyGps(${i})">📍 Here</button> <button class="btn-mini danger" onclick="_locDel(${i})">🗑</button></td>
       </tr>`;
     });
@@ -169600,7 +169748,8 @@ function loadLeaflet(){
   return _leafletLoading;
 }
 
-window.renderFleetLiveMap=function(){
+/* v13.05 FLEET-F1: do not clobber the full Live Map renderer (geofence circles / status colors) when it already exists */
+if(typeof window.renderFleetLiveMap!=='function')window.renderFleetLiveMap=function(){
   var view=document.getElementById('view-fleet_live_map');
   if(!view){view=document.createElement('div');view.className='view';view.id='view-fleet_live_map';(document.getElementById('appMain')||document.body).appendChild(view);}
   document.querySelectorAll('.view').forEach(function(v){v.classList.remove('active');});
@@ -169635,7 +169784,8 @@ window.renderFleetLiveMap=function(){
   }).catch(function(e){var b=document.getElementById('fleetMapBox');if(b)b.innerHTML='<div class="fleet-empty">Map failed to load: '+esc(e.message)+'</div>';});
 };
 
-window.renderFleetGpsConfig=function(){
+/* v13.05 FLEET-F1: only install the simplified SinoTrack panel when the full GPS Config renderer (import/Traccar/data maintenance) is missing */
+if(typeof window.renderFleetGpsConfig!=='function')window.renderFleetGpsConfig=function(){
   var view=document.getElementById('view-fleet_gps_config');
   if(!view){view=document.createElement('div');view.className='view';view.id='view-fleet_gps_config';(document.getElementById('appMain')||document.body).appendChild(view);}
   document.querySelectorAll('.view').forEach(function(v){v.classList.remove('active');});
