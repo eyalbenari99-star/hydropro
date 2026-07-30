@@ -170286,6 +170286,10 @@ function install(){
        aliased view (blank pane). Rewriting v first keeps all three steps
        (container, base call, re-activation) on the same real view id. */
     try{ if(window.__HNX_VIEW_ALIASES && window.__HNX_VIEW_ALIASES[v]) v = window.__HNX_VIEW_ALIASES[v]; }catch(e){}
+    /* v13.11 PROD-F1: views with a BESPOKE wrapper (crops_matrix renders into
+       view-dashboard + a body class) must not get a container pre-created or
+       re-activated here — that stole .active onto an empty div → blank pane. */
+    if(v==='crops_matrix'){ var _r0; try{ _r0=orig.call(this,v,skip); }catch(e){} if(!skip) setTimeout(function(){ syncHeader('dashboard'); },0); return _r0; }
     ensureContainer(v);                 // 1) never let the base throw
     var r;
     try{ r=orig.call(this,v,skip); }
@@ -200803,6 +200807,9 @@ function __n2BuildGrid(container){
      PRJs fit on a single screen. Preference persists per device. */
   try{
     if(localStorage.getItem('hnx_n2_compact')==='1') container.classList.add('n2-compact');
+    /* v13.11: visible build stamp — screenshots of the cockpit now prove which build is running */
+    var _hd=container.parentNode?container.parentNode.querySelector('.n2-head .sub'):null;
+    if(_hd && _hd.textContent.indexOf('BUILD')<0) _hd.textContent += '  ·  BUILD v'+(typeof APP_VERSION!=='undefined'?APP_VERSION:'?');
     var head=container.parentNode?container.parentNode.querySelector('.n2-head'):null;
     if(head && !head.querySelector('.n2-compact-toggle')){
       var tb=document.createElement('button');
@@ -200830,12 +200837,16 @@ function __n2BuildGrid(container){
   });
 }
 function __n2ToggleCompact(){
+  /* v13.11 PROD-F3: the cockpit exists in TWO places (the tab grid #n2Grid and
+     the floating-launcher overlay #n2GridOverlay). The old getElementById
+     always found the tab's grid, so toggling from the overlay mutated the
+     hidden copy. Toggle every .n2-grid and update every toggle button. */
   try{
-    var grid=document.getElementById('n2Grid'); if(!grid) return;
-    var on=grid.classList.toggle('n2-compact');
+    var grids=document.querySelectorAll('.n2-grid'); if(!grids.length) return;
+    var on=!(grids[0].classList.contains('n2-compact'));
+    grids.forEach(function(g){ g.classList.toggle('n2-compact', on); });
     try{ localStorage.setItem('hnx_n2_compact', on?'1':'0'); }catch(e){}
-    var tb=document.querySelector('.n2-compact-toggle');
-    if(tb) tb.textContent=on?'▣ Full cards':'⛶ Fit all on screen';
+    document.querySelectorAll('.n2-compact-toggle').forEach(function(tb){ tb.textContent=on?'▣ Full cards':'⛶ Fit all on screen'; });
   }catch(e){}
 }
 /* v13.05 COCKPIT-ACTIONS helpers: close the cockpit + drill overlays, then
@@ -201047,8 +201058,8 @@ function __n2OpenNexi(g){
     }
     ov.classList.add('on');
     var body=document.getElementById('nexiOverlayBody');
-    body.innerHTML="<div class=\"n2-cockpit\"><div class=\"n2-head\"><h1>\ud83c\udfed Nexi Cockpit \u00b7 Digital Twin</h1><p>Every GH is a live twin: crop \u00b7 climate \u00b7 radio \u00b7 workers \u00b7 GPS \u00b7 QR/NFC \u00b7 photos \u00b7 maintenance \u00b7 inventory \u00b7 logistics \u00b7 AI \u00b7 emergency. Click any card for full drill-in. Brain top-right opens Nexi. \ud83d\udcfb opens the talk-group.</p><div class=\"sub\">\u25b8 14 active greenhouses \u00b7 2 future projects</div></div><div class=\"n2-grid\" id=\"n2Grid\"></div></div>";
-    __n2BuildGrid(document.getElementById('n2Grid'));
+    body.innerHTML="<div class=\"n2-cockpit\"><div class=\"n2-head\"><h1>\ud83c\udfed Nexi Cockpit \u00b7 Digital Twin</h1><p>Every GH is a live twin: crop \u00b7 climate \u00b7 radio \u00b7 workers \u00b7 GPS \u00b7 QR/NFC \u00b7 photos \u00b7 maintenance \u00b7 inventory \u00b7 logistics \u00b7 AI \u00b7 emergency. Click any card for full drill-in. Brain top-right opens Nexi. \ud83d\udcfb opens the talk-group.</p><div class=\"sub\">\u25b8 14 active greenhouses \u00b7 2 future projects</div></div><div class=\"n2-grid\" id=\"n2GridOverlay\"></div></div>";
+    __n2BuildGrid(document.getElementById('n2GridOverlay'));
   }
   window.openNexiV2 = openNexiV2;
 
@@ -201209,6 +201220,9 @@ function __n2OpenNexi(g){
    Enrolling with data-autosave-fn="_autosaveNoop" only surfaces the "✓ Auto-saved" chip
    so users can see the safety-net working — no duplicate persistence. */
 window._autosaveNoop = function(){ /* intentionally empty */ };
+/* v13.11: the <title> was a hardcoded ancient string ('v7.86') that made every
+   screenshot look like an old build. Stamp the real APP_VERSION into it. */
+try{ if(typeof APP_VERSION!=='undefined') document.title='HydroNexis-AI ['+'v'+APP_VERSION+'] — ABA Pardes'; }catch(e){}
 </script>
 <!-- ================= END v12.93 UNIVERSAL AUTO-SAVE ================= -->
 
