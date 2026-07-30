@@ -22851,8 +22851,10 @@ function saveEmployee(opts){
   }
   saveEmployees();
   // Save Pro Level into Training certs (separate storage)
+  // v12.96 F5: manual save only — a silent keystroke-save nudging the Level
+  // dropdown was writing phantom levelHistory promotions + audit entries.
   try{
-    if(typeof getEmpCert==='function'&&typeof loadCerts==='function'&&typeof saveCerts==='function'){
+    if(!_silent&&typeof getEmpCert==='function'&&typeof loadCerts==='function'&&typeof saveCerts==='function'){
       const cert=getEmpCert(rec.id);
       const oldLevel=cert.level||1;
       if(oldLevel!==proLevel){
@@ -22870,7 +22872,7 @@ function saveEmployee(opts){
     }
   }catch(e){console.warn('Could not save level:',e);}
   if(!_silent){
-    try{ localStorage.removeItem('hydroPro_emp_form_draft_v1'); }catch(_){}
+    try{ localStorage.removeItem('hnx_emp_form_draft_v1'); }catch(_){}
     document.getElementById('empModal').classList.remove('open');
     renderHR();
   }
@@ -22893,12 +22895,12 @@ function _captureEmpFormDraft(){
     f.__photo=_editingEmpPhoto||'';
     f.__dependents=Array.isArray(_editingDependents)?_editingDependents:[];
     f.__ts=Date.now();
-    localStorage.setItem('hydroPro_emp_form_draft_v1', JSON.stringify(f));
+    localStorage.setItem('hnx_emp_form_draft_v1', JSON.stringify(f));
   }catch(e){ try{console.warn('_captureEmpFormDraft:',e);}catch(_){} }
 }
 function _restoreEmpFormDraft(){
   try{
-    var raw=localStorage.getItem('hydroPro_emp_form_draft_v1'); if(!raw) return false;
+    var raw=localStorage.getItem('hnx_emp_form_draft_v1'); if(!raw) return false;
     var f=JSON.parse(raw); if(!f||typeof f!=='object') return false;
     Object.keys(f).forEach(function(id){
       if(id.indexOf('__')===0) return;
@@ -55669,6 +55671,14 @@ function openMemoCreate(category){
   _editingMemoId=null;
   _editingMemoData=defaultMemo();
   _editingMemoData.category=category;
+  /* v12.96: restore an auto-saved scratch draft from an interrupted Create session */
+  try{
+    var _md=JSON.parse(localStorage.getItem('hnx_memo_form_draft_v1')||'null');
+    if(_md&&_md.d&&_md.d.category===category){
+      _editingMemoData=_md.d;
+      if(typeof showToast==='function')showToast('Restored your unsaved memo draft','ok');
+    }
+  }catch(_){}
   renderMemoModal();
   document.getElementById('memoModal').classList.add('open');
 }
@@ -56012,7 +56022,12 @@ function _saveMemoInternal(newStatus, opts){
     m.totalAmount=r.total;
   }
 
-  m.status=newStatus;
+  /* v12.96 F1: silent auto-saves must NEVER change a memo's status — editing a
+     'pending' (awaiting-signatures) memo was silently demoting it back to
+     'draft', pulling it out of the signature queue on every device. Silent
+     saves only persist content; status transitions are manual-save only. */
+  if(!_silent){ m.status=newStatus; }
+  else if(!m.status){ m.status='draft'; }
   m.updatedAt=new Date().toISOString();
   if(!m.createdAt){
     m.createdAt=m.updatedAt;
@@ -56024,13 +56039,16 @@ function _saveMemoInternal(newStatus, opts){
     const idx=memos.findIndex(x=>x.id===_editingMemoId);
     if(idx>=0)memos[idx]=m;
   } else {
+    /* v12.96 F2: silent saves must NEVER create memo records — a keystroke on a
+       brand-new memo was pushing an unvalidated record that Cancel couldn't
+       discard. New-memo auto-saves go to the scratch key via the wrapper below;
+       only the manual Save buttons reach this push. */
+    if(_silent) return;
     memos.push(m);
-    /* v12.94: after first silent save, remember the newly-assigned id so subsequent
-       silent saves update in place instead of appending duplicates */
-    if(_silent && m.id) _editingMemoId = m.id;
   }
   saveMemos();
   if(_silent) return; /* v12.95: audit + archive + close only on manual save — no per-keystroke audit spam */
+  try{ localStorage.removeItem('hnx_memo_form_draft_v1'); }catch(_){}
   audit('memo_save',`Memo ${m.id} saved as ${newStatus}: ${m.title}`);
   // v2.84 — Auto-archive to 201 file when memo is finalized (status='pending')
   try{
@@ -56046,10 +56064,19 @@ function _saveMemoInternal(newStatus, opts){
   renderMemos();
   showToast(newStatus==='pending'?'✓ Memo saved & pending signatures':'✓ Memo saved as draft','ok');
 }
-/* v12.94: auto-save wrapper — always writes as 'draft', never finalizes */
+/* v12.96: auto-save wrapper.
+   - Existing memo (edit) → silent in-place content save; status never changes.
+   - New memo (create) → serialize the form state to a per-device scratch key;
+     no record is created until the manual Save button. Scratch is restored on
+     the next Create of the same category and cleared by a successful manual
+     save. Key has no hydroPro_ prefix on purpose: per-device only, so the
+     cloud merge can't interleave two people's half-typed memos. */
 window._autosaveMemoDraft = function(){
-  try{ if(!_editingMemoData) return; _saveMemoInternal('draft', {silent:true}); }
-  catch(e){ try{console.warn('_autosaveMemoDraft:',e);}catch(_){} }
+  try{
+    if(!_editingMemoData) return;
+    if(_editingMemoId){ _saveMemoInternal('draft', {silent:true}); return; }
+    localStorage.setItem('hnx_memo_form_draft_v1', JSON.stringify({d:_editingMemoData, ts:Date.now()}));
+  }catch(e){ try{console.warn('_autosaveMemoDraft:',e);}catch(_){} }
 };
 
 function memoDelete(){
@@ -57149,7 +57176,7 @@ function renderPrj11ColdStorage(){
       <div class="wt-card">
         <div class="wt-card-header">📝 Notes</div>
         <div class="wt-card-body">
-          <textarea class="users-input" style="resize:vertical;min-height:80px;" placeholder="Observations, alarms, abnormalities…" onchange="prj11ColdSet('notes',this.value)">${d.notes||''}</textarea>
+          <textarea class="users-input" style="resize:vertical;min-height:80px;" placeholder="Observations, alarms, abnormalities…" onchange="prj11ColdSet('notes',this.value)" oninput="prj11ColdSet('notes',this.value)">${d.notes||''}</textarea>
         </div>
       </div>
     </div>
@@ -57339,7 +57366,7 @@ function renderPrj11Water(){
     <!-- Notes -->
     <div class="emp-field" style="margin-bottom:18px;">
       <label class="field-label">📝 Notes</label>
-      <textarea class="users-input" style="resize:vertical;min-height:60px;" placeholder="Observations, alarms, abnormalities…" onchange="prj11WaterSet('notes',this.value)">${d.notes||''}</textarea>
+      <textarea class="users-input" style="resize:vertical;min-height:60px;" placeholder="Observations, alarms, abnormalities…" onchange="prj11WaterSet('notes',this.value)" oninput="prj11WaterSet('notes',this.value)">${d.notes||''}</textarea>
     </div>
 
     <!-- SUBMIT -->
@@ -57511,7 +57538,7 @@ function renderPrj11Devices(){
       if(d.type==='status_reading'){
         let color='';
         if(reading!==''){const n=parseFloat(reading);if(!isNaN(n)){if(n<d.min||n>d.max)color='var(--danger)';else color='var(--ok)';}}
-        readingCell=`<input type="number" step="${d.step||0.1}" class="users-input" style="width:90px;font-family:var(--mono);font-size:12px;color:${color};" value="${reading}" placeholder="${d.placeholder||''}" onchange="prj11DevSetReading('${d.id}',this.value)">`;
+        readingCell=`<input type="number" step="${d.step||0.1}" class="users-input" style="width:90px;font-family:var(--mono);font-size:12px;color:${color};" value="${reading}" placeholder="${d.placeholder||''}" onchange="prj11DevSetReading('${d.id}',this.value)" oninput="prj11DevSetReading('${d.id}',this.value)">`;
       }
       return `<tr style="${st==='down'?'background:rgba(239,83,80,0.05);':st==='issue'?'background:rgba(255,179,0,0.05);':''}">
         <td style="font-size:12px;">${d.label}</td>
@@ -57523,7 +57550,7 @@ function renderPrj11Devices(){
           </div>
         </td>
         ${d.type==='status_reading'?`<td>${readingCell} <span style="font-size:10px;color:var(--text3);">${d.unit||''}</span></td>`:'<td style="color:var(--text3);font-size:10px;">—</td>'}
-        <td><input type="text" class="users-input" style="font-size:11px;" value="${note.replace(/"/g,'&quot;')}" placeholder="Note (optional)" onchange="prj11DevSetNote('${d.id}',this.value)"></td>
+        <td><input type="text" class="users-input" style="font-size:11px;" value="${note.replace(/"/g,'&quot;')}" placeholder="Note (optional)" onchange="prj11DevSetNote('${d.id}',this.value)" oninput="prj11DevSetNote('${d.id}',this.value)"></td>
       </tr>`;
     }).join('');
     return `<div class="cctv-nvr-section">
@@ -57560,7 +57587,7 @@ function renderPrj11Devices(){
           <button class="cctv-btn cctv-btn-offline ${st==='down'?'active':''}" style="font-size:10px;padding:4px 8px;" onclick="prj11DevSetStatus('valve_${vlv.id}','down')">✕</button>
         </div>
       </td>
-      <td><input type="text" class="users-input" style="font-size:11px;" value="${(v.note||'').replace(/"/g,'&quot;')}" placeholder="Note (optional)" onchange="prj11DevSetNote('valve_${vlv.id}',this.value)"></td>
+      <td><input type="text" class="users-input" style="font-size:11px;" value="${(v.note||'').replace(/"/g,'&quot;')}" placeholder="Note (optional)" onchange="prj11DevSetNote('valve_${vlv.id}',this.value)" oninput="prj11DevSetNote('valve_${vlv.id}',this.value)"></td>
       <td><button class="btn btn-outline" style="font-size:10px;padding:3px 8px;color:var(--danger);" onclick="prj11ValveDelete(${i})">🗑</button></td>
     </tr>`;
   }).join('');
@@ -57615,7 +57642,7 @@ function renderPrj11Devices(){
     <!-- Notes -->
     <div class="emp-field" style="margin-top:14px;">
       <label class="field-label">📝 General Notes</label>
-      <textarea class="users-input" style="resize:vertical;min-height:60px;" placeholder="Observations, abnormalities, follow-ups…" onchange="prj11DevSetNote('_general',this.value)">${(dayState._general&&dayState._general.note)||''}</textarea>
+      <textarea class="users-input" style="resize:vertical;min-height:60px;" placeholder="Observations, abnormalities, follow-ups…" onchange="prj11DevSetNote('_general',this.value)" oninput="prj11DevSetNote('_general',this.value)">${(dayState._general&&dayState._general.note)||''}</textarea>
     </div>
 
     <!-- Submit -->
@@ -129616,7 +129643,14 @@ body.hnx-mobile-locked { overflow: hidden; }
       var dt=_rmCur.date||todayISO();
       var k=dt+'__'+_rmCur.taskId+'__'+(_rmCur.gh||'all');
       var by='system';try{if(typeof window.curUser==='function')by=window.curUser();}catch(e){}
-      all[k]={taskId:_rmCur.taskId,gh:_rmCur.gh||'all',date:dt,by:by,at:Date.now(),note:note,photo:photo,status:_rmCur.status};
+      /* v12.96 F6: a silent keystroke-save on an ALREADY-LOGGED cell must not
+         rewrite who logged it or when — that falsified the completion record's
+         attribution every time someone merely opened the cell and touched the
+         note. Silent saves preserve the original by/at; manual Save re-stamps. */
+      var prev=all[k];
+      var stampBy=(_silent&&prev&&prev.by)?prev.by:by;
+      var stampAt=(_silent&&prev&&prev.at)?prev.at:Date.now();
+      all[k]={taskId:_rmCur.taskId,gh:_rmCur.gh||'all',date:dt,by:stampBy,at:stampAt,note:note,photo:photo,status:_rmCur.status};
       localStorage.setItem(KEY,JSON.stringify(all));
     }catch(e){console.error('[recurring matrix] save failed',e); if(!_silent) alert('Could not save: '+((e&&e.message)||e)); return;}
     if(!_silent){
@@ -197836,7 +197870,7 @@ function __n2OpenNexi(g){
 .hnx-autosave-badge.saving{ background:rgba(255,193,7,.18); color:#ffc107; border-color:rgba(255,193,7,.55); }
 .hnx-autosave-badge.saved{  background:rgba(76,175,80,.15); color:#4caf50; border-color:rgba(76,175,80,.5); }
 .hnx-autosave-badge.error{  background:rgba(255,82,82,.18); color:#ff5252; border-color:rgba(255,82,82,.55); }
-[data-autosave-fn]{ position:relative; }
+[data-autosave-fn]:not(.modal-overlay){ position:relative; } /* v12.96 F3: .modal-overlay needs position:fixed — overriding it to relative broke #empModal/#memoModal centering */
 </style>
 <script id="hnxAutosaveJs">
 /* v12.93 UNIVERSAL AUTO-SAVE ENGINE — no one loses data because they forgot to click Save.
