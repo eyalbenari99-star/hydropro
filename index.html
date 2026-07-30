@@ -43014,6 +43014,9 @@ function deleteEquipItem(catId,itemId){
 }
 
 // =============== EQUIPMENT CHECKLIST + AUTO-CALL =================
+/* v13.20 AS-EQ: which equipment the daily-check form currently on screen is for
+   (the modal is shared by edit/history/etc, so the draft fn must know its target) */
+let _equipCheckDraftCtx=null;
 function openEquipCheck(catId,itemId){
   const cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===catId);
   const item=getEquipItems(catId).find(i=>i.id===itemId);
@@ -43037,6 +43040,7 @@ function openEquipCheck(catId,itemId){
   });
 
   document.getElementById('maintEquipBody').innerHTML=`
+    <div data-autosave-fn="_autosaveEquipCheckDraft"><!-- v13.20 AS-EQ: draft-capture enrollment; wrapper dies with the next innerHTML swap -->
     <div style="font-size:11px;color:var(--text3);margin-bottom:10px;background:var(--surface2);padding:10px;border-radius:8px;border-left:3px solid var(--info);">
       <strong>📋 Daily check for ${cat.icon} ${cat.name}.</strong> Mark each item OK / Warning / Critical / N/A. Any Warning or Critical will <strong>automatically open a maintenance call + task</strong> tagged "${cat.subject||cat.name}".
     </div>
@@ -43049,9 +43053,70 @@ function openEquipCheck(catId,itemId){
       <button class="btn" onclick="document.getElementById('maintEquipModal').classList.remove('open')">Cancel</button>
       <button class="btn primary" onclick="saveEquipCheck('${catId}','${itemId}',${checks.length})">💾 Save Check</button>
     </div>
+    </div>
   `;
+  /* v13.20 AS-EQ: restore any auto-saved draft from a previous interrupted check session */
+  _equipCheckDraftCtx={catId,itemId,checkCount:checks.length};
+  if(_restoreEquipCheckDraft(catId,itemId)){ document.getElementById('maintEquipTitle').textContent=`✅ Check: ${item.name||item.id} · draft restored`; }
   modal.classList.add('open');
 }
+
+/* ===== v13.20 AS-EQ EQUIPMENT DAILY-CHECK DRAFT =====
+   Firing saveEquipCheck per keystroke would append half-finished check entries
+   (and auto-raise phantom maintenance calls) on every keypress. Instead, while
+   the check form is open we capture the whole form to a per-device draft key on
+   every keystroke and rehydrate it the next time the SAME equipment's check
+   opens — so a crash/close mid-entry loses nothing, and the check entry is only
+   truly created by the manual Save Check button (which also clears the draft).
+   Key has no hydroPro_ prefix on purpose: per-device only, so the cloud merge
+   can't interleave two people's half-typed checks. */
+function _captureEquipCheckDraft(){
+  try{
+    var ctx=_equipCheckDraftCtx; if(!ctx) return;
+    var f={catId:ctx.catId,itemId:ctx.itemId};
+    var byEl=document.getElementById('chk_by'); if(byEl) f.by=byEl.value;
+    var dateEl=document.getElementById('chk_date'); if(dateEl) f.date=dateEl.value;
+    f.results=[];
+    for(var i=0;i<ctx.checkCount;i++){
+      var sel=document.querySelector('input[name="chk_'+i+'"]:checked');
+      var noteEl=document.getElementById('chk_note_'+i);
+      f.results.push({result:sel?sel.value:'ok',note:noteEl?noteEl.value:''});
+    }
+    f.__ts=Date.now();
+    localStorage.setItem('hnx_equip_check_draft_v1', JSON.stringify(f));
+  }catch(e){ try{console.warn('_captureEquipCheckDraft:',e);}catch(_){} }
+}
+function _restoreEquipCheckDraft(catId,itemId){
+  try{
+    var raw=localStorage.getItem('hnx_equip_check_draft_v1'); if(!raw) return false;
+    var f=JSON.parse(raw); if(!f||typeof f!=='object') return false;
+    if(f.catId!==catId||f.itemId!==itemId) return false; /* draft belongs to another equipment's check */
+    /* a check saved AFTER this draft (this or another device) supersedes it —
+       never let an older draft shadow freshly saved real data */
+    var last=(getEquipCheckHistory(catId,itemId)||[])[0];
+    if(last&&last.ts&&f.__ts&&last.ts>=f.__ts){ try{ localStorage.removeItem('hnx_equip_check_draft_v1'); }catch(_){} return false; }
+    if(f.by!=null&&f.by!=='') { var byEl=document.getElementById('chk_by'); if(byEl) byEl.value=f.by; }
+    if(f.date!=null&&f.date!==''){ var dateEl=document.getElementById('chk_date'); if(dateEl) dateEl.value=f.date; }
+    (f.results||[]).forEach(function(r,i){
+      if(r&&r.result){ var radio=document.querySelector('input[name="chk_'+i+'"][value="'+r.result+'"]'); if(radio) radio.checked=true; }
+      if(r&&r.note!=null&&r.note!==''){ var noteEl=document.getElementById('chk_note_'+i); if(noteEl) noteEl.value=r.note; }
+    });
+    return true;
+  }catch(e){ return false; }
+}
+/* v13.20 AS-EQ: auto-save wrapper the universal engine calls on every keystroke.
+   - closed modal → no-op (flushAll pings every enrolled container on tab-hide;
+     the shared modal keeps its last innerHTML after Cancel, so without this
+     guard a stale form re-saves)
+   - open check form → capture form draft only (no check entry creation) */
+window._autosaveEquipCheckDraft = function(){
+  try{
+    var modal=document.getElementById('maintEquipModal');
+    if(!modal || !modal.classList.contains('open')) return;
+    if(!_equipCheckDraftCtx || !document.getElementById('chk_by')) return;
+    _captureEquipCheckDraft();
+  }catch(e){ try{console.warn('_autosaveEquipCheckDraft:',e);}catch(_){} }
+};
 
 function saveEquipCheck(catId,itemId,checkCount){
   const cat=MAINT_EQUIP_CATEGORIES.find(c=>c.id===catId);
@@ -43131,6 +43196,9 @@ function saveEquipCheck(catId,itemId,checkCount){
   }
 
   if(typeof audit==='function')audit('equip_check',`${cat.name}/${item.name||item.id}: ${summary}${createdCount?', '+createdCount+' tasks created':''}`);
+  /* v13.20 AS-EQ: manual save succeeded — the scratch draft is now obsolete */
+  try{ localStorage.removeItem('hnx_equip_check_draft_v1'); }catch(_){}
+  _equipCheckDraftCtx=null;
   document.getElementById('maintEquipModal').classList.remove('open');
 
   if(typeof showToast==='function'){
@@ -46708,6 +46776,7 @@ function openNftCountModal(){
   const headerCells=NFT_VARIETIES.map(v=>`<th style="padding:8px 6px;font-size:10px;color:var(--text3);text-align:center;">${v.short}</th>`).join('');
 
   document.getElementById('maintNftModalBody').innerHTML=`
+    <div data-autosave-fn="_autosaveNftCountDraft"><!-- v13.20 AS-NFT: draft-capture enrollment; wrapper dies with the next innerHTML swap -->
     <div style="background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:11px;color:var(--text2);">
       <strong>📏 Enter the count of NFT pipes per greenhouse per variety.</strong> Pre-filled with last count (${latest?latest.date:'baseline'}). Leave a cell empty if that variety isn't present in that greenhouse. Any change vs prior count will be flagged automatically.
     </div>
@@ -46735,9 +46804,73 @@ function openNftCountModal(){
       <button class="btn" onclick="document.getElementById('maintNftModal').classList.remove('open')">Cancel</button>
       <button class="btn primary" onclick="saveNftCount()">💾 Save Weekly Count</button>
     </div>
+    </div>
   `;
+  /* v13.20 AS-NFT: restore any auto-saved draft from a previous interrupted count session */
+  if(_restoreNftCountDraft(latest)){ document.getElementById('maintNftModalTitle').textContent=`📏 Weekly NFT Pipes Count — ${today} · draft restored`; }
   document.getElementById('maintNftModal').classList.add('open');
 }
+
+/* ===== v13.20 AS-NFT WEEKLY-COUNT DRAFT =====
+   Firing saveNftCount per keystroke would push half-finished weekly snapshots
+   (and auto-raise phantom lost-pipe tasks) on every keypress. Instead, while
+   the count form is open we capture the whole GH×variety grid to a per-device
+   draft key on every keystroke and rehydrate it the next time the modal opens
+   — so a crash/close mid-entry loses nothing, and the snapshot is only truly
+   created by the manual Save Weekly Count button (which also clears the draft).
+   Key has no hydroPro_ prefix on purpose: per-device only, so the cloud merge
+   can't interleave two people's half-typed counts. */
+function _captureNftCountDraft(){
+  try{
+    var f={cells:{}};
+    var byEl=document.getElementById('nft_by'); if(byEl) f.by=byEl.value;
+    var dateEl=document.getElementById('nft_date'); if(dateEl) f.date=dateEl.value;
+    NFT_GREENHOUSES.forEach(function(gh){
+      var row={};
+      NFT_VARIETIES.forEach(function(v){
+        var el=document.getElementById('nft_'+gh+'_'+v.id); if(el) row[v.id]=el.value;
+      });
+      var noteEl=document.getElementById('nft_'+gh+'_note'); if(noteEl) row.note=noteEl.value;
+      f.cells[gh]=row;
+    });
+    f.__ts=Date.now();
+    localStorage.setItem('hnx_nft_count_draft_v1', JSON.stringify(f));
+  }catch(e){ try{console.warn('_captureNftCountDraft:',e);}catch(_){} }
+}
+function _restoreNftCountDraft(latest){
+  try{
+    var raw=localStorage.getItem('hnx_nft_count_draft_v1'); if(!raw) return false;
+    var f=JSON.parse(raw); if(!f||typeof f!=='object') return false;
+    /* a count saved AFTER this draft (this or another device) supersedes it —
+       never let an older draft shadow the freshly loaded real prefill */
+    if(latest&&latest.ts&&f.__ts&&latest.ts>=f.__ts){ try{ localStorage.removeItem('hnx_nft_count_draft_v1'); }catch(_){} return false; }
+    if(f.by!=null&&f.by!==''){ var byEl=document.getElementById('nft_by'); if(byEl) byEl.value=f.by; }
+    if(f.date!=null&&f.date!==''){ var dateEl=document.getElementById('nft_date'); if(dateEl) dateEl.value=f.date; }
+    NFT_GREENHOUSES.forEach(function(gh){
+      var row=(f.cells||{})[gh]; if(!row) return;
+      NFT_VARIETIES.forEach(function(v){
+        /* only prefill from the draft where the user actually typed something —
+           an empty draft cell must not blank the real prior-count prefill */
+        if(row[v.id]!=null&&row[v.id]!==''){ var el=document.getElementById('nft_'+gh+'_'+v.id); if(el) el.value=row[v.id]; }
+      });
+      if(row.note!=null&&row.note!==''){ var noteEl=document.getElementById('nft_'+gh+'_note'); if(noteEl) noteEl.value=row.note; }
+    });
+    return true;
+  }catch(e){ return false; }
+}
+/* v13.20 AS-NFT: auto-save wrapper the universal engine calls on every keystroke.
+   - closed modal → no-op (flushAll pings every enrolled container on tab-hide;
+     the shared modal keeps its last innerHTML after Cancel, so without this
+     guard a stale form re-saves)
+   - open count form → capture form draft only (no snapshot creation) */
+window._autosaveNftCountDraft = function(){
+  try{
+    var modal=document.getElementById('maintNftModal');
+    if(!modal || !modal.classList.contains('open')) return;
+    if(!document.getElementById('nft_by')) return; /* modal is showing history, not the count form */
+    _captureNftCountDraft();
+  }catch(e){ try{console.warn('_autosaveNftCountDraft:',e);}catch(_){} }
+};
 
 function saveNftCount(){
   const date=document.getElementById('nft_date').value||new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F9 */ // local Y-M-D (farm is UTC+8)
@@ -46769,6 +46902,8 @@ function saveNftCount(){
   const all=loadNftCounts();
   all.push({date,by,ts:Date.now(),counts,notes:''});
   saveNftCounts(all);
+  /* v13.20 AS-NFT: manual save succeeded — the scratch draft is now obsolete */
+  try{ localStorage.removeItem('hnx_nft_count_draft_v1'); }catch(_){}
 
   // Auto-create maintenance tasks for negative variances (lost pipes)
   let createdTasks=0;
