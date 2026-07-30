@@ -16307,6 +16307,46 @@ const TODAY = new Date().toISOString().slice(0,10);
 const SKEY = 'hydroPro_'+TODAY;
 let state = {};
 
+/* v13.13 MNT-F1 */ // Fan inspection issues get a dedicated PERSISTENT key. They used to live only inside
+// the per-day state key (hydroPro_YYYY-MM-DD), so every open fan defect silently vanished at midnight.
+// hydroPro_ prefix keeps the key inside cloud sync. On first load we merge issues found in today's +
+// recent daily keys so nothing already recorded is lost.
+const FAN_ISSUES_KEY='hydroPro_fan_issues_v1';
+function _loadFanIssuesStore(){
+  try{const s=JSON.parse(localStorage.getItem(FAN_ISSUES_KEY)||'null');if(s&&typeof s==='object'&&!Array.isArray(s))return s;}catch(e){}
+  // First load: harvest fanIssues from every existing daily key (today + recent days)
+  const merged={};
+  try{
+    const cutoff=new Date(Date.now()-14*86400000-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+    const dayKeys=[];
+    for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(/^hydroPro_\d{4}-\d{2}-\d{2}$/.test(k)&&k.slice(8)>=cutoff)dayKeys.push(k);}
+    dayKeys.sort(); // oldest first, dedupe by issue id below
+    dayKeys.forEach(k=>{
+      let day=null;try{day=JSON.parse(localStorage.getItem(k)||'null');}catch(e){}
+      if(!day||typeof day!=='object')return;
+      Object.keys(day).forEach(g=>{
+        const fi=day[g]&&day[g].fanIssues;if(!fi)return;
+        if(!merged[g])merged[g]={big:[],roof:[]};
+        ['big','roof'].forEach(kind=>{(Array.isArray(fi[kind])?fi[kind]:[]).forEach(iss=>{
+          if(iss&&!merged[g][kind].some(x=>x&&x.id===iss.id))merged[g][kind].push(iss);
+        });});
+      });
+    });
+  }catch(e){}
+  try{localStorage.setItem(FAN_ISSUES_KEY,JSON.stringify(merged));}catch(e){}
+  return merged;
+}
+function _saveFanIssuesStore(){
+  try{
+    const out={};
+    Object.keys(state).forEach(g=>{
+      const fi=state[g]&&state[g].fanIssues;
+      if(fi&&((fi.big&&fi.big.length)||(fi.roof&&fi.roof.length)))out[g]={big:fi.big||[],roof:fi.roof||[]};
+    });
+    localStorage.setItem(FAN_ISSUES_KEY,JSON.stringify(out));
+  }catch(e){}
+}
+
 function loadState(){
   try{ state = JSON.parse(localStorage.getItem(SKEY)||'{}'); }catch(e){ state={}; }
   GREENHOUSES.forEach(g=>{
@@ -16323,8 +16363,16 @@ function loadState(){
     if(state[g].pipesClean===undefined) state[g].pipesClean=null;
     if(state[g].seedlings===undefined) state[g].seedlings=null;
   });
+  /* v13.13 MNT-F1 */ // hydrate fan issues from the dedicated persistent store — survives the midnight key roll
+  try{
+    const fiStore=_loadFanIssuesStore();
+    Object.keys(fiStore).forEach(g=>{
+      if(!state[g]) state[g]={items:{},statuses:{},locations:{},notes:{},photos:{},fans:{},fanIssues:{big:[],roof:[]},supTag:'',supNote:'',pipesClean:null,seedlings:null};
+      state[g].fanIssues={big:(fiStore[g].big||[]).slice(),roof:(fiStore[g].roof||[]).slice()};
+    });
+  }catch(e){}
 }
-function saveState(){localStorage.setItem(SKEY,JSON.stringify(state));autoWrite();}
+function saveState(){localStorage.setItem(SKEY,JSON.stringify(state));_saveFanIssuesStore();autoWrite();} /* v13.13 MNT-F1 */
 
 // ===================== DATA MGMT =====================
 let autoSaveDir=null; // Directory handle
@@ -21518,8 +21566,6 @@ function switchView(v,skipModuleCheck){
     try{ console.warn('[switchView] stale view id "'+v+'" → routing to "'+__STALE_ALIASES[v]+'"'); }catch(_){}
     v = __STALE_ALIASES[v];
   }
-  // v2.46.148 — Track the routed view for the alignment watchdog.
-  window.currentView=v;
   // Guard: permission-based views
   const guards={
     users:'viewUsers',dept_setup:'viewUsers',supervisor:'viewSupervisor',history:'viewHistory',audit:'viewAuditLog',
@@ -21541,7 +21587,12 @@ function switchView(v,skipModuleCheck){
     // Admin views
     geo_setup:'manageGeo',pool_setup:'manageGeo',email_routing:'manageSecurity',report_scheduler:'manageSecurity',security_center:'manageSecurity',cloud_sync:'manageCloud'
   };
-  if(guards[v]&&!can(guards[v])){showToast('Access denied for your role','warn');return;}
+  if(guards[v]&&!can(guards[v])){window.__lastNavDenied=v;/* v13.13 NEXI-F7: let Nexi's navTo detect the refusal */showToast('Access denied for your role','warn');return;}
+  /* v2.46.148 — Track the routed view for the alignment watchdog.
+     v13.13 NEXI-F7: moved AFTER the permission guard — it used to run first, so Nexi's navTo saw
+     currentView===target and spoke "Opening X." even when access was denied. Nothing between the old
+     and new position reads currentView. */
+  window.currentView=v; window.__lastNavDenied=null;
 
   // If this view belongs to a different module, switch modules first
   if(!skipModuleCheck){
@@ -27185,9 +27236,14 @@ function buildBlockContent(blockId,schedule){
       }
       case 'maint_nft':{
         try{
-          const counts=JSON.parse(localStorage.getItem('hydroPro_maint_nft_counts_v1')||'{}');
-          const ghCount=Object.keys(counts).length;
-          return `NFT counts logged for ${ghCount} GH${ghCount===1?'':'s'}.\n`;
+          /* v13.13 MNT-F12 */ // store is an ARRAY of dated snapshots, not a per-GH map — use _nftSummary()
+          if(typeof _nftSummary==='function'){
+            const s=_nftSummary();
+            const snaps=(typeof loadNftCounts==='function')?loadNftCounts().length:0;
+            return `NFT count snapshots: ${snaps} · latest ${s.latest?s.latest.date:'—'} · total ${s.totalLatest} pipes${s.variances.length?` · ${s.variances.length} variance cell${s.variances.length===1?'':'s'} vs prior (−${s.lostPipes}/+${s.gainedPipes})`:''}\n`;
+          }
+          const snaps=JSON.parse(localStorage.getItem('hydroPro_maint_nft_counts_v1')||'[]');
+          return `NFT count snapshots: ${Array.isArray(snaps)?snaps.length:0}\n`;
         }catch(e){return '(NFT data unavailable)\n';}
       }
       case 'maint_pumps':{
@@ -27204,7 +27260,8 @@ function buildBlockContent(blockId,schedule){
       }
       case 'maint_tasks':{
         try{
-          const tasks=JSON.parse(localStorage.getItem('hydroPro_maint_tasks_v1')||'[]');
+          /* v13.13 MNT-F12 */ // store key is MAINT_TASKS_KEY ('hydroPro_maint_tasks'); '_v1' is never written
+          const tasks=(typeof loadMaintTasks==='function')?loadMaintTasks():JSON.parse(localStorage.getItem(typeof MAINT_TASKS_KEY!=='undefined'?MAINT_TASKS_KEY:'hydroPro_maint_tasks')||'[]');
           if(!Array.isArray(tasks))return '(Task board format error)\n';
           const open=tasks.filter(t=>t.status&&t.status!=='done');
           let out=`Open tasks: ${open.length} (of ${tasks.length} total)\n`;
@@ -27221,7 +27278,7 @@ function buildBlockContent(blockId,schedule){
       case 'maint_ro': return '(RO machine — see app for status)\n';
       case 'maint_tools':{
         if(typeof TOOLS_INVENTORY==='undefined')return '(Tools data not available)\n';
-        const defective=TOOLS_INVENTORY.filter(t=>t.status==='defective').length;
+        const defective=TOOLS_INVENTORY.filter(t=>(typeof effectiveToolStatus==='function'?effectiveToolStatus(t):t.status)==='defective').length; /* v13.13 MNT-F7 */
         return `Total tools: ${TOOLS_INVENTORY.length}\nDefective: ${defective}\n`;
       }
 
@@ -41405,9 +41462,9 @@ function _renderMaintDash_inner(){
   const ro=(typeof loadMaintRO==='function')?(loadMaintRO()||{}):{};
   let rad=loadMaintRadio();if(!rad||typeof rad!=='object'){rad={};}
 
-  const today=new Date().toISOString().slice(0,10);
+  const today=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F5 */ // local Y-M-D (farm is UTC+8)
   const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
-  const tomorrowStr=tomorrow.toISOString().slice(0,10);
+  const tomorrowStr=new Date(tomorrow.getTime()-tomorrow.getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F5 */
   const sevenAgo=new Date();sevenAgo.setDate(sevenAgo.getDate()-7);
   const thirtyAgo=new Date();thirtyAgo.setDate(thirtyAgo.getDate()-30);
 
@@ -42569,7 +42626,7 @@ function renderEquipCategoryHTML(cat){
   html+=`<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;justify-content:space-between;">
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn primary" onclick="openEquipEdit('${cat.id}',null)">➕ Add ${cat.name}</button>
-      <button class="btn" onclick="if(confirm('Reset ${cat.name} to default seed list? Custom items will be lost.')){const all=loadMaintEquipment();delete all['${cat.id}'];saveMaintEquipment(all);renderMaintEquipment();}">↻ Reset to Default</button>
+      <button class="btn" onclick="if(confirm('Reset ${cat.name} to default seed list? Custom items will be lost.')){const all=loadMaintEquipment();const c=MAINT_EQUIP_CATEGORIES.find(x=>x.id==='${cat.id}');all['${cat.id}']=(c&&c.defaults)?c.defaults.map(d=>({...d,lastService:'',nextService:'',notes:''})):[];saveMaintEquipment(all);renderMaintEquipment();}">↻ Reset to Default</button> <!-- v13.13 MNT-F2: re-seed from defaults instead of deleting the key (delete left the category permanently empty) -->
     </div>
     <button onclick="try{if(window._openEquipAddCallModal){window._openEquipAddCallModal('${cat.id}');}else{alert('Modal not loaded — hard-refresh and try again');}}catch(err){alert('Modal failed: '+(err.message||err));}" style="padding:11px 20px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#0a0e0c;border:none;border-radius:7px;font-weight:800;font-size:12px;cursor:pointer;font-family:var(--sans);box-shadow:0 2px 8px rgba(0,0,0,0.2);letter-spacing:.3px;">+ ${_esc(cat.name)} Add Call</button>
   </div>`;
@@ -44613,14 +44670,14 @@ function _partsAdjust(partId,delta,reason,by){
   saveParts(parts);
   // Log usage
   const usage=loadPartsUsage();
-  usage.unshift({ts:Date.now(),date:new Date().toISOString().slice(0,10),partId,partName:parts[idx].name,delta,before,after:parts[idx].onHand,reason:reason||'',by:by||''});
+  usage.unshift({ts:Date.now(),date:new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10),partId,partName:parts[idx].name,delta,before,after:parts[idx].onHand,reason:reason||'',by:by||''}); /* v13.13 MNT-F10 */
   if(usage.length>500)usage.length=500;
   savePartsUsage(usage);
   // Auto-raise issue if went below reorder point on a decrement
   if(delta<0&&parts[idx].onHand<=parts[idx].reorderPoint&&before>parts[idx].reorderPoint){
     try{
       const tasks=loadMaintTasks();
-      const today=new Date().toISOString().slice(0,10);
+      const today=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F10 */ // local Y-M-D (farm is UTC+8)
       const taskId=(typeof uid==='function')?uid():'task_'+Date.now();
       const subj=`📦 Reorder: ${parts[idx].name} (${parts[idx].onHand} ${parts[idx].unit} left)`;
       const desc=`Auto-created reorder request.\n\nPart: ${parts[idx].name}\nSKU: ${parts[idx].sku||'—'}\nSupplier: ${parts[idx].supplier||'—'}\nOn hand: ${parts[idx].onHand} ${parts[idx].unit}\nReorder point: ${parts[idx].reorderPoint}\nMin stock: ${parts[idx].minStock}\nUnit cost: $${(parts[idx].unitCost||0).toFixed(2)}\n\nOrder enough to reach min-stock + safety buffer.`;
@@ -44633,6 +44690,24 @@ function _partsAdjust(partId,delta,reason,by){
         autoKey:`reorder_${partId}_${today}`
       });
       saveMaintTasks(tasks);
+      /* v13.13 MNT-F10 */ // pair a call so reorders reach the Calls Matrix + Open Calls (mirrors saveEquipCheck)
+      try{
+        if(typeof _addPairedCall==='function'&&typeof loadCalls==='function'){
+          const calls=loadCalls();
+          _addPairedCall(calls,{
+            subject:subj,description:desc,priority:parts[idx].onHand<=0?'urgent':'priority',
+            group:'operations',department:'maintenance',
+            equipment:parts[idx].name,
+            subsystem:'Parts & Stock',
+            sourceModule:'maint_parts',
+            sourceLabel:`Maintenance · Parts Reorder · ${parts[idx].name}`,
+            raisedBy:by||'system',
+            maintTaskId:taskId,
+            autoNote:`🤖 Auto-created from parts stock — ${parts[idx].name} fell to ${parts[idx].onHand} ${parts[idx].unit} (reorder point ${parts[idx].reorderPoint}).`
+          });
+          if(typeof saveCalls==='function')saveCalls(calls);
+        }
+      }catch(e){console.warn('reorder call fail:',e);}
     }catch(e){console.warn('reorder task fail:',e);}
   }
   return parts[idx];
@@ -44733,9 +44808,10 @@ function exportPartsCSV(){
 // Cells = open (and optionally closed) maintenance-related calls.
 // Includes ALL auto-calls: equipment checks, NFT variance, PM scheduler,
 // parts reorders, plus manually raised maintenance calls.
-let _maintMatrixDate=new Date().toISOString().slice(0,10);
-let _maintMatrixEndDate=_maintMatrixDate;
-let _maintMatrixUseRange=false;
+/* v13.13 MNT-F3 */ // default to a rolling 30-day range (local Y-M-D, farm is UTC+8) so open calls raised on earlier days show up on first load
+let _maintMatrixEndDate=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+let _maintMatrixDate=new Date(Date.now()-30*86400000-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+let _maintMatrixUseRange=true;
 let _maintMatrixSeverity='all';
 let _maintMatrixIncludeClosed=false;
 let _maintMatrixFacilityFilter='all';
@@ -44889,7 +44965,7 @@ function _collectMaintMatrixData(date,endDate){
       if(!_maintMatrixIncludeClosed&&typeof isCallClosed==='function'&&isCallClosed(c))return false;
       const ts=c.raisedAt||c.createdAt;
       if(ts){
-        const dStr=new Date(ts).toISOString().slice(0,10);
+        const _d=new Date(ts),dStr=new Date(_d.getTime()-_d.getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F3 */ // local day bucket (farm is UTC+8)
         if(dStr<date||dStr>endDate)return false;
       }
       return true;
@@ -45089,7 +45165,7 @@ function renderMaintMatrix(){
       <input type="date" value="${_maintMatrixDate}" style="padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:11px;" onchange="_maintMatrixDate=this.value;renderMaintMatrix();">
       ${_maintMatrixUseRange?`<span style="font-family:var(--mono);font-size:10px;color:var(--text3);">To:</span>
       <input type="date" value="${_maintMatrixEndDate}" style="padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:11px;" onchange="_maintMatrixEndDate=this.value;renderMaintMatrix();">`:''}
-      <button class="btn small" onclick="_maintMatrixDate=new Date().toISOString().slice(0,10);_maintMatrixEndDate=_maintMatrixDate;renderMaintMatrix();">Today</button>
+      <button class="btn small" onclick="_maintMatrixDate=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);_maintMatrixEndDate=_maintMatrixDate;renderMaintMatrix();">Today</button> <!-- v13.13 MNT-F3 -->
       <span style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-left:14px;">Priority:</span>
       <select onchange="_maintMatrixSeverity=this.value;renderMaintMatrix();" style="padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;">
         <option value="all" ${_maintMatrixSeverity==='all'?'selected':''}>All priorities</option>
@@ -46422,7 +46498,7 @@ function openNftCountModal(){
 }
 
 function saveNftCount(){
-  const date=document.getElementById('nft_date').value||new Date().toISOString().slice(0,10);
+  const date=document.getElementById('nft_date').value||new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F9 */ // local Y-M-D (farm is UTC+8)
   const by=(document.getElementById('nft_by').value||'').trim()||'Unknown';
   const counts={};
   const variances=[];
@@ -46499,6 +46575,8 @@ function saveNftCount(){
     else if(variances.length>0)showToast(`✓ Count saved · ${variances.length} cell${variances.length>1?'s':''} changed (gains only)`,'ok');
     else showToast('✓ Count saved — no changes vs prior','ok');
   }
+  /* v13.13 MNT-F9 */ // repaint BOTH hosts (equipment-hub embed + stub view) like _setMaintNftTab, so the visible panel refreshes
+  try{const t=document.getElementById('equipNftEmbed');if(t)renderMaintNft('equipNftEmbed');}catch(e){}
   renderMaintNft();
 }
 
@@ -46626,12 +46704,13 @@ function _renderMaintTasks_inner(){
   if(_maintFilter.status!=='all')tasks=tasks.filter(t=>t.status===_maintFilter.status);
   if(_maintFilter.team!=='all')tasks=tasks.filter(t=>t.team===_maintFilter.team);
   if(_maintFilter.location&&_maintFilter.location!=='all')tasks=tasks.filter(t=>t.location===_maintFilter.location);
+  if(_maintFilter.scheduleDay)tasks=tasks.filter(t=>t.scheduledDate===_maintFilter.scheduleDay); /* v13.13 MNT-F5 */ // honour the dashboard "Today's Schedule" tile
   if(_maintFilter.search){
     const q=_maintFilter.search.toLowerCase();
     tasks=tasks.filter(t=>(t.title||'').toLowerCase().includes(q)||(t.location||'').toLowerCase().includes(q)||(t.remarks||'').toLowerCase().includes(q)||(t.tools||'').toLowerCase().includes(q)||(t.team||'').toLowerCase().includes(q));
   }
 
-  const today=new Date().toISOString().slice(0,10);
+  const today=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F5 */ // local Y-M-D (farm is UTC+8)
 
   // Stats for header
   const openTasks=all.filter(t=>t.status!=='done');
@@ -46694,7 +46773,7 @@ function _renderMaintTasks_inner(){
         <option value="all" ${(!_maintFilter.location||_maintFilter.location==='all')?'selected':''}>All Locations</option>
         ${allLocations.sort().map(l=>`<option value="${l}" ${_maintFilter.location===l?'selected':''}>📍 ${l}</option>`).join('')}
       </select>
-      ${(_maintFilter.priority!=='all'||(_maintFilter.status&&_maintFilter.status!=='all')||_maintFilter.team!=='all'||(_maintFilter.location&&_maintFilter.location!=='all')||_maintFilter.search)?`<button class="btn btn-outline" style="font-size:11px;padding:6px 12px;" onclick="_maintFilter={priority:'all',status:'all',team:'all',location:'all',search:''};renderMaintTasks();">✕ Clear filters</button>`:''}
+      ${(_maintFilter.priority!=='all'||(_maintFilter.status&&_maintFilter.status!=='all')||_maintFilter.team!=='all'||(_maintFilter.location&&_maintFilter.location!=='all')||_maintFilter.search||_maintFilter.scheduleDay)?`<button class="btn btn-outline" style="font-size:11px;padding:6px 12px;" onclick="_maintFilter={priority:'all',status:'all',team:'all',location:'all',search:''};renderMaintTasks();">✕ Clear filters${_maintFilter.scheduleDay?' (📅 '+_maintFilter.scheduleDay+')':''}</button>`:''} <!-- v13.13 MNT-F5 -->
     </div>`;
 
   if(_maintBoardView==='gantt'){
@@ -47851,16 +47930,18 @@ function maintExportTasks(){
 // 📅 PM CALENDAR — week/month grid + recurring schedules
 // ============================================================
 let _maintCalView='month'; // week | month | list
-let _maintCalAnchor=new Date().toISOString().slice(0,10);
+let _maintCalAnchor=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F6 */
 let _maintCalTeamFilter='all';
 
 function renderMaintCalendar(){
   const tasks=loadMaintTasks();
   const scheduled=tasks.filter(t=>t.scheduledDate&&t.status!=='done');
-  const today=new Date().toISOString().slice(0,10);
+  const today=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F6 */ // local Y-M-D (farm is UTC+8)
   const anchor=new Date(_maintCalAnchor);
 
   // Apply team filter
+  /* v13.13 MNT-F6 */ // dropdown options come from the distinct t.team values actually present (t.team is synthesised from assignees, e.g. "⭐ ASAF, LEE", so static MAINT_TEAMS never matched)
+  const _calTeams=[...new Set(scheduled.map(t=>t.team).filter(Boolean))].sort();
   let filtered=scheduled;
   if(_maintCalTeamFilter!=='all')filtered=filtered.filter(t=>t.team===_maintCalTeamFilter);
 
@@ -47871,7 +47952,7 @@ function renderMaintCalendar(){
   // Stats
   const todayCount=(byDate[today]||[]).length;
   const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
-  const tomorrowStr=tomorrow.toISOString().slice(0,10);
+  const tomorrowStr=new Date(tomorrow.getTime()-tomorrow.getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F6 */
   const tomorrowCount=(byDate[tomorrowStr]||[]).length;
   const overdueCount=Object.keys(byDate).filter(d=>d<today).reduce((s,d)=>s+byDate[d].length,0);
   const thisWeekCount=Object.keys(byDate).filter(d=>{
@@ -47913,11 +47994,11 @@ function renderMaintCalendar(){
         <button class="btn btn-outline" style="font-size:11px;padding:6px 14px;" onclick="_maintCalNav(-1)">←</button>
         <strong style="font-size:13px;color:var(--text);min-width:200px;text-align:center;">${dateLabel}</strong>
         <button class="btn btn-outline" style="font-size:11px;padding:6px 14px;" onclick="_maintCalNav(1)">→</button>
-        <button class="btn btn-outline" style="font-size:11px;padding:6px 14px;" onclick="_maintCalAnchor=new Date().toISOString().slice(0,10);renderMaintCalendar();">Today</button>
+        <button class="btn btn-outline" style="font-size:11px;padding:6px 14px;" onclick="_maintCalAnchor=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);renderMaintCalendar();">Today</button> <!-- v13.13 MNT-F6 -->
       `:''}
       <select class="users-input" style="max-width:140px;font-size:11px;" onchange="_maintCalTeamFilter=this.value;renderMaintCalendar();">
         <option value="all" ${_maintCalTeamFilter==='all'?'selected':''}>All Teams</option>
-        ${MAINT_TEAMS.map(t=>`<option value="${t}" ${_maintCalTeamFilter===t?'selected':''}>${t}</option>`).join('')}
+        ${_calTeams.map(t=>`<option value="${t.replace(/"/g,'&quot;')}" ${_maintCalTeamFilter===t?'selected':''}>${t}</option>`).join('')} <!-- v13.13 MNT-F6 -->
       </select>
       <div style="flex:1;"></div>
       <button class="btn btn-outline" onclick="switchView('maint_dash')">📊 Dashboard</button>
@@ -48496,6 +48577,17 @@ function _maintRORenderToday(rec){
       <div style="font-size:14px;font-weight:800;margin-bottom:8px;">📊 Daily Readings — ${_maintCurrentDate}</div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:12px;">Record today's operating parameters. Out-of-range values are highlighted.</div>
       <div class="maint-ro-param-grid">${paramsHTML}</div>
+      <!-- v13.13 MNT-F14: sign-off inputs feeding the _tech/_supervisor rows in the CSV export -->
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;">
+        <div class="maint-ro-param" style="flex:1;min-width:180px;">
+          <div class="maint-ro-param-label">✍ Technician (sign-off)</div>
+          <input type="text" class="maint-ro-param-input" value="${(rec._tech||'').replace(/"/g,'&quot;')}" placeholder="Technician name" onchange="maintSaveROParam('_tech',this.value)">
+        </div>
+        <div class="maint-ro-param" style="flex:1;min-width:180px;">
+          <div class="maint-ro-param-label">✍ Supervisor (sign-off)</div>
+          <input type="text" class="maint-ro-param-input" value="${(rec._supervisor||'').replace(/"/g,'&quot;')}" placeholder="Supervisor name" onchange="maintSaveROParam('_supervisor',this.value)">
+        </div>
+      </div>
     </div>
     <div class="maint-ro-section">
       <div style="font-size:14px;font-weight:800;margin-bottom:10px;">📋 Maintenance Policy & Process</div>
@@ -48898,7 +48990,8 @@ function maintSaveOzone(machineId){
     overall_status:document.getElementById('ozOverall').value,
     findings:document.getElementById('ozFindings').value,
     recommendation:document.getElementById('ozReco').value,
-    updatedAt:Date.now(),updatedBy:((getCurrentUser()||{}).username)||'system'
+    updatedAt:Date.now(),updatedBy:((getCurrentUser()||{}).username)||'system',
+    lastServicedAt:Date.now() /* v13.13 MNT-F11 */ // saving the service check-form counts as a service → feeds "Serviced (30d)" stat + "Last serviced" line
   };
   saveMaintOzone(data);
   if(data[machineId].overall_status==='bad'){
@@ -49688,6 +49781,7 @@ function toolReturnPrompt(toolId){
     saveToolsCheckouts(all);
     audit('tool_return',`${rec.takenBy} returned ${t.name} (${toolId}) — condition: ${condition} — guard: ${guard}`);
     if(condition==='DAMAGED'||condition==='LOST'){
+      try{setToolStatus(toolId,'defective',`${condition} on return by ${rec.takenBy}${notes?' — '+notes:''}`);}catch(e){} /* v13.13 MNT-F8 */
       try{
         createIssue({
           module:'maintenance',
@@ -49707,7 +49801,7 @@ function renderToolsCheckout(){
   const dayList=all[_toolsDate]||[];
   const open=dayList.filter(r=>!r.returnedAt);
   const closed=dayList.filter(r=>r.returnedAt);
-  const totalDefective=TOOLS_INVENTORY.filter(t=>t.status==='defective').length;
+  const totalDefective=TOOLS_INVENTORY.filter(t=>effectiveToolStatus(t)==='defective').length; /* v13.13 MNT-F7 */
   const renderRow=(r,isOpen)=>`<tr class="checkout-row ${isOpen?'open':'closed'}">
     <td><span class="tool-id">${r.toolId}</span></td>
     <td>${r.toolName}</td>
@@ -49764,7 +49858,7 @@ function renderToolsCheckout(){
 function renderToolsGuard(){
   const all=loadToolsCheckouts();
   const dayList=all[_toolsDate]||[];
-  const totalDefective=TOOLS_INVENTORY.filter(t=>t.status==='defective').length;
+  const totalDefective=TOOLS_INVENTORY.filter(t=>effectiveToolStatus(t)==='defective').length; /* v13.13 MNT-F7 */
   const events=[];
   dayList.forEach(r=>{
     events.push({time:r.takenAtDisplay,type:'OUT',rec:r,guard:r.guardTaken});
@@ -75376,7 +75470,7 @@ function renderModuleOpenCalls(viewId){
   calls.sort((a,b)=>{
     const rank=p=>{p=(p||'').toLowerCase();return (p==='crit'||p==='critical'||p==='high')?0:(p==='warn'||p==='warning'||p==='medium'||p==='med')?1:2;};
     const r=rank(a.priority||a.severity)-rank(b.priority||b.severity);if(r)return r;
-    return new Date(b.createdAt||b.date||0)-new Date(a.createdAt||a.date||0);
+    return new Date(b.raisedAt||b.createdAt||b.date||0)-new Date(a.raisedAt||a.createdAt||a.date||0); /* v13.13 MNT-F4 */
   });
   /* v13.13 IRR-F7: irrigation faults (checklist fails, EC/pH out of range, drum low) are stored as ISSUES, not calls — merge them in so this tab stops claiming "all clear" while irr_cmd counts the same records */
   let modIssues=[];
@@ -75422,7 +75516,7 @@ function renderModuleOpenCalls(viewId){
         <span style="padding:3px 9px;border-radius:5px;background:${pColor}22;color:${pColor};border:1px solid ${pColor}55;font-size:10px;font-weight:800;font-family:var(--mono);">${pLabel}</span>
         <span class="call-status-pill ${stCls}" style="font-size:10px;">${escFn(stLabel)}</span>
         <span style="font-size:14px;font-weight:700;color:var(--text);">${escFn(c.subject||'')}</span>
-        <span style="margin-left:auto;font-size:10px;color:var(--text3);font-family:var(--mono);">${escFn(c.createdAt||c.date||'')}</span>
+        <span style="margin-left:auto;font-size:10px;color:var(--text3);font-family:var(--mono);">${escFn(c.raisedAt?new Date(c.raisedAt).toLocaleString():(c.createdAt||c.date||''))}</span> <!-- v13.13 MNT-F4 -->
       </div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text2);">
         ${assignees.length?`<span>👤 ${escFn(assignees.join(', '))}</span>`:'<span style="color:var(--text3);font-style:italic;">unassigned</span>'}
@@ -88154,7 +88248,7 @@ const EXTRA_SUBTABS={
     // prod_matrix is in the main production.views array, no auto-inject needed
   ],
   maintenance:[
-    {id:'prod_matrix', label:'📊 Tech Open Calls Matrix'}
+    /* v13.13 MNT-F13 */ // prod_matrix here ejected users into the Production module; maint_matrix ("📊 Calls Matrix") is already in the main maintenance views array, no auto-inject needed
   ],
   irrigation:[
     // irr_matrix moved to main irrigation views (line ~7618) so it always shows
@@ -170402,6 +170496,16 @@ function liveAI(q,cb){
 }
 
 function _nexiNoAI(){
+  /* v13.13 NEXI-F8: an unresolved "open …" now falls through to here — answer the miss honestly
+     and offer the closest real screens instead of the generic capabilities blurb. */
+  try{
+    var mm=window.__nexiNavMiss;
+    if(mm && (Date.now()-(mm.ts||0))<30000){
+      window.__nexiNavMiss=null;
+      return "I couldn't find a screen called “"+mm.phrase+"”."
+        +((mm.sugg&&mm.sugg.length)?(' Did you mean: '+mm.sugg.join(', ')+'?'):' Try a module name, e.g. “open Production” or “open IT”.')+ENDING;
+    }
+  }catch(e){}
   if(g(LS.key,'').trim())return "I couldn't reach the AI service just now — please try again, or check the key in Nexi Settings."+ENDING;
   return "I can answer about every module — counts, lists, status, what needs attention — and open any screen for you. For open-ended reasoning I use your own secure Cloud AI; sign in / sync once so that connection is live, and I'll answer those too."+ENDING;
 }
@@ -170416,6 +170520,8 @@ function answer(q,cb){
   var _cb0=cb; cb=function(t){ try{ window._nexiLog&&window._nexiLog('bot',t); }catch(e){} _cb0(t); };
   var od=onDevice(q);
   if(od){cb(od);return;}
+  /* v13.13 NEXI-F10: voice turn heading into the (slow) AI path — speak a short ack now so there's no 26s of dead air */
+  if(window._nexiVoiceTurn){ try{ nexiSpeak('Checking…',true); }catch(e){} }
   // Tier 2: grounded reasoning via the app's OWN secure Cloud AI (no pasted key needed)
   if(typeof window._nexiGroundedAI==='function'){
     window._nexiGroundedAI(q,function(t){
@@ -170430,23 +170536,33 @@ function answer(q,cb){
 // ---------- voice ----------
 var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 var recog=null,listening=false;
-function speak(text){
+/* v13.13 NEXI-F11: one shared speech helper (voice + rate + on/off) used by speak() AND the toast/error path (botMsg).
+   noResume=true skips the NEXI-F4 wake-recognizer resume hook (used for short acks so listening isn't re-armed early). */
+function nexiSpeak(text,noResume){
   if(g(LS.on,'1')!=='1')return;
   if(!window.speechSynthesis)return;
   try{
     window.speechSynthesis.cancel();
-    // For long answers (e.g. a list), read a short lead-in instead of the whole thing
-    var spoken=text;
-    if(text.length>300||(text.split('\n').length>4)){
-      spoken=text.split('\n')[0].replace(/:$/,'.')+' I have put the full list on screen for you.';
-    }
-    var u=new SpeechSynthesisUtterance(spoken);
+    var u=new SpeechSynthesisUtterance(text);
     var vn=g(LS.voice,'');
     var vs=window.speechSynthesis.getVoices();
     if(vn){var f=vs.filter(function(v){return v.name===vn;})[0];if(f)u.voice=f;}
     u.rate=parseFloat(g(LS.rate,'1'))||1;
+    if(!noResume){ u.onend=function(){ try{ window._nexiWakeResume&&window._nexiWakeResume(); }catch(e){} }; } /* v13.13 NEXI-F4: restart wake listening when the reply finishes speaking */
     window.speechSynthesis.speak(u);
   }catch(e){}
+}
+window.nexiSpeak=nexiSpeak;
+function speak(text){
+  // For long LIST answers, read a short lead-in instead of the whole thing.
+  // v13.13 NEXI-F10: the lead-in only applies when the reply really is a multi-line list (3+ lines) —
+  // a long single-sentence answer is spoken as-is, never with a bogus "full list on screen" tail.
+  var spoken=text;
+  var _lines=String(text).split('\n');
+  if(_lines.length>=3 && (text.length>300||_lines.length>4)){
+    spoken=_lines[0].replace(/:$/,'.')+' I have put the full list on screen for you.';
+  }
+  nexiSpeak(spoken);
 }
 function startListen(){
   if(!SR){addMsg('bot',"Voice input isn't supported in this browser. Please type instead."+ENDING);return;}
@@ -170484,7 +170600,10 @@ function send(){
   var typing=document.createElement('div');typing.className='nexi-msg nexi-bot';typing.id='nexiTyping';
   typing.innerHTML='<div class="nexi-ava-sm">'+AVATAR_SVG+'</div><div class="nexi-bub nexi-typing">…</div>';
   bodyEl().appendChild(typing);bodyEl().scrollTop=bodyEl().scrollHeight;
-  answer(v,function(t){var el=document.getElementById('nexiTyping');if(el)el.remove();addMsg('bot',t);});
+  answer(v,function(t){var el=document.getElementById('nexiTyping');if(el)el.remove();addMsg('bot',t);
+    /* v13.13 NEXI-F4: when nothing will be spoken (voice off / no TTS), re-arm the wake recognizer from the answer itself */
+    try{ if((g(LS.on,'1')!=='1'||!window.speechSynthesis)&&window._nexiWakeResume)window._nexiWakeResume(); }catch(e){}
+  });
 }
 function togglePanel(open){
   var p=document.getElementById('nexiPanel');if(!p)return;
@@ -170596,13 +170715,22 @@ function build(){
   document.getElementById('nexiMin').onclick=function(){togglePanel(false);};
   document.getElementById('nexiGear').onclick=openSettings;
   document.getElementById('nexiSendBtn').onclick=send;
-  document.getElementById('nexiMic').onclick=startListen;
+  /* v13.13 NEXI-F12: never route the mic through the legacy startListen path (mute one-shot recognizer) —
+     bind to NexiVoice.toggle at build time; startListen stays defined only as a last-resort fallback */
+  document.getElementById('nexiMic').onclick=function(e){ if(window.NexiVoice&&window.NexiVoice.toggle){ e&&e.stopPropagation(); window.NexiVoice.toggle(); } else startListen(); };
   inputEl().addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();send();}});
-  if(window.speechSynthesis){try{window.speechSynthesis.onvoiceschanged=function(){};}catch(e){}}
+  /* v13.13 NEXI-F11: getVoices() is empty on a cold Chrome load — refresh the settings dropdown when voices arrive */
+  if(window.speechSynthesis){try{window.speechSynthesis.onvoiceschanged=function(){
+    try{
+      var sel=document.getElementById('nexiVoiceSel'); if(!sel)return;
+      var cur=g(LS.voice,''), vs=window.speechSynthesis.getVoices()||[];
+      sel.innerHTML='<option value="">Browser default</option>'+vs.map(function(v){return '<option value="'+esc(v.name)+'" '+(v.name===cur?'selected':'')+'>'+esc(v.name)+' ('+esc(v.lang)+')</option>';}).join('');
+    }catch(e){}
+  };}catch(e){}}
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(build,400);});
 else setTimeout(build,400);
-window.Nexi={open:function(){togglePanel(true);},ask:function(q){togglePanel(true);inputEl().value=q;send();},settings:openSettings};
+window.Nexi={open:function(){togglePanel(true);},ask:function(q){/* v13.13 NEXI-F1: the first-open greeting bubble consumed the one-shot _nexiVoiceTurn flag, so the real reply rendered silently — snapshot it across togglePanel and restore before send() */var _vt=window._nexiVoiceTurn;togglePanel(true);window._nexiVoiceTurn=_vt;inputEl().value=q;send();},settings:openSettings};
 })();
 
 </script>
@@ -171314,7 +171442,7 @@ hookRenderer();setTimeout(hookRenderer,2000);
 if(window._nexiVoice2)return;window._nexiVoice2=true;
 
 var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-var rec=null, enabled=false, wantStop=false, lastSpoke=0, lastCmd='', lastCmdAt=0, started=false;
+var rec=null, enabled=false, wantStop=false, lastSpoke=0, lastCmd='', lastCmdAt=0, started=false, _rsFails=0, _rsWin=0; /* v13.13 NEXI-F5 restart backoff */
 
 function panel(){return document.getElementById('nexiPanel');}
 function panelOpen(){var p=panel();return p&&p.style.display&&p.style.display!=='none';}
@@ -171324,16 +171452,26 @@ function speaking(){try{return window.speechSynthesis&&window.speechSynthesis.sp
 function botMsg(t){ // show a Nexi message (toast) + speak it directly
   if(typeof showToast==='function')showToast(t,'warn');
   try{
+    if(window.nexiSpeak){ window.nexiSpeak(t,true); return; } /* v13.13 NEXI-F11: shared helper — honors saved voice + rate + on/off */
     if(localStorage.getItem('hydroPro_nexi_voice_on')!=='0' && window.speechSynthesis){
       window.speechSynthesis.cancel();
       var u=new SpeechSynthesisUtterance(t);
       var vn=localStorage.getItem('hydroPro_nexi_voice')||'';
       var vs=window.speechSynthesis.getVoices()||[];
       var f=vs.filter(function(v){return v.name===vn;})[0]; if(f)u.voice=f;
+      u.rate=parseFloat(localStorage.getItem('hydroPro_nexi_rate')||'1')||1; /* v13.13 NEXI-F11 fallback path too */
       window.speechSynthesis.speak(u);
     }
   }catch(e){}
 }
+
+/* v13.13 NEXI-F6: shared utterance dedupe across recognizers (panel + wake chip) — one utterance, one action */
+window._nexiSeenUtter=window._nexiSeenUtter||function(txt){
+  txt=String(txt||'').trim(); if(!txt)return false;
+  var n=Date.now(), d=window.__nexiLastUtt;
+  if(d && d.t===txt && (n-d.ts)<3000) return true;
+  window.__nexiLastUtt={t:txt,ts:n}; return false;
+};
 
 function setMicUI(on){var m=mic();if(m){if(on)m.classList.add('nexi-mic-on');else m.classList.remove('nexi-mic-on');}}
 
@@ -171364,28 +171502,47 @@ function ensure(){
       if(hasWake){
         if(window.Nexi&&window.Nexi.open)window.Nexi.open();
         var rest=low.replace(/.*?\bnex(i|ie|y)\b[\s,!.]*/,'').trim(); // text after the wake word
-        if(rest.length>2 && window.Nexi&&window.Nexi.ask){ setTimeout(function(){window.Nexi.ask(rest);},250); }
+        if(rest.length>2 && window.Nexi&&window.Nexi.ask){ if(window._nexiSeenUtter(rest))return; /* v13.13 NEXI-F6 */ setTimeout(function(){window.Nexi.ask(rest);},250); }
       }
       return;
     }
     // panel already open → treat speech as a question
     var q=low.replace(/^\s*(hi|hey|hello|ok|okay)?\s*nex(i|ie|y)\b[\s,!.]*/,'').trim()||txt;
     if(q.length<2)return;
+    if(window._nexiSeenUtter(q))return; /* v13.13 NEXI-F6: skip if the wake chip already processed this utterance */
     if(window.Nexi&&window.Nexi.ask)window.Nexi.ask(q);
   };
   rec.onerror=function(e){
     var err=(e&&e.error)||'';
     if(err==='not-allowed'||err==='service-not-allowed'){
-      enabled=false; setMicUI(false);
+      enabled=false; wantStop=true; setMicUI(false);
+      if(window.NexiVoice)window.NexiVoice._owner=null; /* v13.13 NEXI-F6 release the mic */
       if(window.Nexi&&window.Nexi.open)window.Nexi.open();
       botMsg("I need microphone permission to listen. Please allow the mic for this site (padlock icon → Microphone → Allow), then say \"Hi Nexi\".");
       return;
     }
-    // 'no-speech'/'aborted'/'network' → just let onend restart
+    // v13.13 NEXI-F5: 'no-speech'/'aborted'/'network' are transient → restartable, handled by onend
   };
-  rec.onend=function(){
-    if(enabled && !wantStop){ try{ rec.start(); setMicUI(true); return; }catch(e){} }  // stay open: keep listening until you tap the mic off
-    enabled=false; setMicUI(false);
+  rec.onend=function(){ /* v13.13 NEXI-F5: Chrome throws InvalidStateError on a synchronous restart inside onend —
+      the old catch swallowed it and the mic silently went grey. Retry on a 300ms timer, max 5 tries per 10s window,
+      then surface the failure instead of dying silent. */
+    if(!(enabled && !wantStop)){ enabled=false; setMicUI(false); return; }
+    var now=Date.now();
+    if(now-_rsWin>10000){ _rsWin=now; _rsFails=0; }
+    function tryRestart(){
+      if(!enabled||wantStop)return;
+      try{ rec.start(); setMicUI(true); _rsFails=0; }
+      catch(e){
+        _rsFails++;
+        if(_rsFails<5){ setTimeout(tryRestart,300); }
+        else{
+          enabled=false; wantStop=true; setMicUI(false);
+          if(window.NexiVoice)window.NexiVoice._owner=null;
+          botMsg('Microphone stopped — tap the mic to restart.');
+        }
+      }
+    }
+    setTimeout(tryRestart,300);
   };
   return rec;
 }
@@ -171394,14 +171551,15 @@ function startWake(){
   if(!SR){ if(window.Nexi&&window.Nexi.open){window.Nexi.open();} botMsg("Voice isn't supported in this browser — please use Chrome or Edge. You can still type to me."); return; }
   try{ if(window.speechSynthesis)window.speechSynthesis.cancel(); }catch(e){}  // barge-in: stop talking when you tap to talk
   ensure(); if(!rec)return;
-  enabled=true; wantStop=false;
+  enabled=true; wantStop=false; _rsFails=0;
+  if(window.NexiVoice)window.NexiVoice._owner='panel'; /* v13.13 NEXI-F6: panel recognizer takes ownership — wake chip stands down */
   try{ rec.start(); started=true; setMicUI(true); }
   catch(e){ setMicUI(true); }
   try{clearTimeout(window._nexiIdleT);}catch(e){}
   window._nexiIdleT=setTimeout(function(){try{stopWake();}catch(e){}},60000);
 }
-function stopWake(){ enabled=false; wantStop=true; setMicUI(false); try{clearTimeout(window._nexiIdleT);}catch(e){} try{rec&&rec.stop();}catch(e){} }
-window.NexiVoice={start:startWake,stop:stopWake,toggle:function(){enabled?stopWake():startWake();}};
+function stopWake(){ enabled=false; wantStop=true; setMicUI(false); if(window.NexiVoice)window.NexiVoice._owner=null; /* v13.13 NEXI-F6 */ try{clearTimeout(window._nexiIdleT);}catch(e){} try{rec&&rec.stop();}catch(e){} }
+window.NexiVoice={_owner:null /* v13.13 NEXI-F6 owner token */,start:startWake,stop:stopWake,toggle:function(){enabled?stopWake():startWake();}};
 
 // Re-point the mic button: it now toggles hands-free listening on/off
 function wireMic(){
@@ -171486,7 +171644,44 @@ setTimeout(enrich,800);
 
 </script>
 <script>/* injected: nexi_nav.js (v3.97) — all-tab navigation map from the capability matrix */
-window.NEXI_NAV=[{id:"hydro_brain",label:"hydronexis brain",mod:"overview",rep:0},{id:"geo_dash",label:"global dashboard",mod:"overview",rep:1},{id:"daily_briefing",label:"daily summary report",mod:"overview",rep:1},{id:"critical_summary",label:"critical summary",mod:"overview",rep:0},{id:"calendar_all",label:"calendar",mod:"overview",rep:0},{id:"issues_board",label:"issues board",mod:"overview",rep:0},{id:"task_tracker",label:"task tracker",mod:"overview",rep:0},{id:"task_calendar",label:"task calendar",mod:"overview",rep:0},{id:"task_escalation",label:"escalation",mod:"overview",rep:0},{id:"autonomy_status",label:"autonomy status",mod:"overview",rep:0},{id:"rd_engine",label:"r&d engine",mod:"overview",rep:0},{id:"clusters_dev",label:"clusters development",mod:"overview",rep:0},{id:"vision_map",label:"vision coverage map",mod:"overview",rep:0},{id:"reports_browse",label:"browse reports",mod:"reports",rep:1},{id:"report_scheduler",label:"scheduler",mod:"reports",rep:0},{id:"dashboard",label:"dashboard",mod:"production",rep:1},{id:"wall",label:"wall view",mod:"production",rep:0},{id:"checklist",label:"checklist",mod:"production",rep:0},{id:"supervisor",label:"supervisor",mod:"production",rep:0},{id:"prod_supervisor_matrix",label:"supervisor daily report",mod:"production",rep:1},{id:"prod_recurring",label:"recurring tasks",mod:"production",rep:0},{id:"prod_open_calls",label:"open calls",mod:"production",rep:1},{id:"training",label:"training",mod:"production",rep:0},{id:"prod_seeds",label:"seed studies",mod:"production",rep:0},{id:"prod_seedling_plan",label:"seedling plan",mod:"production",rep:0},{id:"indoor_projects",label:"indoor projects",mod:"production",rep:0},{id:"open_issues",label:"open issues",mod:"production",rep:0},{id:"prod_tech_per_gh",label:"tech issues per gh",mod:"production",rep:0},{id:"crops_matrix",label:"crops matrix",mod:"production",rep:1},{id:"history",label:"history",mod:"production",rep:0},{id:"hr_cmd",label:"command center",mod:"hr",rep:0},{id:"hr",label:"employees",mod:"hr",rep:0},{id:"attendance",label:"attendance",mod:"hr",rep:0},{id:"reconcile",label:"reconcile",mod:"hr",rep:0},{id:"memos",label:"memos",mod:"hr",rep:0},{id:"issue_tracker",label:"issue tracker",mod:"hr",rep:0},{id:"company_policies",label:"company policies & processes",mod:"hr",rep:0},{id:"payroll_ops",label:"labor payroll weekly",mod:"payroll",rep:0},{id:"payroll_office",label:"office payroll bimonthly",mod:"payroll",rep:0},{id:"timecard_upload",label:"timecard upload",mod:"payroll",rep:0},{id:"payroll_history",label:"history",mod:"payroll",rep:0},{id:"payroll_rates",label:"rates & tax",mod:"payroll",rep:0},{id:"maint_cmd",label:"command center",mod:"maintenance",rep:0},{id:"maint_dash",label:"dashboard",mod:"maintenance",rep:1},{id:"maint_tasks",label:"task board",mod:"maintenance",rep:0},{id:"maint_calendar",label:"pm calendar",mod:"maintenance",rep:0},{id:"maint_materials",label:"material requests",mod:"maintenance",rep:0},{id:"maint_equipment",label:"equipment & machines",mod:"maintenance",rep:0},{id:"maint_parts",label:"spare parts",mod:"maintenance",rep:0},{id:"maint_matrix",label:"calls matrix",mod:"maintenance",rep:1},{id:"maint_recurring",label:"recurring tasks",mod:"maintenance",rep:0},{id:"maint_open_calls",label:"open calls",mod:"maintenance",rep:1},{id:"maint_tech_per_gh",label:"tech issues per gh",mod:"maintenance",rep:0},{id:"maint_irr_rooms",label:"fr matrix",mod:"maintenance",rep:1},{id:"maint_ozone",label:"ozone",mod:"maintenance",rep:0},{id:"maint_ro",label:"ro",mod:"maintenance",rep:0},{id:"maint_radio",label:"radio",mod:"maintenance",rep:0},{id:"maint_tools",label:"tools",mod:"maintenance",rep:0},{id:"maint_nft",label:"nft pipes",mod:"maintenance",rep:0},{id:"it_dash",label:"command center",mod:"it",rep:1},{id:"it_tasks",label:"it task board",mod:"it",rep:0},{id:"it_calendar",label:"it calendar",mod:"it",rep:0},{id:"it_materials",label:"it item request",mod:"it",rep:0},{id:"it_devices",label:"it devices",mod:"it",rep:0},{id:"it_parts",label:"it spare parts",mod:"it",rep:0},{id:"it_matrix",label:"it equipment matrix",mod:"it",rep:1},{id:"it_open_calls",label:"it opencall grid",mod:"it",rep:1},{id:"it_recurring",label:"it recurring tasks",mod:"it",rep:0},{id:"it_daily_checklist",label:"it daily checklist",mod:"it",rep:0},{id:"it_calls",label:"it open calls",mod:"it",rep:0},{id:"it_gh_fer_matrix",label:"gh & fer equipment",mod:"it",rep:0},{id:"it_cctv",label:"cctv",mod:"it",rep:0},{id:"it_stream_health",label:"stream health",mod:"it",rep:0},{id:"it_cctv_wall",label:"dvr & cctv wall",mod:"it",rep:0},{id:"it_radios",label:"radios",mod:"it",rep:0},{id:"it_prj11",label:"prj11 devices",mod:"it",rep:0},{id:"it_rfid",label:"rfid setup",mod:"it",rep:0},{id:"irr_cmd",label:"command center",mod:"irrigation",rep:0},{id:"irr_dash",label:"dashboard",mod:"irrigation",rep:1},{id:"irr_schedule",label:"rooms checklist",mod:"irrigation",rep:0},{id:"irr_drums",label:"drum levels",mod:"irrigation",rep:0},{id:"irr_nutrients",label:"pool monitor 4xday",mod:"irrigation",rep:0},{id:"irr_smart_dose",label:"smart dosing",mod:"irrigation",rep:0},{id:"irr_ai_insights",label:"ai insights",mod:"irrigation",rep:0},{id:"irr_predictions",label:"predictive insights",mod:"irrigation",rep:0},{id:"irr_systems",label:"sensor calibration",mod:"irrigation",rep:0},{id:"irr_rooms_matrix",label:"rooms equipment matrix",mod:"irrigation",rep:1},{id:"irr_matrix",label:"irrigation matrix",mod:"irrigation",rep:1},{id:"irr_recurring",label:"recurring tasks",mod:"irrigation",rep:0},{id:"irr_open_calls",label:"open calls",mod:"irrigation",rep:1},{id:"pool_setup",label:"pool & drum setup",mod:"irrigation",rep:0},{id:"irr_timeline",label:"gh timeline",mod:"irrigation",rep:0},{id:"prj11_water",label:"prj11 water",mod:"irrigation",rep:0},{id:"inv_cmd",label:"command center",mod:"inventory",rep:0},{id:"inv_dash",label:"dashboard",mod:"inventory",rep:1},{id:"inv_calls",label:"inventory calls",mod:"inventory",rep:0},{id:"inv_stock",label:"stock",mod:"inventory",rep:0},{id:"inv_velocity",label:"item velocity",mod:"inventory",rep:0},{id:"inv_diagnostics",label:"diagnostics",mod:"inventory",rep:0},{id:"inv_requests",label:"requests",mod:"inventory",rep:0},{id:"inv_master",label:"master data",mod:"inventory",rep:0},{id:"inv_purchase",label:"purchase engine",mod:"inventory",rep:0},{id:"inv_duplicates",label:"duplicate ai",mod:"inventory",rep:0},{id:"inv_audit",label:"audit trail",mod:"inventory",rep:0},{id:"inv_copilot",label:"ai copilot",mod:"inventory",rep:0},{id:"inv_forecast",label:"forecasting",mod:"inventory",rep:0},{id:"inv_movements",label:"movements",mod:"inventory",rep:0},{id:"inv_categories",label:"categories",mod:"inventory",rep:0},{id:"pack_cmd",label:"command center",mod:"packaging",rep:0},{id:"pack_calls",label:"packaging calls",mod:"packaging",rep:0},{id:"pack_checklist",label:"daily checklist",mod:"packaging",rep:0},{id:"pack_dash",label:"dashboard",mod:"packaging",rep:1},{id:"pack_washtrim",label:"wash & trim sop",mod:"packaging",rep:0},{id:"pack_materials",label:"materials",mod:"packaging",rep:0},{id:"pack_operations",label:"operations",mod:"packaging",rep:0},{id:"log_cmd",label:"command center",mod:"logistics",rep:0},{id:"log_dash",label:"dashboard",mod:"logistics",rep:1},{id:"log_deliveries",label:"deliveries",mod:"logistics",rep:0},{id:"log_routes",label:"routes",mod:"logistics",rep:0},{id:"log_vehicles",label:"dispatch",mod:"logistics",rep:0},{id:"log_recurring",label:"recurring tasks",mod:"logistics",rep:0},{id:"log_open_calls",label:"open calls",mod:"logistics",rep:1},{id:"log_megabox_matrix",label:"megabox matrix",mod:"logistics",rep:1},{id:"crm_cmd",label:"command center",mod:"crm",rep:0},{id:"crm_dash",label:"overview",mod:"crm",rep:1},{id:"crm_reminders",label:"reminders",mod:"crm",rep:0},{id:"crm_leads",label:"leads",mod:"crm",rep:0},{id:"crm_pipeline",label:"pipeline",mod:"crm",rep:0},{id:"crm_quotes",label:"quotes",mod:"crm",rep:0},{id:"crm_orders",label:"orders",mod:"crm",rep:0},{id:"crm_sales",label:"sales analytics",mod:"crm",rep:0},{id:"crm_customers",label:"customers",mod:"crm",rep:0},{id:"crm_catalog",label:"catalog & pricing",mod:"crm",rep:0},{id:"crm_marketing",label:"marketing",mod:"crm",rep:0},{id:"sec_cmd",label:"command center",mod:"security",rep:0},{id:"sec_dash",label:"dashboard",mod:"security",rep:1},{id:"sec_calls",label:"security calls",mod:"security",rep:0},{id:"sec_live",label:"live patrol",mod:"security",rep:0},{id:"sec_patrol",label:"rfid upload",mod:"security",rep:0},{id:"sec_checkpoints",label:"checkpoints",mod:"security",rep:0},{id:"sec_incidents",label:"incidents",mod:"security",rep:0},{id:"sec_guards",label:"guards",mod:"security",rep:0},{id:"qc_cmd",label:"command center",mod:"quality",rep:0},{id:"qc_dash",label:"dashboard",mod:"quality",rep:1},{id:"qc_calls",label:"qc calls",mod:"quality",rep:0},{id:"qc_prod_inspection",label:"process inspection",mod:"quality",rep:0},{id:"qc_inspections",label:"product inspections",mod:"quality",rep:0},{id:"qc_rejections",label:"rejections",mod:"quality",rep:0},{id:"qc_standards",label:"standards",mod:"quality",rep:0},{id:"qc_sop",label:"sop",mod:"quality",rep:0},{id:"fleet_dash",label:"dashboard",mod:"logistics",rep:1},{id:"fleet_vehicles",label:"vehicles",mod:"logistics",rep:0},{id:"fleet_drivers",label:"drivers",mod:"logistics",rep:0},{id:"fleet_fuel",label:"fuel",mod:"logistics",rep:0},{id:"fleet_logistics_coord",label:"logistics coordinator",mod:"logistics",rep:0},{id:"lic_dash",label:"dashboard",mod:"licenses",rep:1},{id:"lic_registry",label:"registry",mod:"licenses",rep:0},{id:"lic_expiring",label:"expiring",mod:"licenses",rep:0},{id:"lic_compliance",label:"compliance",mod:"licenses",rep:0},{id:"prj_dash",label:"dashboard",mod:"projects",rep:1},{id:"prj_active",label:"active",mod:"projects",rep:0},{id:"prj_planning",label:"planning",mod:"projects",rep:0},{id:"prj_completed",label:"completed",mod:"projects",rep:0},{id:"sop_vault_admin",label:"sop vault",mod:"admin",rep:0},{id:"users",label:"users",mod:"admin",rep:0},{id:"office_calls",label:"office calls",mod:"admin",rep:0},{id:"geo_setup",label:"geographic setup",mod:"admin",rep:0},{id:"email_routing",label:"email routing",mod:"admin",rep:0},{id:"report_scheduler",label:"report scheduler",mod:"admin",rep:1},{id:"security_center",label:"security center",mod:"admin",rep:0},{id:"cloud_sync",label:"cloud sync",mod:"admin",rep:0},{id:"audit",label:"audit log",mod:"admin",rep:0},{id:"approval_matrix",label:"approvals",mod:"admin",rep:0},{id:"backups",label:"backups",mod:"admin",rep:0},{id:"demo_seeder",label:"demo seeder",mod:"admin",rep:0},{id:"perf_monitor",label:"performance",mod:"admin",rep:0},{id:"live_sensors",label:"live sensors",mod:"admin",rep:0},{id:"integration_spec",label:"integration spec",mod:"admin",rep:0},{id:"admin_sos_sync",label:"sos inventory sync",mod:"admin",rep:0},{id:"control_audit",label:"control audit",mod:"admin",rep:0},{id:"device_registry",label:"device registry",mod:"admin",rep:0},{id:"danger_zone",label:"danger zone",mod:"admin",rep:0}];</script>
+window.NEXI_NAV=[{id:"hydro_brain",label:"hydronexis brain",mod:"overview",rep:0},{id:"geo_dash",label:"global dashboard",mod:"overview",rep:1},{id:"daily_briefing",label:"daily summary report",mod:"overview",rep:1},{id:"critical_summary",label:"critical summary",mod:"overview",rep:0},{id:"calendar_all",label:"calendar",mod:"overview",rep:0},{id:"issues_board",label:"issues board",mod:"overview",rep:0},{id:"task_tracker",label:"task tracker",mod:"overview",rep:0},{id:"task_calendar",label:"task calendar",mod:"overview",rep:0},{id:"task_escalation",label:"escalation",mod:"overview",rep:0},{id:"autonomy_status",label:"autonomy status",mod:"overview",rep:0},{id:"rd_engine",label:"r&d engine",mod:"overview",rep:0},{id:"clusters_dev",label:"clusters development",mod:"overview",rep:0},{id:"vision_map",label:"vision coverage map",mod:"overview",rep:0},{id:"reports_browse",label:"browse reports",mod:"reports",rep:1},{id:"report_scheduler",label:"scheduler",mod:"reports",rep:0},{id:"dashboard",label:"dashboard",mod:"production",rep:1},{id:"wall",label:"wall view",mod:"production",rep:0},{id:"checklist",label:"checklist",mod:"production",rep:0},{id:"supervisor",label:"supervisor",mod:"production",rep:0},{id:"prod_supervisor_matrix",label:"supervisor daily report",mod:"production",rep:1},{id:"prod_recurring",label:"recurring tasks",mod:"production",rep:0},{id:"prod_open_calls",label:"open calls",mod:"production",rep:1},{id:"training",label:"training",mod:"production",rep:0},{id:"prod_seeds",label:"seed studies",mod:"production",rep:0},{id:"prod_seedling_plan",label:"seedling plan",mod:"production",rep:0},{id:"indoor_projects",label:"indoor projects",mod:"production",rep:0},{id:"open_issues",label:"open issues",mod:"production",rep:0},{id:"prod_tech_per_gh",label:"tech issues per gh",mod:"production",rep:0},{id:"crops_matrix",label:"crops matrix",mod:"production",rep:1},{id:"history",label:"history",mod:"production",rep:0},{id:"hr_cmd",label:"command center",mod:"hr",rep:0},{id:"hr",label:"employees",mod:"hr",rep:0},{id:"attendance",label:"attendance",mod:"hr",rep:0},{id:"reconcile",label:"reconcile",mod:"hr",rep:0},{id:"memos",label:"memos",mod:"hr",rep:0},{id:"issue_tracker",label:"issue tracker",mod:"hr",rep:0},{id:"company_policies",label:"company policies & processes",mod:"hr",rep:0},{id:"payroll_ops",label:"labor payroll weekly",mod:"payroll",rep:0},{id:"payroll_office",label:"office payroll bimonthly",mod:"payroll",rep:0},{id:"timecard_upload",label:"timecard upload",mod:"payroll",rep:0},{id:"payroll_history",label:"history",mod:"payroll",rep:0},{id:"payroll_rates",label:"rates & tax",mod:"payroll",rep:0},{id:"maint_cmd",label:"command center",mod:"maintenance",rep:0},{id:"maint_dash",label:"dashboard",mod:"maintenance",rep:1},{id:"maint_tasks",label:"task board",mod:"maintenance",rep:0},{id:"maint_calendar",label:"pm calendar",mod:"maintenance",rep:0},{id:"maint_materials",label:"material requests",mod:"maintenance",rep:0},{id:"maint_equipment",label:"equipment & machines",mod:"maintenance",rep:0},{id:"maint_parts",label:"spare parts",mod:"maintenance",rep:0},{id:"maint_matrix",label:"calls matrix",mod:"maintenance",rep:1},{id:"maint_recurring",label:"recurring tasks",mod:"maintenance",rep:0},{id:"maint_open_calls",label:"open calls",mod:"maintenance",rep:1},{id:"maint_tech_per_gh",label:"tech issues per gh",mod:"maintenance",rep:0},{id:"maint_irr_rooms",label:"fr matrix",mod:"maintenance",rep:1},{id:"maint_ozone",label:"ozone",mod:"maintenance",rep:0},{id:"maint_ro",label:"ro",mod:"maintenance",rep:0},{id:"maint_radio",label:"radio",mod:"maintenance",rep:0},{id:"maint_tools",label:"tools",mod:"maintenance",rep:0},{id:"maint_nft",label:"nft pipes",mod:"maintenance",rep:0},{id:"it_dash",label:"command center",mod:"it",rep:1},{id:"it_tasks",label:"it task board",mod:"it",rep:0},{id:"it_calendar",label:"it calendar",mod:"it",rep:0},{id:"it_materials",label:"it item request",mod:"it",rep:0},{id:"it_devices",label:"it devices",mod:"it",rep:0},{id:"it_parts",label:"it spare parts",mod:"it",rep:0},{id:"it_matrix",label:"it equipment matrix",mod:"it",rep:1},{id:"it_open_calls",label:"it opencall grid",mod:"it",rep:1},{id:"it_recurring",label:"it recurring tasks",mod:"it",rep:0},{id:"it_daily_checklist",label:"it daily checklist",mod:"it",rep:0},{id:"it_calls",label:"it open calls",mod:"it",rep:0},{id:"it_gh_fer_matrix",label:"gh & fer equipment",mod:"it",rep:0},{id:"it_cctv",label:"cctv",mod:"it",rep:0},{id:"it_stream_health",label:"stream health",mod:"it",rep:0},{id:"it_cctv_wall",label:"dvr & cctv wall",mod:"it",rep:0},{id:"it_radios",label:"radios",mod:"it",rep:0},{id:"it_prj11",label:"prj11 devices",mod:"it",rep:0},{id:"it_rfid",label:"rfid setup",mod:"it",rep:0},{id:"irr_cmd",label:"command center",mod:"irrigation",rep:0},{id:"irr_dash",label:"dashboard",mod:"irrigation",rep:1},{id:"irr_schedule",label:"rooms checklist",mod:"irrigation",rep:0},{id:"irr_drums",label:"drum levels",mod:"irrigation",rep:0},{id:"irr_nutrients",label:"pool monitor 4xday",mod:"irrigation",rep:0},{id:"irr_smart_dose",label:"smart dosing",mod:"irrigation",rep:0},{id:"irr_ai_insights",label:"ai insights",mod:"irrigation",rep:0},{id:"irr_predictions",label:"predictive insights",mod:"irrigation",rep:0},{id:"irr_systems",label:"sensor calibration",mod:"irrigation",rep:0},{id:"irr_rooms_matrix",label:"rooms equipment matrix",mod:"irrigation",rep:1},{id:"irr_matrix",label:"irrigation matrix",mod:"irrigation",rep:1},{id:"irr_recurring",label:"recurring tasks",mod:"irrigation",rep:0},{id:"irr_open_calls",label:"open calls",mod:"irrigation",rep:1},{id:"pool_setup",label:"pool & drum setup",mod:"irrigation",rep:0},{id:"irr_timeline",label:"gh timeline",mod:"irrigation",rep:0},{id:"prj11_water",label:"prj11 water",mod:"irrigation",rep:0},{id:"inv_cmd",label:"command center",mod:"inventory",rep:0},{id:"inv_dash",label:"dashboard",mod:"inventory",rep:1},{id:"inv_calls",label:"inventory calls",mod:"inventory",rep:0},{id:"inv_stock",label:"stock",mod:"inventory",rep:0},{id:"inv_velocity",label:"item velocity",mod:"inventory",rep:0},{id:"inv_diagnostics",label:"diagnostics",mod:"inventory",rep:0},{id:"inv_requests",label:"requests",mod:"inventory",rep:0},{id:"inv_master",label:"master data",mod:"inventory",rep:0},{id:"inv_purchase",label:"purchase engine",mod:"inventory",rep:0},{id:"inv_duplicates",label:"duplicate ai",mod:"inventory",rep:0},{id:"inv_audit",label:"audit trail",mod:"inventory",rep:0},{id:"inv_copilot",label:"ai copilot",mod:"inventory",rep:0},{id:"inv_forecast",label:"forecasting",mod:"inventory",rep:0},{id:"inv_movements",label:"movements",mod:"inventory",rep:0},{id:"inv_categories",label:"categories",mod:"inventory",rep:0},{id:"pack_cmd",label:"command center",mod:"packaging",rep:0},{id:"pack_calls",label:"packaging calls",mod:"packaging",rep:0},{id:"pack_checklist",label:"daily checklist",mod:"packaging",rep:0},{id:"pack_dash",label:"dashboard",mod:"packaging",rep:1},{id:"pack_washtrim",label:"wash & trim sop",mod:"packaging",rep:0},{id:"pack_materials",label:"materials",mod:"packaging",rep:0},{id:"pack_operations",label:"operations",mod:"packaging",rep:0},{id:"log_cmd",label:"command center",mod:"logistics",rep:0},{id:"log_dash",label:"dashboard",mod:"logistics",rep:1},{id:"log_deliveries",label:"deliveries",mod:"logistics",rep:0},{id:"log_routes",label:"routes",mod:"logistics",rep:0},{id:"log_vehicles",label:"dispatch",mod:"logistics",rep:0},{id:"log_recurring",label:"recurring tasks",mod:"logistics",rep:0},{id:"log_open_calls",label:"open calls",mod:"logistics",rep:1},{id:"log_megabox_matrix",label:"megabox matrix",mod:"logistics",rep:1},{id:"crm_cmd",label:"command center",mod:"crm",rep:0},{id:"crm_dash",label:"overview",mod:"crm",rep:1},{id:"crm_reminders",label:"reminders",mod:"crm",rep:0},{id:"crm_leads",label:"leads",mod:"crm",rep:0},{id:"crm_pipeline",label:"pipeline",mod:"crm",rep:0},{id:"crm_quotes",label:"quotes",mod:"crm",rep:0},{id:"crm_orders",label:"orders",mod:"crm",rep:0},{id:"crm_sales",label:"sales analytics",mod:"crm",rep:0},{id:"crm_customers",label:"customers",mod:"crm",rep:0},{id:"crm_catalog",label:"catalog & pricing",mod:"crm",rep:0},{id:"crm_marketing",label:"marketing",mod:"crm",rep:0},{id:"sec_cmd",label:"command center",mod:"security",rep:0},{id:"sec_dash",label:"dashboard",mod:"security",rep:1},{id:"sec_calls",label:"security calls",mod:"security",rep:0},{id:"sec_live",label:"live patrol",mod:"security",rep:0},{id:"sec_patrol",label:"rfid upload",mod:"security",rep:0},{id:"sec_checkpoints",label:"checkpoints",mod:"security",rep:0},{id:"sec_incidents",label:"incidents",mod:"security",rep:0},{id:"sec_guards",label:"guards",mod:"security",rep:0},{id:"qc_cmd",label:"command center",mod:"quality",rep:0},{id:"qc_dash",label:"dashboard",mod:"quality",rep:1},{id:"qc_calls",label:"qc calls",mod:"quality",rep:0},{id:"qc_prod_inspection",label:"process inspection",mod:"quality",rep:0},{id:"qc_inspections",label:"product inspections",mod:"quality",rep:0},{id:"qc_rejections",label:"rejections",mod:"quality",rep:0},{id:"qc_standards",label:"standards",mod:"quality",rep:0},{id:"qc_sop",label:"sop",mod:"quality",rep:0},{id:"fleet_dash",label:"dashboard",mod:"logistics",rep:1},{id:"fleet_vehicles",label:"vehicles",mod:"logistics",rep:0},{id:"fleet_drivers",label:"drivers",mod:"logistics",rep:0},{id:"fleet_fuel",label:"fuel",mod:"logistics",rep:0},{id:"fleet_logistics_coord",label:"logistics coordinator",mod:"logistics",rep:0},{id:"lic_dash",label:"dashboard",mod:"licenses",rep:1},{id:"lic_registry",label:"registry",mod:"licenses",rep:0},{id:"lic_expiring",label:"expiring",mod:"licenses",rep:0},{id:"lic_compliance",label:"compliance",mod:"licenses",rep:0},{id:"prj_dash",label:"dashboard",mod:"projects",rep:1},{id:"prj_active",label:"active",mod:"projects",rep:0},{id:"prj_planning",label:"planning",mod:"projects",rep:0},{id:"prj_completed",label:"completed",mod:"projects",rep:0},{id:"sop_vault_admin",label:"sop vault",mod:"admin",rep:0},{id:"users",label:"users",mod:"admin",rep:0},{id:"office_calls",label:"office calls",mod:"admin",rep:0},{id:"geo_setup",label:"geographic setup",mod:"admin",rep:0},{id:"email_routing",label:"email routing",mod:"admin",rep:0},{id:"report_scheduler",label:"report scheduler",mod:"admin",rep:1},{id:"security_center",label:"security center",mod:"admin",rep:0},{id:"cloud_sync",label:"cloud sync",mod:"admin",rep:0},{id:"audit",label:"audit log",mod:"admin",rep:0},{id:"approval_matrix",label:"approvals",mod:"admin",rep:0},{id:"backups",label:"backups",mod:"admin",rep:0},{id:"demo_seeder",label:"demo seeder",mod:"admin",rep:0},{id:"perf_monitor",label:"performance",mod:"admin",rep:0},{id:"live_sensors",label:"live sensors",mod:"admin",rep:0},{id:"integration_spec",label:"integration spec",mod:"admin",rep:0},{id:"admin_sos_sync",label:"sos inventory sync",mod:"admin",rep:0},{id:"control_audit",label:"control audit",mod:"admin",rep:0},{id:"device_registry",label:"device registry",mod:"admin",rep:0},{id:"danger_zone",label:"danger zone",mod:"admin",rep:0}];
+/* v13.13 NEXI-F9: NEXI_NAV was a hard-coded snapshot, blind to shipped views (hr_final_pay, acct_purch_pro,
+   pack_duties, log_duties, fleet_trackers, fleet_gps, ...) and to runtime-injected screens (prod_nexi_v2).
+   Rebuild it from window.MODULES — the id universe comes from MODULES; the hand-written labels above stay
+   as the vocabulary seed where ids match. window.NexiNavRefresh() re-runs the build after late injections. */
+(function(){
+  var seed=(window.NEXI_NAV||[]).slice();
+  var seedById={};
+  seed.forEach(function(e){ if(e&&e.id&&!seedById[e.id])seedById[e.id]=e; });
+  function clean(lbl){ return String(lbl||'').replace(/[^\w\s&]/g,' ').replace(/\s+/g,' ').trim().toLowerCase(); }
+  function build(){
+    try{
+      var M=window.MODULES;
+      if(!M||typeof M!=='object')return false;
+      var out=[], seen={};
+      for(var mk in M){
+        var m=M[mk]; if(!m||!m.views||!m.views.forEach)continue;
+        m.views.forEach(function(v){
+          if(!v||!v.id||!v.label)return;
+          if(seen[v.id])return; seen[v.id]=1;
+          var s=seedById[v.id];
+          var lbl=(s&&s.label)||clean(v.label);
+          if(!lbl)return;
+          out.push({id:v.id,label:lbl,mod:(s&&s.mod)||mk,rep:(s&&s.rep)||0});
+        });
+      }
+      if(!out.length)return false;
+      /* keep seed entries whose ids aren't (yet) in MODULES — some views register elsewhere */
+      seed.forEach(function(e){ if(e&&e.id&&!seen[e.id]){ seen[e.id]=1; out.push(e); } });
+      window.NEXI_NAV=out;
+      return true;
+    }catch(e){ return false; }
+  }
+  window.NexiNavRefresh=build;
+  if(!build()){ var t=0,iv=setInterval(function(){ t++; if(build()||t>50)clearInterval(iv); },400); }
+  else setTimeout(build,3000); /* catch late module patches */
+})();
+</script>
 <script>
 /* === injected: nexi_phase1plus.js (v3.97) ===
    Nexi Phase-1 completion: (1) grounded Cloud-AI brain via the app's OWN secure
@@ -171852,7 +172047,16 @@ var MODULE_HOME={
 /* module key -> overlay opener fn name (modules that aren't standard switchView views) */
 var OPENERS={ accounting:'hnxOpenAccounting' };
 /* direct word -> specific view (things that aren't a whole module) */
-var VIEW_SYN={ fleet:'fleet_dash', truck:'fleet_dash', trucks:'fleet_dash', vehicles:'fleet_dash', 'potential customer':'crm_potential', 'potential customers':'crm_potential', 'potential customer list':'crm_potential' };
+var VIEW_SYN={ fleet:'fleet_dash', truck:'fleet_dash', trucks:'fleet_dash', vehicles:'fleet_dash', 'potential customer':'crm_potential', 'potential customers':'crm_potential', 'potential customer list':'crm_potential',
+  /* v13.13 NEXI-RES resolver vocabulary */
+  cockpit:'prod_nexi_v2','nexi cockpit':'prod_nexi_v2','the cockpit':'prod_nexi_v2','digital twin':'prod_nexi_v2',
+  cameras:'it_cctv',camera:'it_cctv',
+  '201':'hr','201 file':'hr','201 files':'hr',
+  'live trackers':'fleet_trackers',trackers:'fleet_trackers',tracker:'fleet_trackers',
+  'gps report':'fleet_gps','gps daily report':'fleet_gps',
+  purchasing:'acct_purch_pro',
+  'final pay':'hr_final_pay',
+  'duties matrix':'pack_duties',duties:'pack_duties' };
 
 function navList(){ return (window.NEXI_NAV||[]).slice(); }
 
@@ -171881,13 +172085,26 @@ function scoreLabel(label,want){
 function resolveTarget(raw){
   var n=norm(raw); if(!n)return null;
   var learn=learnLoad();
+  var cm=''; try{ cm=(typeof window.currentModule==='string'&&window.currentModule)?window.currentModule:''; }catch(e){} /* v13.13 NEXI-RES module context */
   // 1) learned alias, exact
   if(learn.aliases[n])return learn.aliases[n];
   var core=stripSuffix(n);
   if(core && learn.aliases[core])return learn.aliases[core];
+  /* v13.13 NEXI-RES: module-context-aware generic screens. stripSuffix blanks "command center" and the old
+     exact-label loop then returned the FIRST match (always HR) — resolve against the CURRENT module instead. */
+  if(/^(?:the |my |our )?command cent(?:er|re)s?$/.test(n)){
+    var ccId={hr:'hr_cmd',maintenance:'maint_cmd',it:'it_dash',irrigation:'irr_cmd',inventory:'inv_cmd',packaging:'pack_cmd',logistics:'log_cmd',crm:'crm_cmd',security:'sec_cmd',quality:'qc_cmd'}[cm]||'hr_cmd';
+    var ccV=byId(ccId);
+    return {type:'view',mod:(ccV?ccV.mod:(cm||'hr')),id:ccId,label:cap((ccV&&ccV.label)||'command center')};
+  }
+  if(/^(?:the )?duties(?: matrix)?$/.test(core||n)){
+    var duId=(cm==='logistics')?'log_duties':'pack_duties'; var duV=byId(duId);
+    return {type:'view',mod:(duV?duV.mod:(cm==='logistics'?'logistics':'packaging')),id:duId,label:cap((duV&&duV.label)||'duties matrix')};
+  }
   // 2) exact VIEW label match (so "leads", "ro", "open calls" hit their tab)
-  var views=navList(), exact=null;
-  for(var i=0;i<views.length;i++){ if(views[i].label===n||views[i].label===core){ exact=views[i]; break; } }
+  var views=navList(), exact=null, exactCur=null;
+  for(var i=0;i<views.length;i++){ if(views[i].label===n||(core&&views[i].label===core)){ if(!exact)exact=views[i]; if(cm&&!exactCur&&views[i].mod===cm)exactCur=views[i]; } } /* v13.13 NEXI-RES: prefer the current module's tab when a generic label repeats across modules */
+  if(exactCur)exact=exactCur;
   if(exact)return {type:'view',mod:exact.mod,id:exact.id,label:cap(exact.label)};
   // 3) direct view synonym (fleet/truck/...)
   if(VIEW_SYN[core]){ var vid=VIEW_SYN[core]; var vm=byId(vid); return {type:'view',mod:(vm?vm.mod:'logistics'),id:vid,label:(vm?cap(vm.label):core)}; }
@@ -171919,11 +172136,11 @@ function navTo(t,phrase){
       var op=OPENERS[t.mod];
       if(op && typeof window[op]==='function'){ window[op](); return true; }
       var home=MODULE_HOME[t.mod]||t.id;
-      if(home && typeof switchView==='function'){ switchView(home); if(window.currentView===home)return true; }
+      if(home && typeof switchView==='function'){ switchView(home); if(window.__lastNavDenied===home){window.__lastNavDenied=null;return false;} /* v13.13 NEXI-F7 */ if(window.currentView===home)return true; }
       if(typeof switchModule==='function'){ switchModule(t.mod); return true; }   // fallback to module level
       return false;
     }
-    if(t.id && typeof switchView==='function'){ switchView(t.id); if(window.currentView===t.id)return true; }
+    if(t.id && typeof switchView==='function'){ switchView(t.id); if(window.__lastNavDenied===t.id){window.__lastNavDenied=null;return false;} /* v13.13 NEXI-F7 */ if(window.currentView===t.id)return true; }
     if(t.mod && typeof switchModule==='function'){ switchModule(t.mod); return true; } // fallback
   }catch(e){ try{ if(t.mod && typeof switchModule==='function'){ switchModule(t.mod); return true; } }catch(e2){} }
   return false;
@@ -172006,12 +172223,13 @@ function _nexiWho(){try{var u=(typeof getCurrentUser==='function')&&getCurrentUs
 window._nexiTimeGreet=_nexiTimeGreet; window._nexiWho=_nexiWho;
 var _greeted=false; window._nexiResetGreet=function(){_greeted=false;};
 var GREET=/^\s*(hi+|hey+|hello+|yo+|hoy+|uy+|kumusta|magandang(\s+\w+)?|good\s+(morning|afternoon|evening|night))\b[\s,!.:?\-]*/i;
-var NICK=/\b(nexi|nexie|nexy|nixie|nixi|nixy|lexie|lexi)\b/ig;
+var NICK=/^\s*(hi|hey|hello|ok|okay|yo)?[\s,]*(nexi|nexie|nexy|nixie|nixi|nixy|lexie|lexi)\b[\s,!.:?\-]*/i; /* v13.13 NEXI-F8: strip the nickname ONLY as the leading address token — never mid-phrase ("open Nexi Cockpit" stays intact) */
 /* Non-blocking: Nexi ALWAYS answers / acts. She greets by name + time of day once
    per session; after that she just does what you ask. A leading greeting or her
    (mis-spelled) name is stripped, so "hi nexi open IT" -> "open IT". */
 window._nexiGate=function(raw){
   var q=String(raw||'');
+  window.__nexiNavMiss=null; /* v13.13 NEXI-F8 fresh turn — clear any stale nav-miss context */
   var cmd=q.replace(WAKE,'').replace(GREET,'').replace(NICK,'').replace(/\s+/g,' ').trim();
   if(cmd===''){
     if(!_greeted){ _greeted=true; return {reply:_nexiTimeGreet()+', '+_nexiWho()+'! What do you need?', log:true}; }
@@ -172026,7 +172244,23 @@ window._nexiGate=function(raw){
       if(ok) return {reply:'Opening '+(tgt.label||'it')+'.', log:true};
       return {reply:'I found '+(tgt.label||navm[2].trim())+', but couldn\u2019t open it \u2014 you may not have access to that screen.', log:true};
     }
-    return {reply:'I couldn\u2019t find a screen called \u201c'+navm[2].trim()+'\u201d. Try a module name, e.g. \u201copen Production\u201d or \u201copen IT\u201d.', log:true};
+    /* v13.13 NEXI-F8: no dead end on a resolver miss \u2014 remember the phrase + the 3 closest menu labels,
+       then fall through to onDevice/AI; _nexiNoAI appends the suggestions only if the AI path also fails. */
+    try{
+      var _want=String(navm[2]||'').toLowerCase().replace(/[^\w\s&]/g,' ').replace(/\s+/g,' ').trim();
+      var _scored=[];
+      (window.NEXI_NAV||[]).forEach(function(x){
+        if(!x||!x.label)return;
+        var s=0;
+        if(_want && (x.label.indexOf(_want)>-1||_want.indexOf(x.label)>-1)) s+=30;
+        _want.split(' ').forEach(function(tk){ if(tk.length>2){ if(x.label===tk)s+=40; else if(x.label.indexOf(tk)>-1)s+=15; } });
+        if(s>0)_scored.push([s,x.label]);
+      });
+      _scored.sort(function(a,b){return b[0]-a[0];});
+      var _sugg=[];
+      _scored.forEach(function(p){ var L=p[1].replace(/\b\w/g,function(c){return c.toUpperCase();}); if(_sugg.indexOf(L)<0&&_sugg.length<3)_sugg.push(L); });
+      window.__nexiNavMiss={phrase:navm[2].trim(),sugg:_sugg,ts:Date.now()};
+    }catch(e){}
   }
   return {q:cmd};
 };
@@ -172086,7 +172320,16 @@ function injectCritBtn(){
   b.onclick=function(){ window.nexiReleaseCriticals(); };
   gear.parentNode.insertBefore(b,gear);
 }
-function onOpen(){ _awake=false; _greeted=false; var b=document.getElementById('nexiBody'); if(b){ b.innerHTML=''; renderHistory(b); } injectCritBtn(); }
+function onOpen(){ _awake=false; _greeted=false; var b=document.getElementById('nexiBody');
+  if(b){ /* v13.13 NEXI-F2: never wipe live bubbles / the #nexiTyping indicator — only (re)build when empty, or when idle and stale vs the stored history */
+    var inFlight=!!document.getElementById('nexiTyping');
+    var rendered=b.querySelectorAll('.nexi-msg').length;
+    var hist=loadChat();
+    var expect=hist.length?Math.min(hist.length,40):1;
+    if(!rendered){ b.innerHTML=''; renderHistory(b); }
+    else if(!inFlight && rendered!==expect){ b.innerHTML=''; renderHistory(b); }
+  }
+  injectCritBtn(); }
 var lastVis=false;
 setInterval(function(){ var p=document.getElementById('nexiPanel'); if(!p)return; var vis=(p.style.display==='flex'); if(vis&&!lastVis)onOpen(); lastVis=vis; },500);
 
@@ -176713,13 +176956,25 @@ window.__hnxAUTOVAULT={run:autoRun,vaultKeys:OFFLOAD,usage:usagePct,_VAULT:VAULT
   if(window.__hnxWakeInit) return; window.__hnxWakeInit=true;
   var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   var KEY='hnx_wake_on';
-  var rec=null, enabled=false, busy=false, restartT=null;
+  var rec=null, enabled=false, busy=false, restartT=null, armedUntil=0, safetyT=null; /* v13.13 NEXI-F3 armed state · NEXI-F4 safety timer */
   function toast(m){ try{ var d=document.createElement('div'); d.textContent=m; d.style.cssText='position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:#13402a;color:#cfeedd;padding:8px 14px;border-radius:10px;font:600 13px system-ui,sans-serif;z-index:2147483646;box-shadow:0 4px 18px rgba(0,0,0,.4);max-width:80vw'; document.body.appendChild(d); setTimeout(function(){ if(d&&d.parentNode)d.parentNode.removeChild(d); },2800);}catch(e){} }
   function setDot(on){ var b=document.getElementById('hnxWakeBtn'); if(!b)return; b.style.background=on?'#1f7a44':'#243528'; var dt=b.querySelector('.dot'); if(dt)dt.style.animation=on?'hnxpulse 1.4s infinite':'none'; var lb=b.querySelector('.lbl'); if(lb)lb.textContent=on?'Hi Nexi: ON':'Hi Nexi: OFF · tap to enable'; }
   function handle(transcript){
     var t=(transcript||'').trim(); if(!t)return;
-    if(!/\bne(xi|xt|ksi|xy|xie)\b/i.test(t)) return;
-    var cmd=t.replace(/^.*?\b(hi|hey|ok|okay|hello|yo)?\s*ne(xi|xt|ksi|xy|xie)\b[\s,.:\-]*/i,'').trim();
+    if(window.NexiVoice && window.NexiVoice._owner==='panel') return; /* v13.13 NEXI-F6: panel recognizer owns the mic \u2014 never double-fire the same utterance */
+    var hasWake=/\bne(xi|xt|ksi|xy|xie)\b/i.test(t);
+    var armed=(Date.now()<armedUntil); /* v13.13 NEXI-F3 */
+    if(!hasWake && !armed) return;
+    var cmd = hasWake ? t.replace(/^.*?\b(hi|hey|ok|okay|hello|yo)?\s*ne(xi|xt|ksi|xy|xie)\b[\s,.:\-]*/i,'').trim() : t;
+    if(hasWake && !cmd){ /* v13.13 NEXI-F3: wake word alone (Chrome split the utterance) \u2014 arm ~8s so the NEXT final result is the command */
+      armedUntil=Date.now()+8000;
+      try{ window.nexiSpeak&&window.nexiSpeak('Yes?',true); }catch(e){}
+      toast('\uD83D\uDC42 Nexi is listening\u2026');
+      return;
+    }
+    if(armed && !hasWake){ try{ if(window.speechSynthesis&&window.speechSynthesis.speaking) return; }catch(e){} } /* don't treat her own "Yes?" as the command */
+    armedUntil=0;
+    try{ if(window._nexiSeenUtter && window._nexiSeenUtter(cmd.toLowerCase())) return; }catch(e){} /* v13.13 NEXI-F6 shared dedupe */
     busy=true; try{ if(rec)rec.stop(); }catch(e){}
     try{
       window._nexiVoiceTurn=true;
@@ -176727,8 +176982,12 @@ window.__hnxAUTOVAULT={run:autoRun,vaultKeys:OFFLOAD,usage:usagePct,_VAULT:VAULT
       else if(window.Nexi && typeof window.Nexi.open==='function'){ window.Nexi.open(); toast('\uD83D\uDC42 Nexi is listening\u2026'); }
       else { window.dispatchEvent(new CustomEvent('hnx-nexi-wake',{detail:{text:cmd||t}})); }
     }catch(e){}
-    setTimeout(function(){ busy=false; if(enabled) start(); }, 4500);
+    /* v13.13 NEXI-F4: no fixed 4.5s deaf window \u2014 resume comes from _nexiWakeResume (answer rendered / TTS onend); 30s safety net only */
+    clearTimeout(safetyT);
+    safetyT=setTimeout(function(){ busy=false; if(enabled) start(); }, 30000);
   }
+  /* v13.13 NEXI-F4: called by Nexi core when the reply is rendered / spoken \u2014 restart listening right away */
+  window._nexiWakeResume=function(){ clearTimeout(safetyT); if(!busy) return; busy=false; if(enabled) start(); };
   function start(){
     if(!enabled||busy||!SR) return;
     try{ rec=new SR(); }catch(e){ return; }
@@ -200921,6 +201180,7 @@ function __n2OpenNexi(g){
     var v = window.MODULES.production.views;
     if(v.some(function(x){return x&&x.id==='prod_nexi_v2';})) return true;
     v.unshift({id:'prod_nexi_v2', label:'🧠 Nexi Cockpit', perm:null, title:'Digital Twin · 16 facilities · Radio · NFC · AI'});
+    try{window.NexiNavRefresh&&window.NexiNavRefresh();}catch(e){} /* v13.13 NEXI-F9 make the late-injected cockpit navigable by voice */
     if(typeof window.renderModuleSidebar==='function')window.renderModuleSidebar();
     if(typeof window.renderModuleHeader==='function'&&window.currentModule==='production')window.renderModuleHeader('production');
     return true;
