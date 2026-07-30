@@ -22194,7 +22194,7 @@ function _renderHrViewToggle(){
     <button onclick="_setHrViewMode('rows')" style="padding:6px 12px;background:${mode==='rows'?'var(--accent)':'var(--surface)'};color:${mode==='rows'?'#0a0e0c':'var(--text2)'};border:1px solid ${mode==='rows'?'var(--accent)':'var(--border)'};border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--sans);">📋 Rows by Department</button>
     <button onclick="_setHrViewMode('cards')" style="padding:6px 12px;background:${mode==='cards'?'var(--accent)':'var(--surface)'};color:${mode==='cards'?'#0a0e0c':'var(--text2)'};border:1px solid ${mode==='cards'?'var(--accent)':'var(--border)'};border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--sans);">🪪 Cards</button>
     <span style="margin-left:auto;font-size:10px;color:var(--text3);font-family:var(--mono);">
-      ${(typeof can==='function'&&can('manageHR'))?'🔓 Salary visible (💰 access)':'🔒 Salary hidden'}
+      ${(typeof canViewSalaries==='function'&&canViewSalaries())?'🔓 Salary visible (💰 access)':'🔒 Salary hidden'}
     </span>
   </div>`;
 }
@@ -31289,7 +31289,7 @@ function renderTrainMatrix(){
       </td>
       ${cellHTML}
       <td class="train-matrix-lvl"><span class="train-lvl-badge train-lvl-${empLvl}" style="background:${lvlInfo.color}22;color:${lvlInfo.color};border:1px solid ${lvlInfo.color};">L${empLvl}</span></td>
-      <td class="train-matrix-rate"><strong>₱${rate}</strong><div style="font-size:9px;color:var(--text3);">/day</div></td>
+      <td class="train-matrix-rate">${(typeof canViewSalaries==='function'&&canViewSalaries())?`<strong>₱${rate}</strong><div style="font-size:9px;color:var(--text3);">/day</div>`:'<span title="Salary restricted">🔒</span>'}</td><!-- v13.12 PAY-F11e -->
     </tr>`;
   }).join('');
 
@@ -31366,7 +31366,7 @@ function exportTrainMatrix(){
   employees.filter(e=>!e.status||e.status==='Active').forEach(emp=>{
     const cert=certs[emp.id]||{tasks:{},level:1};
     const lvl=cert.level||1;
-    const row=[emp.name,emp.nickname||'',emp.dept||'',(emp.ghAssigned||[]).join(';'),lvl,getEmployeeRate(emp)];
+    const row=[emp.name,emp.nickname||'',emp.dept||'',(emp.ghAssigned||[]).join(';'),lvl,(typeof canViewSalaries==='function'&&canViewSalaries())?getEmployeeRate(emp):'RESTRICTED']; /* v13.12 PAY-F11e */
     TRAINING_TASKS.forEach(t=>{
       const tc=cert.tasks[t.id];
       row.push(tc&&tc.certifiedAt?new Date(tc.certifiedAt).toLocaleDateString():'');
@@ -31622,7 +31622,7 @@ function exportEmpCert(empId){
   const rates=loadLevelRates();
   const rows=[
     [`TRAINING CERTIFICATE — ${emp.name}`],
-    [`Generated: ${new Date().toLocaleString()}`,`Level: ${cert.level}`,`Daily Rate: ₱${getEmployeeRate(emp)}`],
+    [`Generated: ${new Date().toLocaleString()}`,`Level: ${cert.level}`,(typeof canViewSalaries==='function'&&canViewSalaries())?`Daily Rate: ₱${getEmployeeRate(emp)}`:'Daily Rate: RESTRICTED'], /* v13.12 PAY-F11e */
     [`Department: ${emp.dept||''}`,`GH: ${(emp.ghAssigned||[]).join(';')}`],
     [],
     ['MASTERY RECORD'],
@@ -31783,8 +31783,8 @@ function renderTrainRates(){
 
     <div class="pay-stat-row">
       <div class="pay-stat"><div class="pay-stat-label">Active Employees</div><div class="pay-stat-val">${totalEmps}</div></div>
-      <div class="pay-stat"><div class="pay-stat-label">Total Daily Payroll</div><div class="pay-stat-val gold">₱${totalDaily.toLocaleString()}</div></div>
-      <div class="pay-stat"><div class="pay-stat-label">Avg per Employee</div><div class="pay-stat-val">₱${totalEmps?Math.round(totalDaily/totalEmps).toLocaleString():0}</div></div>
+      <div class="pay-stat"><div class="pay-stat-label">Total Daily Payroll</div><div class="pay-stat-val gold">${(typeof canViewSalaries==='function'&&canViewSalaries())?('₱'+totalDaily.toLocaleString()):'🔒'}</div></div><!-- v13.12 PAY-F11e -->
+      <div class="pay-stat"><div class="pay-stat-label">Avg per Employee</div><div class="pay-stat-val">${(typeof canViewSalaries==='function'&&canViewSalaries())?('₱'+(totalEmps?Math.round(totalDaily/totalEmps).toLocaleString():0)):'🔒'}</div></div>
     </div>
 
     <div class="wt-card">
@@ -161387,7 +161387,9 @@ gh+=_mtxTreeBody(rows);
     var termsHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">'
       +'<div><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Notice period (days)</div><input type="number" min="0" id="hnxCT_notice" value="'+esc(t.noticePeriodDays||'')+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;font-family:var(--mono,monospace);box-sizing:border-box;"></div>'
       +'<div><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Probation (months)</div><input type="number" min="0" id="hnxCT_probation" value="'+esc(t.probationMonths||'')+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;font-family:var(--mono,monospace);box-sizing:border-box;"></div>'
-      +'<div style="grid-column:span 2"><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Base salary (₱ monthly)</div><input type="number" min="0" id="hnxCT_salary" value="'+esc(t.baseSalary||'')+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;font-family:var(--mono,monospace);box-sizing:border-box;"></div></div>'
+      +((typeof canViewSalaries!=='function'||canViewSalaries())
+        ? '<div style="grid-column:span 2"><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Base salary (₱ monthly)</div><input type="number" min="0" id="hnxCT_salary" value="'+esc(t.baseSalary||'')+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;font-family:var(--mono,monospace);box-sizing:border-box;"></div></div>'
+        : '<div style="grid-column:span 2"><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Base salary (₱ monthly)</div><div style="padding:7px 10px;border:1px dashed #2c5a3f;border-radius:6px;color:#7aa99a;font-size:12px;">\u{1F512} Restricted — 💰 salary access required</div><input type="hidden" id="hnxCT_salary" value="'+esc(t.baseSalary||'')+'"></div></div>') /* v13.12 PAY-F11e: value masked; hidden input preserves the stored salary through Save */
       +'<div style="grid-column:span 2"><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Deduction policies</div><textarea id="hnxCT_deductions"'+ro+' rows="3" placeholder="e.g. SSS, PhilHealth, PAG-IBIG, withholding tax, salary loan deductions..." style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:8px 10px;font-size:12.5px;resize:vertical;box-sizing:border-box;font-family:inherit;">'+esc(t.deductionPolicies||'')+'</textarea></div>'
       +'<div style="grid-column:span 2"><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Custom notes / special clauses</div><textarea id="hnxCT_notes"'+ro+' rows="3" placeholder="Allowances, COLA, bonuses, restrictive covenants..." style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:8px 10px;font-size:12.5px;resize:vertical;box-sizing:border-box;font-family:inherit;">'+esc(t.customNotes||'')+'</textarea></div>'
     +'</div>';
