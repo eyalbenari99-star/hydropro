@@ -53950,12 +53950,38 @@ function payLocalYMD(d){
    approvable draft under the new id (double-pay + inflated 13th-month). Manual adds and allowances
    are keyed by the same string, so they follow automatically. */
 function payShiftYMD(sd,days){const d=new Date(sd+'T00:00:00');d.setDate(d.getDate()+days);return payLocalYMD(d);}
+/* v13.12 PAY-F5c: does ANY period-scoped side data (allowances / manual adds) live under this id? */
+function _payPeriodHasSideData(pid){
+  try{
+    if(typeof getManualAddsForPeriod==='function'&&(getManualAddsForPeriod(pid)||[]).length)return true;
+    if(typeof loadEmployeeAllowances==='function'){
+      const a=loadEmployeeAllowances()||{};
+      if(a[pid]&&Object.keys(a[pid]).some(e=>(a[pid][e]||[]).length))return true;
+    }
+  }catch(e){}
+  return false;
+}
 function payOfficeRunId(period){
   if(!period||!period.start||!period.end)return`office_${(period||{}).start}_${(period||{}).end}`;
   const nid=`office_${period.start}_${period.end}`;
-  if(getPayrollRun(nid))return nid;
   const lid=`office_${payShiftYMD(period.start,-1)}_${payShiftYMD(period.end,-1)}`;
-  return getPayrollRun(lid)?lid:nid;
+  const nrun=getPayrollRun(nid),lrun=getPayrollRun(lid);
+  /* v13.12 PAY-F5c: STABLE resolution. Approved history always wins (a paid legacy half must never
+     be shadowed by a phantom new-id draft from a fresh device); then any existing run; then the id
+     that still owns side data (allowances / manual adds survive a run cache-clear — the resolver
+     must not flip ids mid-session and orphan money). */
+  if(lrun&&lrun.status==='approved')return lid;
+  if(nrun&&nrun.status==='approved')return nid;
+  if(lrun)return lid;
+  if(nrun)return nid;
+  if(_payPeriodHasSideData(lid)&&!_payPeriodHasSideData(nid))return lid;
+  return nid;
+}
+/* v13.12 PAY-F5c: cache-clear a run AND tombstone it so the cloud copy doesn't resurrect as a
+   duplicate (deletes previously left the cloud copy alive → two runs for one period). */
+function _payDropRun(id){
+  savePayrollRuns(loadPayrollRuns().filter(r=>r.id!==id));
+  try{if(window.__hnxTomb){window.__hnxTomb('_',id);window.__hnxTomb('hydroPro_payroll_runs',id);}}catch(e){}
 }
 
 function getWeekPeriod(refDate){
@@ -54403,8 +54429,7 @@ function payOpsRecalc(){
   const run=getPayrollRun(runId);
   if(run&&run.status==='approved'){showToast('Cannot recalculate approved payroll','warn');return;}
   // Delete existing, will be rebuilt
-  const list=loadPayrollRuns().filter(r=>r.id!==runId);
-  savePayrollRuns(list);
+  _payDropRun(runId); /* v13.12 PAY-F5c: delete + tombstone */
   audit('payroll_recalc',`Recalculated ${runId}`);
   renderPayrollOps();
   showToast('✓ Recalculated','ok');
@@ -54467,9 +54492,9 @@ function payOpsAddEmpConfirm(){
   if(!sel||!sel.value){showToast('Pick a worker','warn');return;}
   const empId=sel.value;
   const periodKey=`ops_${_payOpsCurrentPeriod.start}_${_payOpsCurrentPeriod.end}`;
+  {const _r=getPayrollRun(periodKey);if(_r&&_r.status==='approved'){showToast('Cannot edit approved payroll','warn');return;}} /* v13.12 PAY-F2c: re-check at confirm time */
   addManualPayrollEmp(periodKey,empId);
-  const list=loadPayrollRuns().filter(r=>r.id!==periodKey);
-  savePayrollRuns(list);
+  _payDropRun(periodKey); /* v13.12 PAY-F5c: delete + tombstone */
   audit('payroll_add_emp',`Added ${empId} to ${periodKey}`);
   document.getElementById('payAddEmpOverlay').remove();
   renderPayrollOps();
@@ -54547,6 +54572,16 @@ function renderPayrollOffice(){
 
   // v2.83 — Include manually-added employees (one-off additions outside auto-list)
   const periodKey=payOfficeRunId(period); /* v13.12 PAY-F5b: falls back to the pre-fix (UTC-shifted) id when that run exists, so approved history isn't re-created as a fresh draft */
+  /* v13.12 PAY-F5c: if the legacy id won because it's approved/paid, delete any phantom DRAFT a
+     fresh device created under the new id before its first pull — it would double-count in the
+     accounting payroll reports and could be approved a second time. */
+  try{
+    const _nid2=`office_${period.start}_${period.end}`;
+    if(periodKey!==_nid2){
+      const _ghost=getPayrollRun(_nid2);
+      if(_ghost&&_ghost.status!=='approved')_payDropRun(_nid2);
+    }
+  }catch(e){}
   const manualIds=getManualAddsForPeriod(periodKey);
   const manualEmps=manualIds.map(id=>{
     if(officeEmps.find(e=>e.id===id))return null;
@@ -54805,8 +54840,7 @@ function payOfficeRecalc(){
   const runId=payOfficeRunId(_payOfficeCurrentPeriod); /* v13.12 PAY-F5b */
   const run=getPayrollRun(runId);
   if(run&&run.status==='approved'){showToast('Cannot recalculate approved payroll','warn');return;}
-  const list=loadPayrollRuns().filter(r=>r.id!==runId);
-  savePayrollRuns(list);
+  _payDropRun(runId); /* v13.12 PAY-F5c: delete + tombstone */
   audit('payroll_recalc',`Recalculated ${runId}`);
   renderPayrollOffice();
   showToast('✓ Recalculated','ok');
@@ -54814,6 +54848,7 @@ function payOfficeRecalc(){
 
 // v2.82 — Manual override of SSS/PHIC/HDMF per employee (Q2c hybrid, Q6a remembered)
 function payOfficeEditGovDed(runId,empId,field,raw){
+  if(!canViewSalaries()){showToast('\u{1F512} Salary access required','warn');renderPayrollOffice();return;} /* v13.12 PAY-F11c */
   if(!['sss','phic','hdmf'].includes(field))return;
   const run=getPayrollRun(runId);
   if(run&&run.status==='approved'){showToast('Cannot edit approved payroll','warn');renderPayrollOffice();return;}
@@ -54828,8 +54863,7 @@ function payOfficeEditGovDed(runId,empId,field,raw){
   localStorage.setItem('hydroPro_office_gov_overrides',JSON.stringify(overrides));
   audit('payroll_gov_override',`Office: ${empId} ${field.toUpperCase()} → ${val.toFixed(2)}`);
   // Also clear any saved run with these old values so totals re-compute
-  const list=loadPayrollRuns().filter(r=>r.id!==runId);
-  savePayrollRuns(list);
+  _payDropRun(runId); /* v13.12 PAY-F5c: delete + tombstone */
   renderPayrollOffice();
   showToast(`✓ ${field.toUpperCase()} updated for ${empId}`,'ok');
 }
@@ -54842,8 +54876,7 @@ function payOfficeResetGovOverride(empId){
   localStorage.setItem('hydroPro_office_gov_overrides',JSON.stringify(overrides));
   audit('payroll_gov_override_reset',`Office: ${empId} reset to auto`);
   const runId=payOfficeRunId(_payOfficeCurrentPeriod); /* v13.12 PAY-F5b */
-  const list=loadPayrollRuns().filter(r=>r.id!==runId);
-  savePayrollRuns(list);
+  _payDropRun(runId); /* v13.12 PAY-F5c: delete + tombstone */
   renderPayrollOffice();
   showToast('✓ Reset to auto','ok');
 }
@@ -54908,10 +54941,10 @@ function payOfficeAddEmpConfirm(){
   if(!sel||!sel.value){showToast('Pick an employee','warn');return;}
   const empId=sel.value;
   const periodKey=payOfficeRunId(_payOfficeCurrentPeriod); /* v13.12 PAY-F5b */
+  {const _r=getPayrollRun(periodKey);if(_r&&_r.status==='approved'){showToast('Cannot edit approved payroll','warn');return;}} /* v13.12 PAY-F2c: re-check at confirm time (a remote approval may have merged in while the dialog was open) */
   addManualPayrollEmp(periodKey,empId);
   // Clear cached run so it recomputes
-  const list=loadPayrollRuns().filter(r=>r.id!==periodKey);
-  savePayrollRuns(list);
+  _payDropRun(periodKey); /* v13.12 PAY-F5c: delete + tombstone */
   audit('payroll_add_emp',`Added ${empId} to ${periodKey}`);
   document.getElementById('payAddEmpOverlay').remove();
   renderPayrollOffice();
@@ -54923,8 +54956,7 @@ function _payOfficeRemoveManual(empId){
   if(run&&run.status==='approved'){showToast('Cannot edit approved payroll','warn');return;}
   if(!confirm('Remove this manually-added employee from the current period?\nAuto-included employees cannot be removed this way.'))return;
   removeManualPayrollEmp(periodKey,empId);
-  const list=loadPayrollRuns().filter(r=>r.id!==periodKey);
-  savePayrollRuns(list);
+  _payDropRun(periodKey); /* v13.12 PAY-F5c: delete + tombstone */
   audit('payroll_remove_manual_emp',`${empId} removed from ${periodKey}`);
   renderPayrollOffice();
   showToast('Employee removed','ok');
@@ -55119,8 +55151,7 @@ function _payAllowEntryAdd(empId){
   setEmpAllowancesForPeriod(periodKey,empId,entries);
   audit('payroll_allow_add',`${empId} ${catId} ₱${amount}`);
   // Clear cached run so it recomputes
-  const list=loadPayrollRuns().filter(r=>r.id!==periodKey);
-  savePayrollRuns(list);
+  _payDropRun(periodKey); /* v13.12 PAY-F5c: delete + tombstone */
   document.getElementById('payAllowOverlay').remove();
   payOfficeManageAllowancesDialog(empId);
   showToast('✓ Allowance added','ok');
@@ -55134,8 +55165,7 @@ function _payAllowEntryDelete(empId,idx){
   entries.splice(idx,1);
   setEmpAllowancesForPeriod(periodKey,empId,entries);
   audit('payroll_allow_delete',`${empId} idx ${idx}`);
-  const list=loadPayrollRuns().filter(r=>r.id!==periodKey);
-  savePayrollRuns(list);
+  _payDropRun(periodKey); /* v13.12 PAY-F5c: delete + tombstone */
   document.getElementById('payAllowOverlay').remove();
   payOfficeManageAllowancesDialog(empId);
   showToast('Entry removed','ok');
@@ -55545,7 +55575,7 @@ function payHistoryOpen(runId){
     switchView('payroll_ops');
   } else {
     _payOfficeCurrentPeriod={start:run.periodStart,end:run.periodEnd,label:`${fmtDateShort(run.periodStart)} — ${fmtDateShort(run.periodEnd)}`};
-    try{const _d=parseInt(String(run.periodStart).slice(8,10),10);_payOfficeHalf=(_d>=25||_d<=5)?'second':'first';}catch(e){} /* v13.12 PAY-F6b: sync the half toggle (legacy ids start on the 10th/25th, new on the 11th/26th) */
+    try{const _d=parseInt(String(run.periodStart).slice(8,10),10);_payOfficeHalf=(_d>=15&&_d<=26)?'second':'first';}catch(e){} /* v13.12 PAY-F6c: covers new (11/26), legacy-shifted (10/25) AND pre-v2.80 (1/16 + shifted 15/28-31) start days */ /* v13.12 PAY-F6b: sync the half toggle (legacy ids start on the 10th/25th, new on the 11th/26th) */
     switchView('payroll_office');
   }
 }
@@ -138095,7 +138125,15 @@ body.hnx-mobile-locked { overflow: hidden; }
     function idof(o){ if(!o)return null; var k=(o.id!=null?o.id:(o.callId!=null?o.callId:(o._id!=null?o._id:o.uid))); return k==null?null:String(k); }
     function put(o,loc){ var k=idof(o); if(k==null)return;
       if(!(k in map)){map[k]=o;order.push(k);return;}
-      var a=ts(o),b=ts(map[k]); if(loc?a>=b:a>b)map[k]=o; }
+      var cur=map[k];
+      /* v13.12 PAY-F2c: payroll runs (shape: periodStart+lines) — an APPROVED copy always beats a
+         non-approved copy of the same run, regardless of timestamps. Closes the pull-path
+         un-approve race the upsert guard can't see (merge writes localStorage directly). */
+      if(o&&cur&&o.periodStart&&cur.periodStart&&(o.status==='approved')!==(cur.status==='approved')){
+        if(o.status==='approved')map[k]=o;
+        return;
+      }
+      var a=ts(o),b=ts(cur); if(loc?a>=b:a>b)map[k]=o; }
     R.forEach(function(o){put(o,false);}); L.forEach(function(o){put(o,true);});
     var out=[],present={};
     order.forEach(function(k){ var o=map[k]; var td=+(tc[k]||0);
@@ -155236,6 +155274,7 @@ gh+=_mtxTreeBody(rows);
     try{ var y=parseInt(_stmtYearCur,10); return y||(new Date()).getFullYear(); }catch(e){ return (new Date()).getFullYear(); }
   }
   function _payroll1601(year){
+    if(typeof canViewSalaries==='function'&&!canViewSalaries())return null; /* v13.12 PAY-F11c: callers handle null (manual-entry fallback) */
     var runs=_payrollRuns(); var M={}; for(var i=1;i<=12;i++) M[i]={taxable:0,nontax:0,withheld:0}; var any=false;
     runs.forEach(function(run){
       var end=_payRunEnd(run.id); if(!end) return;
@@ -155249,6 +155288,7 @@ gh+=_mtxTreeBody(rows);
   }
   function _liveBadge(txt){ return '<span style="font-size:9.5px;font-weight:800;color:#2ecc9b;background:#0a3d2c;border:1px solid #2ecc9b;border-radius:6px;padding:2px 7px;">\u2713 '+(txt||'Live from payroll')+'</span>'; }
   function _payrollReportLive(){
+    if(typeof canViewSalaries==='function'&&!canViewSalaries())return '<div style="padding:14px;border:1px dashed #1d4a3c;border-radius:8px;color:#7aa99a;font-size:12px;">\u{1F512} Salary access required to view the live payroll report.</div>'; /* v13.12 PAY-F11c */
     var runs=_payrollRuns(); if(!runs.length) return _liveEmpty('No payroll runs yet \u2014 run Labor or Office payroll and they appear here automatically.');
     var rows=runs.map(function(run){
       var end=_payRunEnd(run.id)||''; var lines=run.lines||[]; var t={gross:0,gov:0,wt:0,net:0,n:lines.length};
@@ -155265,6 +155305,7 @@ gh+=_mtxTreeBody(rows);
     return '<div style="margin:6px 0 10px;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><div style="font-size:12.5px;font-weight:800;color:#7defc0;">Payroll runs \u2014 live</div>'+_liveBadge()+'</div><div style="overflow-x:auto;border:1px solid #1d4a3c;border-radius:10px;"><table style="width:100%;border-collapse:collapse;min-width:560px;"><thead><tr style="background:#08291f;">'+['Period end','Type','Emps','Gross','Gov ded','Tax withheld','Net pay'].map(function(h,i){return '<th style="font-size:9px;color:#9fc7bb;text-align:'+(i<2?'left':'right')+';padding:5px 8px;">'+h+'</th>';}).join('')+'</tr></thead><tbody>'+body+foot+'</tbody></table></div></div>';
   }
   function _alphalistLive(){
+    if(typeof canViewSalaries==='function'&&!canViewSalaries())return '<div style="padding:14px;border:1px dashed #1d4a3c;border-radius:8px;color:#7aa99a;font-size:12px;">\u{1F512} Salary access required to view the Alphalist.</div>'; /* v13.12 PAY-F11c */
     var runs=_payrollRuns(); if(!runs.length) return _liveEmpty('No payroll runs yet \u2014 run payroll and the alphalist fills here automatically.');
     var year=_payYear(); var byEmp={};
     runs.forEach(function(run){ var end=_payRunEnd(run.id); if(year&&end&&(+end.slice(0,4))!==year) return;
@@ -161572,6 +161613,7 @@ gh+=_mtxTreeBody(rows);
 
   // -- Modal --
   window.hnxOpenFinalPay = function(empId){
+    if(typeof canViewSalaries==='function'&&!canViewSalaries()){if(typeof showToast==='function')showToast('\u{1F512} Salary access required','warn');return;} /* v13.12 PAY-F11c */
     var old = document.getElementById('hnxFpModal'); if(old) old.remove();
     var ov = document.createElement('div'); ov.id='hnxFpModal';
     ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
