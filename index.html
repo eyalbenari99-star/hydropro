@@ -23238,7 +23238,7 @@ function viewEmployee(id){
               <div style="font-size:13px;font-weight:600;color:var(--text);">${escapeHtml(lvlInfo.name)}</div>
               <div style="font-size:11px;color:var(--text3);font-style:italic;margin-top:3px;">${escapeHtml(lvlInfo.focus||'')}</div>
               <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
-                ${(typeof can==='function'&&can('manageHR'))
+                ${(typeof canViewSalaries==='function'&&canViewSalaries())
                   ? `<span style="font-size:11px;background:var(--surface3);padding:2px 8px;border-radius:8px;color:var(--text2);">💰 ₱${dailyRate}/day rate</span>`
                   : `<span style="font-size:11px;background:var(--surface3);padding:2px 8px;border-radius:8px;color:var(--text3);" title="Salary restricted — Admin or 💰 salary-access grant only">💰 🔒 rate hidden</span>`}
                 <span style="font-size:11px;background:var(--surface3);padding:2px 8px;border-radius:8px;color:var(--text2);">📊 ${m.mastered}/${m.total} tasks (${m.pct}%)</span>
@@ -31504,7 +31504,7 @@ function renderTrainEmployee(){
         <div class="pay-stat-val" style="color:${TRAINING_LEVELS.find(l=>l.id===empLvl).color};">L${empLvl}</div>
         <div style="font-size:11px;color:var(--text3);margin-top:2px;">${TRAINING_LEVELS.find(l=>l.id===empLvl).name}</div>
       </div>
-      <div class="pay-stat"><div class="pay-stat-label">Daily Rate</div><div class="pay-stat-val" style="color:var(--gold);">₱${empRate}</div><div style="font-size:11px;color:var(--text3);margin-top:2px;">${emp.rateOverride?'Override':`Level ${empLvl} rate`}</div></div>
+      <div class="pay-stat"><div class="pay-stat-label">Daily Rate</div><div class="pay-stat-val" style="color:var(--gold);">${(typeof canViewSalaries==='function'&&canViewSalaries())?('₱'+empRate):'🔒'}</div><div style="font-size:11px;color:var(--text3);margin-top:2px;">${emp.rateOverride?'Override':`Level ${empLvl} rate`}</div></div>
       <div class="pay-stat"><div class="pay-stat-label">Tasks Mastered</div><div class="pay-stat-val">${Object.keys(cert.tasks).length}<span style="font-size:13px;color:var(--text3);">/${TRAINING_TASKS.length}</span></div></div>
       ${empLvl<5?`<div class="pay-stat"><div class="pay-stat-label">To Level ${empLvl+1}</div><div class="pay-stat-val">${(()=>{const m=levelMasteryPct(emp.id,empLvl);return m.total-m.mastered;})()}<span style="font-size:13px;color:var(--text3);"> tasks</span></div></div>`:`<div class="pay-stat"><div class="pay-stat-label">Status</div><div class="pay-stat-val ok">⭐ MAX</div></div>`}
     </div>
@@ -53981,7 +53981,15 @@ function payOfficeRunId(period){
    duplicate (deletes previously left the cloud copy alive → two runs for one period). */
 function _payDropRun(id){
   savePayrollRuns(loadPayrollRuns().filter(r=>r.id!==id));
-  try{if(window.__hnxTomb){window.__hnxTomb('_',id);window.__hnxTomb('hydroPro_payroll_runs',id);}}catch(e){}
+  try{
+    if(window.__hnxTomb){
+      window.__hnxTomb('hydroPro_payroll_runs',id);
+      /* v13.12 PAY-F2d: back-date the tombstone 1ms — the merge drops items with ts<=tombTime, and a
+         drop→recreate inside one millisecond would otherwise delete the fresh draft on every pull */
+      const _t=JSON.parse(localStorage.getItem('hydroPro_optomb')||'{}');
+      if(_t['hydroPro_payroll_runs']&&_t['hydroPro_payroll_runs'][id]){_t['hydroPro_payroll_runs'][id]-=1;localStorage.setItem('hydroPro_optomb',JSON.stringify(_t));}
+    }
+  }catch(e){}
 }
 
 function getWeekPeriod(refDate){
@@ -54577,9 +54585,32 @@ function renderPayrollOffice(){
      accounting payroll reports and could be approved a second time. */
   try{
     const _nid2=`office_${period.start}_${period.end}`;
-    if(periodKey!==_nid2){
-      const _ghost=getPayrollRun(_nid2);
-      if(_ghost&&_ghost.status!=='approved')_payDropRun(_nid2);
+    const _lid2=`office_${payShiftYMD(period.start,-1)}_${payShiftYMD(period.end,-1)}`;
+    const _other=(periodKey===_nid2)?_lid2:_nid2;
+    /* v13.12 PAY-F5d: drop a phantom non-approved run under the OTHER id in either direction —
+       a leftover draft would double-count in Payroll History and confuse the period. */
+    const _ghost=getPayrollRun(_other);
+    if(_ghost&&_ghost.status!=='approved'&&getPayrollRun(periodKey))_payDropRun(_other);
+    /* v13.12 PAY-F5d: reconcile split side data (allowances / manual adds written under the other
+       id pre-fix) into the resolved id, so nothing is silently unpaid or dropped. Never touches
+       approved stored lines — side data only feeds the draft recompute. */
+    if(_other!==periodKey&&typeof _payPeriodHasSideData==='function'&&_payPeriodHasSideData(_other)){
+      try{
+        const _ma=loadPayrollManualAdds();
+        if((_ma[_other]||[]).length){
+          _ma[periodKey]=Array.from(new Set([...(_ma[periodKey]||[]),..._ma[_other]]));
+          delete _ma[_other]; savePayrollManualAdds(_ma);
+        }
+        const _al=loadEmployeeAllowances();
+        if(_al[_other]&&Object.keys(_al[_other]).length){
+          _al[periodKey]=_al[periodKey]||{};
+          Object.keys(_al[_other]).forEach(emp=>{
+            _al[periodKey][emp]=[...(_al[periodKey][emp]||[]),...(_al[_other][emp]||[])];
+          });
+          delete _al[_other]; saveEmployeeAllowances(_al);
+        }
+        audit('payroll_sidedata_migrate',`Merged allowances/manual adds ${_other} → ${periodKey}`);
+      }catch(e){}
     }
   }catch(e){}
   const manualIds=getManualAddsForPeriod(periodKey);
@@ -54870,6 +54901,8 @@ function payOfficeEditGovDed(runId,empId,field,raw){
 
 // v2.82 — Reset gov-ded overrides for one employee (called from drill panel)
 function payOfficeResetGovOverride(empId){
+  if(!canViewSalaries()){showToast('\u{1F512} Salary access required','warn');return;} /* v13.12 PAY-F11d */
+  {const _rid=payOfficeRunId(_payOfficeCurrentPeriod);const _r=getPayrollRun(_rid);if(_r&&_r.status==='approved'){showToast('Cannot edit approved payroll','warn');return;}} /* v13.12 PAY-F2d: this site could otherwise tombstone an APPROVED run */
   if(!confirm(`Reset SSS/PHIC/HDMF overrides for ${empId}?\nThe next render will use auto-calculated values from monthly salary.`))return;
   const overrides=JSON.parse(localStorage.getItem('hydroPro_office_gov_overrides')||'{}');
   delete overrides[empId];
@@ -155275,7 +155308,7 @@ gh+=_mtxTreeBody(rows);
   }
   function _payroll1601(year){
     if(typeof canViewSalaries==='function'&&!canViewSalaries())return null; /* v13.12 PAY-F11c: callers handle null (manual-entry fallback) */
-    var runs=_payrollRuns(); var M={}; for(var i=1;i<=12;i++) M[i]={taxable:0,nontax:0,withheld:0}; var any=false;
+    var runs=_payrollRuns().filter(function(r){return r&&r.status==='approved';}); /* v13.12 PAY-F5d: drafts are not filed compensation */ var M={}; for(var i=1;i<=12;i++) M[i]={taxable:0,nontax:0,withheld:0}; var any=false;
     runs.forEach(function(run){
       var end=_payRunEnd(run.id); if(!end) return;
       var y=+end.slice(0,4), mo=+end.slice(5,7); if(year && y!==year) return;
@@ -155289,7 +155322,7 @@ gh+=_mtxTreeBody(rows);
   function _liveBadge(txt){ return '<span style="font-size:9.5px;font-weight:800;color:#2ecc9b;background:#0a3d2c;border:1px solid #2ecc9b;border-radius:6px;padding:2px 7px;">\u2713 '+(txt||'Live from payroll')+'</span>'; }
   function _payrollReportLive(){
     if(typeof canViewSalaries==='function'&&!canViewSalaries())return '<div style="padding:14px;border:1px dashed #1d4a3c;border-radius:8px;color:#7aa99a;font-size:12px;">\u{1F512} Salary access required to view the live payroll report.</div>'; /* v13.12 PAY-F11c */
-    var runs=_payrollRuns(); if(!runs.length) return _liveEmpty('No payroll runs yet \u2014 run Labor or Office payroll and they appear here automatically.');
+    var runs=_payrollRuns().filter(function(r){return r&&r.status==='approved';}); /* v13.12 PAY-F5d */ if(!runs.length) return _liveEmpty('No APPROVED payroll runs yet \u2014 approve a Labor or Office run and it appears here automatically.');
     var rows=runs.map(function(run){
       var end=_payRunEnd(run.id)||''; var lines=run.lines||[]; var t={gross:0,gov:0,wt:0,net:0,n:lines.length};
       lines.forEach(function(l){ t.gross+=Number(l.grossPay)||0; t.gov+=Number(l.totalGovDed)||0; t.wt+=Number(l.withholdingTax)||0; t.net+=Number(l.netPay)||0; });
@@ -155306,7 +155339,7 @@ gh+=_mtxTreeBody(rows);
   }
   function _alphalistLive(){
     if(typeof canViewSalaries==='function'&&!canViewSalaries())return '<div style="padding:14px;border:1px dashed #1d4a3c;border-radius:8px;color:#7aa99a;font-size:12px;">\u{1F512} Salary access required to view the Alphalist.</div>'; /* v13.12 PAY-F11c */
-    var runs=_payrollRuns(); if(!runs.length) return _liveEmpty('No payroll runs yet \u2014 run payroll and the alphalist fills here automatically.');
+    var runs=_payrollRuns().filter(function(r){return r&&r.status==='approved';}); /* v13.12 PAY-F5d */ if(!runs.length) return _liveEmpty('No APPROVED payroll runs yet \u2014 approve a run and the alphalist fills here automatically.');
     var year=_payYear(); var byEmp={};
     runs.forEach(function(run){ var end=_payRunEnd(run.id); if(year&&end&&(+end.slice(0,4))!==year) return;
       (run.lines||[]).forEach(function(l){ var k=l.empId||l.name||'?'; if(!byEmp[k]) byEmp[k]={name:l.name||k,gross:0,wt:0,nontax:0}; byEmp[k].gross+=Number(l.grossPay)||0; byEmp[k].wt+=Number(l.withholdingTax)||0; var allT=Number(l.allowanceTotal)||0,allTax=Number(l.allowanceTaxable)||0; byEmp[k].nontax+=Math.max(0,allT-allTax); }); });
@@ -156585,6 +156618,7 @@ gh+=_mtxTreeBody(rows);
   window.__hnxFpFilter = setFilter;
   window.__hnxFpSort = setSort;
   window.__hnxFpExport = function(){
+    if(typeof canViewSalaries==='function'&&!canViewSalaries()){if(typeof showToast==='function')showToast('\u{1F512} Salary access required to export final pay','warn');return;} /* v13.12 PAY-F11d */
     var rows = collect(); exportCsv(applyFilter(rows));
   };
 
@@ -156771,6 +156805,13 @@ gh+=_mtxTreeBody(rows);
 
   // Public entry point — wired in the view dispatcher
   window.renderHrFinalPayDashboard = function(){
+    /* v13.12 PAY-F11d: the dashboard lists and exports per-employee net final pay — same gate as the
+       final-pay modal (a manageHR user without the salary flag was 2 clicks from the full table). */
+    if(typeof canViewSalaries==='function'&&!canViewSalaries()){
+      var _v=document.getElementById('view-hr_final_pay');
+      if(_v)_v.innerHTML='<div style="text-align:center;padding:50px;color:var(--text3);font-size:14px;"><div style="font-size:48px;margin-bottom:12px;">\u{1F512}</div><div>Salary access required to view Final Pay</div><div style="font-size:11px;margin-top:8px;">Ask an admin to grant the \u{1F4B0} salary-access flag on your user.</div></div>';
+      return;
+    }
     /* v13.05 HR-F1: render into this view's own container. The old fallback chain
        (mainContent/content/.main-content) matched nothing, resolved to document.body
        and did body.innerHTML='' — wiping the whole app DOM. Now we target the
