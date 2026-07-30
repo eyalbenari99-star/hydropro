@@ -21477,6 +21477,30 @@ function _autoAttachExportButton(viewId){
 }
 
 function switchView(v,skipModuleCheck){
+  /* v12.92 STALE-LINK GUARD: several static dashboards linked to view ids
+     that don't exist as .view divs (e.g. 'hr_employees' → real id is 'hr';
+     'hr_dash' → real id is 'hr_cmd'). Line 21501 below would throw when
+     the element wasn't found, the exception was swallowed, and the user
+     was left on whatever view they were on — which reads as "the tab
+     doesn't work". Add an alias table AND emit a console warning + toast
+     when we route around a stale id, so we notice next time. */
+  /* v12.97: the alias map lives on window because the nav-hardening wrapper
+     (the OUTERMOST switchView layer, ~line 167090) must apply it too — it
+     pre-creates an empty view-<id> div for the RAW id and re-activates it
+     after the base returns, which was defeating an alias applied only here:
+     the aliased view rendered, then the wrapper stole .active back to the
+     empty raw-id div → blank pane. Both layers now consult this one map. */
+  var __STALE_ALIASES = window.__HNX_VIEW_ALIASES = window.__HNX_VIEW_ALIASES || {
+    'hr_employees':'hr',    /* HR module Employees tab */
+    'hr_dash':'hr_cmd',     /* HR Command Center */
+    'ir_dash':'irr_dash',   /* Irrigation typo alias */
+    'lg_dash':'log_dash',   /* Logistics typo alias */
+    'sec_module':'sec_dash' /* Security dashboard alias */
+  };
+  if(__STALE_ALIASES[v]){
+    try{ console.warn('[switchView] stale view id "'+v+'" → routing to "'+__STALE_ALIASES[v]+'"'); }catch(_){}
+    v = __STALE_ALIASES[v];
+  }
   // v2.46.148 — Track the routed view for the alignment watchdog.
   window.currentView=v;
   // Guard: permission-based views
@@ -21516,7 +21540,14 @@ function switchView(v,skipModuleCheck){
 
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(x=>x.classList.remove('active'));
-  document.getElementById('view-'+v).classList.add('active');
+  /* v12.92: don't throw on an unknown view id — surface it so we can find the bad link */
+  var __viewEl = document.getElementById('view-'+v);
+  if(!__viewEl){
+    try{ console.error('[switchView] unknown view id: view-'+v+' — check the link that triggered this'); }catch(_){}
+    if(typeof showToast==='function') showToast('Unknown view: '+v,'warn');
+    return;
+  }
+  __viewEl.classList.add('active');
   markActiveSubTab(v);
   // Legacy: also update old nav-tab active state for compatibility
   const map={dashboard:0,wall:1,checklist:2,supervisor:3,hr:4,attendance:5,history:6,users:7,audit:8};
@@ -84265,8 +84296,8 @@ window.renderVisionMap=function(){
       icon:'📋',name:'ERP & Operations',stage:2,pdfPage:'p.6',
       desc:'HR, employees, attendance, training, role/department structure, referral bonuses, internal memos.',
       dashboards:[
-        {label:'HR Dashboard',view:'hr_dash'},
-        {label:'Employees',view:'hr_employees'},
+        {label:'HR Dashboard',view:'hr_cmd'},
+        {label:'Employees',view:'hr'},
         {label:'Attendance',view:'attendance'},
         {label:'Training',view:'training'}
       ]
@@ -85413,7 +85444,7 @@ window.renderHydroBrain=function(){
     {id:'qc',name:'Quality',icon:'🔬',view:'qc_dash',module:'qc',primary:qcPassRate==null?'—':`${qcPassRate}%`,secondary:`${qcRejected7d.toFixed(0)}kg rejected`,tone:qcPassRate!=null&&qcPassRate<80?'warning':'ok'},
     {id:'distribution',name:'Distribution',icon:'🚚',view:'fleet_dash',module:'fleet',primary:'Fleet',secondary:'live',tone:'ok'},
     {id:'finance',name:'Finance',icon:'💰',view:'payroll_ops',module:'accounting',primary:'Payroll',secondary:'live',tone:'ok'},
-    {id:'erp',name:'ERP / HR',icon:'📋',view:'hr_dash',module:'hr',primary:'Workforce',secondary:'live',tone:'ok'},
+    {id:'erp',name:'ERP / HR',icon:'📋',view:'hr_cmd',module:'hr',primary:'Workforce',secondary:'live',tone:'ok'},
     {id:'rd',name:'R&D Engine',icon:'🔬',view:'rd_engine',module:'overview',primary:`${aiDiscoveries}`,secondary:`${aiPending} pending`,tone:'ok'}
   ];
 
@@ -167213,9 +167244,15 @@ function install(){
   if(window.switchView.__hnxNavHard)return;
   var orig=window.switchView;
   window.switchView=function(v,skip){
+    /* v12.97: apply the stale-id alias map HERE too — this wrapper is the
+       outermost layer and used to ensureContainer/re-activate the RAW id,
+       which stole .active back to an empty div after the base rendered the
+       aliased view (blank pane). Rewriting v first keeps all three steps
+       (container, base call, re-activation) on the same real view id. */
+    try{ if(window.__HNX_VIEW_ALIASES && window.__HNX_VIEW_ALIASES[v]) v = window.__HNX_VIEW_ALIASES[v]; }catch(e){}
     ensureContainer(v);                 // 1) never let the base throw
     var r;
-    try{ r=orig.apply(this,arguments); }
+    try{ r=orig.call(this,v,skip); }
     catch(e){ try{console.warn('[nav] switchView recovered from',e);}catch(_){} }
     // 2) make sure the target view is the visible one
     try{
@@ -197495,44 +197532,83 @@ function __n2Theme(t){
    contained. Now we read the HR store defensively: try the loadEmployees()
    accessor first (returns the array), fall back to a direct localStorage read
    of hydroPro_employees so the cockpit works even before HR is initialized. */
+/* v12.91-cockpit-photo: photos still not appearing on the Digital Twin.
+   Three widening fixes on top of v12.90-p3:
+   (1) UNION BOTH employee stores — hydroPro_employees (payroll list) AND
+       hydroPro_hr_employees (HR module's own record). Different flows in
+       the app write to different stores; fleet already unions them at
+       line ~75238 and cockpit should too. Merged by id (first-wins) so
+       the same person isn't double-counted.
+   (2) WIDER FIELD DETECTION — some HR forms store the greenhouse under
+       ghAssigned, others use gh/greenhouse/ghNo/assignedGH/location, or
+       encode "GH1" inside a "dept" / "department" string like "GH1 Team".
+       Match against any of those and also against a dept/department field
+       that contains the GH token as a whole word.
+   (3) PHOTO-PREFERRING TIEBREAKER — within the same rank tier, prefer an
+       employee who actually has a photo. Old rank-only sort picked the
+       Team Leader even if their photo field was empty while a Supervisor
+       in the same GH had one uploaded, so the card showed initials even
+       though a usable photo existed on the roster. */
 function __n2LoadEmployeesSafe(){
-  var emps=null;
-  try{ if(typeof loadEmployees==='function'){ var r=loadEmployees(); if(Array.isArray(r)) emps=r; } }catch(e){}
-  if(!emps){ try{ if(typeof employees!=='undefined' && Array.isArray(employees)) emps=employees; }catch(e){} }
-  if(!emps){ try{ emps=JSON.parse(localStorage.getItem('hydroPro_employees')||'[]'); if(!Array.isArray(emps)) emps=[]; }catch(e){ emps=[]; } }
-  return emps||[];
+  var stores=[];
+  try{ if(typeof loadEmployees==='function'){ var r=loadEmployees(); if(Array.isArray(r)) stores.push(r); } }catch(e){}
+  try{ if(typeof employees!=='undefined' && Array.isArray(employees)) stores.push(employees); }catch(e){}
+  try{ var a=JSON.parse(localStorage.getItem('hydroPro_employees')||'[]'); if(Array.isArray(a)) stores.push(a); }catch(e){}
+  try{ var b=JSON.parse(localStorage.getItem('hydroPro_hr_employees')||'[]'); if(Array.isArray(b)) stores.push(b); }catch(e){}
+  /* union by id, preferring the entry that has a photo when duplicates exist */
+  var byId={},order=[];
+  stores.forEach(function(list){
+    list.forEach(function(e){
+      if(!e) return;
+      var k=e.id!=null?String(e.id):(e.username||e.name||'');
+      if(!k) return;
+      if(!(k in byId)){ byId[k]=e; order.push(k); }
+      else if(!byId[k].photo && e.photo){ byId[k]=Object.assign({},byId[k],e); } /* upgrade with photo-bearing copy */
+    });
+  });
+  return order.map(function(k){return byId[k];});
 }
 function __n2LookupLead(ghName){
   try{
     var emps = __n2LoadEmployeesSafe();
     var target=String(ghName||'').trim();
     var targetLC=target.toLowerCase();
+    var targetNorm=target.replace(/[\s-]/g,'').toLowerCase();
+    /* v12.91: word-boundary match against a longer string, e.g. "GH1 Production Team" contains "GH1" as a whole word */
+    var wordRe=new RegExp('\\b'+target.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','i');
     var matches = emps.filter(function(e){
       if(!e) return false;
-      /* v12.90-p3: match ghAssigned array OR single-value gh/greenhouse/ghNo fields;
-         normalize case so "GH-01" == "gh-01" == "GH 01" all count. */
       var gs=[];
       if(Array.isArray(e.ghAssigned)) gs=gs.concat(e.ghAssigned);
-      if(e.gh) gs.push(e.gh);
-      if(e.greenhouse) gs.push(e.greenhouse);
-      if(e.ghNo) gs.push(e.ghNo);
+      ['gh','greenhouse','ghNo','assignedGH','location'].forEach(function(f){ if(e[f]) gs.push(e[f]); });
       for(var i=0;i<gs.length;i++){
-        var s=String(gs[i]||'').trim();
-        if(!s) continue;
+        var s=String(gs[i]||'').trim(); if(!s) continue;
         if(s===target) return true;
         if(s.toLowerCase()===targetLC) return true;
-        if(s.replace(/[\s-]/g,'').toLowerCase()===target.replace(/[\s-]/g,'').toLowerCase()) return true;
+        if(s.replace(/[\s-]/g,'').toLowerCase()===targetNorm) return true;
       }
+      /* also accept when dept/department string embeds the GH token as a whole word */
+      if(e.dept && wordRe.test(String(e.dept))) return true;
+      if(e.department && wordRe.test(String(e.department))) return true;
       return false;
     });
     var rank = {'Team Leader':0,'Supervisor':1,'Lead Technician':2,'Production Specialist':3,'Technical Operator':4,'Worker':5,'Trainee / Sanitation':6};
     matches.sort(function(a,b){
       var ra = rank[a.role] !== undefined ? rank[a.role] : 99;
       var rb = rank[b.role] !== undefined ? rank[b.role] : 99;
-      return ra - rb;
+      if(ra!==rb) return ra-rb;
+      /* v12.91: within the same rank tier, prefer employees who actually have a photo */
+      var pa=a.photo?0:1, pb=b.photo?0:1;
+      return pa-pb;
     });
     var lead = matches[0];
     if(!lead) return {name:'— No team lead assigned —', role:'Assign in HR', ini:'?', ch:'CH-'+ghName.replace(/[^0-9]/g,'').padStart(2,'0'), photo:'', id:''};
+    /* v12.97: photo is the LEADER'S OWN or none — the v12.91 borrow-any-match
+       fallback put a different employee's face under the leader's name on the
+       card, radio panel and drill-in (an identification hazard in emergency
+       flows). Initials are accurate; a wrong face is not. The same-rank
+       photo-preferring sort above still surfaces a photo whenever any
+       equally-ranked leader actually has one. */
     var initials = (lead.name||'?').split(/[\s,]+/).filter(Boolean).slice(0,2).map(function(w){return w[0]?w[0].toUpperCase():'';}).join('') || '?';
     return {name: lead.name, role: (lead.role||'Team Member'), ini: initials, ch:'CH-'+ghName.replace(/[^0-9]/g,'').padStart(2,'0'), photo: lead.photo||'', id: lead.id||''};
   }catch(e){ return {name:'—',role:'—',ini:'?',ch:'—',photo:''}; }
@@ -197551,12 +197627,15 @@ function __n2Runtime(g){
   var scanH = 6 + Math.floor(r(seed+'sh')*10); var scanM = Math.floor(r(seed+'sm')*60);
   var photoH = scanH + 1; var photoM = Math.floor(r(seed+'pm')*60);
   var emps = __n2LoadEmployeesSafe();
+  var _gn=String(g.n||'').toLowerCase();
+  var _gnRe=new RegExp('\\b'+String(g.n||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','i');
   var ghEmps = emps.filter(function(e){
     if(!e) return false;
     var gs=[];
     if(Array.isArray(e.ghAssigned)) gs=gs.concat(e.ghAssigned);
-    if(e.gh) gs.push(e.gh); if(e.greenhouse) gs.push(e.greenhouse); if(e.ghNo) gs.push(e.ghNo);
-    return gs.some(function(s){ s=String(s||'').trim(); return s===g.n || s.toLowerCase()===String(g.n).toLowerCase(); });
+    ['gh','greenhouse','ghNo','assignedGH','location'].forEach(function(f){ if(e[f]) gs.push(e[f]); });
+    if(gs.some(function(s){ return String(s||'').trim().toLowerCase()===_gn; })) return true;
+    return (e.dept && _gnRe.test(String(e.dept))) || (e.department && _gnRe.test(String(e.department)));
   });
   var lastScanBy = ghEmps.length ? (ghEmps[Math.floor(r(seed+'sb')*ghEmps.length)].name||'').split(' ')[0] : 'Nexi';
   return {
