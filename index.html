@@ -22149,7 +22149,11 @@ function saveEmployeeAllowances(obj){
 function getEmpAllowancesForPeriod(periodKey,empId){
   const all=loadEmployeeAllowances();
   if(!all[periodKey])return [];
-  return all[periodKey][empId]||[];
+  /* v13.20 PAY-F5e: dedupe by entry id — the cloud deep-merge can transiently resurrect a
+     migrated entry from a not-yet-synced device, and a doubled allowance must never be
+     computable even inside that ≤20s window. */
+  const arr=all[periodKey][empId]||[];
+  const seen={};return arr.filter(e=>{const k=e&&e.id;if(!k)return true;if(seen[k])return false;seen[k]=1;return true;});
 }
 function setEmpAllowancesForPeriod(periodKey,empId,arr){
   const all=loadEmployeeAllowances();
@@ -155482,7 +155486,7 @@ gh+=_mtxTreeBody(rows);
         '<td style="padding:2px 4px;">'+cell('withheld',wh)+'</td>'+
         '<td style="font-size:11px;text-align:right;padding:4px 8px;color:#bcd;">'+money(tax+nt)+'</td></tr>'; }).join('');
     var head='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;"><div style="font-size:14px;font-weight:800;color:#7defc0;">\ud83d\udcb0 1601-C Compensation Withholding \u2014 '+esc(_stmtYearCur)+'</div>'+(PR?_liveBadge():'')+'<span style="flex:1;"></span><button onclick="window.__hnxACC.exportC1601()" style="background:#13261d;border:1px solid #2a6;color:#bfe3d6;border-radius:8px;padding:6px 12px;font-size:11px;cursor:pointer;">\u2b07 CSV</button></div>';
-    var note='<div style="font-size:11px;color:#7aa99a;margin-bottom:10px;">'+(PR?'Auto-filled from the payroll runs (Labor + Office) for each month \u2014 taxable comp = gross pay, tax withheld = payroll W-Tax.':'No payroll runs yet \u2014 run payroll and this fills automatically.')+(admin?' Manual entry overrides a month; CFO/CEO only.':' Manual entry is CFO/CEO only (read-only here).')+'</div>';
+    var note='<div style="font-size:11px;color:#7aa99a;margin-bottom:10px;">'+(PR?'Auto-filled from the payroll runs (Labor + Office) for each month \u2014 taxable comp = gross pay, tax withheld = payroll W-Tax.':'No APPROVED payroll runs yet \u2014 approve a payroll run and this fills automatically.')+(admin?' Manual entry overrides a month; CFO/CEO only.':' Manual entry is CFO/CEO only (read-only here).')+'</div>';
     var foot='<tr style="border-top:2px solid #2a6;"><td style="font-size:11px;font-weight:800;color:#cfe;padding:5px 8px;">TOTAL</td><td style="font-size:11px;text-align:right;padding:5px 8px;color:#cfe;font-weight:700;">'+money(t.taxable)+'</td><td style="font-size:11px;text-align:right;padding:5px 8px;color:#cfe;font-weight:700;">'+money(t.nontax)+'</td><td style="font-size:11px;text-align:right;padding:5px 8px;color:#f0c896;font-weight:800;">'+money(t.withheld)+'</td><td style="font-size:11px;text-align:right;padding:5px 8px;color:#cfe;font-weight:700;">'+money(t.taxable+t.nontax)+'</td></tr>';
     return '<div style="max-width:680px;overflow-x:auto;">'+head+note+'<table style="width:100%;border-collapse:collapse;min-width:600px;"><thead><tr style="border-bottom:1px solid #1d4a3c;">'+['Month','Taxable comp','Non-taxable','Tax withheld','Total comp'].map(function(h){return '<th style="font-size:9px;color:#9fc7bb;text-align:'+(h==='Month'?'left':'right')+';padding:3px 8px;">'+h+'</th>';}).join('')+'</tr></thead><tbody>'+body+foot+'</tbody></table></div>';
   }
