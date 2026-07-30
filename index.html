@@ -22261,7 +22261,7 @@ function _buildEmpRow(emp,showSalary,typeColors){
   } else {
     rateCell=`<span title="Restricted — only HR managers can view rates" style="color:var(--text3);font-family:var(--mono);">🔒 ••••</span>`;
   }
-  return `<tr onclick="viewEmployee('${emp.id}')" style="cursor:pointer;border-bottom:1px solid var(--border);${isInactive?'opacity:.55;':''}" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='transparent'">
+  return `<tr data-empid="${String(emp.id||'').replace(/"/g,'&quot;')}" style="cursor:pointer;border-bottom:1px solid var(--border);${isInactive?'opacity:.55;':''}" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='transparent'">
     <td style="padding:9px 12px;">
       <div style="display:flex;align-items:center;gap:9px;">
         <div style="width:32px;height:32px;border-radius:50%;background:var(--surface2);${photoStyle}display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid var(--border);">${emp.photo?'':`<span style="font-size:11px;font-weight:700;color:var(--text2);">${escapeHtml(initials)}</span>`}</div>
@@ -22316,7 +22316,7 @@ function buildEmpCard(emp){
   };
   const statusCls=_statusToCls(emp.status);
   const dotCls=statusCls;
-  return `<div class="emp-card ${statusCls}" onclick="viewEmployee('${emp.id}')">
+  return `<div class="emp-card ${statusCls}" data-empid="${String(emp.id||'').replace(/"/g,'&quot;')}">
     <div class="emp-card-top">
       <div class="emp-avatar" style="${photoStyle}">${emp.photo?'':'<span class="emp-avatar-initials">'+escapeHtml(initials)+'</span>'}</div>
       <div class="emp-card-main">
@@ -22431,6 +22431,8 @@ window.hnxJobCard=function(){
 /* ===== END HNX p274 ===== */
 function openEmployeeModal(empId){
   if(!can('manageHR')){showToast('Only Admin and Supervisor can edit employees','warn');return;}
+  /* v13.00: same stale-memory guard as viewEmployee — reload before failing */
+  if(empId && !employees.find(e=>e.id===empId)){ try{ loadEmployees(); }catch(_){} }
   _editingEmpId=empId||null;
   _editingEmpPhoto=null;
   // Populate dept dropdown
@@ -22975,9 +22977,33 @@ function deleteCurrentEmployee(){
   showToast('Employee deleted','warn');
 }
 
+/* v13.00: delegated click handling for the Employees roster — rows/cards carry
+   data-empid instead of inline onclick, so an id containing a quote or any
+   markup-special character can never break the handler string and leave the
+   row dead. One listener covers both table rows and card view. */
+document.addEventListener('click', function(ev){
+  try{
+    var host=ev.target && ev.target.closest ? ev.target.closest('[data-empid]') : null;
+    if(!host) return;
+    /* don't hijack clicks on interactive elements inside the row */
+    if(ev.target.closest('button,a,input,select,textarea')) return;
+    var id=host.getAttribute('data-empid');
+    if(id && typeof viewEmployee==='function') viewEmployee(id);
+  }catch(e){}
+});
 function viewEmployee(id){
-  const emp=employees.find(e=>e.id===id);
-  if(!emp)return;
+  /* v13.00: NEVER fail silently. If the id isn't in the in-memory array
+     (stale after a cloud-sync pull wrote fresh records to localStorage),
+     re-load from storage and retry; if still missing, say so. The old
+     silent `return` was exactly the reported "click does nothing". */
+  let emp=employees.find(e=>e.id===id);
+  if(!emp){
+    try{ loadEmployees(); emp=employees.find(e=>e.id===id); }catch(_){}
+  }
+  if(!emp){
+    if(typeof showToast==='function') showToast('Could not open record for "'+id+'" — refresh the page and try again','warn');
+    return;
+  }
   const d=deptById(emp.dept);
   const initials=(emp.name||'').split(',')[0].trim().split(' ').map(s=>s.charAt(0)).join('').substring(0,2);
   const photoStyle=emp.photo?`background-image:url('${emp.photo}');`:'';
