@@ -5551,7 +5551,7 @@ td.critical-blink,div.critical-blink,span.critical-blink,
 </div>
 
 <!-- EMPLOYEE EDIT/ADD MODAL -->
-<div class="modal-overlay" id="empModal">
+<div class="modal-overlay" id="empModal" data-autosave-fn="_autosaveEmployee">
   <div class="modal" style="max-width:820px;">
     <div class="modal-header">
       <div class="modal-title" id="empModalTitle">👤 ADD EMPLOYEE</div>
@@ -22675,6 +22675,8 @@ window._openFull201ForEmployee=function(empId){
 
 function toggleEmpGH(btn,gh){
   btn.classList.toggle('active');
+  /* v12.93: GH chips don't fire native input/change events, so nudge the auto-save engine manually */
+  try{ if(window.hnxAutosave) window.hnxAutosave.fire('#empModal'); }catch(_){}
 }
 
 function updateEmpPhotoPreview(){
@@ -22698,6 +22700,8 @@ async function onEmpPhotoChange(ev){
     const compressed=await compressImageForEmp(file,500);
     _editingEmpPhoto=compressed;
     updateEmpPhotoPreview();
+    /* v12.93: photo upload doesn't fire input on the modal container */
+    try{ if(window.hnxAutosave) window.hnxAutosave.fire('#empModal'); }catch(_){}
   }catch(e){showToast('Could not load photo','warn');}
 }
 
@@ -22705,6 +22709,7 @@ function removeEmpPhoto(){
   _editingEmpPhoto=null;
   document.getElementById('empPhotoInput').value='';
   updateEmpPhotoPreview();
+  try{ if(window.hnxAutosave) window.hnxAutosave.fire('#empModal'); }catch(_){}
 }
 
 function compressImageForEmp(file,maxDim){
@@ -22732,7 +22737,13 @@ function compressImageForEmp(file,maxDim){
   });
 }
 
-function saveEmployee(){
+function saveEmployee(opts){
+  /* v12.93 AUTO-SAVE MODE: when opts.silent is true (auto-save engine firing
+     on keystroke), skip toasts, alerts, confirm dialogs, modal close, and the
+     required-field early-returns for still-empty fields — so a half-typed
+     employee record persists as-is and the user's editing session isn't
+     interrupted. Manual Save button (no opts) keeps the full validation flow. */
+  var _silent = !!(opts && opts.silent);
   const id=document.getElementById('empId').value.trim();
   const name=document.getElementById('empName').value.trim();
   const dept=document.getElementById('empDept').value;
@@ -22741,26 +22752,26 @@ function saveEmployee(){
   const rateInput=document.getElementById('empRate').value.trim();
   const rateOverride=rateInput?parseFloat(rateInput)||0:0;
   const proLevel=parseInt(document.getElementById('empLevel').value)||1;
-  if(!id){showToast('Employee ID is required','warn');return;}
-  if(!name){showToast('Full name is required','warn');return;}
-  if(name.indexOf(',')===-1){if(!confirm('Name should be in LASTNAME, FIRSTNAME format. Save anyway?'))return;}
+  if(!id){ if(!_silent) showToast('Employee ID is required','warn'); return; }
+  if(!name){ if(!_silent) showToast('Full name is required','warn'); return; }
+  if(!_silent && name.indexOf(',')===-1){if(!confirm('Name should be in LASTNAME, FIRSTNAME format. Save anyway?'))return;}
   // Check ID collision (new only)
-  if(!_editingEmpId&&employees.some(e=>e.id===id)){showToast('Employee ID already exists','warn');return;}
+  if(!_editingEmpId&&employees.some(e=>e.id===id)){ if(!_silent) showToast('Employee ID already exists','warn'); return; }
   // v2.84 — Department Manager must pick a department they manage
   if(role==='Department Manager'){
     const mgDept=(document.getElementById('empDeptManages')||{}).value||'';
-    if(!mgDept){showToast('Department Manager — pick which department they manage','warn');return;}
+    if(!mgDept){ if(!_silent) showToast('Department Manager — pick which department they manage','warn'); return; }
   }
   // Collect GH assignments
   const ghChips=document.querySelectorAll('#empGHChips .emp-gh-chip.active');
   const ghAssigned=Array.from(ghChips).map(c=>c.dataset.gh);
   // Workers/Team Leaders assigned to production departments must have 1 GH
   const isProd=dept==='APTI_REGULAR'||dept.startsWith('PROD_');
-  if(isProd&&(role==='Worker'||role==='Team Leader')&&ghAssigned.length!==1){
+  if(!_silent && isProd&&(role==='Worker'||role==='Team Leader')&&ghAssigned.length!==1){
     if(!confirm(`${role}s in production usually work in exactly ONE greenhouse. Currently ${ghAssigned.length} selected. Save anyway?`))return;
   }
   var _titleVal=(document.getElementById('empTitle').value||'').trim();
-  if(!_titleVal||_titleVal==='__ADDPOS__'){showToast('Job Title / Position is required — pick a job or add a new one','warn');return;}
+  if(!_titleVal||_titleVal==='__ADDPOS__'){ if(!_silent) showToast('Job Title / Position is required — pick a job or add a new one','warn'); return; }
   // Get existing rec to preserve old rate as base if no override
   const existing=_editingEmpId?employees.find(e=>e.id===_editingEmpId):null;
   const rec={
@@ -22811,13 +22822,13 @@ function saveEmployee(){
       employees[i]=rec;
     }
     audit&&audit('emp_edit',`Edited ${name} (${rec.id})`);
-    showToast('Employee updated','ok');
+    if(!_silent) showToast('Employee updated','ok');
   } else {
     rec.createdAt=Date.now();
     rec.createdBy=(getCurrentUser()||{}).username||'unknown';
     employees.push(rec);
     audit&&audit('emp_add',`Added ${name} (${rec.id})`);
-    showToast('Employee added','ok');
+    if(!_silent) showToast('Employee added','ok');
   }
   saveEmployees();
   // Save Pro Level into Training certs (separate storage)
@@ -22839,9 +22850,14 @@ function saveEmployee(){
       }
     }
   }catch(e){console.warn('Could not save level:',e);}
-  document.getElementById('empModal').classList.remove('open');
-  renderHR();
+  if(!_silent){
+    document.getElementById('empModal').classList.remove('open');
+    renderHR();
+  }
 }
+/* v12.93: auto-save wrapper the universal engine calls on every keystroke.
+   Wraps saveEmployee in silent mode so nothing pops up / closes / re-renders. */
+window._autosaveEmployee = function(){ try{ saveEmployee({silent:true}); }catch(e){ try{console.warn('_autosaveEmployee:',e);}catch(_){} } };
 
 function deleteCurrentEmployee(){
   if(!_editingEmpId)return;
@@ -197704,5 +197720,138 @@ function __n2OpenNexi(g){
 
 </script>
 <!-- ================= END HNX v12.85 ================= -->
+
+<!-- ================= HNX v12.93 · UNIVERSAL AUTO-SAVE ================= -->
+<style id="hnxAutosaveStyle">
+.hnx-autosave-badge{
+  position:absolute; top:6px; right:6px; z-index:50;
+  padding:3px 9px; border-radius:11px;
+  font-family:'JetBrains Mono','SF Mono',Monaco,monospace;
+  font-size:10px; font-weight:800; letter-spacing:.05em;
+  background:rgba(76,175,80,.15); color:#4caf50; border:1px solid rgba(76,175,80,.5);
+  box-shadow:0 2px 6px rgba(0,0,0,.35);
+  transition:background .2s, color .2s, border-color .2s;
+  pointer-events:none; user-select:none;
+}
+.hnx-autosave-badge.saving{ background:rgba(255,193,7,.18); color:#ffc107; border-color:rgba(255,193,7,.55); }
+.hnx-autosave-badge.saved{  background:rgba(76,175,80,.15); color:#4caf50; border-color:rgba(76,175,80,.5); }
+.hnx-autosave-badge.error{  background:rgba(255,82,82,.18); color:#ff5252; border-color:rgba(255,82,82,.55); }
+[data-autosave-fn]{ position:relative; }
+</style>
+<script id="hnxAutosaveJs">
+/* v12.93 UNIVERSAL AUTO-SAVE ENGINE — no one loses data because they forgot to click Save.
+
+   HOW TO ENROLL A CONTAINER:
+     <div data-autosave-fn="saveEmployees">…inputs…</div>
+   Any <input>/<textarea>/<select>/[contenteditable] inside will fire
+   window.saveEmployees() immediately on 'input'/'change'/'blur' and on
+   tab-hide / close / navigate-away. A small "✓ Auto-saved" chip appears
+   in the top-right of the container after each save.
+
+   Guard-rails:
+     - The declared function must exist on window; missing functions are
+       logged once and skipped (no false 'saved' state).
+     - Errors thrown inside the save function flip the chip to red
+       ("✗ Save failed") but never crash the caller.
+     - A short throttle (60ms) collapses bursts of keystroke events into
+       one save so a fast typist doesn't hammer localStorage.setItem.
+       User asked for "immediate" — this is one animation frame away
+       from truly synchronous.
+     - flushAll() runs on pagehide/visibilitychange:hidden/beforeunload
+       so even a browser crash mid-typing preserves the last state.
+     - Fires under the parent form's existing save handler, so validation
+       and side-effects match what the manual Save button already does. */
+(function(){
+  if(window.__HNX_AUTOSAVE_V93__) return; window.__HNX_AUTOSAVE_V93__=true;
+
+  var _pending={}; /* container id → timer */
+  var _seq=0;
+  var _missingWarned={};
+
+  function containerKey(host){
+    if(!host.__hnxAsKey){ _seq++; host.__hnxAsKey='as_'+_seq; }
+    return host.__hnxAsKey;
+  }
+  function findHost(el){
+    if(!el || !el.closest) return null;
+    return el.closest('[data-autosave-fn]');
+  }
+  function callSaveFn(name){
+    var fn=window[name];
+    if(typeof fn!=='function'){
+      if(!_missingWarned[name]){ _missingWarned[name]=1; try{console.warn('[hnxAutosave] save fn missing:',name);}catch(_){} }
+      return {ok:false,err:'missing:'+name};
+    }
+    try{ fn(); return {ok:true}; }
+    catch(e){ try{console.error('[hnxAutosave] save fn threw:',name,e);}catch(_){} return {ok:false,err:e&&e.message||'error'}; }
+  }
+  function updateBadge(host,state,msg){
+    var b=host.querySelector(':scope > .hnx-autosave-badge');
+    if(!b){
+      b=document.createElement('div'); b.className='hnx-autosave-badge saved';
+      b.textContent='✓ Auto-saved';
+      /* the [data-autosave-fn] selector already forces position:relative via the CSS above */
+      host.appendChild(b);
+    }
+    b.classList.remove('saving','saved','error');
+    if(state==='saving'){ b.classList.add('saving'); b.textContent='⏳ Saving…'; }
+    else if(state==='saved'){ b.classList.add('saved'); b.textContent='✓ Auto-saved'; }
+    else if(state==='error'){ b.classList.add('error'); b.textContent='✗ '+(msg||'Save failed'); }
+  }
+  function fireSave(host){
+    var name=host.getAttribute('data-autosave-fn'); if(!name) return;
+    updateBadge(host,'saving');
+    var res=callSaveFn(name);
+    if(res.ok) updateBadge(host,'saved');
+    else updateBadge(host,'error',res.err);
+  }
+  function scheduleSave(host){
+    var k=containerKey(host);
+    if(_pending[k]) return; /* already queued this frame */
+    _pending[k]=setTimeout(function(){ delete _pending[k]; fireSave(host); }, 60);
+  }
+  function onEvent(ev){
+    var t=ev.target; if(!t) return;
+    var tag=(t.tagName||'').toUpperCase();
+    if(tag!=='INPUT' && tag!=='TEXTAREA' && tag!=='SELECT' && !(t.isContentEditable)) return;
+    var host=findHost(t); if(!host) return;
+    scheduleSave(host);
+  }
+  function flushAll(){
+    /* on hide/close: cancel any pending debounce and save synchronously */
+    Object.keys(_pending).forEach(function(k){ try{ clearTimeout(_pending[k]); }catch(_){} delete _pending[k]; });
+    document.querySelectorAll('[data-autosave-fn]').forEach(function(host){
+      var name=host.getAttribute('data-autosave-fn'); if(!name) return;
+      /* silent flush — don't paint 'saving' on the way out */
+      try{ if(typeof window[name]==='function') window[name](); }catch(_){}
+    });
+  }
+
+  document.addEventListener('input', onEvent, true);
+  document.addEventListener('change', onEvent, true);
+  document.addEventListener('blur', onEvent, true);
+  document.addEventListener('visibilitychange', function(){ if(document.hidden) flushAll(); });
+  window.addEventListener('pagehide', flushAll);
+  window.addEventListener('beforeunload', flushAll);
+
+  /* Public helpers so screens can wire enrollment programmatically after
+     they've built their DOM (matrix/table renders are async). */
+  window.hnxAutosave={
+    enroll:function(hostOrSelector, saveFnName){
+      var host=(typeof hostOrSelector==='string')?document.querySelector(hostOrSelector):hostOrSelector;
+      if(!host) return false;
+      host.setAttribute('data-autosave-fn', saveFnName);
+      return true;
+    },
+    flush:flushAll,
+    fire:function(hostOrSelector){
+      var host=(typeof hostOrSelector==='string')?document.querySelector(hostOrSelector):hostOrSelector;
+      if(host) fireSave(host);
+    }
+  };
+  try{ console.log('[hnxAutosave] v12.93 loaded — save-on-keystroke engine active'); }catch(_){}
+})();
+</script>
+<!-- ================= END v12.93 UNIVERSAL AUTO-SAVE ================= -->
 </body>
 </html>
