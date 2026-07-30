@@ -16303,9 +16303,51 @@ function _hnxCountUp(root){
 }
 
 // ===================== STATE =====================
-const TODAY = new Date().toISOString().slice(0,10);
+/* v13.14 RPT-F3: local (PH) calendar day — toISOString() is UTC, so between 12am and 8am PHT the
+   checklist state key (SKEY) and the daily-report label/filenames all pointed at YESTERDAY. */
+const TODAY = (d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'))(new Date());
 const SKEY = 'hydroPro_'+TODAY;
 let state = {};
+
+/* v13.13 MNT-F1 */ // Fan inspection issues get a dedicated PERSISTENT key. They used to live only inside
+// the per-day state key (hydroPro_YYYY-MM-DD), so every open fan defect silently vanished at midnight.
+// hydroPro_ prefix keeps the key inside cloud sync. On first load we merge issues found in today's +
+// recent daily keys so nothing already recorded is lost.
+const FAN_ISSUES_KEY='hydroPro_fan_issues_v1';
+function _loadFanIssuesStore(){
+  try{const s=JSON.parse(localStorage.getItem(FAN_ISSUES_KEY)||'null');if(s&&typeof s==='object'&&!Array.isArray(s))return s;}catch(e){}
+  // First load: harvest fanIssues from every existing daily key (today + recent days)
+  const merged={};
+  try{
+    const cutoff=new Date(Date.now()-14*86400000-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+    const dayKeys=[];
+    for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(/^hydroPro_\d{4}-\d{2}-\d{2}$/.test(k)&&k.slice(8)>=cutoff)dayKeys.push(k);}
+    dayKeys.sort(); // oldest first, dedupe by issue id below
+    dayKeys.forEach(k=>{
+      let day=null;try{day=JSON.parse(localStorage.getItem(k)||'null');}catch(e){}
+      if(!day||typeof day!=='object')return;
+      Object.keys(day).forEach(g=>{
+        const fi=day[g]&&day[g].fanIssues;if(!fi)return;
+        if(!merged[g])merged[g]={big:[],roof:[]};
+        ['big','roof'].forEach(kind=>{(Array.isArray(fi[kind])?fi[kind]:[]).forEach(iss=>{
+          if(iss&&!merged[g][kind].some(x=>x&&x.id===iss.id))merged[g][kind].push(iss);
+        });});
+      });
+    });
+  }catch(e){}
+  try{localStorage.setItem(FAN_ISSUES_KEY,JSON.stringify(merged));}catch(e){}
+  return merged;
+}
+function _saveFanIssuesStore(){
+  try{
+    const out={};
+    Object.keys(state).forEach(g=>{
+      const fi=state[g]&&state[g].fanIssues;
+      if(fi&&((fi.big&&fi.big.length)||(fi.roof&&fi.roof.length)))out[g]={big:fi.big||[],roof:fi.roof||[]};
+    });
+    localStorage.setItem(FAN_ISSUES_KEY,JSON.stringify(out));
+  }catch(e){}
+}
 
 function loadState(){
   try{ state = JSON.parse(localStorage.getItem(SKEY)||'{}'); }catch(e){ state={}; }
@@ -16323,8 +16365,16 @@ function loadState(){
     if(state[g].pipesClean===undefined) state[g].pipesClean=null;
     if(state[g].seedlings===undefined) state[g].seedlings=null;
   });
+  /* v13.13 MNT-F1 */ // hydrate fan issues from the dedicated persistent store — survives the midnight key roll
+  try{
+    const fiStore=_loadFanIssuesStore();
+    Object.keys(fiStore).forEach(g=>{
+      if(!state[g]) state[g]={items:{},statuses:{},locations:{},notes:{},photos:{},fans:{},fanIssues:{big:[],roof:[]},supTag:'',supNote:'',pipesClean:null,seedlings:null};
+      state[g].fanIssues={big:(fiStore[g].big||[]).slice(),roof:(fiStore[g].roof||[]).slice()};
+    });
+  }catch(e){}
 }
-function saveState(){localStorage.setItem(SKEY,JSON.stringify(state));autoWrite();}
+function saveState(){localStorage.setItem(SKEY,JSON.stringify(state));_saveFanIssuesStore();autoWrite();} /* v13.13 MNT-F1 */
 
 // ===================== DATA MGMT =====================
 let autoSaveDir=null; // Directory handle
@@ -16869,7 +16919,7 @@ function _renderDbOpenCalls(){
   target.innerHTML=`
     <div class="section-title" style="display:flex;align-items:center;gap:10px;">📞 Production Open Calls
       <span style="font-size:11px;color:var(--text3);font-weight:400;">— ${open.length} open</span>
-      <span style="margin-left:auto;"><button class="btn btn-outline" style="font-size:11px;padding:5px 10px;" onclick="switchView('my_calls')">View all →</button></span>
+      <span style="margin-left:auto;"><button class="btn btn-outline" style="font-size:11px;padding:5px 10px;" onclick="try{_myCallsModuleFilter='production'}catch(e){};switchView('my_calls')">View all →</button></span><!-- v13.14 RPT-F6: scope My Calls to production, matching the panel's own filter (same pattern as the per-module Open Issues sub-tabs) -->
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;margin-bottom:14px;">
       ${open.map(c=>{
@@ -17623,7 +17673,8 @@ window.MCC_LIVE.irr_cmd=function(){
       var ec=parseFloat(latest.EC), ph=parseFloat(latest.pH);
       if(!isNaN(ec)) ecVals.push(ec);
       if(!isNaN(ph)) phVals.push(ph);
-      var tEc=parseFloat(p.ec), tPh=parseFloat(p.ph);
+      /* v13.13 IRR-F8: p.ec/p.ph are {criticalMin,min,max,target} objects — parseFloat(object) is NaN, so every pool fell back to the hardcoded band and off-target pools were under-reported */
+      var tEc=parseFloat((p.ec&&typeof p.ec==='object')?p.ec.target:p.ec), tPh=parseFloat((p.ph&&typeof p.ph==='object')?p.ph.target:p.ph);
       var ecBad=!isNaN(ec)&&(!isNaN(tEc)?Math.abs(ec-tEc)>0.3:(ec<1.2||ec>2.6));
       var phBad=!isNaN(ph)&&(!isNaN(tPh)?Math.abs(ph-tPh)>0.4:(ph<5.4||ph>6.6));
       if(ecBad||phBad) offTarget.push({pool:(p.label||p.id),gh:p.greenhouse||'',ec:ec,ph:ph,ecBad:ecBad,phBad:phBad});
@@ -17911,6 +17962,78 @@ window.MCC_LIVE.sec_cmd=function(){
     if(!alerts.length) alerts.push({tone:'ok', title:'Security nominal', msg:'Coverage on track · no incidents in 24h'});
     return {kpis:kpis, aiRows:aiRows, boxes:boxes, alerts:alerts};
   }catch(e){ console.warn('[MCC] sec_cmd live failed', e); return null; }
+/* v13.14 QC-F7 · live QC command-center — replaces qc_cmd's static demo numbers
+   ("128 inspections / 94.2% pass rate") with real signals from the QC module
+   (inspections, rejections, open QC tickets). Merged over the static config. */
+window.MCC_LIVE.qc_cmd=function(){
+  try{
+    var _d0=new Date();
+    var today=_d0.getFullYear()+'-'+String(_d0.getMonth()+1).padStart(2,'0')+'-'+String(_d0.getDate()).padStart(2,'0');
+    var insp=(typeof _qcLoadInspections==='function')?(_qcLoadInspections()||[]):[];
+    var rej=(typeof _qcLoadRejections==='function')?(_qcLoadRejections()||[]):[];
+    function dstr(x){ return String((x&&x.date)||'').slice(0,10); } // v57/v61 loader patches may append T00:00:00
+    function in7(x){ var t=new Date(dstr(x)+'T00:00:00').getTime(); return !isNaN(t)&&(Date.now()-t)<7*86400000; }
+
+    var inspToday=insp.filter(function(i){return dstr(i)===today;});
+    var insp7=insp.filter(in7);
+    var passed7=insp7.filter(function(i){return i&&i.passed;}).length;
+    var failed7=insp7.length-passed7;
+    var failedToday=inspToday.filter(function(i){return i&&!i.passed;}).length;
+    var passRate7=insp7.length?Math.round(passed7/insp7.length*100):null;
+
+    var rejToday=rej.filter(function(r){return dstr(r)===today;});
+    var rej7=rej.filter(in7);
+    var rejKg7=rej7.reduce(function(a,r){return a+(parseFloat(r&&r.qty)||0);},0);
+
+    // defect + facility hot-spots (7d)
+    var defCount={},facFail={};
+    insp7.forEach(function(i){
+      if(!i)return;
+      (i.defects||[]).forEach(function(dd){ defCount[dd]=(defCount[dd]||0)+1; });
+      if(!i.passed&&i.facility)facFail[i.facility]=(facFail[i.facility]||0)+1;
+    });
+    var topDefect=Object.keys(defCount).sort(function(a,b){return defCount[b]-defCount[a];})[0]||null;
+    var topFacility=Object.keys(facFail).sort(function(a,b){return facFail[b]-facFail[a];})[0]||null;
+
+    // open QC tickets (same source as renderQCCalls)
+    var openCalls=0,critCalls=0;
+    try{
+      var issues=JSON.parse(localStorage.getItem('hydroPro_issues_v2')||'[]')||[];
+      issues.forEach(function(i){
+        if(!i||i.module!=='quality')return;
+        if(['open','assigned','in_progress'].indexOf(i.status)>=0){ openCalls++; if(i.priority==='critical'||i.priority==='urgent')critCalls++; }
+      });
+    }catch(e){}
+
+    var kpis=[
+      {l:'Inspections today', v:String(inspToday.length), s:insp7.length+' in last 7d', tone:inspToday.length?'ok':''},
+      {l:'Pass rate (7d)', v:passRate7!=null?passRate7+'%':'—', s:insp7.length?(passed7+' pass · '+failed7+' fail'):'no inspections yet', tone:passRate7==null?'':(passRate7>=90?'ok':passRate7>=70?'warn':'crit')},
+      {l:'Rejections (7d)', v:String(rej7.length), s:rej7.length?(rejKg7.toFixed(1)+' kg rejected'):'none logged', tone:rej7.length?'warn':'ok'},
+      {l:'Open QC calls', v:String(openCalls), s:critCalls?(critCalls+' critical'):'none critical', tone:critCalls?'crit':(openCalls?'warn':'ok')}
+    ];
+    var aiRows=[
+      {l:'🎯 Pass rate (7d)', v:passRate7!=null?passRate7+'%':'—', c:passRate7==null?'':(passRate7>=90?'ok':'warn')},
+      {l:'📉 Failed today', v:String(failedToday), c:failedToday?'warn':'ok'},
+      {l:'🔬 Top defect (7d)', v:topDefect||'—', c:topDefect?'warn':''},
+      {l:'🏭 Fail hot-spot (7d)', v:topFacility?(topFacility+' ×'+facFail[topFacility]):'—', c:topFacility?'warn':''},
+      {l:'📊 Rejected kg (7d)', v:rej7.length?rejKg7.toFixed(1)+' kg':'—', c:rej7.length?'warn':'ok'}
+    ];
+    var boxes=[
+      {i:'🛡', t:'Pass Rate (7d)', v:passRate7!=null?passRate7+'%':'—', c:passRate7==null?'':(passRate7>=90?'ok':'warn'), s:insp7.length?(insp7.length+' inspections in 7d'):'no inspections yet'},
+      {i:'🔍', t:'Inspections Today', v:String(inspToday.length), c:inspToday.length?'ok':'', s:inspToday.length?(failedToday?failedToday+' failed today':'all passed today'):'none logged yet'},
+      {i:'❌', t:'Rejections (7d)', v:String(rej7.length), c:rej7.length?'warn':'ok', s:rej7.length?(rejKg7.toFixed(1)+' kg · '+rejToday.length+' today'):'none logged'},
+      {i:'🐛', t:'Top Defect (7d)', v:topDefect?('×'+defCount[topDefect]):'—', c:topDefect?'warn':'ok', s:topDefect||'no defects recorded'},
+      {i:'🏭', t:'Fail Hot-spot', v:topFacility||'—', c:topFacility?'warn':'ok', s:topFacility?(facFail[topFacility]+' failed inspections in 7d'):'no failures in 7d'},
+      {i:'📞', t:'Open QC Calls', v:String(openCalls), c:openCalls?(critCalls?'crit':'warn'):'ok', s:critCalls?(critCalls+' critical · act now'):'no critical tickets'}
+    ];
+    var alerts=[];
+    if(failedToday) alerts.push({tone:'warn', title:failedToday+' failed inspection'+(failedToday>1?'s':'')+' today', msg:(topFacility?('Check '+topFacility+' — '):'')+'review defects and rework'});
+    if(rej7.length) alerts.push({tone:'warn', title:rejKg7.toFixed(1)+' kg rejected in 7d', msg:rej7.length+' rejection'+(rej7.length>1?'s':'')+' logged — see Rejections Log'});
+    if(critCalls) alerts.push({tone:'crit', title:critCalls+' critical QC call'+(critCalls>1?'s':''), msg:'Open tickets need attention now'});
+    if(!alerts.length) alerts.push({tone:'ok', title:insp.length?'Quality nominal':'No QC data yet', msg:insp.length?'No failures today · no open rejections':'Log inspections and rejections to light up this board'});
+
+    return {kpis:kpis, aiRows:aiRows, boxes:boxes, alerts:alerts};
+  }catch(e){ console.warn('[MCC] qc_cmd live failed', e); return null; }
 };
 
 
@@ -20356,8 +20479,10 @@ function setMgrRange(preset){
   else if(preset==='7d'){start.setDate(end.getDate()-6);}
   else if(preset==='30d'){start.setDate(end.getDate()-29);}
   else if(preset==='all'){start=new Date(2020,0,1);}
-  document.getElementById('mgrStart').value=start.toISOString().slice(0,10);
-  document.getElementById('mgrEnd').value=end.toISOString().slice(0,10);
+  /* v13.14 RPT-F5: local (PH) date parts — toISOString() is UTC, shifting the presets one day early during 12am–8am PHT */
+  const _mgrIso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  document.getElementById('mgrStart').value=_mgrIso(start);
+  document.getElementById('mgrEnd').value=_mgrIso(end);
   renderMgrSummary();
 }
 function getMgrDates(){
@@ -20368,7 +20493,7 @@ function getMgrDates(){
   let d=new Date(start+'T00:00:00');
   const e=new Date(end+'T00:00:00');
   while(d<=e){
-    const ds=d.toISOString().slice(0,10);
+    const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');/* v13.14 RPT-F5: d is LOCAL midnight — toISOString() rendered the previous UTC day, shifting the whole range back one day */
     if(localStorage.getItem('hydroPro_'+ds))dates.push(ds);
     d.setDate(d.getDate()+1);
   }
@@ -21648,11 +21773,16 @@ function switchView(v,skipModuleCheck){
     'ir_dash':'irr_dash',   /* Irrigation typo alias */
     'lg_dash':'log_dash',   /* Logistics typo alias */
     'sec_module':'sec_dash', /* Security dashboard alias */
-    'licenses':'lic_registry' /* v13.05 HR-F2: HR "📜 Licenses" sub-tab + hr_cmd nav grid route to the real Licenses registry — 'licenses' itself has no route/renderer (blank pane + Production header) */
+    'licenses':'admin_ai', /* v13.14 LIC-F4 (was v13.05 HR-F2 → lic_registry): HR "📜 Licenses" sub-tab + hr_cmd nav grid now land on the REAL license tracker (Admin-AI, Licenses & Permits tab) — lic_registry is a "Coming Soon" stub with no data */
+    'irr_pools':'irr_nutrients',      /* v13.13 IRR-F6: legacy id used by dashboard tiles/alerts — real Pool Monitor view */
+    'irr_calibration':'irr_systems'   /* v13.13 IRR-F6: legacy id — real Calibration view */
   };
   if(__STALE_ALIASES[v]){
     try{ console.warn('[switchView] stale view id "'+v+'" → routing to "'+__STALE_ALIASES[v]+'"'); }catch(_){}
+    var __rawAliasedV=v;
     v = __STALE_ALIASES[v];
+    /* v13.14 LIC-F4: when the Licenses entry points route to Admin-AI, preselect its Licenses & Permits tab */
+    if(__rawAliasedV==='licenses'&&v==='admin_ai'){ try{ if(window.__hnxADMINAI)window.__hnxADMINAI.tab='lic'; }catch(_){} }
   }
   // Guard: permission-based views
   const guards={
@@ -21667,7 +21797,7 @@ function switchView(v,skipModuleCheck){
     pack_dash:'viewPackaging',pack_materials:'viewPackaging',pack_operations:'viewPackaging',pack_washtrim:'viewPackaging',pack_calls:'viewPackaging',pack_checklist:'viewPackaging',pack_cmd:'viewPackaging',pack_duties:'viewPackaging', /* v13.14 PACK-F3: these views bypassed the viewPackaging gate (console/#hash deep links) */
     log_dash:'viewLogistics',log_deliveries:'viewLogistics',log_routes:'viewLogistics',log_vehicles:'viewLogistics',log_recurring:'viewLogistics',log_open_calls:'viewLogistics',log_megabox_matrix:'viewLogistics',
     crm_dash:'viewCRM',crm_reminders:'viewCRM',crm_leads:'viewCRM',crm_customers:'viewCRM',crm_marketing:'viewCRM',crm_pipeline:'viewCRM',crm_catalog:'viewCRM',crm_quotes:'viewCRM',crm_orders:'viewCRM',crm_sales:'viewCRM',
-    qc_dash:'viewQuality',qc_inspections:'viewQuality',qc_rejections:'viewQuality',qc_standards:'viewQuality',qc_prod_inspection:'viewQuality',
+    qc_dash:'viewQuality',qc_inspections:'viewQuality',qc_rejections:'viewQuality',qc_standards:'viewQuality',qc_prod_inspection:'viewQuality',qc_cmd:'viewQuality',qc_calls:'viewQuality',qc_sop:'viewQuality',/* v13.14 QC-F5: the other 3 registered QC views were missing here, so direct switchView() bypassed the permission guard */
     fleet_dash:'viewFleet',fleet_vehicles:'viewFleet',fleet_drivers:'viewFleet',fleet_fuel:'viewFleet',fleet_logistics_coord:'viewFleet',
     lic_dash:'viewLicenses',lic_registry:'viewLicenses',lic_expiring:'viewLicenses',lic_compliance:'viewLicenses',
     prj_dash:'viewProjects',prj_active:'viewProjects',prj_planning:'viewProjects',prj_completed:'viewProjects',
@@ -26267,7 +26397,19 @@ function loadEmailRouting(){
 function saveEmailRouting(r){localStorage.setItem(EMAIL_ROUTING_KEY,JSON.stringify(r));}
 
 function loadReportSchedules(){
-  try{return JSON.parse(localStorage.getItem(REPORT_SCHEDULES_KEY)||'[]');}catch(e){return [];}
+  try{
+    const arr=JSON.parse(localStorage.getItem(REPORT_SCHEDULES_KEY)||'[]');
+    if(!Array.isArray(arr))return [];
+    /* v13.14 RPT-F1: the Reports-Hub scheduler (_saveSchedule) writes {recipients:"a,b",enabled} into the
+       SAME localStorage key — normalize both shapes here so renderReportScheduler/renderScheduleCard
+       never crash on string recipients and enabled-only entries aren't misfiled as PAUSED. */
+    arr.forEach(s=>{
+      if(!s||typeof s!=='object')return;
+      if(typeof s.recipients==='string')s.recipients=s.recipients.split(',').map(x=>x.trim()).filter(Boolean);
+      if(s.active===undefined&&s.enabled!==undefined)s.active=!!s.enabled;
+    });
+    return arr;
+  }catch(e){return [];}
 }
 function saveReportSchedules(arr){localStorage.setItem(REPORT_SCHEDULES_KEY,JSON.stringify(arr));}
 
@@ -26615,9 +26757,9 @@ function renderReportScheduler(){
     <div class="section-title">📨 Report Scheduler</div>
 
     <div style="padding:14px 16px;background:var(--surface2);border-left:3px solid var(--ok);border-radius:8px;margin-bottom:16px;font-size:12px;color:var(--text2);">
-      <strong>📬 Schedule recurring reports</strong> — now delivered <strong>fully automatically by the cloud</strong>. ✅
-      <br>Once a schedule is active, the server emails it on time all by itself — no app open, no clicks needed.
-      <br>Tap <strong>📧 Send Test Email Now</strong> below to confirm delivery is working.
+      <!-- v13.14 RPT-F2: copy corrected — sending is mailto:/EmailJS from THIS app while it is open (due banner + Send Now); there is no server-side scheduler firing while the app is closed -->
+      <strong>📬 Schedule recurring reports</strong> — reminders &amp; one-click sending <strong>from this app</strong>.
+      <br>When a schedule comes due it appears under <strong>🔴 DUE NOW</strong> (and as a banner when the app opens). Tap <strong>📤 Send Now</strong> to email it via your mail app — or configure <strong>⚡ Auto-Send Setup</strong> (EmailJS) so due reports go out automatically <em>while the app is open</em>. Nothing is sent while the app is closed.
       <br><strong>🛡 Domain policy:</strong> All recipients must end in <code>@abapardes.com.ph</code>.
     </div>
 
@@ -27324,9 +27466,14 @@ function buildBlockContent(blockId,schedule){
       }
       case 'maint_nft':{
         try{
-          const counts=JSON.parse(localStorage.getItem('hydroPro_maint_nft_counts_v1')||'{}');
-          const ghCount=Object.keys(counts).length;
-          return `NFT counts logged for ${ghCount} GH${ghCount===1?'':'s'}.\n`;
+          /* v13.13 MNT-F12 */ // store is an ARRAY of dated snapshots, not a per-GH map — use _nftSummary()
+          if(typeof _nftSummary==='function'){
+            const s=_nftSummary();
+            const snaps=(typeof loadNftCounts==='function')?loadNftCounts().length:0;
+            return `NFT count snapshots: ${snaps} · latest ${s.latest?s.latest.date:'—'} · total ${s.totalLatest} pipes${s.variances.length?` · ${s.variances.length} variance cell${s.variances.length===1?'':'s'} vs prior (−${s.lostPipes}/+${s.gainedPipes})`:''}\n`;
+          }
+          const snaps=JSON.parse(localStorage.getItem('hydroPro_maint_nft_counts_v1')||'[]');
+          return `NFT count snapshots: ${Array.isArray(snaps)?snaps.length:0}\n`;
         }catch(e){return '(NFT data unavailable)\n';}
       }
       case 'maint_pumps':{
@@ -27343,7 +27490,8 @@ function buildBlockContent(blockId,schedule){
       }
       case 'maint_tasks':{
         try{
-          const tasks=JSON.parse(localStorage.getItem('hydroPro_maint_tasks_v1')||'[]');
+          /* v13.13 MNT-F12 */ // store key is MAINT_TASKS_KEY ('hydroPro_maint_tasks'); '_v1' is never written
+          const tasks=(typeof loadMaintTasks==='function')?loadMaintTasks():JSON.parse(localStorage.getItem(typeof MAINT_TASKS_KEY!=='undefined'?MAINT_TASKS_KEY:'hydroPro_maint_tasks')||'[]');
           if(!Array.isArray(tasks))return '(Task board format error)\n';
           const open=tasks.filter(t=>t.status&&t.status!=='done');
           let out=`Open tasks: ${open.length} (of ${tasks.length} total)\n`;
@@ -27360,7 +27508,7 @@ function buildBlockContent(blockId,schedule){
       case 'maint_ro': return '(RO machine — see app for status)\n';
       case 'maint_tools':{
         if(typeof TOOLS_INVENTORY==='undefined')return '(Tools data not available)\n';
-        const defective=TOOLS_INVENTORY.filter(t=>t.status==='defective').length;
+        const defective=TOOLS_INVENTORY.filter(t=>(typeof effectiveToolStatus==='function'?effectiveToolStatus(t):t.status)==='defective').length; /* v13.13 MNT-F7 */
         return `Total tools: ${TOOLS_INVENTORY.length}\nDefective: ${defective}\n`;
       }
 
@@ -29414,7 +29562,7 @@ function openAddPoolWizard(presetRoomId){
       gh:selGh,
       poolNumber:parseInt(selPoolNum,10),
       poolNum:parseInt(selPoolNum,10),
-      dim:null
+      dim:{} /* v13.13 IRR-F1: dim:null blanked Pool Monitor permanently — renderers dereference p.dim.target outside their guards */
     });
     saveIrrPools(ps);
     IRR_POOLS=loadIrrPools();
@@ -36909,10 +37057,10 @@ function renderIrrDash(){
   IRR_DRUMS.forEach(d=>{
     IRR_FERT_ROOMS.forEach(r=>{
       const v=(drumsData[r.id]||{})[d];
-      const s=drumStatus(v);
+      const s=drumStatus(v,r.id,d); /* v13.13 IRR-F5: per-drum thresholds now drive the dashboard tiles too */
       if(s==='ok')drumOk++;
-      else if(s==='warning')drumWarn++;
-      else if(s==='critical')drumCrit++;
+      else if(s==='warning'||s==='warning_max')drumWarn++;
+      else if(s==='critical'||s==='critical_max')drumCrit++;
       else drumEmpty++;
     });
   });
@@ -36938,8 +37086,8 @@ function renderIrrDash(){
     <div class="pay-stat-row">
       <div class="pay-stat" style="cursor:pointer;" onclick="switchView('irr_schedule')" title="Click to open daily room checks"><div class="pay-stat-label">Rooms Checked</div><div class="pay-stat-val ${roomsDone===roomsTotal?'ok':'warn'}">${roomsDone}/${roomsTotal}</div></div>
       <div class="pay-stat" style="cursor:pointer;" onclick="switchView('irr_drums')" title="Click to view drum levels"><div class="pay-stat-label">Drums OK</div><div class="pay-stat-val ${drumOk===drumTotal?'ok':'warn'}">${drumOk}/${drumTotal}</div></div>
-      <div class="pay-stat" style="cursor:pointer;" onclick="switchView('irr_pools')" title="Click to view pool monitoring"><div class="pay-stat-label">Pool Readings</div><div class="pay-stat-val ${poolReadings===poolTotal?'ok':poolReadings>0?'warn':'danger'}">${poolReadings}/${poolTotal}</div></div>
-      <div class="pay-stat" style="cursor:pointer;" onclick="switchView('irr_calibration')" title="Click to view calibration log"><div class="pay-stat-label">Calibrations</div><div class="pay-stat-val ${todayCal>0?'ok':'warn'}">${todayCal}</div></div>
+      <div class="pay-stat" style="cursor:pointer;" onclick="switchView('irr_nutrients')" title="Click to view pool monitoring"><div class="pay-stat-label">Pool Readings</div><div class="pay-stat-val ${poolReadings===poolTotal?'ok':poolReadings>0?'warn':'danger'}">${poolReadings}/${poolTotal}</div></div><!-- v13.13 IRR-F6: 'irr_pools'/'irr_calibration' views don't exist — real ids are irr_nutrients / irr_systems -->
+      <div class="pay-stat" style="cursor:pointer;" onclick="switchView('irr_systems')" title="Click to view calibration log"><div class="pay-stat-label">Calibrations</div><div class="pay-stat-val ${todayCal>0?'ok':'warn'}">${todayCal}</div></div>
       <div class="pay-stat" style="cursor:pointer;" onclick="_drillIrrDrums('warning')" title="Click to see drums in warning"><div class="pay-stat-label">⚠ Drum Warn</div><div class="pay-stat-val ${drumWarn>0?'warn':'ok'}">${drumWarn}</div></div>
       <div class="pay-stat" style="cursor:pointer;" onclick="_drillIrrDrums('critical')" title="Click to see critical drums"><div class="pay-stat-label">🚨 Drum Critical</div><div class="pay-stat-val ${drumCrit>0?'danger':'ok'}">${drumCrit}</div></div>
     </div>
@@ -37878,7 +38026,7 @@ function renderIrrPoolMonitor(){
         // v2.46.96 — show "31cm = 627L" prominently
         const badge=isAuto&&r.waterAdded!==''&&r.waterAdded!=null?`<div class="field-ts" style="color:var(--accent2);font-size:10px;font-family:var(--mono);font-weight:700;">⚡ <strong>${gapCM}cm = ${recL}L</strong></div>`:(recL!=null&&recL>0&&!r.waterAdded?`<div class="field-ts" style="color:var(--text3);font-size:10px;font-family:var(--mono);">→ <strong>${gapCM}cm = ${recL}L</strong></div>`:(recL<0?`<div class="field-ts" style="color:var(--warn);font-size:9px;font-family:var(--mono);">over by ${Math.abs(gapCM)}cm</div>`:''));
         const placeholder=recL!=null&&recL>0?`${gapCM}cm=${recL}L`:'+L';
-        return `<td class="col-grp"><input type="number" step="0.1" class="irr-pool-input ${isAuto?'auto-filled':''}" value="${r.waterAdded||''}" placeholder="${placeholder}" onchange="irrSavePool('${p.id}','waterAdded',this.value)" title="Liters of water to add to bring pool from ${r.water||'?'}cm to target ${p.dim.target}cm.${recL!=null?' Fill '+gapCM+'cm = '+recL+'L (pool '+(p.dim.L)+'×'+(p.dim.W)+'cm).':''}${isAuto?' (Auto-filled — edit to override)':''}">${badge||tsLabel('waterAdded')}</td>`;
+        return `<td class="col-grp"><input type="number" step="0.1" class="irr-pool-input ${isAuto?'auto-filled':''}" value="${r.waterAdded||''}" placeholder="${placeholder}" onchange="irrSavePool('${p.id}','waterAdded',this.value)" title="Liters of water to add to bring pool from ${r.water||'?'}cm to target ${(p.dim&&p.dim.target)||'?'}cm.${recL!=null?' Fill '+gapCM+'cm = '+recL+'L (pool '+(p.dim.L)+'×'+(p.dim.W)+'cm).':''}${isAuto?' (Auto-filled — edit to override)':''}">${badge||tsLabel('waterAdded')}</td>`;
       })()}
       <td>${(()=>{
         // v2.46.97 — A: matrix value is PER DRUM (A and B each get same)
@@ -38051,6 +38199,8 @@ function irrSwitchPoolTime(t){
   _irrCurrentPoolTime=t;
   renderIrrPoolMonitor();
 }
+/* v13.13 IRR-F2: setter for the lexical _irrCurrentPoolTime — inline onclicks that assigned window._irrCurrentPoolTime never changed the binding the renderers read */
+window.irrSetPoolTime=function(t){_irrCurrentPoolTime=t;};
 
 // v2.46.74 — toggle air pump status: unset → working → broken → unset
 function irrToggleAirPump(poolId){
@@ -39173,10 +39323,10 @@ function renderIrrDrumLevels(){
   IRR_DRUMS.forEach(drum=>{
     IRR_FERT_ROOMS.forEach(room=>{
       const val=((data[_irrDate]||{})[room.id]||{})[drum];
-      const s=drumStatus(val);
+      const s=drumStatus(val,room.id,drum); /* v13.13 IRR-F5: pass room+drum so per-drum thresholds from Pool & Drum Setup apply */
       if(s==='ok')okCount++;
-      else if(s==='warning')warnCount++;
-      else if(s==='critical')critCount++;
+      else if(s==='warning'||s==='warning_max')warnCount++;
+      else if(s==='critical'||s==='critical_max')critCount++;
       else emptyCount++;
     });
   });
@@ -39187,7 +39337,8 @@ function renderIrrDrumLevels(){
   const drumRows=IRR_DRUMS.map(drum=>{
     const cells=IRR_FERT_ROOMS.map(room=>{
       const val=((data[_irrDate]||{})[room.id]||{})[drum]||'';
-      const s=drumStatus(val);
+      let s=drumStatus(val,room.id,drum); /* v13.13 IRR-F5 */
+      s=s==='critical_max'?'critical':s==='warning_max'?'warning':s;
       const numVal=parseFloat(val)||0;
       const pct=Math.min(100,(numVal/DRUM_FULL_L)*100);
       const indicator=s==='empty'
@@ -39801,7 +39952,10 @@ function getPoolDoseTemplate(p){
   return IRR_DEFAULT_TEMPLATES[p.id]||'standard';
 }
 function getPoolDoseMultiplier(p){
-  return IRR_DOSE_TEMPLATES[getPoolDoseTemplate(p)].multiplier;
+  const base=IRR_DOSE_TEMPLATES[getPoolDoseTemplate(p)].multiplier;
+  /* v13.13 IRR-F3: applyLearnedMultiplier wrote p.learnedEcMultiplier but nothing ever read it — fold it into the effective A/B dose multiplier */
+  const learned=p?parseFloat(p.learnedEcMultiplier):NaN;
+  return (!isNaN(learned)&&learned>0)?+(base*learned).toFixed(3):base;
 }
 // v2.46.122 — Per-pool "simple ml/L" dosing mode (alternative to matrix lookup)
 // p.dosingMode = 'matrix' (default, uses EC_DOSE_MATRIX) or 'simple' (uses ml/L rates)
@@ -39987,6 +40141,7 @@ window.applyLearnedMultiplier=function(poolId){
   if(typeof audit==='function')audit('pool_learning_apply',`Pool ${poolId} learned multiplier → ×${stats.suggestedEcMultiplier} (n=${stats.ecSampleCount}, ${stats.confidence})`);
   if(typeof showToast==='function')showToast(`✓ Applied learned ×${stats.suggestedEcMultiplier} to pool`,'ok',2000);
   if(typeof renderPoolSetup==='function')renderPoolSetup();
+  if(typeof renderIrrAiInsights==='function')renderIrrAiInsights(); /* v13.13 IRR-F3: refresh the card that hosted the Apply button */
 };
 
 window.clearLearnedMultiplier=function(poolId){
@@ -40000,6 +40155,7 @@ window.clearLearnedMultiplier=function(poolId){
   IRR_POOLS=loadIrrPools();
   if(typeof showToast==='function')showToast('✓ Cleared learned multiplier','ok',1500);
   if(typeof renderPoolSetup==='function')renderPoolSetup();
+  if(typeof renderIrrAiInsights==='function')renderIrrAiInsights(); /* v13.13 IRR-F3 */
 };
 
 // ============================================================================
@@ -40965,6 +41121,9 @@ function renderIrrSmartDose(){
     if(out.rA!=null) out.doseA=+((out.gap*out.rA*out.ecFactor)/1000).toFixed(2);
     if(out.rB!=null) out.doseB=+((out.gap*out.rB*out.ecFactor)/1000).toFixed(2);
     if(out.rC!=null) out.doseC=+((out.gap*out.rC*out.phFactor)/1000).toFixed(2);
+    /* v13.13 IRR-F4: no default pool has a legacy recipe — fall back to the modern dosing path (EC matrix / simple ml-L, same as Pool Monitor auto-fill) so A/B aren't permanently "—" and APPLY ALL sends more than water */
+    if(out.doseA==null&&typeof lookupDoseCC==='function'){const cc=lookupDoseCC(p,out.ec,Math.round(out.gap),'A');if(cc>0)out.doseA=+(cc/1000).toFixed(2);}
+    if(out.doseB==null&&typeof lookupDoseCC==='function'){const cc=lookupDoseCC(p,out.ec,Math.round(out.gap),'B');if(cc>0)out.doseB=+(cc/1000).toFixed(2);}
     out.ready=true;
     return out;
   }
@@ -41082,7 +41241,7 @@ function renderIrrSmartDose(){
       <div style="font-size:11px;color:var(--text3);font-family:var(--mono);">Reading from: <strong style="color:var(--accent);">${date} · ${round}</strong></div>
       <div style="font-size:11px;color:var(--text3);font-family:var(--mono);">·</div>
       <div style="font-size:11px;color:var(--text3);font-family:var(--mono);">Round:</div>
-      ${IRR_POOL_TIMES.map(t=>`<button onclick="window._irrCurrentPoolTime='${t}';renderIrrSmartDose();" style="padding:4px 11px;background:${t===round?'var(--accent)':'var(--surface2)'};color:${t===round?'#0a0e0c':'var(--text2)'};border:1px solid var(--border);border-radius:5px;font-size:11px;cursor:pointer;font-family:var(--mono);font-weight:${t===round?'800':'600'};">${t}</button>`).join('')}
+      ${IRR_POOL_TIMES.map(t=>`<button onclick="irrSetPoolTime('${t}');renderIrrSmartDose();" style="padding:4px 11px;background:${t===round?'var(--accent)':'var(--surface2)'};color:${t===round?'#0a0e0c':'var(--text2)'};border:1px solid var(--border);border-radius:5px;font-size:11px;cursor:pointer;font-family:var(--mono);font-weight:${t===round?'800':'600'};">${t}</button>`).join('')}
     </div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:auto;">
       <table style="width:100%;border-collapse:collapse;min-width:1100px;">
@@ -41538,9 +41697,9 @@ function _renderMaintDash_inner(){
   const ro=(typeof loadMaintRO==='function')?(loadMaintRO()||{}):{};
   let rad=loadMaintRadio();if(!rad||typeof rad!=='object'){rad={};}
 
-  const today=new Date().toISOString().slice(0,10);
+  const today=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F5 */ // local Y-M-D (farm is UTC+8)
   const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
-  const tomorrowStr=tomorrow.toISOString().slice(0,10);
+  const tomorrowStr=new Date(tomorrow.getTime()-tomorrow.getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F5 */
   const sevenAgo=new Date();sevenAgo.setDate(sevenAgo.getDate()-7);
   const thirtyAgo=new Date();thirtyAgo.setDate(thirtyAgo.getDate()-30);
 
@@ -42702,7 +42861,7 @@ function renderEquipCategoryHTML(cat){
   html+=`<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;justify-content:space-between;">
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn primary" onclick="openEquipEdit('${cat.id}',null)">➕ Add ${cat.name}</button>
-      <button class="btn" onclick="if(confirm('Reset ${cat.name} to default seed list? Custom items will be lost.')){const all=loadMaintEquipment();delete all['${cat.id}'];saveMaintEquipment(all);renderMaintEquipment();}">↻ Reset to Default</button>
+      <button class="btn" onclick="if(confirm('Reset ${cat.name} to default seed list? Custom items will be lost.')){const all=loadMaintEquipment();const c=MAINT_EQUIP_CATEGORIES.find(x=>x.id==='${cat.id}');all['${cat.id}']=(c&&c.defaults)?c.defaults.map(d=>({...d,lastService:'',nextService:'',notes:''})):[];saveMaintEquipment(all);renderMaintEquipment();}">↻ Reset to Default</button> <!-- v13.13 MNT-F2: re-seed from defaults instead of deleting the key (delete left the category permanently empty) -->
     </div>
     <button onclick="try{if(window._openEquipAddCallModal){window._openEquipAddCallModal('${cat.id}');}else{alert('Modal not loaded — hard-refresh and try again');}}catch(err){alert('Modal failed: '+(err.message||err));}" style="padding:11px 20px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#0a0e0c;border:none;border-radius:7px;font-weight:800;font-size:12px;cursor:pointer;font-family:var(--sans);box-shadow:0 2px 8px rgba(0,0,0,0.2);letter-spacing:.3px;">+ ${_esc(cat.name)} Add Call</button>
   </div>`;
@@ -44746,14 +44905,14 @@ function _partsAdjust(partId,delta,reason,by){
   saveParts(parts);
   // Log usage
   const usage=loadPartsUsage();
-  usage.unshift({ts:Date.now(),date:new Date().toISOString().slice(0,10),partId,partName:parts[idx].name,delta,before,after:parts[idx].onHand,reason:reason||'',by:by||''});
+  usage.unshift({ts:Date.now(),date:new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10),partId,partName:parts[idx].name,delta,before,after:parts[idx].onHand,reason:reason||'',by:by||''}); /* v13.13 MNT-F10 */
   if(usage.length>500)usage.length=500;
   savePartsUsage(usage);
   // Auto-raise issue if went below reorder point on a decrement
   if(delta<0&&parts[idx].onHand<=parts[idx].reorderPoint&&before>parts[idx].reorderPoint){
     try{
       const tasks=loadMaintTasks();
-      const today=new Date().toISOString().slice(0,10);
+      const today=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F10 */ // local Y-M-D (farm is UTC+8)
       const taskId=(typeof uid==='function')?uid():'task_'+Date.now();
       const subj=`📦 Reorder: ${parts[idx].name} (${parts[idx].onHand} ${parts[idx].unit} left)`;
       const desc=`Auto-created reorder request.\n\nPart: ${parts[idx].name}\nSKU: ${parts[idx].sku||'—'}\nSupplier: ${parts[idx].supplier||'—'}\nOn hand: ${parts[idx].onHand} ${parts[idx].unit}\nReorder point: ${parts[idx].reorderPoint}\nMin stock: ${parts[idx].minStock}\nUnit cost: $${(parts[idx].unitCost||0).toFixed(2)}\n\nOrder enough to reach min-stock + safety buffer.`;
@@ -44766,6 +44925,24 @@ function _partsAdjust(partId,delta,reason,by){
         autoKey:`reorder_${partId}_${today}`
       });
       saveMaintTasks(tasks);
+      /* v13.13 MNT-F10 */ // pair a call so reorders reach the Calls Matrix + Open Calls (mirrors saveEquipCheck)
+      try{
+        if(typeof _addPairedCall==='function'&&typeof loadCalls==='function'){
+          const calls=loadCalls();
+          _addPairedCall(calls,{
+            subject:subj,description:desc,priority:parts[idx].onHand<=0?'urgent':'priority',
+            group:'operations',department:'maintenance',
+            equipment:parts[idx].name,
+            subsystem:'Parts & Stock',
+            sourceModule:'maint_parts',
+            sourceLabel:`Maintenance · Parts Reorder · ${parts[idx].name}`,
+            raisedBy:by||'system',
+            maintTaskId:taskId,
+            autoNote:`🤖 Auto-created from parts stock — ${parts[idx].name} fell to ${parts[idx].onHand} ${parts[idx].unit} (reorder point ${parts[idx].reorderPoint}).`
+          });
+          if(typeof saveCalls==='function')saveCalls(calls);
+        }
+      }catch(e){console.warn('reorder call fail:',e);}
     }catch(e){console.warn('reorder task fail:',e);}
   }
   return parts[idx];
@@ -44866,9 +45043,10 @@ function exportPartsCSV(){
 // Cells = open (and optionally closed) maintenance-related calls.
 // Includes ALL auto-calls: equipment checks, NFT variance, PM scheduler,
 // parts reorders, plus manually raised maintenance calls.
-let _maintMatrixDate=new Date().toISOString().slice(0,10);
-let _maintMatrixEndDate=_maintMatrixDate;
-let _maintMatrixUseRange=false;
+/* v13.13 MNT-F3 */ // default to a rolling 30-day range (local Y-M-D, farm is UTC+8) so open calls raised on earlier days show up on first load
+let _maintMatrixEndDate=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+let _maintMatrixDate=new Date(Date.now()-30*86400000-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+let _maintMatrixUseRange=true;
 let _maintMatrixSeverity='all';
 let _maintMatrixIncludeClosed=false;
 let _maintMatrixFacilityFilter='all';
@@ -45022,7 +45200,7 @@ function _collectMaintMatrixData(date,endDate){
       if(!_maintMatrixIncludeClosed&&typeof isCallClosed==='function'&&isCallClosed(c))return false;
       const ts=c.raisedAt||c.createdAt;
       if(ts){
-        const dStr=new Date(ts).toISOString().slice(0,10);
+        const _d=new Date(ts),dStr=new Date(_d.getTime()-_d.getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F3 */ // local day bucket (farm is UTC+8)
         if(dStr<date||dStr>endDate)return false;
       }
       return true;
@@ -45222,7 +45400,7 @@ function renderMaintMatrix(){
       <input type="date" value="${_maintMatrixDate}" style="padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:11px;" onchange="_maintMatrixDate=this.value;renderMaintMatrix();">
       ${_maintMatrixUseRange?`<span style="font-family:var(--mono);font-size:10px;color:var(--text3);">To:</span>
       <input type="date" value="${_maintMatrixEndDate}" style="padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:11px;" onchange="_maintMatrixEndDate=this.value;renderMaintMatrix();">`:''}
-      <button class="btn small" onclick="_maintMatrixDate=new Date().toISOString().slice(0,10);_maintMatrixEndDate=_maintMatrixDate;renderMaintMatrix();">Today</button>
+      <button class="btn small" onclick="_maintMatrixDate=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);_maintMatrixEndDate=_maintMatrixDate;renderMaintMatrix();">Today</button> <!-- v13.13 MNT-F3 -->
       <span style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-left:14px;">Priority:</span>
       <select onchange="_maintMatrixSeverity=this.value;renderMaintMatrix();" style="padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;">
         <option value="all" ${_maintMatrixSeverity==='all'?'selected':''}>All priorities</option>
@@ -46555,7 +46733,7 @@ function openNftCountModal(){
 }
 
 function saveNftCount(){
-  const date=document.getElementById('nft_date').value||new Date().toISOString().slice(0,10);
+  const date=document.getElementById('nft_date').value||new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F9 */ // local Y-M-D (farm is UTC+8)
   const by=(document.getElementById('nft_by').value||'').trim()||'Unknown';
   const counts={};
   const variances=[];
@@ -46632,6 +46810,8 @@ function saveNftCount(){
     else if(variances.length>0)showToast(`✓ Count saved · ${variances.length} cell${variances.length>1?'s':''} changed (gains only)`,'ok');
     else showToast('✓ Count saved — no changes vs prior','ok');
   }
+  /* v13.13 MNT-F9 */ // repaint BOTH hosts (equipment-hub embed + stub view) like _setMaintNftTab, so the visible panel refreshes
+  try{const t=document.getElementById('equipNftEmbed');if(t)renderMaintNft('equipNftEmbed');}catch(e){}
   renderMaintNft();
 }
 
@@ -46759,12 +46939,13 @@ function _renderMaintTasks_inner(){
   if(_maintFilter.status!=='all')tasks=tasks.filter(t=>t.status===_maintFilter.status);
   if(_maintFilter.team!=='all')tasks=tasks.filter(t=>t.team===_maintFilter.team);
   if(_maintFilter.location&&_maintFilter.location!=='all')tasks=tasks.filter(t=>t.location===_maintFilter.location);
+  if(_maintFilter.scheduleDay)tasks=tasks.filter(t=>t.scheduledDate===_maintFilter.scheduleDay); /* v13.13 MNT-F5 */ // honour the dashboard "Today's Schedule" tile
   if(_maintFilter.search){
     const q=_maintFilter.search.toLowerCase();
     tasks=tasks.filter(t=>(t.title||'').toLowerCase().includes(q)||(t.location||'').toLowerCase().includes(q)||(t.remarks||'').toLowerCase().includes(q)||(t.tools||'').toLowerCase().includes(q)||(t.team||'').toLowerCase().includes(q));
   }
 
-  const today=new Date().toISOString().slice(0,10);
+  const today=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F5 */ // local Y-M-D (farm is UTC+8)
 
   // Stats for header
   const openTasks=all.filter(t=>t.status!=='done');
@@ -46827,7 +47008,7 @@ function _renderMaintTasks_inner(){
         <option value="all" ${(!_maintFilter.location||_maintFilter.location==='all')?'selected':''}>All Locations</option>
         ${allLocations.sort().map(l=>`<option value="${l}" ${_maintFilter.location===l?'selected':''}>📍 ${l}</option>`).join('')}
       </select>
-      ${(_maintFilter.priority!=='all'||(_maintFilter.status&&_maintFilter.status!=='all')||_maintFilter.team!=='all'||(_maintFilter.location&&_maintFilter.location!=='all')||_maintFilter.search)?`<button class="btn btn-outline" style="font-size:11px;padding:6px 12px;" onclick="_maintFilter={priority:'all',status:'all',team:'all',location:'all',search:''};renderMaintTasks();">✕ Clear filters</button>`:''}
+      ${(_maintFilter.priority!=='all'||(_maintFilter.status&&_maintFilter.status!=='all')||_maintFilter.team!=='all'||(_maintFilter.location&&_maintFilter.location!=='all')||_maintFilter.search||_maintFilter.scheduleDay)?`<button class="btn btn-outline" style="font-size:11px;padding:6px 12px;" onclick="_maintFilter={priority:'all',status:'all',team:'all',location:'all',search:''};renderMaintTasks();">✕ Clear filters${_maintFilter.scheduleDay?' (📅 '+_maintFilter.scheduleDay+')':''}</button>`:''} <!-- v13.13 MNT-F5 -->
     </div>`;
 
   if(_maintBoardView==='gantt'){
@@ -47984,16 +48165,18 @@ function maintExportTasks(){
 // 📅 PM CALENDAR — week/month grid + recurring schedules
 // ============================================================
 let _maintCalView='month'; // week | month | list
-let _maintCalAnchor=new Date().toISOString().slice(0,10);
+let _maintCalAnchor=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F6 */
 let _maintCalTeamFilter='all';
 
 function renderMaintCalendar(){
   const tasks=loadMaintTasks();
   const scheduled=tasks.filter(t=>t.scheduledDate&&t.status!=='done');
-  const today=new Date().toISOString().slice(0,10);
+  const today=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F6 */ // local Y-M-D (farm is UTC+8)
   const anchor=new Date(_maintCalAnchor);
 
   // Apply team filter
+  /* v13.13 MNT-F6 */ // dropdown options come from the distinct t.team values actually present (t.team is synthesised from assignees, e.g. "⭐ ASAF, LEE", so static MAINT_TEAMS never matched)
+  const _calTeams=[...new Set(scheduled.map(t=>t.team).filter(Boolean))].sort();
   let filtered=scheduled;
   if(_maintCalTeamFilter!=='all')filtered=filtered.filter(t=>t.team===_maintCalTeamFilter);
 
@@ -48004,7 +48187,7 @@ function renderMaintCalendar(){
   // Stats
   const todayCount=(byDate[today]||[]).length;
   const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
-  const tomorrowStr=tomorrow.toISOString().slice(0,10);
+  const tomorrowStr=new Date(tomorrow.getTime()-tomorrow.getTimezoneOffset()*60000).toISOString().slice(0,10); /* v13.13 MNT-F6 */
   const tomorrowCount=(byDate[tomorrowStr]||[]).length;
   const overdueCount=Object.keys(byDate).filter(d=>d<today).reduce((s,d)=>s+byDate[d].length,0);
   const thisWeekCount=Object.keys(byDate).filter(d=>{
@@ -48046,11 +48229,11 @@ function renderMaintCalendar(){
         <button class="btn btn-outline" style="font-size:11px;padding:6px 14px;" onclick="_maintCalNav(-1)">←</button>
         <strong style="font-size:13px;color:var(--text);min-width:200px;text-align:center;">${dateLabel}</strong>
         <button class="btn btn-outline" style="font-size:11px;padding:6px 14px;" onclick="_maintCalNav(1)">→</button>
-        <button class="btn btn-outline" style="font-size:11px;padding:6px 14px;" onclick="_maintCalAnchor=new Date().toISOString().slice(0,10);renderMaintCalendar();">Today</button>
+        <button class="btn btn-outline" style="font-size:11px;padding:6px 14px;" onclick="_maintCalAnchor=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);renderMaintCalendar();">Today</button> <!-- v13.13 MNT-F6 -->
       `:''}
       <select class="users-input" style="max-width:140px;font-size:11px;" onchange="_maintCalTeamFilter=this.value;renderMaintCalendar();">
         <option value="all" ${_maintCalTeamFilter==='all'?'selected':''}>All Teams</option>
-        ${MAINT_TEAMS.map(t=>`<option value="${t}" ${_maintCalTeamFilter===t?'selected':''}>${t}</option>`).join('')}
+        ${_calTeams.map(t=>`<option value="${t.replace(/"/g,'&quot;')}" ${_maintCalTeamFilter===t?'selected':''}>${t}</option>`).join('')} <!-- v13.13 MNT-F6 -->
       </select>
       <div style="flex:1;"></div>
       <button class="btn btn-outline" onclick="switchView('maint_dash')">📊 Dashboard</button>
@@ -48629,6 +48812,17 @@ function _maintRORenderToday(rec){
       <div style="font-size:14px;font-weight:800;margin-bottom:8px;">📊 Daily Readings — ${_maintCurrentDate}</div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:12px;">Record today's operating parameters. Out-of-range values are highlighted.</div>
       <div class="maint-ro-param-grid">${paramsHTML}</div>
+      <!-- v13.13 MNT-F14: sign-off inputs feeding the _tech/_supervisor rows in the CSV export -->
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;">
+        <div class="maint-ro-param" style="flex:1;min-width:180px;">
+          <div class="maint-ro-param-label">✍ Technician (sign-off)</div>
+          <input type="text" class="maint-ro-param-input" value="${(rec._tech||'').replace(/"/g,'&quot;')}" placeholder="Technician name" onchange="maintSaveROParam('_tech',this.value)">
+        </div>
+        <div class="maint-ro-param" style="flex:1;min-width:180px;">
+          <div class="maint-ro-param-label">✍ Supervisor (sign-off)</div>
+          <input type="text" class="maint-ro-param-input" value="${(rec._supervisor||'').replace(/"/g,'&quot;')}" placeholder="Supervisor name" onchange="maintSaveROParam('_supervisor',this.value)">
+        </div>
+      </div>
     </div>
     <div class="maint-ro-section">
       <div style="font-size:14px;font-weight:800;margin-bottom:10px;">📋 Maintenance Policy & Process</div>
@@ -49031,7 +49225,8 @@ function maintSaveOzone(machineId){
     overall_status:document.getElementById('ozOverall').value,
     findings:document.getElementById('ozFindings').value,
     recommendation:document.getElementById('ozReco').value,
-    updatedAt:Date.now(),updatedBy:((getCurrentUser()||{}).username)||'system'
+    updatedAt:Date.now(),updatedBy:((getCurrentUser()||{}).username)||'system',
+    lastServicedAt:Date.now() /* v13.13 MNT-F11 */ // saving the service check-form counts as a service → feeds "Serviced (30d)" stat + "Last serviced" line
   };
   saveMaintOzone(data);
   if(data[machineId].overall_status==='bad'){
@@ -49821,6 +50016,7 @@ function toolReturnPrompt(toolId){
     saveToolsCheckouts(all);
     audit('tool_return',`${rec.takenBy} returned ${t.name} (${toolId}) — condition: ${condition} — guard: ${guard}`);
     if(condition==='DAMAGED'||condition==='LOST'){
+      try{setToolStatus(toolId,'defective',`${condition} on return by ${rec.takenBy}${notes?' — '+notes:''}`);}catch(e){} /* v13.13 MNT-F8 */
       try{
         createIssue({
           module:'maintenance',
@@ -49840,7 +50036,7 @@ function renderToolsCheckout(){
   const dayList=all[_toolsDate]||[];
   const open=dayList.filter(r=>!r.returnedAt);
   const closed=dayList.filter(r=>r.returnedAt);
-  const totalDefective=TOOLS_INVENTORY.filter(t=>t.status==='defective').length;
+  const totalDefective=TOOLS_INVENTORY.filter(t=>effectiveToolStatus(t)==='defective').length; /* v13.13 MNT-F7 */
   const renderRow=(r,isOpen)=>`<tr class="checkout-row ${isOpen?'open':'closed'}">
     <td><span class="tool-id">${r.toolId}</span></td>
     <td>${r.toolName}</td>
@@ -49897,7 +50093,7 @@ function renderToolsCheckout(){
 function renderToolsGuard(){
   const all=loadToolsCheckouts();
   const dayList=all[_toolsDate]||[];
-  const totalDefective=TOOLS_INVENTORY.filter(t=>t.status==='defective').length;
+  const totalDefective=TOOLS_INVENTORY.filter(t=>effectiveToolStatus(t)==='defective').length; /* v13.13 MNT-F7 */
   const events=[];
   dayList.forEach(r=>{
     events.push({time:r.takenAtDisplay,type:'OUT',rec:r,guard:r.guardTaken});
@@ -60398,7 +60594,7 @@ function renderQC(tab){
         <table class="cctv-inventory-table">
           <thead><tr><th>Date</th><th>Facility</th><th>Product</th><th>Grade</th><th>Defects</th><th>Inspector</th><th>Pass</th></tr></thead>
           <tbody>${insp.slice(-10).reverse().map(i=>`<tr>
-            <td style="font-family:var(--mono);font-size:11px;">${i.date}</td>
+            <td style="font-family:var(--mono);font-size:11px;">${String(i.date||'').slice(0,10)/* v13.14 QC-F3: v57 patch appends T00:00:00 on read */}</td>
             <td>${i.facility||'—'}</td>
             <td>${i.product||'—'}</td>
             <td>${i.grade||'—'}</td>
@@ -60412,7 +60608,7 @@ function renderQC(tab){
   }
   else if(_qcTab==='inspections'){
     const rows=insp.slice().reverse().map(i=>`<tr>
-      <td style="font-family:var(--mono);font-size:11px;">${i.date}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${String(i.date||'').slice(0,10)/* v13.14 QC-F3: v57 patch appends T00:00:00 on read */}</td>
       <td>${i.facility||'—'}</td>
       <td>${i.product||'—'}</td>
       <td><span class="role-badge" style="background:var(--surface3);color:${i.grade==='Premium'?'#4caf50':i.grade==='Reject'?'#ef5350':'var(--text2)'};font-size:10px;">${i.grade||'—'}</span></td>
@@ -60439,7 +60635,7 @@ function renderQC(tab){
   }
   else if(_qcTab==='rejections'){
     const rows=rej.slice().reverse().map(r=>`<tr>
-      <td style="font-family:var(--mono);font-size:11px;">${r.date}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${String(r.date||'').slice(0,10)/* v13.14 QC-F4: v61 patch appends T00:00:00 on read */}</td>
       <td>${r.facility||'—'}</td>
       <td>${r.product||'—'}</td>
       <td style="font-family:var(--mono);text-align:right;">${r.qty} ${r.unit||'kg'}</td>
@@ -60492,6 +60688,8 @@ function renderQC(tab){
   }
 }
 
+/* v13.14 QC-F1/F2: local (PH) date for the modal defaults — toISOString() is UTC, which pre-filled yesterday between 12am and 8am PHT */
+function _qcTodayLocal(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function qcOpenAddInspection(){
   const facilities=['GH1','GH2','GH3','GH4','GH5','GH6','GH7','GH8','GH9','GH10','PRJ11','PRJ12','GH15','GH16'];
   const u=getCurrentUser();
@@ -60502,7 +60700,7 @@ function qcOpenAddInspection(){
     <div class="modal-header"><div class="modal-title">+ New QC Inspection</div><button class="modal-close" onclick="document.getElementById('qcInspModal').remove();">✕</button></div>
     <div class="modal-body">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        <div class="emp-field"><label class="field-label">Date *</label><input type="date" id="qcInsp_date" class="users-input" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="emp-field"><label class="field-label">Date *</label><input type="date" id="qcInsp_date" class="users-input" value="${_qcTodayLocal()}"></div>
         <div class="emp-field"><label class="field-label">Facility *</label><select id="qcInsp_facility" class="users-input">${facilities.map(f=>`<option value="${f}">${f}</option>`).join('')}</select></div>
         <div class="emp-field"><label class="field-label">Product *</label><select id="qcInsp_product" class="users-input" onchange="qcUpdateDefects()">${Object.entries(QC_STANDARDS).map(([k,s])=>`<option value="${s.name}">${s.name}</option>`).join('')}</select></div>
         <div class="emp-field"><label class="field-label">Grade</label><select id="qcInsp_grade" class="users-input">${QC_STANDARDS.lettuce.grades.map(g=>`<option value="${g}">${g}</option>`).join('')}</select></div>
@@ -60564,7 +60762,7 @@ function qcOpenAddRejection(){
     <div class="modal-header"><div class="modal-title">+ Log Rejection</div><button class="modal-close" onclick="document.getElementById('qcRejModal').remove();">✕</button></div>
     <div class="modal-body">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        <div class="emp-field"><label class="field-label">Date *</label><input type="date" id="qcRej_date" class="users-input" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="emp-field"><label class="field-label">Date *</label><input type="date" id="qcRej_date" class="users-input" value="${_qcTodayLocal()}"></div>
         <div class="emp-field"><label class="field-label">Facility</label><select id="qcRej_facility" class="users-input">${facilities.map(f=>`<option value="${f}">${f}</option>`).join('')}</select></div>
         <div class="emp-field"><label class="field-label">Product *</label><input type="text" id="qcRej_product" class="users-input" placeholder="e.g. Romaine lettuce"></div>
         <div class="emp-field"><label class="field-label">Quantity (kg)</label><input type="number" step="0.1" id="qcRej_qty" class="users-input" placeholder="0.0"></div>
@@ -60605,7 +60803,7 @@ function qcExportCSV(type){
   if(!data.length){if(typeof showToast==='function')showToast('Nothing to export','warn');return;}
   const cols=type==='inspections'?['date','facility','product','grade','inspector','passed','defects','note']:['date','facility','product','qty','reason','note'];
   const rows=[cols];
-  data.forEach(r=>{rows.push(cols.map(c=>{const v=r[c];return Array.isArray(v)?v.join('; '):(v===undefined||v===null?'':String(v));}));});
+  data.forEach(r=>{rows.push(cols.map(c=>{const v=r[c];if(Array.isArray(v))return v.join('; ');if(v===undefined||v===null)return '';return c==='date'?String(v).slice(0,10):String(v);/* v13.14 QC-F4: v57/v61 loader patches append T00:00:00 to dates — trim at export time */}));});
   const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob=new Blob([csv],{type:'text/csv'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`qc-${type}_${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(a.href);
@@ -73420,6 +73618,7 @@ const MODULE_ROUTE_MAP={
   it:                {group:'office',    dept:'it',         area:''},
   it_radios:         {group:'office',    dept:'it',         area:''},
   security:          {group:'operations',dept:'security',area:''},
+  quality:           {group:'operations',dept:'quality',area:''}, /* v13.14 QC-F8: "Raise QC Call" (openCallModal('quality',…)) now pre-fills the Quality Control department */
   fleet_dash:        {group:'operations',dept:'logistics',area:''},
   fleet_vehicles:    {group:'operations',dept:'logistics',area:''},
   fleet_drivers:     {group:'operations',dept:'logistics',area:''},
@@ -75520,16 +75719,29 @@ function renderModuleOpenCalls(viewId){
   calls.sort((a,b)=>{
     const rank=p=>{p=(p||'').toLowerCase();return (p==='crit'||p==='critical'||p==='high')?0:(p==='warn'||p==='warning'||p==='medium'||p==='med')?1:2;};
     const r=rank(a.priority||a.severity)-rank(b.priority||b.severity);if(r)return r;
-    return new Date(b.createdAt||b.date||0)-new Date(a.createdAt||a.date||0);
+    return new Date(b.raisedAt||b.createdAt||b.date||0)-new Date(a.raisedAt||a.createdAt||a.date||0); /* v13.13 MNT-F4 */
   });
+  /* v13.13 IRR-F7: irrigation faults (checklist fails, EC/pH out of range, drum low) are stored as ISSUES, not calls — merge them in so this tab stops claiming "all clear" while irr_cmd counts the same records */
+  let modIssues=[];
+  if(moduleForTab==='irrigation'){
+    try{
+      const closedIss=['approved','cancelled','resolved','closed'];
+      modIssues=((typeof loadIssues==='function'?loadIssues():[])||[]).filter(i=>i&&i.module==='irrigation'&&!closedIss.includes((i.status||'').toLowerCase()));
+      modIssues.sort((a,b)=>{
+        const rank=p=>{p=(p||'').toLowerCase();return (p==='crit'||p==='critical'||p==='high')?0:(p==='warn'||p==='warning'||p==='medium'||p==='med')?1:2;};
+        const r=rank(a.priority)-rank(b.priority);if(r)return r;
+        return (b.createdAt||0)-(a.createdAt||0);
+      });
+    }catch(e){modIssues=[];}
+  }
   let crit=0,warn=0;
-  calls.forEach(c=>{const p=(c.priority||c.severity||'').toLowerCase();
+  calls.concat(modIssues).forEach(c=>{const p=(c.priority||c.severity||'').toLowerCase();
     if(p==='crit'||p==='critical'||p==='high')crit++;
     else if(p==='warn'||p==='warning'||p==='medium'||p==='med')warn++;
   });
   const escFn=v=>String(v||'').replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[ch]);
   const printBtn=`<button onclick="window.hpPrintView&&window.hpPrintView('view-${viewId}',{title:'Open Calls',module:'${meta.label}'})" style="margin-left:auto;padding:8px 16px;background:linear-gradient(180deg,#2f9d4a,#1d6b32);border:1px solid #5fe07a;border-radius:8px;color:#eafff0;font-size:13px;font-weight:800;cursor:pointer;font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;box-shadow:0 0 12px rgba(95,224,122,0.3);">🖨 Print</button>`;
-  if(!calls.length){
+  if(!calls.length&&!modIssues.length){
     view.innerHTML=`<div class="section-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">📞 ${meta.label} — Open Calls
       <span style="font-size:11px;color:#9ccc65;font-weight:400;">— 0 open · all clear ✓</span>${printBtn}</div>
       <div style="padding:36px;background:var(--surface);border:1px solid var(--border);border-radius:10px;text-align:center;color:var(--text3);font-size:13px;">
@@ -75553,7 +75765,7 @@ function renderModuleOpenCalls(viewId){
         <span style="padding:3px 9px;border-radius:5px;background:${pColor}22;color:${pColor};border:1px solid ${pColor}55;font-size:10px;font-weight:800;font-family:var(--mono);">${pLabel}</span>
         <span class="call-status-pill ${stCls}" style="font-size:10px;">${escFn(stLabel)}</span>
         <span style="font-size:14px;font-weight:700;color:var(--text);">${escFn(c.subject||'')}</span>
-        <span style="margin-left:auto;font-size:10px;color:var(--text3);font-family:var(--mono);">${escFn(c.createdAt||c.date||'')}</span>
+        <span style="margin-left:auto;font-size:10px;color:var(--text3);font-family:var(--mono);">${escFn(c.raisedAt?new Date(c.raisedAt).toLocaleString():(c.createdAt||c.date||''))}</span> <!-- v13.13 MNT-F4 -->
       </div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text2);">
         ${assignees.length?`<span>👤 ${escFn(assignees.join(', '))}</span>`:'<span style="color:var(--text3);font-style:italic;">unassigned</span>'}
@@ -75562,10 +75774,33 @@ function renderModuleOpenCalls(viewId){
       </div>
     </div>`;
   }).join('');
+  /* v13.13 IRR-F7: issue cards rendered alongside call cards, with live status */
+  const issueCards=modIssues.map(i=>{
+    const p=(i.priority||'').toLowerCase();
+    const isCrit=p==='crit'||p==='critical'||p==='high';
+    const isWarn=p==='warn'||p==='warning'||p==='medium'||p==='med';
+    const pColor=isCrit?'#ef5350':isWarn?'#ffa726':'#9ccc65';
+    const pLabel=isCrit?'🚨 CRITICAL':isWarn?'⚠ WARNING':'• Normal';
+    const dt=i.createdAt?new Date(i.createdAt):null;
+    const when=dt?(dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0')):'';
+    return `<div onclick="if(typeof openIssueDetail==='function')openIssueDetail('${i.id}')" style="padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-left:4px solid ${pColor};border-radius:8px;margin-bottom:8px;cursor:pointer;transition:transform 0.1s;" onmouseover="this.style.transform='translateX(2px)'" onmouseout="this.style.transform='translateX(0)'">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+        <span style="padding:3px 9px;border-radius:5px;background:${pColor}22;color:${pColor};border:1px solid ${pColor}55;font-size:10px;font-weight:800;font-family:var(--mono);">${pLabel}</span>
+        <span style="padding:3px 9px;border-radius:5px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);font-size:10px;font-weight:800;font-family:var(--mono);">📋 ISSUE · ${escFn((i.status||'open').toUpperCase())}</span>
+        <span style="font-size:14px;font-weight:700;color:var(--text);">${escFn(i.title||'')}</span>
+        <span style="margin-left:auto;font-size:10px;color:var(--text3);font-family:var(--mono);">${escFn(when)}</span>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text2);">
+        ${i.assignedToName?`<span>👤 ${escFn(i.assignedToName)}</span>`:'<span style="color:var(--text3);font-style:italic;">unassigned</span>'}
+        ${i.description?`<span style="color:var(--text3);">${escFn(String(i.description).split('\n')[0].slice(0,80))}${String(i.description).length>80?'…':''}</span>`:''}
+      </div>
+    </div>`;
+  }).join('');
+  const totalOpen=calls.length+modIssues.length;
   view.innerHTML=`<div class="section-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">📞 ${meta.label} — Open Calls
-    <span style="font-size:11px;color:var(--text3);font-weight:400;">— ${calls.length} open${crit?' · <span style="color:#ef5350;font-weight:700;">'+crit+' critical</span>':''}${warn?' · <span style="color:#ffa726;font-weight:700;">'+warn+' warning</span>':''}</span>${printBtn}</div>
+    <span style="font-size:11px;color:var(--text3);font-weight:400;">— ${totalOpen} open${crit?' · <span style="color:#ef5350;font-weight:700;">'+crit+' critical</span>':''}${warn?' · <span style="color:#ffa726;font-weight:700;">'+warn+' warning</span>':''}</span>${printBtn}</div>
     <div style="margin-bottom:12px;padding:10px 14px;background:var(--surface2);border-left:3px solid ${meta.color};border-radius:7px;font-size:11px;color:var(--text2);">Calls listed below are sorted by severity then recency. Click any card to open detail. The banner that used to appear at the top of every page now lives here only.</div>
-    <div>${cards}</div>`;
+    <div>${cards}${issueCards}</div>`;
 }
 
 // ============= FLEET GPS =============
@@ -81139,7 +81374,9 @@ window._drillPredictions=function(filter){
 // (the backslash-escapes don't work in HTML attrs — they break the rendering).
 window._drillIrrDrums=function(filter){
   if(typeof openDrillDown!=='function')return;
-  const today=(new Date()).toISOString().slice(0,10);
+  /* v13.13 IRR-F10: honor the dashboard's date picker (_irrDate) instead of recomputing today — and derive today in LOCAL time (farm is UTC+8), not UTC */
+  const _d=new Date();
+  const today=(typeof _irrDate!=='undefined'&&_irrDate)?_irrDate:(_d.getFullYear()+'-'+String(_d.getMonth()+1).padStart(2,'0')+'-'+String(_d.getDate()).padStart(2,'0'));
   const drumsAll=(typeof loadIrrDrums==='function')?(loadIrrDrums()||{}):{};
   const drumsData=drumsAll[today]||{};
   const rooms=(typeof IRR_FERT_ROOMS!=='undefined')?IRR_FERT_ROOMS:[];
@@ -81148,7 +81385,8 @@ window._drillIrrDrums=function(filter){
   rooms.forEach(r=>{
     drums.forEach(d=>{
       const v=(drumsData[r.id]||{})[d];
-      const st=(typeof drumStatus==='function')?drumStatus(v):'';
+      let st=(typeof drumStatus==='function')?drumStatus(v,r.id,d):''; /* v13.13 IRR-F5: pass room+drum so per-drum thresholds apply */
+      st=st==='critical_max'?'critical':st==='warning_max'?'warning':st;
       if(st!==filter)return;
       data.push({
         label:r.label+' · Drum '+d,
@@ -88281,7 +88519,7 @@ const EXTRA_SUBTABS={
     // prod_matrix is in the main production.views array, no auto-inject needed
   ],
   maintenance:[
-    {id:'prod_matrix', label:'📊 Tech Open Calls Matrix'}
+    /* v13.13 MNT-F13 */ // prod_matrix here ejected users into the Production module; maint_matrix ("📊 Calls Matrix") is already in the main maintenance views array, no auto-inject needed
   ],
   irrigation:[
     // irr_matrix moved to main irrigation views (line ~7618) so it always shows
@@ -99193,6 +99431,7 @@ const _MOD_CHECKLIST_VIEWS={
   hr:'hr_checklist',
   it:'it_checklist',
   quality:'qc_checklist',
+  qc:'qc_checklist', /* v13.14 QC-F6: alias — MCC_CONFIGS.qc_cmd uses mod:'qc', so _mccAnalysisStage's checklist button fell back to checklist_rollup */
   inventory:'inv_checklist',
   security:'sec_checklist',
   maintenance:'maint_checklist',
@@ -109483,12 +109722,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
       });
     }
     if(MODULES.irrigation){
-      add('irrigation', {
-        id: 'irr_command',
-        label: '🧠 Command Center',
-        perm: 'viewIrrigation',
-        title: 'Irrigation AI Command Center · live pools/drums/dosing dashboard with predictive engine'
-      });
+      /* v13.13 IRR-F9: removed the injected 'irr_command' demo tab — it painted 100% hardcoded numbers and duplicated the live irr_cmd Command Center */
       add('irrigation', {
         id: 'water_daily',
         label: '💧 Water · Daily Per GH',
@@ -116015,10 +116249,13 @@ var qrcode = function() {
   function renderDailyReportView(){
     const body = document.querySelector('#hnx-daily_report-body');
     if(!body) return;
-    if(!window._hnxRptState) window._hnxRptState = { dateStr: new Date().toISOString().slice(0,10) };
+    /* v13.14 RPT-F4: local (PH) dates — toISOString() is UTC, so before 8am the view opened on
+       yesterday, the Today button pointed at yesterday, and max blocked selecting the real today */
+    const _rptIso = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    if(!window._hnxRptState) window._hnxRptState = { dateStr: _rptIso(new Date()) };
     const st = window._hnxRptState;
-    const today = new Date().toISOString().slice(0,10);
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0,10);
+    const today = _rptIso(new Date());
+    const yesterday = _rptIso(new Date(Date.now() - 86400000));
 
     let r;
     try{ r = _hnxBuildDailyReport(st.dateStr); }catch(e){ console.warn('[Report]', e); r = null; }
@@ -119578,16 +119815,16 @@ streams:
       drawRight();
       drawMachines();
       drawBottom();
-      document.getElementById('hnxGhcSel').textContent = state.selected;
+      var _selEl = body.querySelector('#hnxGhcSel'); if(_selEl) _selEl.textContent = state.selected; /* v13.13 PROD-F2 */
       // Expose current GH for the upgrade hooks + run them
       window._ghcCurrent = state.selected;
       try{ if(typeof ghcInjectUpgrades === 'function') ghcInjectUpgrades(); }catch(e){ console.warn('[HNX-Ext] ghc upgrade error', e); }
       // v2.9: apply thematic SVG imagery to each cube
-      try{ if(typeof hnxApplyCubeImagery === 'function') hnxApplyCubeImagery(); }catch(e){}
+      try{ if(typeof hnxApplyCubeImagery === 'function') hnxApplyCubeImagery(body); }catch(e){} /* v13.13 PROD-F2 */
     }
 
     function drawMachines(){
-      const wrap = document.getElementById('hnxGhcMachines');
+      const wrap = body.querySelector('#hnxGhcMachines'); /* v13.13 PROD-F2 */
       if(!wrap) return;
       const p = HNX_GHC_PROFILES[state.selected];
       const frId = p ? p.irrRoom : '—';
@@ -119994,7 +120231,7 @@ streams:
     }
   
     function drawDrones(){
-      const wrap = document.getElementById('hnxGhcDrones');
+      const wrap = body.querySelector('#hnxGhcDrones'); /* v13.13 PROD-F2 */
       if(!wrap) return;
       // v2.22 · Stable per-GH drone data + expandable detail panel
       const ghIdx2 = parseInt(state.selected.replace(/\D/g,''), 10) || 1;
@@ -120123,7 +120360,7 @@ streams:
     }
   
     function drawChips(){
-      const wrap = document.getElementById('hnxGhcChips');
+      const wrap = body.querySelector('#hnxGhcChips'); /* v13.13 PROD-F2 */
       // v2.24 · Compute critical count for the current mode
       const critList = _hnxCriticalList();
       const critCount = critList.length;
@@ -120196,7 +120433,7 @@ streams:
           totalCrits += i.filter(x => (x.priority||'').toLowerCase()==='critical').length + c.filter(x => (x.priority||'').toLowerCase()==='urgent').length;
           totalOpen += i.length + c.length;
         });
-        document.getElementById('hnxGhcKpis').innerHTML = `
+        /* v13.13 PROD-F2 */body.querySelector('#hnxGhcKpis').innerHTML = `
           <span class="hnx-kpi hnx-kpi-c"><b>${ghs.length}</b> GH${ghs.length>1?'s':''} served</span>
           <span class="hnx-kpi hnx-kpi-g"><b>${totalPlants.toLocaleString()}</b> total plants</span>
           <span class="hnx-kpi hnx-kpi-c"><b>3</b> drums (600L)</span>
@@ -120215,7 +120452,7 @@ streams:
       const realPlanted = (pc && pc.planted) ? pc.planted : null;
       const plantsLabel = realPlanted ? (realPlanted.toLocaleString() + ' / ' + realCap.toLocaleString()) : realCap.toLocaleString();
       const censusBadge = (pc && pc.configured) ? ' <small style="font-size:9px;opacity:.7">📋</small>' : '';
-      document.getElementById('hnxGhcKpis').innerHTML = `
+      /* v13.13 PROD-F2 */body.querySelector('#hnxGhcKpis').innerHTML = `
         <span class="hnx-kpi hnx-kpi-g"><b>${plantsLabel}</b> plants${censusBadge}</span>
         <span class="hnx-kpi hnx-kpi-c"><b>${p.daysHarvest}d</b> to harvest</span>
         <span class="hnx-kpi ${crits>0?'hnx-kpi-r':'hnx-kpi-g'}"><b>${crits}</b> critical</span>
@@ -120227,7 +120464,7 @@ streams:
       // p154 — T-61 CCTV cleanup: 3×3 CCTV grid replaced with per-GH KPI cluster.
       // CCTV cameras now live ONLY in IT (it_cctv) and Security (sec_cmd perimeter).
       // Function name kept for backwards compatibility with the 3 call sites.
-      const grid = document.getElementById('hnxGhcCctv');
+      const grid = body.querySelector('#hnxGhcCctv'); /* v13.13 PROD-F2 */
       if(!grid) return;
       const gh = state.selected || 'GH1';
       const isFr = (state.mode === 'fr');
@@ -120369,7 +120606,7 @@ streams:
     }
   
     function drawLeft(){
-      const left = document.getElementById('hnxGhcLeft');
+      const left = body.querySelector('#hnxGhcLeft'); /* v13.13 PROD-F2 */
       // ===== FR MODE: Show FR-centric info (paired GHs, pool data, alerts) =====
       if(state.mode === 'fr'){
         const frGhsMap = { FR1_2:['GH1','GH2'], FR3_4:['GH3','GH4'], FR5_6:['GH5','GH6'], FR7_8:['GH7','GH8'], FR9:['GH9'], FR10:['GH10'] };
@@ -120471,7 +120708,7 @@ streams:
   
     function drawRight(){
       const p = HNX_GHC_PROFILES[state.selected];
-      const right = document.getElementById('hnxGhcRight');
+      const right = body.querySelector('#hnxGhcRight'); /* v13.13 PROD-F2 */
       // Synthetic irrigation data - replace with loadIrrPools().find(p => p.gh === state.selected)
       const irrTargetEC = 1.8, irrTargetPH = 5.9;
       const irrEC = (1.7 + Math.random()*0.3).toFixed(2);
@@ -120571,7 +120808,7 @@ streams:
       const issues = ghFilteredIssues(state.selected);
       const calls = ghFilteredCalls(state.selected);
       const all = [...issues, ...calls].slice(0, 8);
-      const bot = document.getElementById('hnxGhcBottom');
+      const bot = body.querySelector('#hnxGhcBottom'); /* v13.13 PROD-F2 */
       if(!all.length){
         bot.innerHTML = `<div class="hnx-w hnx-w-ok"><div class="hnx-w-h">All Clear · ${state.selected}</div><div style="text-align:center;padding:20px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#80e885;letter-spacing:.10em">✓ NO OPEN ITEMS · ALL SYSTEMS NOMINAL</div></div>`;
         return;
@@ -121180,7 +121417,7 @@ streams:
       const titleEl = body.querySelector('.hnx-tbtitle');
       const subEl = body.querySelector('.hnx-tbsub');
       const markEl = body.querySelector('.hnx-tbmark');
-      const modeLbl = document.getElementById('hnxModeBtnLbl');
+      const modeLbl = body.querySelector('#hnxModeBtnLbl'); /* v13.13 PROD-F2 */
       if(state.mode === 'fr'){
         if(titleEl) titleEl.innerHTML = 'Command Center <span>· <span id="hnxGhcSel">' + state.selectedFr + '</span></span> <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#84fff9;letter-spacing:.10em;margin-left:8px">· 💧 FR FOCUS</span>';
         if(subEl) subEl.textContent = 'Fertigation Room · Pools · Drums · Chillers · Ozone · RO · Ventilation · paired with GHs';
@@ -121200,7 +121437,7 @@ streams:
       const titleEl = body.querySelector('.hnx-tbtitle');
       const subEl = body.querySelector('.hnx-tbsub');
       const markEl = body.querySelector('.hnx-tbmark');
-      const modeLbl = document.getElementById('hnxModeBtnLbl');
+      const modeLbl = body.querySelector('#hnxModeBtnLbl'); /* v13.13 PROD-F2 */
       if(state.mode === 'fr'){
         if(titleEl) titleEl.innerHTML = 'Command Center <span>· <span id="hnxGhcSel">' + state.selectedFr + '</span></span> <span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#84fff9;letter-spacing:.10em;margin-left:8px">· 💧 FR FOCUS</span>';
         if(subEl) subEl.textContent = 'Fertigation Room · Pools · Drums · Chillers · Ozone · RO · Ventilation · paired with GHs';
@@ -125310,13 +125547,16 @@ body > .hnx-quickbar{position:fixed;top:8px;right:12px;z-index:9998;}
       const ghRow = (data.ghs || []).find(g => g.id === ghId);
       if(!ghRow) return null;
       const pipeTypes = data.pipeTypes || [];
-      let capacity = 0;
+      let capacity = 0, totalPipes = 0;
       pipeTypes.forEach(pt => {
         const count = parseInt(ghRow[pt.id], 10) || 0;
         const perPipe = parseInt(pt.capacity, 10) || 0;
         capacity += count * perPipe;
+        totalPipes += count;
       });
-      const planted = parseInt(ghRow.planted, 10) || 0;
+      /* v13.13 PROD-F4: census stores planted PIPES but capacity is PLANTS — convert planted pipes to plants (avg plants-per-pipe) so planted/capacity compare in the same unit */
+      const plantedPipes = parseInt(ghRow.planted, 10) || 0;
+      const planted = (plantedPipes && totalPipes) ? Math.round(plantedPipes * capacity / totalPipes) : plantedPipes;
       return {
         capacity: capacity || null,
         planted: planted || null,
@@ -125555,11 +125795,13 @@ body > .hnx-quickbar{position:fixed;top:8px;right:12px;z-index:9998;}
     };
     return svgs[type] || '';
   }
-  function hnxApplyCubeImagery(){
+  function hnxApplyCubeImagery(root){
     // After GH Command Center renders, inject SVG backgrounds into each cube
+    // v13.13 PROD-F2: hnxGhc* ids exist once per host (gh_command AND fr_command) — scope to the calling host, not the first id in the document
     try{
-      const left = document.getElementById('hnxGhcLeft');
-      const right = document.getElementById('hnxGhcRight');
+      const scope = root || document;
+      const left = scope.querySelector('#hnxGhcLeft');
+      const right = scope.querySelector('#hnxGhcRight');
       if(left){
         const cubes = left.querySelectorAll('.hnx-w');
         if(cubes[0] && !cubes[0].querySelector('.hnx-cube-bg')){ cubes[0].classList.add('hnx-cube-imagery'); cubes[0].insertAdjacentHTML('afterbegin', '<div class="hnx-cube-bg">' + hnxCubeImagery('production') + '</div>'); }
@@ -147889,6 +148131,9 @@ body.hnx-mobile-locked { overflow: hidden; }
   window.hnxBoxRaiseCall=function(moduleId,row,col){
     var o=document.getElementById('hnxCellBoxOverlay'); if(o)o.remove();
     var src=(row||'')+(col?(' \u00d7 '+col):'');
+    /* v13.13 PROD-F5: matrix hosts register short ids ('sup','crops','ptm','prod',\u2026) that _moduleOfView never resolves, so cell-raised calls vanished from every module's Open Calls \u2014 map them to real view ids before stamping sourceModule */
+    var SRC_MAP={sup:'supervisor',crops:'prod_matrix',prod:'prod_matrix',ptm:'prod_tech_per_gh',ghm:'prod_matrix',ghw:'prod_matrix',ghfer:'prod_matrix',maint:'maint_tasks',irr:'irr_dash',irrroom:'irr_rooms_matrix',inv:'inv_matrix',fleet:'fleet_dash',rfid:'sec_rfid'};
+    moduleId=SRC_MAP[moduleId]||moduleId;
     var fn=(typeof window.openCallModal==='function')?window.openCallModal:((typeof openCallModal==='function')?openCallModal:null);
     if(fn){
       fn(moduleId||'', src);
@@ -161871,7 +162116,8 @@ gh+=_mtxTreeBody(rows);
   function S(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
   function esc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function uid(p){ return (p||'a')+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5); }
-  function todayISO(){ return new Date().toISOString().slice(0,10); }
+  function localISO(d){ return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }/* v13.14 LIC-F1/F2: local (PH) date parts */
+  function todayISO(){ return localISO(new Date()); }/* v13.14 LIC-F1: was toISOString() (UTC) — off by one day before 8am PHT, inconsistent with parseD() which parses local */
   function parseD(s){ if(!s) return null; var d=new Date(s+'T00:00:00'); return isNaN(d)?null:d; }
   function daysUntil(s){ var d=parseD(s); if(!d) return null; return Math.round((d - new Date(todayISO()+'T00:00:00'))/86400000); }
   function fmtDate(s){ var d=parseD(s); if(!d) return '—'; return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
@@ -161926,7 +162172,7 @@ gh+=_mtxTreeBody(rows);
     // combined basis: time (interval days) AND usage (interval km) — whichever is more urgent wins
     var out={dueDate:a.nextDue||'', du:null, tone:'ok', label:'OK', kmLeft:null, kmLabel:'', basis:'none', nextDueKm:null};
     if(!a.nextDue && a.lastService && a.intervalDays){
-      var d=parseD(a.lastService); if(d){ d.setDate(d.getDate()+Number(a.intervalDays)); out.dueDate=d.toISOString().slice(0,10); }
+      var d=parseD(a.lastService); if(d){ d.setDate(d.getDate()+Number(a.intervalDays)); out.dueDate=localISO(d); }/* v13.14 LIC-F2: local (PH) serialization — toISOString() shifted the due date one day early */
     }
     var timeTone=null;
     if(out.dueDate){ var du=daysUntil(out.dueDate); out.du=du; timeTone = du<0?'crit':(du<=14?'warn':'ok'); }
@@ -162232,7 +162478,7 @@ gh+=_mtxTreeBody(rows);
     var items=L(KEY.lic,[]); var l=items.filter(function(x){return x.id===id;})[0]; if(!l)return;
     var months=prompt('Renewed! Roll expiry forward by how many months?','12'); if(months==null)return;
     var m=parseInt(months,10)||12; var base=parseD(l.expiry)||new Date(); base.setMonth(base.getMonth()+m);
-    l.issue=todayISO(); l.expiry=base.toISOString().slice(0,10);
+    l.issue=todayISO(); l.expiry=localISO(base);/* v13.14 LIC-F2: local (PH) serialization — toISOString() is UTC, stored the renewed expiry one day early */
     if(l.cost){ logCost('Licenses','Renewal: '+l.name,l.cost,l.id); }
     S(KEY.lic,items); auditLog('admin_lic_renew',l.name+' +'+m+'mo'); toast('Renewed → '+fmtDate(l.expiry),'ok'); AA.render();
   };
@@ -162410,6 +162656,18 @@ gh+=_mtxTreeBody(rows);
     var er=L(KEY.empReq,{}); if(!er[empId])er[empId]={}; var rec=er[empId][typeId]||{status:'Missing'};
     var order=['Missing','Pending','Active']; var i=order.indexOf(rec.status); rec.status=order[(i+1)%order.length];
     if(rec.status==='Active' && !rec.issue) rec.issue=todayISO();
+    /* v13.14 LIC-F3: renewable types (NBI, Medical…) alert off rec.expiry, but no UI path ever set it —
+       capture an expiry when the requirement goes Active (default: issue + type.months, local serialization) */
+    if(rec.status==='Active'){
+      var t=reqTypes().filter(function(x){return x.id===typeId;})[0];
+      if(t&&t.renew){
+        var base=parseD(rec.issue)||new Date(); base.setMonth(base.getMonth()+(Number(t.months)||12));
+        var def=localISO(base);
+        var exp=prompt('Expiry date for '+t.name+' (YYYY-MM-DD):',rec.expiry||def);
+        if(exp!==null){ exp=(exp||'').trim(); rec.expiry=exp||def; }
+        else if(!rec.expiry){ rec.expiry=def; }
+      }
+    }
     er[empId][typeId]=rec; S(KEY.empReq,er); AA.render();
   };
   AA.exportReq=function(){
@@ -162822,7 +163080,7 @@ gh+=_mtxTreeBody(rows);
   function parseD(s){ if(!s)return null; var d=new Date(String(s).slice(0,10)+'T00:00:00'); return isNaN(d)?null:d; }
   function daysUntil(s){ var d=parseD(s); if(!d)return null; return Math.round((d-new Date(todayISO()+'T00:00:00'))/86400000); }
   function fmtDate(s){ var d=parseD(s); if(!d)return (s?String(s):'\u2014'); return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
-  function addMonths(s,m){ var d=parseD(s)||new Date(); d.setMonth(d.getMonth()+m); return d.toISOString().slice(0,10); }
+  function addMonths(s,m){ var d=parseD(s)||new Date(); d.setMonth(d.getMonth()+m); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }/* v13.14 LIC-F2: serialize from local (PH) parts — toISOString() is UTC, wrote the date one day early */
   function peso(n){ n=Number(n)||0; return '\u20b1'+n.toLocaleString('en-PH',{minimumFractionDigits:n%1?2:0,maximumFractionDigits:2}); }
   function toast(m,t){ try{ if(typeof showToast==='function') showToast(m,t||'ok'); }catch(e){} }
   function curName(){ try{ if(typeof getCurrentUser==='function'){ var u=getCurrentUser(); if(u)return u.username; } }catch(e){} return 'admin'; }
@@ -170455,7 +170713,12 @@ function install(){
        which stole .active back to an empty div after the base rendered the
        aliased view (blank pane). Rewriting v first keeps all three steps
        (container, base call, re-activation) on the same real view id. */
-    try{ if(window.__HNX_VIEW_ALIASES && window.__HNX_VIEW_ALIASES[v]) v = window.__HNX_VIEW_ALIASES[v]; }catch(e){}
+    try{ if(window.__HNX_VIEW_ALIASES && window.__HNX_VIEW_ALIASES[v]){
+      /* v13.14 LIC-F4: 'licenses' routes to the real Admin-AI tracker — preselect its Licenses & Permits
+         tab HERE too, because this outermost wrapper rewrites v before the base alias block can see it. */
+      if(v==='licenses'&&window.__HNX_VIEW_ALIASES[v]==='admin_ai'&&window.__hnxADMINAI)window.__hnxADMINAI.tab='lic';
+      v = window.__HNX_VIEW_ALIASES[v];
+    } }catch(e){}
     /* v13.11 PROD-F1: views with a BESPOKE wrapper (crops_matrix renders into
        view-dashboard + a body class) must not get a container pre-created or
        re-activated here — that stole .active onto an empty div → blank pane. */
@@ -172004,7 +172267,7 @@ window._nexiAnswerFromDomains=function(qRaw){
 
   /* executive: anything expiring / overdue this week */
   if(/(expir|overdue|due (this|next) week|due soon|renewals?)/.test(q)){
-    var lic=arr('hydroPro_lic_registry').concat(arr('hydroPro_admin_licenses'));
+    var lic=arr('hydroPro_admin_licenses_v1');/* v13.14 LIC-F5: real Admin-AI key (KEY.lic) — 'hydroPro_lic_registry'/'hydroPro_admin_licenses' are never written anywhere */
     var now=Date.now(), wk=now+7*864e5, soon=[];
     lic.forEach(function(x){ var dt=Date.parse(x.expiry||x.expiryDate||x.dueDate||''); if(!isNaN(dt)&&dt<=wk){ soon.push((x.name||x.title||'license')+(dt<now?' (EXPIRED)':'')); } });
     if(soon.length)return soon.length+' license/permit item'+(soon.length===1?'':'s')+' need attention within a week: '+soon.slice(0,6).join(', ')+(soon.length>6?'…':'')+'. Open Licenses → Expiring for the full list.'+E;
