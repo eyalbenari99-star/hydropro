@@ -201585,6 +201585,38 @@ function __n2LoadEmployeesSafe(){
   });
   return order.map(function(k){return byId[k];});
 }
+/* v13.24 PHOTO: avatar attrs that NEVER leave an empty circle. Cloud photos are
+   'r2img:<key>' pointers that must be signed via _hrScanUrl before they render —
+   the old code inlined url('r2img:…') + color:transparent immediately, so while
+   (or if ever) the pointer failed to resolve the initials were hidden and the
+   avatar showed as a blank ring. Now: direct photos (data:/http) inline as
+   before; r2img photos keep the INITIALS VISIBLE and carry data-n2ph, and
+   __n2ResolvePhotos() signs + swaps them in (initials hidden only on success). */
+function __n2Ava(photo){
+  var ph=String(photo||'');
+  if(!ph) return {style:'',attr:''};
+  if(ph.indexOf('r2img:')===0){
+    return {style:'', attr:' data-n2ph="'+ph.replace(/"/g,'&quot;')+'"'};
+  }
+  return {style:"background-image:url('"+ph.replace(/'/g,"\\'")+"');color:transparent;background-size:cover;background-position:center;", attr:''};
+}
+function __n2ResolvePhotos(root){
+  try{
+    if(typeof _hrScanUrl!=='function') return;
+    (root||document).querySelectorAll('[data-n2ph]').forEach(function(el){
+      if(el.getAttribute('data-n2ph-done')) return;
+      el.setAttribute('data-n2ph-done','1');
+      var ptr=el.getAttribute('data-n2ph');
+      _hrScanUrl(ptr).then(function(u){
+        if(!u) return;
+        el.style.backgroundImage="url('"+u+"')";
+        el.style.backgroundSize='cover'; el.style.backgroundPosition='center';
+        el.style.color='transparent';
+      }).catch(function(){ el.removeAttribute('data-n2ph-done'); /* retry pass may succeed after sign-in */ });
+    });
+  }catch(e){}
+}
+window.__n2ResolvePhotos=__n2ResolvePhotos;
 /* v12.99: shared team matcher — returns EVERY active employee whose HR record
    links them to this greenhouse, sorted Team Leader → Supervisor → Lead Tech →
    Prod Specialist → Tech Operator → Worker → Trainee (photo-holders first
@@ -201704,14 +201736,15 @@ window.__n2OpenLeaderPicker=function(gh){
   ov.innerHTML='<div class="n2lp-card"><div class="n2lp-h">\uD83D\uDC64 Set Team Leader \u00B7 '+esc(gh)+'</div>'+
     '<input class="n2lp-q" placeholder="Type a name\u2026" oninput="(function(q){document.querySelectorAll(\'#n2LeadPick .n2lp-row\').forEach(function(r){r.style.display=r.dataset.nm.indexOf(q)>=0?\'flex\':\'none\';});})(this.value.toLowerCase())">'+
     '<div class="n2lp-list">'+emps.map(function(e){
-      var ph=e.photo?('background-image:url(\''+String(e.photo).replace(/'/g,"\\'")+'\');color:transparent;background-size:cover;background-position:center;'):'';
-      return '<div class="n2lp-row" data-nm="'+esc(String(e.name).toLowerCase())+'" onclick="window.__n2SetLeader(\''+esc(gh)+'\',\''+esc(e.id)+'\')"><span class="n2-lead-photo" style="width:30px;height:30px;font-size:10px;'+ph+'">'+__n2Initials(e.name)+'</span><span class="n2lp-nm">'+esc(e.name)+'</span><span class="n2lp-rl">'+esc(e.role||e.dept||'')+'</span></div>';
+      var _av=__n2Ava(e.photo); var ph=_av.style, phA=_av.attr; /* v13.24 PHOTO */
+      return '<div class="n2lp-row" data-nm="'+esc(String(e.name).toLowerCase())+'" onclick="window.__n2SetLeader(\''+esc(gh)+'\',\''+esc(e.id)+'\')"><span class="n2-lead-photo" style="width:30px;height:30px;font-size:10px;'+ph+'"'+phA+'>'+__n2Initials(e.name)+'</span><span class="n2lp-nm">'+esc(e.name)+'</span><span class="n2lp-rl">'+esc(e.role||e.dept||'')+'</span></div>';
     }).join('')+'</div>'+
     '<div style="display:flex;gap:8px;justify-content:space-between;margin-top:10px;">'+
     '<button class="n2lp-clear" onclick="window.__n2SetLeader(\''+esc(gh)+'\',null)">\u2715 Clear leader</button>'+
     '<button class="n2lp-close" onclick="document.getElementById(\'n2LeadPick\').remove()">Close</button></div></div>';
   ov.onclick=function(ev){ if(ev.target===ov) ov.remove(); };
   document.body.appendChild(ov);
+  try{ __n2ResolvePhotos(ov); setTimeout(function(){__n2ResolvePhotos(ov);},2500); }catch(e){}
 };
 function __n2LookupLead(ghName){
   try{
@@ -201735,8 +201768,8 @@ function __n2CrewStripHtml(ghName){
     var esc=function(t){return String(t==null?'':t).replace(/[<>&"]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c];});};
     var html='<div class="n2-crew" title="'+esc(others.length+' more on this GH team')+'">';
     others.slice(0,MAX).forEach(function(m){
-      var st=m.photo?('background-image:url(\''+String(m.photo).replace(/'/g,"\\'")+'\');color:transparent;'):'';
-      html+='<span class="n2-crew-av" style="'+st+'cursor:pointer;" title="'+esc(m.name+' · '+m.role)+' — open record" onclick="event.stopPropagation();window.__n2OpenEmp(\''+esc(m.id)+'\')">'+esc(m.ini)+'</span>'; /* v13.23 RT-6 */
+      var _av=__n2Ava(m.photo); /* v13.24 PHOTO */
+      html+='<span class="n2-crew-av" style="'+_av.style+'cursor:pointer;"'+_av.attr+' title="'+esc(m.name+' · '+m.role)+' — open record" onclick="event.stopPropagation();window.__n2OpenEmp(\''+esc(m.id)+'\')">'+esc(m.ini)+'</span>'; /* v13.23 RT-6 */
     });
     if(others.length>MAX) html+='<span class="n2-crew-av n2-crew-more" title="'+esc((others.length-MAX)+' more')+'">+'+(others.length-MAX)+'</span>';
     html+='</div>';
@@ -201911,7 +201944,7 @@ function __n2RenderCard(g){
   var cardCls = 'n2-card' + (isWarn?' warn':'') + (isFuture?' future':'');
   var stCls = isFuture?'future':isWarn?'warn':'';
   var stText = isFuture?'Coming '+g.harvest:isWarn?'Watch':'Nominal';
-  var photoStyle = lead.photo ? 'background-image:url(\''+lead.photo+'\');color:transparent;' : '';
+  var _lav=__n2Ava(lead.photo); var photoStyle=_lav.style, photoAttr=_lav.attr; /* v13.24 PHOTO */
   /* v13.23 RT-3: the AI bar shows the TOP computed insight from the real stores */
   var ins = __n2Insights(g, rt.real);
   var aiText = __n2Esc(ins[0].t);
@@ -201955,7 +201988,7 @@ function __n2RenderCard(g){
       '<div class="n2-ai'+aiCls+'"><span class="ico">◈</span>'+aiText+'</div>' +
       '<div class="n2-layers">'+layersHtml+'</div>' +
       '<div class="n2-lead">' +
-        '<div class="n2-lead-photo'+(isFuture?' tbd':'')+'" style="'+photoStyle+(lead.id?'cursor:pointer;':'')+'"'+(lead.id?' title="Open '+lead.name+'\u2019s employee record" onclick="event.stopPropagation();window.__n2OpenEmp(\''+lead.id+'\')"':'')+'>'+lead.ini+'</div>' + /* v13.23 RT-6 */
+        '<div class="n2-lead-photo'+(isFuture?' tbd':'')+'" style="'+photoStyle+(lead.id?'cursor:pointer;':'')+'"'+photoAttr+(lead.id?' title="Open '+lead.name+'\u2019s employee record" onclick="event.stopPropagation();window.__n2OpenEmp(\''+lead.id+'\')"':'')+'>'+lead.ini+'</div>' + /* v13.23 RT-6 + v13.24 PHOTO */
         '<div class="n2-lead-info"'+(lead.id?' style="cursor:pointer;" title="Open employee record" onclick="event.stopPropagation();window.__n2OpenEmp(\''+lead.id+'\')"':'')+'>' +
           '<div class="n2-lead-name">'+lead.name+'</div>' +
           '<div class="n2-lead-role">'+lead.role+' · '+lead.ch+'</div>' +
@@ -201976,6 +202009,8 @@ function __n2RenderCard(g){
 function __n2BuildGrid(container){
   var FACILITIES = window.__N2_FACILITIES;
   container.innerHTML = FACILITIES.map(__n2RenderCard).join('');
+  /* v13.24 PHOTO: sign & swap r2img avatars; retry for late sign-in / slow network */
+  try{ __n2ResolvePhotos(container); setTimeout(function(){__n2ResolvePhotos(container);},2500); setTimeout(function(){__n2ResolvePhotos(container);},8000); }catch(e){}
   /* v13.05 COMPACT MODE: one-tap "⛶ Fit all" shrinks every card (hides the
      scene/AI/detail tiles, keeps name·yield·leader·status) so all 16 GHs and
      PRJs fit on a single screen. Preference persists per device. */
@@ -202103,14 +202138,14 @@ function __n2OpenDrill(g){
   var m = document.getElementById('n2DrillModal');
   var body = m.querySelector('.n2-drill-body');
   body.style.setProperty('--card-color', color);
-  var photoStyle = lead.photo ? 'background-image:url(\''+lead.photo+'\');color:transparent;' : '';
+  var _lav=__n2Ava(lead.photo); var photoStyle=_lav.style, photoAttr=_lav.attr; /* v13.24 PHOTO */
   body.innerHTML =
     '<div class="n2-drill-head">' +
       '<div><h2>'+g.n+' · Digital Twin</h2><div class="sub">'+g.crop+' · '+(g.state==='future'?'Future project':'Live status')+'</div></div>' +
       '<button class="n2-drill-close" onclick="document.getElementById(\'n2DrillModal\').classList.remove(\'on\')">✕ Close</button>' +
     '</div>' +
     '<div class="n2-drill-secs">' +
-      '<div class="n2-sec"><h4>👤 Team Leader</h4><div class="row"'+(lead.id?' style="cursor:pointer;" title="Open employee record" onclick="window.__n2OpenEmp(\''+lead.id+'\')"':'')+'><span style="display:flex;align-items:center;gap:10px;"><span class="n2-lead-photo" style="width:32px;height:32px;font-size:11px;'+photoStyle+'">'+lead.ini+'</span><b>'+lead.name+'</b></span></div><div class="row"><span>Role</span><b>'+lead.role+'</b></div><div class="row"><span>Radio channel</span><b>'+lead.ch+'</b></div><div class="row"><span>Change</span><b style="cursor:pointer;color:#67e8f9;" onclick="document.getElementById(\'n2DrillModal\').classList.remove(\'on\');window.__n2OpenLeaderPicker(\''+g.n+'\')">\u270E Set leader</b></div></div>' +
+      '<div class="n2-sec"><h4>👤 Team Leader</h4><div class="row"'+(lead.id?' style="cursor:pointer;" title="Open employee record" onclick="window.__n2OpenEmp(\''+lead.id+'\')"':'')+'><span style="display:flex;align-items:center;gap:10px;"><span class="n2-lead-photo" style="width:32px;height:32px;font-size:11px;'+photoStyle+'"'+photoAttr+'>'+lead.ini+'</span><b>'+lead.name+'</b></span></div><div class="row"><span>Role</span><b>'+lead.role+'</b></div><div class="row"><span>Radio channel</span><b>'+lead.ch+'</b></div><div class="row"><span>Change</span><b style="cursor:pointer;color:#67e8f9;" onclick="document.getElementById(\'n2DrillModal\').classList.remove(\'on\');window.__n2OpenLeaderPicker(\''+g.n+'\')">\u270E Set leader</b></div></div>' +
       /* v12.99: full crew roster from HR records — everyone assigned to this GH */
       (function(){
         try{
@@ -202118,8 +202153,8 @@ function __n2OpenDrill(g){
           if(team.length<=1) return '';
           var esc=function(t){return String(t==null?'':t).replace(/[<>&"]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c];});};
           var rows=team.slice(1).map(function(m){
-            var st=m.photo?('background-image:url(\''+String(m.photo).replace(/'/g,"\\'")+'\');color:transparent;'):'';
-            return '<div class="row"'+(m.id?' style="cursor:pointer;" title="Open employee record" onclick="window.__n2OpenEmp(\''+esc(m.id)+'\')"':'')+'><span style="display:flex;align-items:center;gap:10px;"><span class="n2-lead-photo" style="width:28px;height:28px;font-size:10px;'+st+'">'+esc(m.ini)+'</span>'+esc(m.name)+(m.nickname?' <span style="color:#94a8c8;">·  '+esc(m.nickname)+'</span>':'')+'</span><b style="font-size:11px;color:#94a8c8;">'+esc(m.role)+'</b></div>';
+            var _av=__n2Ava(m.photo); var st=_av.style, stA=_av.attr; /* v13.24 PHOTO */
+            return '<div class="row"'+(m.id?' style="cursor:pointer;" title="Open employee record" onclick="window.__n2OpenEmp(\''+esc(m.id)+'\')"':'')+'><span style="display:flex;align-items:center;gap:10px;"><span class="n2-lead-photo" style="width:28px;height:28px;font-size:10px;'+st+'"'+stA+'>'+esc(m.ini)+'</span>'+esc(m.name)+(m.nickname?' <span style="color:#94a8c8;">·  '+esc(m.nickname)+'</span>':'')+'</span><b style="font-size:11px;color:#94a8c8;">'+esc(m.role)+'</b></div>';
           }).join('');
           return '<div class="n2-sec"><h4>👥 Team · '+team.length+' assigned</h4>'+rows+'</div>';
         }catch(e){ return ''; }
@@ -202150,6 +202185,7 @@ function __n2OpenDrill(g){
       '<button class="emergency" onclick="__n2RaiseAlert(\''+g.n+'\')">🚨 Raise Alert</button>' +
     '</div>';
   m.classList.add('on');
+  try{ __n2ResolvePhotos(m); setTimeout(function(){__n2ResolvePhotos(m);},2500); }catch(e){} /* v13.24 PHOTO */
 }
 
 // ============ v2.0: OPEN NEXI (brain click) ============
