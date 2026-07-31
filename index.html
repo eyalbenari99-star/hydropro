@@ -160158,9 +160158,17 @@ gh+=_mtxTreeBody(rows);
       var dt = (d.date||d.scheduledAt||d.createdAt||'').toString().substring(0,10);
       return dt === today;
     });
+    /* v13.26 LOG-F3: match the statuses the Deliveries screen actually writes —
+       'scheduled' / 'out for delivery' / 'delivered' / 'failed' (STATUS list in the
+       log_deliveries CRUD). 'late'/'eta'/'completed' never exist on those records. */
     var doneToday = todayDeliveries.filter(function(d){ return d.status==='delivered' || d.status==='completed'; }).length;
-    var pendingToday = todayDeliveries.length - doneToday;
-    var lateToday = todayDeliveries.filter(function(d){ return d.status==='late' || (d.eta && new Date(d.eta).getTime() < Date.now() && d.status!=='delivered'); }).length;
+    var failedToday = todayDeliveries.filter(function(d){ return d.status==='failed'; }).length;
+    var pendingToday = todayDeliveries.length - doneToday - failedToday;
+    var overdue = deliveries.filter(function(d){
+      var dt = (d.date||d.scheduledAt||'').toString().substring(0,10);
+      return dt && dt < today && d.status!=='delivered' && d.status!=='completed' && d.status!=='failed';
+    }).length;
+    var lateToday = failedToday + overdue;
 
     // Week
     var weekDeliveries = deliveries.filter(function(d){
@@ -160170,9 +160178,9 @@ gh+=_mtxTreeBody(rows);
     var onTimeWeek = weekDeliveries.filter(function(d){ return d.status==='delivered' && !d.late; }).length;
     var onTimeRate = weekDeliveries.length ? Math.round(100*onTimeWeek/weekDeliveries.length) : null;
 
-    // Vehicles
-    var activeVeh = vehicles.filter(function(v){ return v.status==='active' || v.status==='available'; }).length;
-    var maintVeh  = vehicles.filter(function(v){ return v.status==='maintenance' || v.status==='in_service'; }).length;
+    // Vehicles — fleet stores 'active'/'in_use'/'maint'/'offline' (v13.26 LOG-F4, see FLEET-F6)
+    var activeVeh = vehicles.filter(function(v){ return v.status==='active' || v.status==='in_use' || v.status==='available'; }).length;
+    var maintVeh  = vehicles.filter(function(v){ return v.status==='maint' || v.status==='maintenance' || v.status==='in_service'; }).length;
     var totalVeh  = vehicles.length;
 
     // Fuel cost MoM
@@ -160215,7 +160223,7 @@ gh+=_mtxTreeBody(rows);
       + kpiCard('✅', 'On-time rate 7d', onTimeRate==null?'—':onTimeRate+'%', weekDeliveries.length+' deliveries this week', onTimeRate==null?'#7a9a8e':onTimeRate>=90?'#26c281':onTimeRate>=75?'#ff9800':'#ef5350')
       + kpiCard('🚛', 'Fleet active', activeVeh+'/'+totalVeh, maintVeh+' in maintenance', totalVeh===0?'#7a9a8e':'#42a5f5')
       + kpiCard('⛽', 'Fuel cost (30d)', '₱'+thisMonth.toLocaleString(undefined,{maximumFractionDigits:0}), fuelMoM==null?'no prior month':(fuelMoM>0?'+':'')+fuelMoM+'% vs prev', fuelMoM==null?'#7a9a8e':fuelMoM<=5?'#26c281':fuelMoM<=15?'#ff9800':'#ef5350')
-      + kpiCard('⚠️', 'Late today', String(lateToday), lateToday===0?'all on track':'customers notified', lateToday===0?'#26c281':'#ef5350')
+      + kpiCard('⚠️', 'Late / failed', String(lateToday), lateToday===0?'all on track':(failedToday+' failed today · '+overdue+' overdue'), lateToday===0?'#26c281':'#ef5350')
       + kpiCard('📞', 'Open logistics calls', String(openCalls.length), openCalls.length===0?'all clear':'tap for list', openCalls.length===0?'#26c281':openCalls.length>5?'#ef5350':'#ff9800')
       +'</div>';
 
@@ -160230,17 +160238,20 @@ gh+=_mtxTreeBody(rows);
       var s = (d.status||'pending').toLowerCase();
       var color = '#7a9a8e', label = s;
       if(s==='delivered' || s==='completed'){ color='#26c281'; label='✓ delivered'; }
-      else if(s==='in_transit' || s==='out')  { color='#42a5f5'; label='🚛 in transit'; }
-      else if(s==='late')                     { color='#ef5350'; label='⚠ late'; }
+      else if(s==='in_transit' || s==='out' || s==='out for delivery'){ color='#42a5f5'; label='🚛 in transit'; } /* v13.26 LOG-F3 */
+      else if(s==='late' || s==='failed')     { color='#ef5350'; label=s==='failed'?'✕ failed':'⚠ late'; }
       else if(s==='pending' || s==='scheduled'){ color='#ff9800'; label='⏱ pending'; }
       return '<span style="display:inline-block;padding:3px 9px;border-radius:11px;background:'+color+'22;color:'+color+';border:1px solid '+color+'66;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;">'+esc(label)+'</span>';
     }
 
     var recentHtml = recent.length
       ? recent.map(function(d){
-          var customer = d.customer || d.customerName || d.dest || '(unknown)';
-          var addr = d.address || d.destination || '';
-          var driver = d.driver || d.driverName || '—';
+          /* v13.26 LOG-F5: delivery records store driverId/vehicleId + destination —
+             resolve names via the fleet lists instead of fields that never exist */
+          var customer = d.customer || d.customerName || d.destination || d.dest || '(unknown)';
+          var addr = d.address || (d.customer ? (d.destination||'') : '');
+          var drvRec = d.driverId ? drivers.filter(function(x){ return x && x.id===d.driverId; })[0] : null;
+          var driver = (drvRec && drvRec.name) || d.driver || d.driverName || '—';
           var dt = d.date || d.scheduledAt || d.createdAt || '';
           return '<div style="padding:12px 14px;background:rgba(255,255,255,.02);border-left:3px solid rgba(66,165,245,.5);border-radius:6px;margin-bottom:7px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">'
             +'<div style="flex:1;min-width:200px;">'
@@ -160259,7 +160270,7 @@ gh+=_mtxTreeBody(rows);
     var vehHtml = vehicles.length
       ? vehicles.slice(0, 12).map(function(v){
           var s = (v.status||'active').toLowerCase();
-          var color = s==='active'||s==='available' ? '#26c281' : s==='maintenance'||s==='in_service' ? '#ff9800' : '#7a9a8e';
+          var color = s==='active'||s==='in_use'||s==='available' ? '#26c281' : s==='maint'||s==='maintenance'||s==='in_service' ? '#ff9800' : '#7a9a8e'; /* v13.26 LOG-F4 */
           return '<div style="padding:10px 12px;background:rgba(255,255,255,.025);border:1px solid '+color+'44;border-radius:8px;flex:1;min-width:140px;">'
             +'<div style="display:flex;align-items:center;gap:7px;">'
               +'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+color+';box-shadow:0 0 8px '+color+';"></span>'
