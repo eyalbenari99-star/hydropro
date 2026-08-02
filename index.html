@@ -21874,7 +21874,7 @@ function switchView(v,skipModuleCheck){
     prj_dash:'viewProjects',prj_active:'viewProjects',prj_planning:'viewProjects',prj_completed:'viewProjects',
     sec_dash:'viewSecurityMod',sec_live:'viewSecurityMod',sec_patrol:'viewSecurityMod',sec_checkpoints:'viewSecurityMod',sec_incidents:'viewSecurityMod',sec_guards:'viewSecurityMod',
     // Admin views
-    geo_setup:'manageGeo',pool_setup:'manageGeo',email_routing:'manageSecurity',report_scheduler:'manageSecurity',security_center:'manageSecurity',cloud_sync:'manageCloud'
+    geo_setup:'manageGeo',pool_setup:'manageGeo',email_routing:'manageSecurity',report_scheduler:'manageSecurity',security_center:'manageSecurity',cloud_sync:'manageCloud',view_registry:'manageUsers'/* v13.29 */
   };
   if(guards[v]&&!can(guards[v])){window.__lastNavDenied=v;/* v13.13 NEXI-F7: let Nexi's navTo detect the refusal */showToast('Access denied for your role','warn');return;}
   /* v2.46.148 — Track the routed view for the alignment watchdog.
@@ -203455,5 +203455,200 @@ console.log('[HNX-WH] Warehouse module ready — renderWhWarehouse()');
 })();
 </script>
 <!-- ================= END HNX WAREHOUSE MODULE ================= -->
+<!-- ================= HNX VIEW CAPABILITY REGISTRY (v13.29) ================= -->
+<script>
+// ============================================================
+// HNX VIEW CAPABILITY REGISTRY (v13.29, addendum §3 / Phase 1)
+// One entry per module tab: status, data sources, actions, owner,
+// permissions, KPIs, Nexi commands. Admin → 🗂 View Registry screen
+// lists every view in the app; views present in MODULES but not yet
+// registered here surface as 'unregistered' so nothing hides.
+// Policy (§3.1): every tab must end up live, merged, or removed —
+// a 'stub' status is a work item, not a final state.
+// ============================================================
+(function(){
+'use strict';
+if(window._hnxViewRegistryInstalled)return;window._hnxViewRegistryInstalled=true;
+
+function esc(s){return (typeof _esc==='function')?_esc(s):String(s==null?'':s).replace(/[&<>"']/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];});}
+function toast(m,t){if(typeof _toast==='function')_toast(m,t);else if(typeof showToast==='function')showToast(m,t||'ok');}
+
+var REG=window.HNX_VIEW_REGISTRY=window.HNX_VIEW_REGISTRY||{entries:{}};
+REG.register=function(e){if(e&&e.viewId)REG.entries[e.viewId]=Object.assign(REG.entries[e.viewId]||{},e);};
+REG.get=function(id){return REG.entries[id]||null;};
+REG.all=function(){return Object.keys(REG.entries).map(function(k){return REG.entries[k];});};
+
+// ---------- seeds: LOGISTICS (incl. fleet) ----------
+[
+{viewId:'log_cmd',module:'logistics',title:'Command Center',status:'live',dataSources:['hydroPro_log_deliveries','hydroPro_fleet_vehicles','hydroPro_fleet_fuel','hydroPro_calls','hydroPro_wh_stock','hydroPro_fleet_gps_positions'],actions:['drill-down'],permissions:['viewLogistics'],ownerRole:'Logistics Supervisor',kpis:['deliveries today','fleet active','on-time 7d','open calls'],nexCommands:['open logistics command center'],notes:'live since v13.28 LOG-F8'},
+{viewId:'log_dash',module:'logistics',title:'Dashboard',status:'live',dataSources:['hydroPro_log_deliveries','hydroPro_fleet_vehicles','hydroPro_fleet_drivers','hydroPro_fleet_fuel','hydroPro_calls'],actions:['navigate'],permissions:['viewLogistics'],ownerRole:'Logistics Supervisor',kpis:['deliveries','on-time','fleet','fuel MoM','open calls'],nexCommands:['open logistics'],notes:''},
+{viewId:'log_deliveries',module:'logistics',title:'Deliveries',status:'live',dataSources:['hydroPro_log_deliveries','hydroPro_fleet_vehicles','hydroPro_fleet_drivers'],actions:['add','edit','delete','export CSV','filter'],permissions:['viewLogistics'],ownerRole:'Dispatcher',kpis:['total','today','pending','delivered'],nexCommands:['how many deliveries today'],notes:'items are free text — structured lines are addendum Critical #3'},
+{viewId:'log_warehouse',module:'logistics',title:'Warehouse',status:'live',dataSources:['hydroPro_wh_warehouses','hydroPro_wh_stock','hydroPro_wh_movements'],actions:['add item','import CSV','link inventory','export','transfer','count','reorder request'],permissions:['viewLogistics'],ownerRole:'Warehouse Keeper',kpis:['items','units','low stock','last count','value'],nexCommands:['what is low in the warehouse'],notes:'v13.27 WH-1; SOS posting is Stage 2'},
+{viewId:'log_routes',module:'logistics',title:'Routes',status:'merged',dataSources:[],actions:['redirect'],permissions:['viewLogistics'],ownerRole:'Dispatcher',kpis:[],nexCommands:[],notes:'merged → fleet_live_map / fleet_track_live / fleet_daily_report'},
+{viewId:'log_vehicles',module:'logistics',title:'Dispatch',status:'merged',dataSources:[],actions:['redirect'],permissions:['viewLogistics'],ownerRole:'Dispatcher',kpis:[],nexCommands:[],notes:'merged → fleet_vehicles / fleet_drivers / log_deliveries'},
+{viewId:'log_recurring',module:'logistics',title:'Recurring Tasks',status:'live',dataSources:['recurring hub store'],actions:['manage tasks'],permissions:['viewLogistics'],ownerRole:'Logistics Supervisor',kpis:[],nexCommands:[],notes:''},
+{viewId:'log_open_calls',module:'logistics',title:'Open Calls',status:'live',dataSources:['hydroPro_calls'],actions:['view','close'],permissions:['viewLogistics'],ownerRole:'Logistics Supervisor',kpis:['open count'],nexCommands:['open logistics calls'],notes:''},
+{viewId:'log_megabox_matrix',module:'logistics',title:'Megabox Matrix',status:'live',dataSources:['hydroPro_log_megabox_v1'],actions:['edit counts','export CSV'],permissions:['viewLogistics'],ownerRole:'Logistics Supervisor',kpis:['crate balance per client'],nexCommands:['megabox balance'],notes:''},
+{viewId:'log_duties',module:'logistics',title:'Duties Matrix',status:'live',dataSources:['hydroPro_duties_v1'],actions:['assign','complete','SOS cold count'],permissions:['viewLogistics'],ownerRole:'SVL',kpis:['task completion'],nexCommands:['logistics duties'],notes:'shared overlay with Packaging (SVP)'},
+{viewId:'fleet_dash',module:'logistics',title:'Fleet Dashboard',status:'live',dataSources:['hydroPro_fleet_vehicles','hydroPro_fleet_drivers','hydroPro_fleet_fuel','hydroPro_gps_reports'],actions:['drill-down'],permissions:['viewFleet'],ownerRole:'Fleet Coordinator',kpis:['vehicles','active','low fuel','drivers'],nexCommands:[],notes:''},
+{viewId:'fleet_vehicles',module:'logistics',title:'Vehicles',status:'live',dataSources:['hydroPro_fleet_vehicles','hydroPro_fleet_drivers'],actions:['add','edit','delete','GPS update'],permissions:['viewFleet'],ownerRole:'Fleet Coordinator',kpis:[],nexCommands:['how many vehicles'],notes:'lastServiceOdo capture still missing (spec A6.3)'},
+{viewId:'fleet_drivers',module:'logistics',title:'Drivers',status:'live',dataSources:['hydroPro_fleet_drivers','hydroPro_fleet_vehicles'],actions:['add','edit','delete','assign'],permissions:['viewFleet'],ownerRole:'Fleet Coordinator',kpis:[],nexCommands:['how many drivers'],notes:''},
+{viewId:'fleet_fuel',module:'logistics',title:'Fuel Log',status:'live',dataSources:['hydroPro_fleet_fuel','hydroPro_fleet_vehicles'],actions:['add','delete'],permissions:['viewFleet'],ownerRole:'Fleet Coordinator',kpis:['entries','liters','cost'],nexCommands:['fuel cost'],notes:''},
+{viewId:'fleet_logistics_coord',module:'logistics',title:'Logistics Coordinator',status:'partial',dataSources:['hydroPro_gps_reports','hydroPro_fleet_vehicles'],actions:['refresh'],permissions:['viewFleet'],ownerRole:'Fleet Coordinator',kpis:['utilization','km/L','service due','fuel runway'],nexCommands:[],notes:'service forecast wrong until lastServiceOdo is captured; fixed 50L tank & 10000km interval assumptions'},
+{viewId:'fleet_trackers',module:'logistics',title:'Live Trackers',status:'live',dataSources:['hydroPro_fleet_trackers','hydroPro_fleet_sms_cmds'],actions:['add','edit','SMS commands'],permissions:['viewLogistics'],ownerRole:'Fleet Coordinator',kpis:[],nexCommands:['open live trackers'],notes:''},
+{viewId:'fleet_gps',module:'logistics',title:'GPS Daily Report',status:'live',dataSources:['hydroPro_gps_reports','hydroPro_gps_driver_attendance'],actions:['edit','XLSX import/export'],permissions:['viewLogistics'],ownerRole:'Dispatcher',kpis:['stops','km','fuel'],nexCommands:[],notes:''},
+{viewId:'fleet_live_map',module:'logistics',title:'Live Map',status:'live',dataSources:['hydroPro_fleet_gps_positions','hydroPro_fleet_gps_config'],actions:['view map','geofences'],permissions:['viewLogistics'],ownerRole:'Dispatcher',kpis:[],nexCommands:['where are the trucks'],notes:'needs tracker bridge running'},
+{viewId:'fleet_gps_ops',module:'logistics',title:'GPS Ops',status:'live',dataSources:['hydroPro_fleet_gps_positions','hydroPro_fleet_gps_draft_trips'],actions:['confirm trips'],permissions:['viewLogistics'],ownerRole:'Dispatcher',kpis:[],nexCommands:[],notes:''},
+{viewId:'fleet_gps_config',module:'logistics',title:'GPS Config',status:'live',dataSources:['hydroPro_fleet_gps_config'],actions:['configure','reset data'],permissions:['viewLogistics'],ownerRole:'Admin',kpis:[],nexCommands:[],notes:''},
+{viewId:'fleet_radios',module:'logistics',title:'Radios & SIMs',status:'live',dataSources:['hydroPro_fleet_radios'],actions:['add','edit','Excel import/export'],permissions:['viewLogistics'],ownerRole:'Fleet Coordinator',kpis:['expiry tracking'],nexCommands:[],notes:''},
+{viewId:'fleet_track_live',module:'logistics',title:'SinoTrack Window',status:'live',dataSources:['external iframe'],actions:['view'],permissions:['viewLogistics'],ownerRole:'Dispatcher',kpis:[],nexCommands:[],notes:'embedded external portal'},
+{viewId:'fleet_locations',module:'logistics',title:'Locations',status:'live',dataSources:['hydroPro_fleet_gps_config'],actions:['add','edit geofences'],permissions:['viewLogistics'],ownerRole:'Dispatcher',kpis:[],nexCommands:[],notes:''},
+{viewId:'fleet_daily_report',module:'logistics',title:'Daily Report',status:'live',dataSources:['hydroPro_gps_reports','hydroPro_fleet_gps_positions'],actions:['browse by date'],permissions:['viewLogistics'],ownerRole:'Dispatcher',kpis:[],nexCommands:[],notes:''},
+{viewId:'fleet_files',module:'logistics',title:'Vehicle Files',status:'live',dataSources:['hydroPro_fleet_vehicle_files','hydroPro_fleet_vehicle_service'],actions:['upload','track expiry'],permissions:['viewLogistics'],ownerRole:'Fleet Coordinator',kpis:['doc compliance'],nexCommands:[],notes:''}
+].forEach(REG.register);
+
+// ---------- seeds: PACKAGING ----------
+[
+{viewId:'pack_cmd',module:'packaging',title:'Command Center',status:'live',dataSources:['hydroPro_washtrim_sessions','hydroPro_pack_materials','hydroPro_issues_v2'],actions:['drill-down'],permissions:['viewPackaging'],ownerRole:'SVP',kpis:['bags today','kg packed','pick ticket','materials low'],nexCommands:['open packaging command center'],notes:'live since v13.14 PACK-F4'},
+{viewId:'pack_dash',module:'packaging',title:'Dashboard',status:'live',dataSources:['hydroPro_washtrim_sessions','hydroPro_pack_materials','QC inspections','hydroPro_crates_v1','hydroPro_deliveries_v1'],actions:['navigate'],permissions:['viewPackaging'],ownerRole:'SVP',kpis:['kg today','7-day','QC pass','low stock','crates in/out'],nexCommands:['how many kg packed today'],notes:'crate KPIs added v13.28 PACK-F6'},
+{viewId:'pack_washtrim',module:'packaging',title:'Wash & Trim SOP',status:'live',dataSources:['hydroPro_washtrim_sessions'],actions:['pick ticket','phase checks','summary','crew'],permissions:['viewPackaging'],ownerRole:'SVP',kpis:['phase completion','output vs target'],nexCommands:[],notes:'base64 photos — watch storage (v57 P2 monitor)'},
+{viewId:'pack_materials',module:'packaging',title:'Materials',status:'live',dataSources:['hydroPro_pack_materials'],actions:['adjust stock'],permissions:['viewPackaging'],ownerRole:'SVP',kpis:['types','low stock'],nexCommands:['low packaging materials'],notes:'parallel to Inventory — convergence path is the Warehouse module / SOS (addendum §4)'},
+{viewId:'pack_calls',module:'packaging',title:'Packaging Calls',status:'live',dataSources:['hydroPro_issues_v2'],actions:['view','update'],permissions:['viewPackaging'],ownerRole:'SVP',kpis:['open tickets'],nexCommands:[],notes:''},
+{viewId:'pack_checklist',module:'packaging',title:'Daily Checklist',status:'live',dataSources:['hydroPro_packaging_checklist','hydroPro_packaging_checklist_config'],actions:['check items'],permissions:['viewPackaging'],ownerRole:'PS',kpis:['completion'],nexCommands:[],notes:'sealing / labeling / cold chain / hygiene / materials subjects'},
+{viewId:'pack_operations',module:'packaging',title:'Operations',status:'stub',dataSources:[],actions:[],permissions:['viewPackaging'],ownerRole:'SVP',kpis:[],nexCommands:[],notes:'ADDENDUM CRITICAL #1: activate as Packaging Operations Board or remove'},
+{viewId:'pack_duties',module:'packaging',title:'Duties Matrix',status:'live',dataSources:['hydroPro_duties_v1'],actions:['assign','complete'],permissions:['viewPackaging'],ownerRole:'SVP',kpis:['task completion'],nexCommands:['packaging duties'],notes:'shared overlay with Logistics (SVL)'},
+{viewId:'crates_mgr',module:'packaging',title:'Crates & Cold Storage',status:'live',dataSources:['hydroPro_crates_v1','hydroPro_crate_types_v1','hydroPro_deliveries_v1','hydroPro_cold_storage_v1','hydroPro_customers_v1'],actions:['9 tabs: crates, types, harvest, deliveries, returns, customers, history, invoices'],permissions:['viewPackaging'],ownerRole:'SVP',kpis:['fill %','in/out/damaged/missing'],nexCommands:['where are the crates'],notes:'owns hydroPro_deliveries_v1 (crate cycles) — distinct from logistics deliveries (LOG-F1)'},
+{viewId:'packaging_matrix',module:'packaging',title:'Activity Matrix',status:'live',dataSources:['hydroPro_issues_v2'],actions:['drill-down'],permissions:['viewPackaging'],ownerRole:'SVP',kpis:['issues by area/age'],nexCommands:[],notes:'T-11 injected'},
+{viewId:'pack_recurring',module:'packaging',title:'Recurring Tasks',status:'live',dataSources:['recurring hub store'],actions:['manage tasks'],permissions:['viewPackaging'],ownerRole:'SVP',kpis:[],nexCommands:[],notes:'T-11 injected'},
+{viewId:'pack_sops',module:'packaging',title:'SOPs',status:'live',dataSources:['SOP registry'],actions:['log compliance'],permissions:['viewPackaging'],ownerRole:'SVP',kpis:[],nexCommands:[],notes:''},
+{viewId:'pack_brain',module:'packaging',title:'AI Brain',status:'partial',dataSources:['issues, sessions'],actions:['ask'],permissions:['viewPackaging'],ownerRole:'SVP',kpis:[],nexCommands:[],notes:'module-scoped AI command view'}
+].forEach(REG.register);
+
+// ---------- audit ----------
+REG.audit=function(){
+  var known=REG.entries;
+  var unregistered=[],stubs=[],merged=[],partial=[];
+  try{
+    if(window.MODULES)Object.keys(MODULES).forEach(function(mk){
+      var m=MODULES[mk];if(!m||!m.views)return;
+      m.views.forEach(function(v){
+        if(v&&v.id&&!known[v.id])unregistered.push({viewId:v.id,module:mk,label:v.label||''});
+      });
+    });
+  }catch(e){}
+  REG.all().forEach(function(e){
+    if(e.status==='stub')stubs.push(e.viewId);
+    else if(e.status==='merged')merged.push(e.viewId);
+    else if(e.status==='partial')partial.push(e.viewId);
+  });
+  return {registered:REG.all().length,unregistered:unregistered,stubs:stubs,merged:merged,partial:partial};
+};
+
+// ---------- UI state ----------
+var S={mod:'ALL',status:'ALL'};
+window._vregMod=function(v){S.mod=v;renderViewRegistry();};
+window._vregStatus=function(v){S.status=v;renderViewRegistry();};
+window._vregOpen=function(id){try{if(typeof switchView==='function')switchView(id);}catch(e){}};
+
+var STATUS_COLORS={live:'#26c281',partial:'#ff9800',stub:'#ef5350',merged:'#42a5f5',disabled:'#7a9a8e',unregistered:'#ab47bc'};
+
+window.renderViewRegistry=function(){
+  try{if(typeof can==='function'&&!can('manageUsers')){toast('Access denied for your role','warn');return;}}catch(e){}
+  var view=document.getElementById('view-view_registry');
+  if(!view){view=document.createElement('div');view.className='view';view.id='view-view_registry';(document.getElementById('appMain')||document.body).appendChild(view);}
+  document.querySelectorAll('.view').forEach(function(v){v.classList.remove('active');});
+  view.classList.add('active');
+
+  var a=REG.audit();
+  var rows=REG.all().slice();
+  a.unregistered.forEach(function(u){rows.push({viewId:u.viewId,module:u.module,title:u.label,status:'unregistered',dataSources:[],actions:[],permissions:[],ownerRole:'',kpis:[],nexCommands:[],notes:'present in MODULES but not yet capability-registered'});});
+
+  var mods={};rows.forEach(function(r){mods[r.module]=1;});
+  var modList=Object.keys(mods).sort();
+  var shown=rows.filter(function(r){
+    if(S.mod!=='ALL'&&r.module!==S.mod)return false;
+    if(S.status!=='ALL'&&r.status!==S.status)return false;
+    return true;
+  });
+  shown.sort(function(x,y){return (x.module+x.viewId)<(y.module+y.viewId)?-1:1;});
+
+  function stat(label,val,color){return '<div class="fleet-stat-card"><div class="fleet-stat-label">'+label+'</div><div class="fleet-stat-val" style="color:'+color+';">'+val+'</div></div>';}
+  var live=rows.filter(function(r){return r.status==='live';}).length;
+
+  var html='<div class="section-title">🗂 View Capability Registry <span style="font-size:11px;color:#7aa99a;font-weight:400;">— every tab must be live, merged, or removed (addendum §3.1)</span></div>'
+    +'<div class="fleet-stat-row">'
+      +stat('Live',live,'#26c281')+stat('Partial',a.partial.length,'#ff9800')+stat('Stubs',a.stubs.length,a.stubs.length?'#ef5350':'#26c281')
+      +stat('Merged',a.merged.length,'#42a5f5')+stat('Unregistered',a.unregistered.length,a.unregistered.length?'#ab47bc':'#26c281')
+    +'</div>';
+  if(a.stubs.length){
+    html+='<div style="padding:10px 14px;background:rgba(239,83,80,.08);border:1px solid rgba(239,83,80,.4);border-radius:8px;font-size:12px;color:#ef9a9a;margin-bottom:12px;">'
+      +'⚠ Stub tabs still visible to users: <b>'+a.stubs.map(esc).join(', ')+'</b> — each must be activated, merged, or removed.</div>';
+  }
+  html+='<div class="fleet-toolbar" style="gap:8px;flex-wrap:wrap;">'
+    +'<select class="call-select" style="padding:6px 10px;font-size:12px;" onchange="_vregMod(this.value)"><option value="ALL">All modules</option>'
+      +modList.map(function(m){return '<option value="'+esc(m)+'" '+(S.mod===m?'selected':'')+'>'+esc(m)+'</option>';}).join('')+'</select>'
+    +'<select class="call-select" style="padding:6px 10px;font-size:12px;" onchange="_vregStatus(this.value)"><option value="ALL">All statuses</option>'
+      +Object.keys(STATUS_COLORS).map(function(s){return '<option value="'+s+'" '+(S.status===s?'selected':'')+'>'+s+'</option>';}).join('')+'</select>'
+    +'<span style="font-size:11px;color:#7aa99a;">'+shown.length+' of '+rows.length+' views</span>'
+  +'</div>';
+
+  html+='<div class="fleet-table-wrap"><table class="fleet-table"><thead><tr><th>View</th><th>Module</th><th>Status</th><th>Owner</th><th>Data sources</th><th>Actions</th><th>Nexi</th><th>Notes</th><th></th></tr></thead><tbody>';
+  shown.forEach(function(r){
+    var c=STATUS_COLORS[r.status]||'#7a9a8e';
+    html+='<tr>'
+      +'<td style="font-family:var(--mono,monospace);font-size:11.5px;"><b>'+esc(r.viewId)+'</b>'+(r.title?'<div style="font-size:10px;color:#7aa99a;">'+esc(r.title)+'</div>':'')+'</td>'
+      +'<td style="font-size:11.5px;">'+esc(r.module)+'</td>'
+      +'<td><span style="display:inline-block;padding:2px 9px;border-radius:10px;background:'+c+'22;color:'+c+';border:1px solid '+c+'66;font-size:10px;font-weight:700;text-transform:uppercase;">'+esc(r.status)+'</span></td>'
+      +'<td style="font-size:11px;color:#a5d6e6;">'+esc(r.ownerRole||'—')+'</td>'
+      +'<td style="font-size:10.5px;color:#7aa99a;max-width:220px;">'+esc((r.dataSources||[]).join(', ')||'—')+'</td>'
+      +'<td style="font-size:10.5px;color:#7aa99a;max-width:180px;">'+esc((r.actions||[]).join(', ')||'—')+'</td>'
+      +'<td style="font-size:10.5px;color:#7aa99a;max-width:150px;">'+esc((r.nexCommands||[]).join(', ')||'—')+'</td>'
+      +'<td style="font-size:10.5px;color:'+(String(r.notes||'').indexOf('CRITICAL')>=0?'#ef9a9a':'#7aa99a')+';max-width:220px;">'+esc(r.notes||'')+'</td>'
+      +'<td><button class="btn-mini" onclick="_vregOpen(\''+esc(r.viewId)+'\')" title="Open this view">→</button></td>'
+    +'</tr>';
+  });
+  html+='</tbody></table></div>'
+    +'<div style="margin-top:12px;padding:11px 14px;background:rgba(66,165,245,.06);border:1px solid rgba(66,165,245,.35);border-radius:8px;font-size:11px;color:#a5d6e6;line-height:1.5;">'
+    +'Registered entries are seeded from <code>docs/packaging-logistics-developer-spec.md</code>. Other modules appear as <b style="color:#ab47c8;">unregistered</b> until their audit is done — extend via <code>HNX_VIEW_REGISTRY.register({...})</code>. Console: <code>HNX_VIEW_REGISTRY.audit()</code>.</div>';
+  view.innerHTML=html;
+};
+
+// ---------- registration ----------
+(function registerNav(){
+  var tries=0;
+  function attempt(){
+    tries++;
+    if(typeof window.MODULES!=='object'||!window.MODULES||!window.MODULES.admin){if(tries<60)setTimeout(attempt,250);return;}
+    var views=window.MODULES.admin.views=window.MODULES.admin.views||[];
+    if(!views.some(function(v){return v&&v.id==='view_registry';})){
+      views.push({id:'view_registry',label:'🗂 View Registry',perm:'manageUsers',title:'View Capability Registry — status, data sources, owner, and Nexi coverage of every tab; stub tracker per integration addendum §3.'});
+    }
+    try{if(window.VIEW_TO_MODULE)window.VIEW_TO_MODULE.view_registry='admin';}catch(e){}
+    try{
+      if(!document.getElementById('view-view_registry')){
+        var d=document.createElement('div');d.className='view';d.id='view-view_registry';
+        (document.getElementById('appMain')||document.body).appendChild(d);
+      }
+    }catch(e){}
+  }
+  attempt();
+})();
+(function hookSwitch(){
+  var tries=0;
+  function install(){
+    if(typeof window.switchView!=='function'){if(++tries<80)setTimeout(install,150);return;}
+    if(window.switchView.__vregHooked)return;
+    var orig=window.switchView;
+    window.switchView=function(v){var r;try{r=orig.apply(this,arguments);}catch(e){}
+      if(v==='view_registry')setTimeout(window.renderViewRegistry,60);
+      return r;};
+    window.switchView.__vregHooked=true;
+  }
+  install();
+})();
+console.log('[HNX-VREG] View Capability Registry ready — '+Object.keys(REG.entries).length+' views registered');
+})();
+</script>
+<!-- ================= END HNX VIEW CAPABILITY REGISTRY ================= -->
 </body>
 </html>
