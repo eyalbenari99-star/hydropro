@@ -203418,15 +203418,17 @@ window.renderWhWarehouse=function(){
   var tries=0;
   function attempt(){
     tries++;
-    if(typeof window.MODULES!=='object'||!window.MODULES||!window.MODULES.logistics){if(tries<60)setTimeout(attempt,250);return;}
-    var views=window.MODULES.logistics.views=window.MODULES.logistics.views||[];
+    /* WH-F13: MODULES is a top-level const — it is NOT window.MODULES; reference it bare */
+    var M=null;try{M=(typeof MODULES==='object')?MODULES:null;}catch(e){}
+    if(!M||!M.logistics){if(tries<60)setTimeout(attempt,250);return;}
+    var views=M.logistics.views=M.logistics.views||[];
     if(!views.some(function(v){return v&&v.id==='log_warehouse';})){
       var entry={id:'log_warehouse',label:'🏬 Warehouse',perm:'viewLogistics',title:'Multi-warehouse stock counts · imports · transfers · reorder intelligence'};
       var at=views.length;
       for(var i=0;i<views.length;i++){if(views[i]&&views[i].id==='log_deliveries'){at=i+1;break;}}
       views.splice(at,0,entry);
     }
-    try{if(window.VIEW_TO_MODULE)window.VIEW_TO_MODULE.log_warehouse='logistics';}catch(e){}
+    try{if(typeof VIEW_TO_MODULE==='object')VIEW_TO_MODULE.log_warehouse='logistics';}catch(e){} /* WH-F13: const, not window prop */
     /* WH-F10: the switchView guard map (a const literal) gained log_warehouse:'viewLogistics' directly;
        renderWhWarehouse also self-gates below, since this module's hook renders regardless of the base outcome */
     /* WH-F9: create the container eagerly — the base switchView early-returns with an
@@ -203533,7 +203535,7 @@ REG.audit=function(){
   var known=REG.entries;
   var unregistered=[],stubs=[],merged=[],partial=[];
   try{
-    if(window.MODULES)Object.keys(MODULES).forEach(function(mk){
+    if(typeof MODULES==='object'&&MODULES)Object.keys(MODULES).forEach(function(mk){
       var m=MODULES[mk];if(!m||!m.views)return;
       m.views.forEach(function(v){
         if(v&&v.id&&!known[v.id])unregistered.push({viewId:v.id,module:mk,label:v.label||''});
@@ -203622,12 +203624,14 @@ window.renderViewRegistry=function(){
   var tries=0;
   function attempt(){
     tries++;
-    if(typeof window.MODULES!=='object'||!window.MODULES||!window.MODULES.admin){if(tries<60)setTimeout(attempt,250);return;}
-    var views=window.MODULES.admin.views=window.MODULES.admin.views||[];
+    /* WH-F13 class: MODULES is a top-level const, not a window property */
+    var M=null;try{M=(typeof MODULES==='object')?MODULES:null;}catch(e){}
+    if(!M||!M.admin){if(tries<60)setTimeout(attempt,250);return;}
+    var views=M.admin.views=M.admin.views||[];
     if(!views.some(function(v){return v&&v.id==='view_registry';})){
       views.push({id:'view_registry',label:'🗂 View Registry',perm:'manageUsers',title:'View Capability Registry — status, data sources, owner, and Nexi coverage of every tab; stub tracker per integration addendum §3.'});
     }
-    try{if(window.VIEW_TO_MODULE)window.VIEW_TO_MODULE.view_registry='admin';}catch(e){}
+    try{if(typeof VIEW_TO_MODULE==='object')VIEW_TO_MODULE.view_registry='admin';}catch(e){} /* WH-F13 class */
     try{
       if(!document.getElementById('view-view_registry')){
         var d=document.createElement('div');d.className='view';d.id='view-view_registry';
