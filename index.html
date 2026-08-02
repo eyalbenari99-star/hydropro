@@ -17902,6 +17902,73 @@ window.MCC_LIVE.pack_cmd=function(){
   }catch(e){ console.warn('[MCC] pack_cmd live failed', e); return null; }
 };
 
+/* v13.28 LOG-F8 · live logistics command-center — replaces log_cmd's permanently
+   hardcoded demo numbers ("14 deliveries", "Fleet 8/12", "Route savings 40km/wk", …)
+   with real KPIs from hydroPro_log_deliveries, the fleet stores, fuel log, open
+   logistics calls, and the v13.27 warehouse stock. '—' where no real data exists. */
+window.MCC_LIVE.log_cmd=function(){
+  try{
+    var today=(typeof hnxLocalToday==='function')?hnxLocalToday():new Date().toISOString().slice(0,10);
+    function J(k,fb){try{var v=JSON.parse(localStorage.getItem(k)||'null');return v==null?fb:v;}catch(e){return fb;}}
+    var D=J('hydroPro_log_deliveries',[])||[];
+    var dToday=D.filter(function(d){return d&&d.date===today;});
+    var done=dToday.filter(function(d){return d.status==='delivered';}).length;
+    var failed=dToday.filter(function(d){return d.status==='failed';}).length;
+    var pending=dToday.length-done-failed;
+    var week=Date.now()-7*86400000;
+    var dWeek=D.filter(function(d){var t=new Date((d&&d.date)||0).getTime();return t>=week;});
+    var otRate=dWeek.length?Math.round(100*dWeek.filter(function(d){return d.status==='delivered';}).length/dWeek.length):null;
+
+    var veh=[];try{veh=(typeof loadFVeh==='function')?(loadFVeh()||[]):[];}catch(e){}
+    var vAct=veh.filter(function(v){return v.status==='active'||v.status==='in_use';}).length;
+    var vMaint=veh.filter(function(v){return v.status==='maint'||v.status==='maintenance';}).length;
+    var lowFuel=veh.filter(function(v){return v.fuel!=null&&Number(v.fuel)<=20;});
+
+    var fuel=[];try{fuel=(typeof loadFFuel==='function')?(loadFFuel()||[]):[];}catch(e){}
+    var mo=Date.now()-30*86400000;
+    var fuelCost=fuel.filter(function(f){return new Date((f&&f.date)||0).getTime()>=mo;}).reduce(function(s,f){return s+(Number(f.cost)||0);},0);
+
+    var calls=J('hydroPro_calls',[])||[];
+    var isClosed=(typeof isCallClosed==='function')?isCallClosed:function(c){return ['closed_fixed','closed_finalize','closed_cant_fix'].indexOf(c.status)>=0;};
+    var open=calls.filter(function(c){return c&&c.department==='logistics'&&!isClosed(c);}).length;
+
+    var whStock=J('hydroPro_wh_stock',[])||[];
+    var whLow=whStock.filter(function(r){return (r.name||r.sku)&&((Number(r.minQty)>0&&Number(r.qty)<=Number(r.minQty))||Number(r.qty)===0);});
+
+    var gps={};try{gps=J('hydroPro_fleet_gps_positions',{})||{};}catch(e){}
+    var gpsN=Object.keys(gps).length;
+
+    var kpis=[
+      {l:'Deliveries today', v:dToday.length?done+'/'+dToday.length:'—', s:dToday.length?(pending+' pending'+(failed?' · '+failed+' failed':'')):'none scheduled', tone:dToday.length?(failed?'crit':done===dToday.length?'ok':'warn'):''},
+      {l:'Fleet active', v:veh.length?(vAct+'/'+veh.length):'—', s:veh.length?(vMaint+' in maintenance'):'no vehicles registered', tone:veh.length?(vMaint?'warn':'ok'):''},
+      {l:'On-time 7d', v:otRate==null?'—':otRate+'%', s:dWeek.length?(dWeek.length+' deliveries this week'):'no deliveries this week', tone:otRate==null?'':(otRate>=90?'ok':otRate>=75?'warn':'crit')},
+      {l:'Open calls', v:String(open), s:open?'need attention':'all clear', tone:open===0?'ok':(open>5?'crit':'warn')}
+    ];
+    var aiRows=[
+      {l:'🚚 Pending deliveries', v:String(pending), c:pending?'':'ok'},
+      {l:'⚠ Failed today', v:String(failed), c:failed?'warn':'ok'},
+      {l:'⛽ Fuel cost 30d', v:fuel.length?('₱'+Math.round(fuelCost).toLocaleString()):'—', c:''},
+      {l:'🏬 Warehouse low stock', v:whStock.length?String(whLow.length):'—', c:whLow.length?'warn':(whStock.length?'ok':'')},
+      {l:'🛰 GPS-tracked vehicles', v:String(gpsN), c:gpsN?'ok':''}
+    ];
+    var boxes=[
+      {i:'🚚', t:'Deliveries Today', v:dToday.length?(done+'/'+dToday.length):'—', c:dToday.length?(failed?'warn':'ok'):'', s:dToday.length?(pending+' pending · '+failed+' failed'):'log deliveries under Logistics → Deliveries'},
+      {i:'🚛', t:'Fleet Status', v:veh.length?(vAct+' active'):'—', c:veh.length?(vMaint?'warn':'ok'):'', s:veh.length?(vMaint+' maint · '+lowFuel.length+' low fuel'):'add vehicles under Vehicles'},
+      {i:'⏱', t:'On-time 7d', v:otRate==null?'—':(otRate+'%'), c:otRate==null?'':(otRate>=90?'ok':'warn'), s:otRate==null?'needs delivery history':'delivered share of the week'},
+      {i:'🏬', t:'Warehouse', v:whStock.length?(whLow.length+' low'):'—', c:whLow.length?'warn':(whStock.length?'ok':''), s:whStock.length?(whStock.length+' items tracked'):'upload counts under 🏬 Warehouse'},
+      {i:'⛽', t:'Fuel 30d', v:fuel.length?('₱'+Math.round(fuelCost).toLocaleString()):'—', c:'', s:fuel.length?(fuel.length+' log entries'):'no fuel entries yet'},
+      {i:'📞', t:'Open Calls', v:String(open), c:open===0?'ok':(open>5?'crit':'warn'), s:open?'oldest first under Open Calls':'no open logistics calls'}
+    ];
+    var alerts=[];
+    if(failed) alerts.push({tone:'crit', title:failed+' failed deliver'+(failed>1?'ies':'y')+' today', msg:'Review under Logistics → Deliveries'});
+    if(open>5) alerts.push({tone:'crit', title:open+' open logistics calls', msg:'Queue is building up'});
+    whLow.slice(0,2).forEach(function(r){ alerts.push({tone:'warn', title:(r.name||r.sku)+' low in warehouse', msg:Number(r.qty)+' left · min '+Number(r.minQty)}); });
+    lowFuel.slice(0,2).forEach(function(v){ alerts.push({tone:'warn', title:(v.name||v.plate)+' low fuel', msg:Number(v.fuel)+'% remaining'}); });
+    if(!alerts.length) alerts.push({tone:'ok', title:'Logistics nominal', msg:dToday.length?'Deliveries on track · fleet OK':'No deliveries scheduled today'});
+    return {kpis:kpis, aiRows:aiRows, boxes:boxes, alerts:alerts};
+  }catch(e){ console.warn('[MCC] log_cmd live failed', e); return null; }
+};
+
 /* v13.14 SEC-F3 · live security command-center — replaces sec_cmd's permanently
    static numbers ("0 incidents", "12/14 patrols", "1 active alert") with real data:
    incidents 24h from hydroPro_sec_incidents, today's patrol coverage from
@@ -85000,6 +85067,14 @@ window.renderPackagingDash=function(){
   // ---- Materials snapshot ----
   const materials=_packLoadMaterials();
   const lowStock=materials.filter(m=>m.stock<=m.reorderPoint);
+  /* v13.28 PACK-F6: cold-storage & crate KPIs — pack_dash was blind to the in-module crates_mgr stores */
+  let crates=[],crateDeliv=[];
+  try{crates=JSON.parse(localStorage.getItem('hydroPro_crates_v1')||'[]')||[];}catch(e){}
+  try{crateDeliv=JSON.parse(localStorage.getItem('hydroPro_deliveries_v1')||'[]')||[];}catch(e){}
+  const cratesIn=crates.filter(c=>c&&c.state==='in_storage').length;
+  const cratesOut=crates.filter(c=>c&&c.state==='out_for_delivery').length;
+  const cratesBad=crates.filter(c=>c&&(c.state==='damaged'||c.state==='missing')).length;
+  const pendReturns=crateDeliv.filter(d=>d&&d.status==='in_transit').length;
   const totalMaterialValue=materials.reduce((s,m)=>s+(m.stock*m.unitCost),0);
 
   // ---- Recent sessions list ----
@@ -85106,6 +85181,8 @@ window.renderPackagingDash=function(){
     <div class="pay-stat" style="cursor:pointer;" onclick="switchView('qc_dash')"><div class="pay-stat-label">✅ QC Pass Rate (7d)</div><div class="pay-stat-val ${qcPassRate==null?'':qcPassRate>=90?'ok':qcPassRate>=70?'warn':'danger'}">${qcPassRate==null?'—':qcPassRate+'%'}</div><div style="font-size:10px;color:var(--text3);">${qcCount7} inspections</div></div>
     <div class="pay-stat" style="cursor:pointer;" onclick="switchView('pack_materials')"><div class="pay-stat-label">📦 Material Types</div><div class="pay-stat-val">${materials.length}</div><div style="font-size:10px;color:var(--text3);">tracked</div></div>
     <div class="pay-stat" style="cursor:pointer;" onclick="switchView('pack_materials')"><div class="pay-stat-label">⚠ Low Stock</div><div class="pay-stat-val ${lowStock.length>0?'warn':''}">${lowStock.length}</div><div style="font-size:10px;color:var(--text3);">need reorder</div></div>
+    <div class="pay-stat" style="cursor:pointer;" onclick="switchView('crates_mgr')"><div class="pay-stat-label">🧊 Crates In Storage</div><div class="pay-stat-val">${crates.length?cratesIn:'—'}</div><div style="font-size:10px;color:var(--text3);">${crates.length?crates.length+' total crates':'no crates registered'}</div></div>
+    <div class="pay-stat" style="cursor:pointer;" onclick="switchView('crates_mgr')"><div class="pay-stat-label">🔄 Crates Out</div><div class="pay-stat-val ${cratesBad?'warn':''}">${crates.length?cratesOut:'—'}</div><div style="font-size:10px;color:var(--text3);">${pendReturns} returns pending${cratesBad?' · '+cratesBad+' damaged/missing':''}</div></div>
   </div>
 
   <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-bottom:18px;">
@@ -171879,7 +171956,47 @@ reg({module:'admin',name:'Administration',
 });
 
 // ---------- PACKAGING / LICENSES / PROJECTS / OVERVIEW (light: navigation + status) ----------
-reg({module:'packaging',name:'Packaging',keywords:['packaging','wash','trim','pack','output'],collections:[]});
+/* v13.28 PACK-F7: packaging was an empty Nexi domain — register the real stores + answers */
+reg({module:'packaging',name:'Packaging',keywords:['packaging','wash','trim','pack','output','material','crate','cold storage'],
+  collections:[
+    {key:'hydroPro_pack_materials',noun:'packaging materials',nameField:'name'},
+    {key:'hydroPro_crates_v1',noun:'crates',nameField:'id'},
+    {key:'hydroPro_customers_v1',noun:'crate customers',nameField:'name'}
+  ],
+  answer:function(q){
+    if(/(kg|kilo|output|packed|produce)/.test(q)&&/(today|how (much|many))/.test(q)){
+      try{
+        var today=(typeof hnxLocalToday==='function')?hnxLocalToday():new Date().toISOString().slice(0,10);
+        var ses=JSON.parse(localStorage.getItem('hydroPro_washtrim_sessions')||'{}')[today];
+        var kg=ses&&ses.summary&&Number(ses.summary.totalKgPacked)||0;
+        var sub=ses&&ses.summary&&ses.summary.submittedAt;
+        if(ses)return kg?('Packed today: '+kg+' kg'+(sub?' (summary submitted).':' (summary not yet submitted).')):('A Wash & Trim session is open today but no output is recorded yet.');
+        return 'No Wash & Trim session logged today.';
+      }catch(e){}
+    }
+    if(/(material|stock|bag|film|label|sticker)/.test(q)&&/(low|running out|reorder|left)/.test(q)){
+      try{
+        var mats=JSON.parse(localStorage.getItem('hydroPro_pack_materials')||'[]')||[];
+        if(mats.length){
+          var low=mats.filter(function(m){return Number(m.stock)<=Number(m.reorderPoint);});
+          return low.length?('Low packaging materials: '+low.slice(0,5).map(function(m){return m.name+' ('+m.stock+' '+(m.unit||'')+')';}).join(', ')+'.'):'All '+mats.length+' packaging materials are above reorder point.';
+        }
+      }catch(e){}
+    }
+    if(/crate/.test(q)&&/(storage|out|missing|damaged|how many|where)/.test(q)){
+      try{
+        var cr=JSON.parse(localStorage.getItem('hydroPro_crates_v1')||'[]')||[];
+        if(cr.length){
+          var inS=cr.filter(function(c){return c.state==='in_storage';}).length;
+          var outS=cr.filter(function(c){return c.state==='out_for_delivery';}).length;
+          var bad=cr.filter(function(c){return c.state==='damaged'||c.state==='missing';}).length;
+          return cr.length+' crates: '+inS+' in storage, '+outS+' out for delivery'+(bad?', '+bad+' damaged/missing':'')+'.';
+        }
+      }catch(e){}
+    }
+    return null;
+  }
+});
 reg({module:'licenses',name:'Licenses',keywords:['license','permit','registration','compliance','expiry'],collections:[]});
 reg({module:'projects',name:'Projects',keywords:['project','expansion','initiative'],collections:[]});
 reg({module:'overview',name:'Overview',keywords:['overview','brain','dashboard','executive','everything','whole business'],
