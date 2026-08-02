@@ -171019,7 +171019,9 @@ window._dlvAdd=function(){
   var a=load();a.unshift({id:uid(),date:new Date().toISOString().slice(0,10),destination:'',customer:'',vehicleId:'',driverId:'',items:'',status:'scheduled',notes:''});
   save(a);renderLogDeliveries();
 };
-window._dlvUpd=function(id,f,v){var a=load();var r=a.find(function(x){return x.id===id;});if(!r)return;r[f]=v;save(a);if(f==='status')renderLogDeliveries();};
+window._dlvUpd=function(id,f,v){var a=load();var r=a.find(function(x){return x.id===id;});if(!r)return;r[f]=v;save(a);
+  /* v13.30 LOG-F9: delivering a delivery with structured lines posts stock out of the warehouse (idempotent) */
+  if(f==='status'){if(v==='delivered'&&typeof window._dlvPostStock==='function'){try{window._dlvPostStock(id);}catch(e){}}renderLogDeliveries();}};
 window._dlvDel=function(id){if(!confirm('Delete this delivery?'))return;save(load().filter(function(x){return x.id!==id;}));renderLogDeliveries();toast('Deleted','ok');};
 window._dlvExport=function(){
   var a=load();if(!a.length){toast('Nothing to export','warn');return;}
@@ -171065,7 +171067,7 @@ window.renderLogDeliveries=function(){
   if(!shown.length){
     html+='<div class="fleet-empty">'+(all.length?'No deliveries match the filter.':'No deliveries logged yet. Click ➕ Add Delivery.')+'</div>';
   } else {
-    html+='<div class="fleet-table-wrap"><table class="fleet-table"><thead><tr><th>Date</th><th>Destination</th><th>Customer</th><th>Vehicle</th><th>Driver</th><th>Items</th><th>Status</th><th></th></tr></thead><tbody>';
+    html+='<div class="fleet-table-wrap"><table class="fleet-table"><thead><tr><th>Date</th><th>Destination</th><th>Customer</th><th>Vehicle</th><th>Driver</th><th>Items</th><th>Lines</th><th>Status</th><th></th></tr></thead><tbody>';
     shown.forEach(function(r){
       html+='<tr>'+
         '<td><input class="call-input" type="date" style="padding:5px 7px;font-size:12px;" value="'+esc(r.date||'')+'" onchange="_dlvUpd(\''+r.id+'\',\'date\',this.value)"></td>'+
@@ -171074,6 +171076,8 @@ window.renderLogDeliveries=function(){
         '<td><select class="call-select" style="padding:5px 7px;font-size:12px;" onchange="_dlvUpd(\''+r.id+'\',\'vehicleId\',this.value)">'+vehOpts(r.vehicleId)+'</select></td>'+
         '<td><select class="call-select" style="padding:5px 7px;font-size:12px;" onchange="_dlvUpd(\''+r.id+'\',\'driverId\',this.value)">'+drvOpts(r.driverId)+'</select></td>'+
         '<td><input class="call-input" style="padding:5px 7px;font-size:12px;width:140px;" value="'+esc(r.items||'')+'" placeholder="lettuce, herbs…" onchange="_dlvUpd(\''+r.id+'\',\'items\',this.value)"></td>'+
+        /* v13.30 LOG-F9: structured SKU lines editor */
+        '<td><button class="btn-mini" onclick="_dlvLines(\''+r.id+'\')" title="Structured SKU lines — deducted from the warehouse on delivery">📦'+((r.lines&&r.lines.length)||0)+(r.stockPosted?'✓':'')+'</button></td>'+
         '<td><select class="call-select" style="padding:5px 7px;font-size:12px;" onchange="_dlvUpd(\''+r.id+'\',\'status\',this.value)">'+stOpts(r.status)+'</select></td>'+
         '<td><button class="btn-mini danger" onclick="_dlvDel(\''+r.id+'\')">🗑</button></td>'+
       '</tr>';
@@ -203650,5 +203654,246 @@ console.log('[HNX-VREG] View Capability Registry ready — '+Object.keys(REG.ent
 })();
 </script>
 <!-- ================= END HNX VIEW CAPABILITY REGISTRY ================= -->
+<!-- ================= HNX v13.30: DELIVERY LINES + PACKAGING OPS BOARD ================= -->
+<script>
+// ============================================================
+// v13.30 — LOG-F9 structured delivery lines + warehouse deduction,
+//          PACK-F8 Packaging Operations Board (pack_operations goes live)
+// LOG-F9: delivery records gain lines:[{whId,sku,name,unit,qty}]; marking a
+//   delivery 'delivered' posts each line out of its warehouse exactly once
+//   (r.stockPosted timestamp = idempotency flag). Free-text items stays and
+//   is auto-synced from lines for CSV/back-compat.
+// PACK-F8: replaces the last visible stub tab with a live operations board
+//   over the W&T session, crew, materials, issues, and crates.
+// ============================================================
+(function(){
+'use strict';
+if(window._hnxV1330Installed)return;window._hnxV1330Installed=true;
+
+function esc(s){return (typeof _esc==='function')?_esc(s):String(s==null?'':s).replace(/[&<>"']/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];});}
+function toast(m,t){if(typeof _toast==='function')_toast(m,t);else if(typeof showToast==='function')showToast(m,t||'ok');}
+function J(k,fb){try{var v=JSON.parse(localStorage.getItem(k)||'null');return v==null?fb:v;}catch(e){return fb;}}
+function num(x){var n=parseFloat(x);return isNaN(n)?0:n;}
+function me(){try{var u=(typeof getCurrentUser==='function')?getCurrentUser():(window.currentUser||null);return (u&&(u.name||u.username))||'user';}catch(e){return 'user';}}
+function sync(){try{if(typeof hnxScheduleSync==='function')hnxScheduleSync();else if(typeof hnxCloudSyncPush==='function')hnxCloudSyncPush();}catch(e){}}
+
+var DLV_KEY='hydroPro_log_deliveries';
+var WH_STOCK='hydroPro_wh_stock';
+var WH_WHS='hydroPro_wh_warehouses';
+var WH_MOVS='hydroPro_wh_movements';
+
+function dload(){var a=J(DLV_KEY,[]);return Array.isArray(a)?a:[];}
+function dsave(a){try{localStorage.setItem(DLV_KEY,JSON.stringify(a||[]));}catch(e){}sync();}
+
+// ============================================================
+// LOG-F9 · structured delivery lines
+// ============================================================
+window._dlvLines=function(id){
+  var d=dload().filter(function(x){return x.id===id;})[0];if(!d)return;
+  var whs=J(WH_WHS,[]).filter(function(w){return w&&w.active;});
+  var stock=J(WH_STOCK,[]);
+  var lines=Array.isArray(d.lines)?d.lines:[];
+  var ov=document.createElement('div');ov.id='dlvLinesOverlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  function itemOpts(whId,sel){
+    var mine=stock.filter(function(r){return r.warehouseId===whId&&((r.name||'').trim()||(r.sku||'').trim());});
+    return '<option value="">— item —</option>'+mine.map(function(r){
+      var key=r.sku||('n:'+r.name);
+      return '<option value="'+esc(key)+'" '+(sel===key?'selected':'')+'>'+esc(r.name||r.sku)+' ('+num(r.qty)+' '+esc(r.unit||'')+')</option>';
+    }).join('');
+  }
+  function whOpts(sel){return whs.map(function(w){return '<option value="'+esc(w.id)+'" '+(sel===w.id?'selected':'')+'>'+esc(w.name)+'</option>';}).join('');}
+  function rowHtml(l,i){
+    return '<tr data-line="'+i+'">'
+      +'<td><select class="call-select dlv-l-wh" style="padding:5px 7px;font-size:12px;">'+whOpts(l.whId||(whs[0]&&whs[0].id))+'</select></td>'
+      +'<td><select class="call-select dlv-l-item" style="padding:5px 7px;font-size:12px;min-width:170px;">'+itemOpts(l.whId||(whs[0]&&whs[0].id),l.sku||('n:'+(l.name||'')))+'</select></td>'
+      +'<td><input class="call-input dlv-l-qty" type="number" min="0" style="padding:5px 7px;font-size:12px;width:75px;text-align:right;" value="'+num(l.qty)+'"></td>'
+      +'<td><button class="btn-mini danger dlv-l-del">🗑</button></td>'
+    +'</tr>';
+  }
+  ov.innerHTML='<div style="background:#0d1a17;border:1px solid rgba(66,165,245,.4);border-radius:12px;max-width:640px;width:100%;max-height:86vh;overflow:auto;padding:20px 22px;">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+      +'<div style="font-size:15px;font-weight:800;color:#e8f5e9;">📦 Delivery lines — '+esc(d.destination||d.customer||d.id)+'</div>'
+      +'<button class="btn btn-outline" style="padding:4px 10px;" onclick="document.getElementById(\'dlvLinesOverlay\').remove()">✕</button></div>'
+    +'<div style="font-size:11.5px;color:#7aa99a;line-height:1.5;margin-bottom:10px;">'
+      +(whs.length?'Each line names a warehouse item and quantity. When the delivery is marked <b>delivered</b>, lines are deducted from their warehouse automatically — exactly once.':'⚠ No active warehouses — add stock under Logistics → 🏬 Warehouse first.')
+      +(d.stockPosted?'<br><b style="color:#26c281;">✓ Stock already posted '+esc(String(d.stockPosted).slice(0,16).replace('T',' '))+'</b> — further edits will not repost.':'')+'</div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:12px;color:#e8f5e9;"><thead><tr style="color:#7aa99a;text-align:left;"><th style="padding:4px 6px;">Warehouse</th><th style="padding:4px 6px;">Item</th><th style="padding:4px 6px;">Qty</th><th></th></tr></thead>'
+    +'<tbody id="dlvLinesBody">'+lines.map(rowHtml).join('')+'</tbody></table>'
+    +'<div style="display:flex;gap:8px;margin-top:12px;">'
+      +'<button class="btn btn-outline" id="dlvLineAdd" '+(whs.length?'':'disabled')+'>➕ Add line</button>'
+      +'<button class="btn btn-primary" id="dlvLinesSave" style="margin-left:auto;">💾 Save lines</button>'
+    +'</div></div>';
+  document.body.appendChild(ov);
+  var body=ov.querySelector('#dlvLinesBody');
+  ov.addEventListener('click',function(ev){
+    if(ev.target.classList.contains('dlv-l-del')){var tr=ev.target.closest('tr');if(tr)tr.remove();return;}
+    if(ev.target.id==='dlvLineAdd'){
+      var tr=document.createElement('tr');
+      tr.innerHTML=rowHtml({whId:(whs[0]&&whs[0].id)||'',sku:'',name:'',qty:1},body.children.length).replace(/^<tr[^>]*>|<\/tr>$/g,'');
+      body.appendChild(tr);return;
+    }
+    if(ev.target.id==='dlvLinesSave'){
+      var out=[];
+      Array.prototype.forEach.call(body.querySelectorAll('tr'),function(tr){
+        var whId=tr.querySelector('.dlv-l-wh').value;
+        var key=tr.querySelector('.dlv-l-item').value;
+        var qty=num(tr.querySelector('.dlv-l-qty').value);
+        if(!whId||!key||qty<=0)return;
+        var rec=key.indexOf('n:')===0
+          ? stock.filter(function(r){return r.warehouseId===whId&&(r.name||'').toLowerCase()===key.slice(2).toLowerCase();})[0]
+          : stock.filter(function(r){return r.warehouseId===whId&&(r.sku||'').toLowerCase()===key.toLowerCase();})[0];
+        out.push({whId:whId,sku:(rec&&rec.sku)||'',name:(rec&&rec.name)||key.replace(/^n:/,''),unit:(rec&&rec.unit)||'',qty:qty});
+      });
+      var a=dload();var rec2=a.filter(function(x){return x.id===id;})[0];if(!rec2){ov.remove();return;}
+      rec2.lines=out;
+      /* keep the free-text items column meaningful for CSV/back-compat */
+      if(out.length)rec2.items=out.map(function(l){return l.qty+'× '+l.name;}).join(', ');
+      dsave(a);
+      ov.remove();
+      toast(out.length+' line'+(out.length===1?'':'s')+' saved','ok');
+      if(typeof renderLogDeliveries==='function')renderLogDeliveries();
+      return;
+    }
+  });
+  ov.addEventListener('change',function(ev){
+    if(ev.target.classList.contains('dlv-l-wh')){
+      var tr=ev.target.closest('tr');var itemSel=tr&&tr.querySelector('.dlv-l-item');
+      if(itemSel)itemSel.innerHTML=itemOpts(ev.target.value,'');
+    }
+  });
+};
+
+/* posts each line out of its warehouse — exactly once per delivery */
+window._dlvPostStock=function(id){
+  var a=dload();var d=a.filter(function(x){return x.id===id;})[0];if(!d)return;
+  if(d.stockPosted)return;
+  var lines=Array.isArray(d.lines)?d.lines:[];if(!lines.length)return;
+  var stock=J(WH_STOCK,[]);var movs=J(WH_MOVS,[]);var who=me();var shorts=[];
+  var today=(typeof hnxLocalToday==='function')?hnxLocalToday():new Date().toISOString().slice(0,10);
+  lines.forEach(function(l){
+    var rec=stock.filter(function(r){return r.warehouseId===l.whId&&(
+      (l.sku&&(r.sku||'').toLowerCase()===l.sku.toLowerCase())||(!l.sku&&(r.name||'').toLowerCase()===(l.name||'').toLowerCase())
+    );})[0];
+    if(!rec){shorts.push(l.name+' (not in warehouse)');return;}
+    var before=num(rec.qty);var take=num(l.qty);
+    if(before<take){shorts.push(rec.name+' (only '+before+' of '+take+')');take=before;}
+    rec.qty=before-take;
+    movs.unshift({id:'wm_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),ts:Date.now(),
+      warehouseId:l.whId,toWarehouseId:null,sku:rec.sku,name:rec.name,type:'out',qty:take,
+      before:before,after:before-take,reason:'delivery '+(d.destination||d.customer||d.id)+' ('+today+')',by:who});
+  });
+  if(movs.length>2000)movs=movs.slice(0,2000);
+  try{localStorage.setItem(WH_STOCK,JSON.stringify(stock));localStorage.setItem(WH_MOVS,JSON.stringify(movs));}catch(e){}
+  d.stockPosted=new Date().toISOString();
+  dsave(a);sync();
+  toast(shorts.length?('Stock posted with shortages: '+shorts.join('; ')):'Warehouse stock deducted for this delivery',shorts.length?'warn':'ok');
+};
+
+// ============================================================
+// PACK-F8 · Packaging Operations Board (pack_operations goes live)
+// ============================================================
+window.renderPackOperations=function(){
+  try{if(typeof can==='function'&&!can('viewPackaging')){toast('Access denied for your role','warn');return;}}catch(e){}
+  var host=document.getElementById('stubPackOperationsBody')||document.getElementById('view-pack_operations');
+  if(!host)return;
+  var today=(typeof hnxLocalToday==='function')?hnxLocalToday():new Date().toISOString().slice(0,10);
+  var ses=null;try{ses=(typeof loadWTSessions==='function')?(loadWTSessions()||{})[today]:(J('hydroPro_washtrim_sessions',{})[today]||null);}catch(e){}
+  var phases=(typeof WT_PHASES!=='undefined')?WT_PHASES:[];
+  var checks=(ses&&ses.phaseChecks)||{};
+  var doneN=0;var current=null;
+  phases.forEach(function(p){var c=checks[p.id];if(c&&c.done)doneN++;else if(!current)current=p;});
+  var ptIssued=!!(ses&&ses.pickTicket&&ses.pickTicket.issuedAt);
+  var sumIn=!!(ses&&ses.summary&&ses.summary.submittedAt);
+  var crew=(ses&&ses.crew)||{};
+  var workers=(crew.workers||[]).length;
+  var mats=[];try{mats=(typeof _packLoadMaterials==='function')?(_packLoadMaterials()||[]):[];}catch(e){}
+  var low=mats.filter(function(m){return num(m.stock)<=num(m.reorderPoint);});
+  var issues=[];try{issues=((typeof loadIssues==='function')?(loadIssues()||[]):[]).filter(function(i){return i&&i.module==='packaging'&&['open','assigned','in_progress'].indexOf(i.status)>=0;});}catch(e){}
+  var crates=J('hydroPro_crates_v1',[]);
+  var inS=crates.filter(function(c){return c&&c.state==='in_storage';}).length;
+  var outS=crates.filter(function(c){return c&&c.state==='out_for_delivery';}).length;
+
+  function tile(icon,label,val,sub,color){
+    return '<div class="fleet-stat-card"><div class="fleet-stat-label">'+icon+' '+label+'</div><div class="fleet-stat-val" style="color:'+(color||'inherit')+';">'+val+'</div><div style="font-size:10px;color:#7aa99a;">'+sub+'</div></div>';
+  }
+  var phaseBars=phases.map(function(p){
+    var c=checks[p.id];var done=!!(c&&c.done);
+    var isCur=current&&current.id===p.id;
+    var color=done?'#26c281':isCur?'#ff9800':'#5a7a70';
+    return '<div style="display:flex;align-items:center;gap:9px;padding:6px 10px;background:rgba(255,255,255,.02);border-left:3px solid '+color+';border-radius:5px;font-size:11.5px;color:'+(done?'#7aa99a':'#e8f5e9')+';">'
+      +'<span style="font-weight:800;color:'+color+';min-width:22px;">'+esc(p.id)+'</span>'
+      +'<span style="flex:1;">'+esc(p.name||'')+'</span>'
+      +(done?'<span style="color:#26c281;">✓ '+esc((c.time||'').slice(0,5))+(c.by?' · '+esc(c.by):'')+'</span>'
+            :isCur?'<span style="color:#ff9800;font-weight:700;">● in progress</span>'
+            :'<span style="color:#5a7a70;">pending</span>')
+    +'</div>';
+  }).join('');
+
+  host.innerHTML='<div class="section-title">⚙️ Packaging Operations Board <span style="font-size:11px;color:#7aa99a;font-weight:400;">— live line status for '+esc(today)+'</span></div>'
+    +'<div class="fleet-stat-row">'
+      +tile('📋','Session',ptIssued?(sumIn?'DONE':'OPEN'):'—',ptIssued?(sumIn?'summary submitted':'summary pending'):'no pick ticket yet',ptIssued?(sumIn?'#26c281':'#ff9800'):'')
+      +tile('🥬','Phases',phases.length?(doneN+'/'+phases.length):'—',current?('current: '+esc(current.id)+' '+esc(current.name||'')):(phases.length&&doneN===phases.length?'all complete':'not started'),doneN===phases.length&&phases.length?'#26c281':'#ff9800')
+      +tile('👥','Crew',workers||'—',workers?'workers on the line':'no crew logged','')
+      +tile('⚠','Materials low',String(low.length),mats.length?(mats.length+' tracked'):'no materials data',low.length?'#ff9800':'#26c281')
+      +tile('📞','Open issues',String(issues.length),issues.length?'need attention':'all clear',issues.length?'#ff9800':'#26c281')
+      +tile('🧊','Crates',crates.length?(inS+' in / '+outS+' out'):'—',crates.length?(crates.length+' total'):'none registered','')
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:1.3fr 1fr;gap:14px;">'
+      +'<div style="background:rgba(8,18,16,.6);border:1px solid rgba(255,167,38,.25);border-radius:11px;padding:15px 17px;">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
+          +'<div style="font-size:13px;font-weight:800;color:#e8f5e9;">🥬 Today\'s line — phase progress</div>'
+          +'<button class="btn btn-outline" style="padding:4px 10px;font-size:11px;" onclick="switchView(\'pack_washtrim\')">→ W&amp;T SOP</button></div>'
+        +(phases.length?'<div style="display:flex;flex-direction:column;gap:4px;">'+phaseBars+'</div>'
+                       :'<div class="fleet-empty">Phase model unavailable.</div>')
+      +'</div>'
+      +'<div style="display:flex;flex-direction:column;gap:14px;">'
+        +'<div style="background:rgba(8,18,16,.6);border:1px solid rgba(255,152,0,.25);border-radius:11px;padding:15px 17px;">'
+          +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+            +'<div style="font-size:13px;font-weight:800;color:#e8f5e9;">⚠ Low materials</div>'
+            +'<button class="btn btn-outline" style="padding:4px 10px;font-size:11px;" onclick="switchView(\'pack_materials\')">→ Materials</button></div>'
+          +(low.length?low.slice(0,5).map(function(m){return '<div style="font-size:11.5px;color:#ffcc80;padding:3px 0;">'+esc(m.name)+' — '+num(m.stock)+' '+esc(m.unit||'')+' (reorder at '+num(m.reorderPoint)+')</div>';}).join('')
+                      :'<div style="font-size:11.5px;color:#7aa99a;">All materials above reorder point.</div>')
+        +'</div>'
+        +'<div style="background:rgba(8,18,16,.6);border:1px solid rgba(239,83,80,.25);border-radius:11px;padding:15px 17px;">'
+          +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+            +'<div style="font-size:13px;font-weight:800;color:#e8f5e9;">📞 Open packaging issues</div>'
+            +'<button class="btn btn-outline" style="padding:4px 10px;font-size:11px;" onclick="switchView(\'pack_calls\')">→ Calls</button></div>'
+          +(issues.length?issues.slice(0,5).map(function(i){return '<div style="font-size:11.5px;color:#ef9a9a;padding:3px 0;">'+esc(i.title||i.desc||i.id)+(i.priority?' <span style="font-size:9.5px;text-transform:uppercase;color:#ff8a80;">'+esc(i.priority)+'</span>':'')+'</div>';}).join('')
+                        :'<div style="font-size:11.5px;color:#7aa99a;">No open packaging issues.</div>')
+        +'</div>'
+        +'<div style="background:rgba(8,18,16,.6);border:1px solid rgba(66,165,245,.25);border-radius:11px;padding:12px 17px;display:flex;gap:8px;flex-wrap:wrap;">'
+          +'<button class="btn btn-outline" style="padding:5px 11px;font-size:11px;" onclick="switchView(\'crates_mgr\')">🧊 Crates &amp; Cold Storage</button>'
+          +'<button class="btn btn-outline" style="padding:5px 11px;font-size:11px;" onclick="switchView(\'pack_checklist\')">✅ Daily Checklist</button>'
+          +'<button class="btn btn-outline" style="padding:5px 11px;font-size:11px;" onclick="switchView(\'pack_duties\')">📋 Duties</button>'
+        +'</div>'
+      +'</div>'
+    +'</div>';
+};
+(function hookPackOps(){
+  var tries=0;
+  function install(){
+    if(typeof window.switchView!=='function'){if(++tries<80)setTimeout(install,150);return;}
+    if(window.switchView.__packOpsHooked)return;
+    var orig=window.switchView;
+    window.switchView=function(v){var r;try{r=orig.apply(this,arguments);}catch(e){}
+      if(v==='pack_operations')setTimeout(window.renderPackOperations,60);
+      return r;};
+    window.switchView.__packOpsHooked=true;
+  }
+  install();
+})();
+
+// registry updates: the stub is gone, deliveries gained lines
+try{
+  if(window.HNX_VIEW_REGISTRY&&window.HNX_VIEW_REGISTRY.register){
+    window.HNX_VIEW_REGISTRY.register({viewId:'pack_operations',status:'live',dataSources:['hydroPro_washtrim_sessions','hydroPro_pack_materials','hydroPro_issues_v2','hydroPro_crates_v1'],actions:['monitor line','navigate'],notes:'activated v13.30 PACK-F8 — Packaging Operations Board'});
+    window.HNX_VIEW_REGISTRY.register({viewId:'log_deliveries',notes:'structured SKU lines + warehouse deduction since v13.30 LOG-F9; free-text items auto-synced'});
+  }
+}catch(e){}
+console.log('[HNX-1330] delivery lines + packaging operations board ready');
+})();
+</script>
+<!-- ================= END HNX v13.30 ================= -->
 </body>
 </html>
