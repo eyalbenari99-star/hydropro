@@ -21799,7 +21799,7 @@ function switchView(v,skipModuleCheck){
     irr_dash:'viewIrrigation',irr_schedule:'viewIrrigation',irr_drums:'viewIrrigation',irr_nutrients:'viewIrrigation',irr_systems:'viewIrrigation',irr_smart_dose:'viewIrrigation',irr_ai_insights:'viewIrrigation',irr_predictions:'viewIrrigation',irr_recurring:'viewIrrigation',irr_open_calls:'viewIrrigation',
     inv_dash:'viewInventory',inv_stock:'viewInventory',inv_movements:'viewInventory',inv_categories:'viewInventory',inv_velocity:'viewInventory',inv_diagnostics:'viewInventory',inv_requests:'viewInventory',inv_master:'viewInventory',
     pack_dash:'viewPackaging',pack_materials:'viewPackaging',pack_operations:'viewPackaging',pack_washtrim:'viewPackaging',pack_calls:'viewPackaging',pack_checklist:'viewPackaging',pack_cmd:'viewPackaging',pack_duties:'viewPackaging', /* v13.14 PACK-F3: these views bypassed the viewPackaging gate (console/#hash deep links) */
-    log_dash:'viewLogistics',log_deliveries:'viewLogistics',log_routes:'viewLogistics',log_vehicles:'viewLogistics',log_recurring:'viewLogistics',log_open_calls:'viewLogistics',log_megabox_matrix:'viewLogistics',
+    log_dash:'viewLogistics',log_deliveries:'viewLogistics',log_routes:'viewLogistics',log_vehicles:'viewLogistics',log_recurring:'viewLogistics',log_open_calls:'viewLogistics',log_megabox_matrix:'viewLogistics',log_warehouse:'viewLogistics',/* v13.27 WH-F10 */
     crm_dash:'viewCRM',crm_reminders:'viewCRM',crm_leads:'viewCRM',crm_customers:'viewCRM',crm_marketing:'viewCRM',crm_pipeline:'viewCRM',crm_catalog:'viewCRM',crm_quotes:'viewCRM',crm_orders:'viewCRM',crm_sales:'viewCRM',
     qc_dash:'viewQuality',qc_inspections:'viewQuality',qc_rejections:'viewQuality',qc_standards:'viewQuality',qc_prod_inspection:'viewQuality',qc_cmd:'viewQuality',qc_calls:'viewQuality',qc_sop:'viewQuality',/* v13.14 QC-F5: the other 3 registered QC views were missing here, so direct switchView() bypassed the permission guard */
     fleet_dash:'viewFleet',fleet_vehicles:'viewFleet',fleet_drivers:'viewFleet',fleet_fuel:'viewFleet',fleet_logistics_coord:'viewFleet',
@@ -202774,13 +202774,18 @@ window._whAdd=function(){
 };
 window._whManage=function(){
   var w=selWh();if(!w)return;
-  var name=prompt('Rename warehouse (blank = keep):',w.name);
+  /* WH-F8: one prompt drives the whole flow — Cancel aborts, 'deactivate' hides, any other text renames */
+  var input=prompt('Warehouse: '+w.name+'\n\nType a NEW NAME to rename it, or type "deactivate" to hide it from the dropdown (stock & history are kept). Cancel = do nothing.',w.name);
+  if(input===null)return;
+  input=input.trim();if(!input){renderWhWarehouse();return;}
   var whs=loadWhs();var rec=whs.filter(function(x){return x.id===w.id;})[0];if(!rec)return;
-  if(name&&name.trim())rec.name=name.trim();
-  var hasData=loadStock().some(function(r){return r.warehouseId===w.id;})||loadMovs().some(function(m){return m.warehouseId===w.id||m.toWarehouseId===w.id;});
-  var actives=whs.filter(function(x){return x.active;}).length;
-  if(actives>1&&confirm('Deactivate "'+rec.name+'"? '+(hasData?'Its stock and history stay stored — it just leaves the dropdown.':'It has no stock yet.'))){
+  if(input.toLowerCase()==='deactivate'){
+    var actives=whs.filter(function(x){return x.active;}).length;
+    if(actives<=1){toast('Cannot deactivate the only active warehouse','warn');return;}
+    if(!confirm('Deactivate "'+rec.name+'"?'))return;
     rec.active=false;
+  }else if(input!==rec.name){
+    rec.name=input;
   }
   saveWhs(whs);renderWhWarehouse();
 };
@@ -202801,6 +202806,7 @@ window._whUpd=function(id,f,v){
 };
 window._whCount=function(id,v){
   var a=loadStock();var r=a.filter(function(x){return x.id===id;})[0];if(!r)return;
+  if(String(v).trim()===''||isNaN(parseFloat(v))){renderWhWarehouse();return;} /* WH-F2: a cleared field is not a count of 0 */
   var q=num(v);if(q<0){toast('Quantity cannot be negative','warn');renderWhWarehouse();return;}
   var before=num(r.qty);
   if(q===before){renderWhWarehouse();return;}
@@ -202818,7 +202824,8 @@ window._whDel=function(id){
 };
 
 // ---------- filters ----------
-window._whSearch=function(v){S.search=String(v||'').toLowerCase();renderWhWarehouse();};
+window._whSearch=function(v){S.search=String(v||'').toLowerCase();S._searchTyping=true;
+  clearTimeout(S._searchT);S._searchT=setTimeout(function(){renderWhWarehouse();},250);}; /* WH-F1: debounce + focus restore, see render tail */
 window._whCat=function(v){S.cat=v;renderWhWarehouse();};
 window._whLow=function(v){S.lowOnly=!!v;renderWhWarehouse();};
 window._whMovToggle=function(){S.movOpen=!S.movOpen;renderWhWarehouse();};
@@ -202829,7 +202836,8 @@ window._whExport=function(){
   if(!rows.length){toast('Nothing to export','warn');return;}
   var head=['SKU','Name','Category','Unit','Qty','MinQty','UnitCost','LastCount','LastCountBy','Notes'];
   var body=rows.map(function(r){return [r.sku,r.name,r.category,r.unit,r.qty,r.minQty,r.unitCost||'',r.lastCountAt||'',r.lastCountBy||'',(r.notes||'').replace(/\n/g,' ')];});
-  var csv=[head].concat(body).map(function(r){return r.map(function(c){return '"'+String(c==null?'':c).replace(/"/g,'""')+'"';}).join(',');}).join('\n');
+  /* WH-F11: neutralize CSV formula injection — a cell starting =+-@ would execute in Excel */
+  var csv=[head].concat(body).map(function(r){return r.map(function(c){var s=String(c==null?'':c).replace(/^([=+\-@\t\r])/,"'$1");return '"'+s.replace(/"/g,'""')+'"';}).join(',');}).join('\n');
   var blob=new Blob([csv],{type:'text/csv'});var url=URL.createObjectURL(blob);
   var x=document.createElement('a');x.href=url;x.download='warehouse-'+(w.code||'wh')+'-'+localToday()+'.csv';x.click();
   setTimeout(function(){URL.revokeObjectURL(url);},2000);
@@ -202921,7 +202929,12 @@ window._whImportPreview=function(){
       +'<td style="padding:4px 8px;color:#7aa99a;">'+esc(row.sku||'—')+'</td><td style="padding:4px 8px;color:#7aa99a;">'+esc(row.category||'—')+'</td><td style="padding:4px 8px;color:#7aa99a;">'+esc(row.unit)+'</td></tr>';
   }).join('');
   // recount totals over ALL rows (the table above only shows the first 50)
-  newN=0;updN=0;res.rows.forEach(function(row){ if(match(row))updN++;else newN++; });
+  /* WH-F7: rows duplicated inside the batch count as updates after their first occurrence */
+  newN=0;updN=0;var seen={};
+  res.rows.forEach(function(row){
+    var k=(row.sku||('n:'+row.name)).toLowerCase();
+    if(match(row)||seen[k])updN++;else{newN++;seen[k]=1;}
+  });
   box.innerHTML='<div style="font-size:12px;color:#a5d6e6;margin-bottom:8px;">'+res.rows.length+' rows parsed — <b style="color:#26c281;">'+newN+' new</b>, <b style="color:#ff9800;">'+updN+' updates</b>'
     +(res.errors?', <b style="color:#ef5350;">'+res.errors+' skipped</b> (no name)':'')
     +(res.rows.length>50?' · showing first 50':'')+'</div>'
@@ -203028,9 +203041,10 @@ window._whTransferCommit=function(){
   var q=num(qtyEl.value);var destId=destSel.value;
   if(!src||q<=0){toast('Enter a valid quantity','warn');return;}
   if(q>num(src.qty)){toast('Only '+num(src.qty)+' available','warn');return;}
-  var dst=a.filter(function(r){return r.warehouseId===destId&&(
-      (src.sku&&(r.sku||'').toLowerCase()===src.sku.toLowerCase())||(!src.sku&&(r.name||'').toLowerCase()===(src.name||'').toLowerCase())
-    );})[0];
+  /* WH-F6: match like the importer — SKU first, then always fall back to name */
+  var destRows=a.filter(function(r){return r.warehouseId===destId;});
+  var dst=(src.sku&&destRows.filter(function(r){return (r.sku||'').toLowerCase()===src.sku.toLowerCase();})[0])
+        ||destRows.filter(function(r){return (r.name||'').toLowerCase()===(src.name||'').toLowerCase()&&(r.name||'').trim();})[0]||null;
   var srcBefore=num(src.qty);
   src.qty=srcBefore-q;
   var dstBefore;
@@ -203050,6 +203064,8 @@ window._whTransferCommit=function(){
 // ---------- reorder → Item Request ----------
 window._whReorder=function(id,suggQty){
   var r=findRow(id);if(!r)return;
+  /* WH-F12: inv_requests is gated by viewInventory — don't dead-end users who lack it */
+  try{if(typeof can==='function'&&!can('viewInventory')){toast('Reorder needs Inventory access — ask your supervisor to raise the request for '+(r.name||r.sku),'warn');return;}}catch(e){}
   if(window.__hnxInvReq&&typeof window.__hnxInvReq.prefill==='function'){
     window.__hnxInvReq.prefill({itemSource:r.sku?'existing':'new',itemSku:r.sku||'',itemName:r.name||'',unit:r.unit||'pc',
       unitCost:num(r.unitCost),qty:Math.max(1,num(suggQty)),needDept:'Logistics',
@@ -203079,6 +203095,7 @@ function computeInsights(whId,rows,movs){
   });
   var low=[],reorder=[],dead=[],stale=[];
   rows.forEach(function(r){
+    if(!(r.name||'').trim()&&!(r.sku||'').trim())return; /* WH-F3: a freshly added blank row is not an insight */
     var k=((r.sku||'')+'||'+(r.name||'')).toLowerCase();
     var usage30=outBySku[k]||0;
     var daily=usage30/CFG.usageWindowDays;
@@ -203101,6 +203118,7 @@ function computeInsights(whId,rows,movs){
   var all=loadStock();var whs=loadWhs();
   var imb=[];
   rows.forEach(function(r){
+    if(!(r.name||'').trim()&&!(r.sku||'').trim())return; /* WH-F3 */
     if(!((num(r.minQty)>0&&num(r.qty)<=num(r.minQty))||num(r.qty)===0))return;
     var others=all.filter(function(o){
       if(o.warehouseId===whId)return false;
@@ -203121,6 +203139,8 @@ function computeInsights(whId,rows,movs){
 
 // ---------- render ----------
 window.renderWhWarehouse=function(){
+  /* WH-F10: self-gate — the switchView hook fires even when the base call was denied */
+  try{if(typeof can==='function'&&!can('viewLogistics')){if(window.__lastNavDenied!=='log_warehouse')toast('Access denied for your role','warn');return;}}catch(e){}
   var view=document.getElementById('view-log_warehouse');
   if(!view){view=document.createElement('div');view.className='view';view.id='view-log_warehouse';(document.getElementById('appMain')||document.body).appendChild(view);}
   document.querySelectorAll('.view').forEach(function(v){v.classList.remove('active');});
@@ -203142,6 +203162,7 @@ window.renderWhWarehouse=function(){
   // filters
   var cats={};allRows.forEach(function(r){if((r.category||'').trim())cats[r.category.trim()]=1;});
   var catList=Object.keys(cats).sort();
+  if(S.cat!=='ALL'&&catList.indexOf(S.cat)<0)S.cat='ALL'; /* WH-F4: dropped category must not silently filter everything out */
   var shown=allRows.filter(function(r){
     if(S.cat!=='ALL'&&(r.category||'').trim()!==S.cat)return false;
     if(S.lowOnly&&!((num(r.minQty)>0&&num(r.qty)<=num(r.minQty))||num(r.qty)===0))return false;
@@ -203211,7 +203232,7 @@ window.renderWhWarehouse=function(){
     +'<button class="btn btn-outline" onclick="_whFromInventory()">🔗 From Inventory</button>'
     +'<button class="btn btn-outline" onclick="_whExport()">📤 Export</button>'
     +'<button class="btn btn-outline" onclick="_whTransferOpen()">🔁 Transfer</button>'
-    +'<input class="call-input" style="padding:6px 10px;font-size:12px;min-width:160px;" placeholder="🔎 search…" value="'+esc(S.search)+'" oninput="_whSearch(this.value)">'
+    +'<input id="whSearchBox" class="call-input" style="padding:6px 10px;font-size:12px;min-width:160px;" placeholder="🔎 search…" value="'+esc(S.search)+'" oninput="_whSearch(this.value)">'
     +'<select class="call-select" style="padding:6px 10px;font-size:12px;" onchange="_whCat(this.value)"><option value="ALL">All categories</option>'
       +catList.map(function(c){return '<option value="'+esc(c)+'" '+(S.cat===c?'selected':'')+'>'+esc(c)+'</option>';}).join('')+'</select>'
     +'<label style="font-size:11.5px;color:#7aa99a;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" '+(S.lowOnly?'checked':'')+' onchange="_whLow(this.checked)"> low stock only</label>'
@@ -203254,7 +203275,8 @@ window.renderWhWarehouse=function(){
           +'<span style="font-family:var(--mono,monospace);color:#7aa99a;">'+when+'</span>'
           +'<span style="font-weight:700;color:'+color+';text-transform:uppercase;font-size:10px;">'+esc(m.type)+'</span>'
           +'<span style="flex:1;">'+esc(m.name||m.sku||'?')+'</span>'
-          +'<span style="font-family:var(--mono,monospace);">'+sign+Math.abs(num(m.qty))+' ('+num(m.before)+'→'+num(m.after)+')</span>'
+          /* WH-F5: before/after belong to the SOURCE warehouse — hide them on the receiving side */
+          +'<span style="font-family:var(--mono,monospace);">'+sign+Math.abs(num(m.qty))+((m.type==='transfer'&&m.toWarehouseId===w.id)?'':' ('+num(m.before)+'→'+num(m.after)+')')+'</span>'
           +'<span style="color:#7aa99a;">'+esc(m.reason||'')+' · '+esc(m.by||'')+'</span>'
         +'</div>';
       }).join('')+'</div>';
@@ -203262,6 +203284,12 @@ window.renderWhWarehouse=function(){
   html+='</div>';
 
   view.innerHTML=html;
+  /* WH-F1: after a search-triggered rebuild, put focus + caret back in the search box */
+  if(S._searchTyping){
+    S._searchTyping=false;
+    var sb=document.getElementById('whSearchBox');
+    if(sb){sb.focus();try{sb.setSelectionRange(sb.value.length,sb.value.length);}catch(e){}}
+  }
 };
 
 // ---------- registration ----------
@@ -203278,20 +203306,33 @@ window.renderWhWarehouse=function(){
       views.splice(at,0,entry);
     }
     try{if(window.VIEW_TO_MODULE)window.VIEW_TO_MODULE.log_warehouse='logistics';}catch(e){}
+    /* WH-F10: the switchView guard map (a const literal) gained log_warehouse:'viewLogistics' directly;
+       renderWhWarehouse also self-gates below, since this module's hook renders regardless of the base outcome */
+    /* WH-F9: create the container eagerly — the base switchView early-returns with an
+       'Unknown view' toast when view-<v> is missing, which killed the first click */
+    try{
+      if(!document.getElementById('view-log_warehouse')){
+        var d=document.createElement('div');d.className='view';d.id='view-log_warehouse';
+        (document.getElementById('appMain')||document.body).appendChild(d);
+      }
+    }catch(e){}
     try{if(typeof renderModuleHeader==='function'&&typeof currentModule==='string'&&currentModule==='logistics')renderModuleHeader('logistics');}catch(e){}
   }
   attempt();
 })();
 (function hookSwitch(){
-  setTimeout(function(){
-    if(typeof window.switchView==='function'&&!window.switchView.__whHooked){
-      var orig=window.switchView;
-      window.switchView=function(v){var r;try{r=orig.apply(this,arguments);}catch(e){}
-        if(v==='log_warehouse')setTimeout(window.renderWhWarehouse,60);
-        return r;};
-      window.switchView.__whHooked=true;
-    }
-  },1200);
+  /* WH-F9: install immediately with a retry loop instead of a blind 1200ms timeout */
+  var tries=0;
+  function install(){
+    if(typeof window.switchView!=='function'){if(++tries<80)setTimeout(install,150);return;}
+    if(window.switchView.__whHooked)return;
+    var orig=window.switchView;
+    window.switchView=function(v){var r;try{r=orig.apply(this,arguments);}catch(e){}
+      if(v==='log_warehouse')setTimeout(window.renderWhWarehouse,60);
+      return r;};
+    window.switchView.__whHooked=true;
+  }
+  install();
 })();
 console.log('[HNX-WH] Warehouse module ready — renderWhWarehouse()');
 })();
