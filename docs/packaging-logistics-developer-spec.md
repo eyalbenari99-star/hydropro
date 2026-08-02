@@ -263,3 +263,7 @@ No linkage exists between the three today. Recommended: delivery record gains op
 4. Live-ify `log_cmd` cockpit (A6.7) — pattern already proven by PACK-F4.
 5. Add `lastServiceOdo` capture on Vehicles (A6.3) — Coordinator's service forecast is currently wrong for every vehicle.
 6. Structured delivery items (A6.8) — prerequisite for warehouse deduction and true on-time metrics (A6.2).
+
+## C4. Related documents
+- `warehouse-module-design.md` — approved Warehouse module design (Logistics → Warehouse tab); treat its per-warehouse stores as the operational staging layer that posts to SOS.
+- `hnx-integration-upgrade-addendum.md` — HNX Integration Hub, SOS/GOS connectors, secure employee communication, and (section 6.3) the **Administrative Module → User Management** design: per-employee company-mobile directory, Mobile/Security/Nexi-Communication profile sections, manager security actions, and the mobile-OTP two-factor login flow. User identity, device, and 2FA requirements defined there apply to every screen in this spec (e.g. `lastCountBy`, duties assignees, delivery driver acknowledgement).

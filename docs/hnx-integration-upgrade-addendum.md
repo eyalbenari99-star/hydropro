@@ -239,6 +239,78 @@ Use the following priority:
 
 Do not send confidential operational data in ordinary SMS. SMS should contain only a minimal alert and a secure deep link requiring authentication.
 
+### 6.3 Placement: Administrative Module → User Management
+
+The company-mobile directory, communication permissions, and login-security settings live in the **Administrative Module → User Management** screen. The canonical navigation is:
+
+**Administrative Module → Users → Select Employee → Mobile, Security & Nexi Communication**
+
+This ensures the phone number is not only a contact detail — it becomes part of the employee's identity, security, communication, task management, and audit system.
+
+Each user profile must include:
+
+- Employee name and ID
+- Department and position
+- User role and access level
+- Company mobile number
+- Company SIM number
+- Registered device
+- Preferred language
+- Immediate manager
+- Active/inactive employment status
+- Allowed Nexi communication channels
+- Mobile verification status
+- Last successful login
+- Device security status
+
+#### 6.3.1 User screen sections
+
+**Identity and Employment** — basic employee information, department, position, manager, and employment status.
+
+**System Access** — role, module permissions, approval limits, warehouse permissions, report access, and administrative rights.
+
+**Company Mobile and Device** — phone number, SIM, device model, device ID, registration date, and whether the device is compliant.
+
+**Security** — two-factor authentication enabled, preferred verification method, password reset controls, trusted devices, last login, failed attempts, and account lock status.
+
+**Nexi Communication** — types of messages the user may receive: tasks, reminders, approvals, emergency alerts, production issues, inventory alerts, maintenance notices, and management announcements.
+
+**Communication History** — messages sent, delivery status, read status, acknowledgement, response, and action completed.
+
+#### 6.3.2 Manager actions
+
+A manager must be able to perform, from the user screen:
+
+- Verify mobile number
+- Send test code
+- Reset registered device
+- Force password reset
+- Lock user account
+- Remove device access
+- Revoke all active sessions
+- View login history
+
+#### 6.3.3 Two-factor authentication flow
+
+Nexi login security supports two-factor authentication:
+
+1. The user enters their username and password.
+2. Nexi sends a temporary security code to the registered company mobile number.
+3. The user enters the code.
+4. Nexi verifies the code, device, user role, and access permissions.
+5. The login is recorded in the audit trail.
+
+The code must:
+
+- Expire after approximately 3–5 minutes.
+- Work only once.
+- Have a limited number of attempts.
+- Trigger an alert after repeated failed attempts.
+- Never be visible to administrators after it is generated.
+- Be sent only to the verified company number.
+
+Implementation note: OTP generation, verification, session/device registry, and the audit trail are server-side responsibilities (Track B — see section 11's storage requirement). The User Management screen in the Administrative Module is the client surface; codes, password hashes, and session tokens must never be stored or verifiable in browser localStorage.
+
 ────────
 
 ## 7. Nexi Interactive Communication
@@ -478,6 +550,8 @@ Phase 3 — Fulfillment and Logistics unification
 
 Phase 4 — Secure employee communication
 
+- Build Administrative Module → User Management: per-employee Mobile, Security & Nexi Communication sections with manager actions (section 6.3).
+- Implement two-factor authentication with mobile OTP (section 6.3.3).
 - Enroll company phones.
 - Implement secure app notifications and inbox.
 - Add acknowledgements and action buttons.
@@ -515,7 +589,7 @@ Critical
 3. Replace delivery free text with structured SKU lines.
 4. Build SOS item and inventory connector with idempotent write protection.
 5. Move operational data, permissions, messages, and audits to server storage.
-6. Add employee company-phone and managed-device profiles.
+6. Add employee company-phone and managed-device profiles in Administrative Module → User Management (section 6.3), including the 2FA login flow.
 7. Build secure Nexi inbox, acknowledgement, and escalation workflow.
 
 High
