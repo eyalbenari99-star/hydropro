@@ -309,6 +309,23 @@ The code must:
 - Never be visible to administrators after it is generated.
 - Be sent only to the verified company number.
 
+#### 6.3.4 Reference UI design
+
+Approved mockup: `docs/assets/user-management-mockup.png` (HydroNexis dark theme).
+
+![User Management mockup](assets/user-management-mockup.png)
+
+Layout to implement:
+
+- **Profile header** — photo with verified badge, name, employee ID (`HN-EMP-…`), position, department, manager, Active/Inactive chip; second column: user role, access level, **warehouse access (WH1, WH2, WH3…)**, approval limit (₱); third column: employment status, date hired, last login, account created. Right rail **ACTIONS**: Edit User, Reset Password, Lock User Account, Deactivate User.
+- **Tab strip** — Overview · Identity & Employment · System Access · **Mobile, Security & Nexi Communication** (this design) · Communication History · Login History · Audit Trail — matching the six sections in 6.3.1.
+- **Panel 1 — Company Mobile & Device**: mobile number in E.164 (+63…) with Verified chip and Re-verify button; SIM number, registered device model, device ID/IMEI (copy buttons), registration date, device status chip (Compliant / Non-compliant).
+- **Panel 2 — Security & Authentication**: 2FA toggle, preferred verification method (SMS to company mobile), backup method (authenticator app), trusted devices count + Manage, last successful login, failed login attempts, account lock status. Side card restates the OTP rules as checklist: 5-minute validity, single use, max 5 attempts, never stored in system, sent only to verified company number; **Send Test Code** button.
+- **Panel 3 — Nexi Communication Preferences**: checkbox grid of receivable message types (tasks & assignments, reminders & deadlines, approvals, inventory alerts, production alerts, delivery & logistics, maintenance & equipment, QC issues, emergency, management announcements, shift schedules, system notifications, policy updates, training, surveys) + allowed channels row (In-App / SMS / Email / Push).
+- **Panel 4 — Communication Summary**: stat tiles Total Sent (30d), Delivered %, Read %, Acknowledged %, Actions Completed %, Pending Actions with drill-down View.
+- **Quick Actions rail** — the eight manager actions from 6.3.2 as one-click buttons.
+- **Footer note** — "All mobile numbers are encrypted and stored securely. Only verified company mobile numbers can be used for security and communication." + Cancel / Save Changes.
+
 Implementation note: OTP generation, verification, session/device registry, and the audit trail are server-side responsibilities (Track B — see section 11's storage requirement). The User Management screen in the Administrative Module is the client surface; codes, password hashes, and session tokens must never be stored or verifiable in browser localStorage.
 
 ────────
