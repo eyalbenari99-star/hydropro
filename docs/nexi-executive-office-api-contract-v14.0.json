@@ -1,0 +1,705 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "HydroNexis-AI Nexi Executive Office",
+  "version": "14.0",
+  "build": "v14.0-executive-office-intelligence-cockpit",
+  "timezoneDefault": "Asia/Manila",
+  "purpose": "Coordinate the separately authorized email, calendars, tasks, commitments and follow-ups of the President and Primary Executive Assistant in subject-based workstreams.",
+  "accountSlots": {
+    "owner": {
+      "displayRole": "President",
+      "defaultName": "Eyal",
+      "consentRequired": true
+    },
+    "assistant": {
+      "displayRole": "Primary Executive Assistant",
+      "defaultName": "Chen",
+      "consentRequired": true
+    }
+  },
+  "providers": {
+    "google": {
+      "mailScopes": [
+        "https://www.googleapis.com/auth/gmail.readonly"
+      ],
+      "calendarScopes": [
+        "https://www.googleapis.com/auth/calendar.readonly"
+      ],
+      "forbiddenScopes": [
+        "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/gmail.compose",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/calendar"
+      ],
+      "verificationNote": "gmail.readonly is a restricted scope and may require OAuth verification and a security assessment when restricted-scope data is stored or transmitted."
+    },
+    "microsoft": {
+      "mailScopes": [
+        "Mail.Read"
+      ],
+      "calendarScopes": [
+        "Calendars.Read"
+      ],
+      "identityScopesWhenRequired": [
+        "openid",
+        "profile",
+        "email",
+        "offline_access"
+      ],
+      "forbiddenScopes": [
+        "Mail.Send",
+        "Mail.ReadWrite",
+        "Calendars.ReadWrite"
+      ]
+    }
+  },
+  "decisionLanes": {
+    "owner": "Requires Eyal's decision or approval",
+    "assistant": "Chen owns preparation, coordination or follow-up",
+    "waiting": "A named external party owes a response or document",
+    "scheduled": "Future event, deadline or preparation window"
+  },
+  "authorityPolicy": {
+    "automatic": [
+      "read separately authorized email and calendars",
+      "incrementally synchronize provider data",
+      "normalize and deduplicate source records",
+      "classify importance, reply need, follow-up need and sensitivity",
+      "suggest and maintain subject-based workstreams",
+      "detect contradictions and missing preparation",
+      "create internal reminders and follow-up signals",
+      "prepare review-only email drafts",
+      "prepare meeting packs and Nexi Daily notes",
+      "recommend an Eyal, Chen, waiting or scheduled lane"
+    ],
+    "approvalRequired": [
+      "send email or message",
+      "add, remove or change recipients",
+      "create, update, move, accept, decline, forward or cancel an external calendar event",
+      "make financial, HR, legal, supplier or customer commitments",
+      "disclose private information outside the authorized audience",
+      "delete source records or audit and consent evidence",
+      "connect an additional account or expand provider permissions"
+    ],
+    "browserSendRoute": null,
+    "browserCalendarMutationRoute": null
+  },
+  "storage": {
+    "syncedMetadataKeys": [
+      "hydroPro_ea140_config_v1",
+      "hydroPro_ea140_actions_v1",
+      "hydroPro_ea140_audit_v1"
+    ],
+    "browserLocalOnlyKeys": [
+      "hydroPro_ea140_mail_cache_v1",
+      "hydroPro_ea140_analysis_cache_v1",
+      "hydroPro_ea140_triage_overrides_v1"
+    ],
+    "workerOnly": [
+      "OAuth access and refresh tokens",
+      "provider history, delta, page and webhook tokens",
+      "full email bodies and attachments",
+      "raw private calendar payloads",
+      "encrypted authoritative workstreams",
+      "draft grounding context",
+      "consent evidence"
+    ]
+  },
+  "$defs": {
+    "slot": {
+      "type": "string",
+      "enum": [
+        "owner",
+        "assistant"
+      ]
+    },
+    "provider": {
+      "type": "string",
+      "enum": [
+        "google",
+        "microsoft"
+      ]
+    },
+    "resource": {
+      "type": "string",
+      "enum": [
+        "mail",
+        "calendar"
+      ]
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "sourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slot",
+        "sourceType",
+        "opaqueId"
+      ],
+      "properties": {
+        "slot": {
+          "$ref": "#/$defs/slot"
+        },
+        "sourceType": {
+          "type": "string",
+          "enum": [
+            "email",
+            "calendar",
+            "task",
+            "commitment",
+            "follow_up",
+            "registration",
+            "decision"
+          ]
+        },
+        "opaqueId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "provider": {
+          "$ref": "#/$defs/provider"
+        },
+        "threadId": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "deepLink": {
+          "type": "string",
+          "maxLength": 2048
+        }
+      }
+    },
+    "signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "workstreamId",
+        "sourceRef",
+        "title",
+        "why",
+        "priority",
+        "decisionLane",
+        "requiresApproval",
+        "status",
+        "safeNextAction",
+        "confidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "workstreamId": {
+          "type": "string"
+        },
+        "sourceRef": {
+          "$ref": "#/$defs/sourceRef"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "why": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "priority": {
+          "$ref": "#/$defs/priority"
+        },
+        "decisionLane": {
+          "type": "string",
+          "enum": [
+            "owner",
+            "assistant",
+            "waiting",
+            "scheduled"
+          ]
+        },
+        "requiresApproval": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "acknowledged",
+            "in_progress",
+            "waiting",
+            "scheduled",
+            "resolved",
+            "dismissed"
+          ]
+        },
+        "dueAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "safeNextAction": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "missingFacts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30
+        },
+        "contradictions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30
+        }
+      }
+    },
+    "workstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "tenantId",
+        "title",
+        "status",
+        "aliases",
+        "sourceRefs",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "waiting",
+            "completed",
+            "archived"
+          ]
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "maxItems": 100
+        },
+        "sourceRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sourceRef"
+          },
+          "maxItems": 2000
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 5000
+        },
+        "nextOutcome": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "ownerLane": {
+          "type": "string",
+          "enum": [
+            "owner",
+            "assistant",
+            "waiting",
+            "scheduled"
+          ]
+        },
+        "sensitivity": {
+          "type": "string",
+          "enum": [
+            "normal",
+            "confidential",
+            "private_executive",
+            "legal",
+            "hr",
+            "financial"
+          ]
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  },
+  "routes": {
+    "status": {
+      "method": "GET",
+      "path": "/ea/intelligence/status",
+      "browserAllowed": true,
+      "response": {
+        "type": "object",
+        "required": [
+          "ok",
+          "accounts"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "lastSyncAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "accounts": {
+            "type": "object",
+            "required": [
+              "owner",
+              "assistant"
+            ]
+          }
+        }
+      },
+      "redaction": "No tokens, raw consent evidence, full addresses, provider payloads or message bodies."
+    },
+    "oauthStart": {
+      "method": "POST",
+      "path": "/ea/accounts/oauth/start",
+      "browserAllowed": true,
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "slot",
+          "resource",
+          "provider",
+          "mode",
+          "returnUrl"
+        ],
+        "properties": {
+          "slot": {
+            "$ref": "#/$defs/slot"
+          },
+          "resource": {
+            "$ref": "#/$defs/resource"
+          },
+          "provider": {
+            "$ref": "#/$defs/provider"
+          },
+          "mode": {
+            "const": "read_only"
+          },
+          "returnUrl": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048
+          }
+        }
+      },
+      "serverRules": [
+        "Map slot to a server-approved user binding.",
+        "Require separate consent for each user and resource.",
+        "Allow only pre-registered same-origin return URLs.",
+        "Reject provider permission expansion."
+      ]
+    },
+    "configure": {
+      "method": "POST",
+      "path": "/ea/intelligence/configure",
+      "browserAllowed": true,
+      "serverRules": [
+        "Browser booleans are not consent evidence.",
+        "Validate IANA timezone and schedule values.",
+        "Store only server-approved slot bindings.",
+        "Audit redacted old and new values."
+      ]
+    },
+    "syncAnalyze": {
+      "method": "POST",
+      "path": "/ea/intelligence/sync",
+      "browserAllowed": true,
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "slots",
+          "resources",
+          "mailDays",
+          "calendarHorizonDays",
+          "calendarScope",
+          "purposes",
+          "policy"
+        ],
+        "properties": {
+          "slots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/slot"
+            },
+            "minItems": 1,
+            "maxItems": 2,
+            "uniqueItems": true
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/resource"
+            },
+            "minItems": 1,
+            "maxItems": 2,
+            "uniqueItems": true
+          },
+          "mailDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90
+          },
+          "calendarHorizonDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31
+          },
+          "calendarScope": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "all_authorized"
+            ]
+          },
+          "purposes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "priority",
+                "reply",
+                "follow_up",
+                "meeting_prep",
+                "workstream_clustering"
+              ]
+            },
+            "uniqueItems": true
+          },
+          "policy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "mailReadOnly",
+              "calendarReadOnly",
+              "noSend",
+              "noExternalMutation"
+            ],
+            "properties": {
+              "mailReadOnly": {
+                "const": true
+              },
+              "calendarReadOnly": {
+                "const": true
+              },
+              "noSend": {
+                "const": true
+              },
+              "noExternalMutation": {
+                "const": true
+              }
+            }
+          }
+        }
+      },
+      "response": {
+        "type": "object",
+        "required": [
+          "sourceSnapshotAt",
+          "messages",
+          "workstreams",
+          "recommendations"
+        ],
+        "properties": {
+          "sourceSnapshotAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "messages": {
+            "type": "array",
+            "maxItems": 500
+          },
+          "workstreams": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/workstream"
+            },
+            "maxItems": 500
+          },
+          "recommendations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/signal"
+            },
+            "maxItems": 1000
+          }
+        }
+      }
+    },
+    "draft": {
+      "method": "POST",
+      "path": "/ea/intelligence/email/draft",
+      "browserAllowed": true,
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "slot",
+          "messageId",
+          "policy"
+        ],
+        "properties": {
+          "slot": {
+            "$ref": "#/$defs/slot"
+          },
+          "messageId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "instruction": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "policy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "doNotSend",
+              "doNotInventFacts",
+              "flagCommitments",
+              "flagSensitiveContent"
+            ],
+            "properties": {
+              "doNotSend": {
+                "const": true
+              },
+              "doNotInventFacts": {
+                "const": true
+              },
+              "flagCommitments": {
+                "const": true
+              },
+              "flagSensitiveContent": {
+                "const": true
+              }
+            }
+          }
+        }
+      },
+      "serverRules": [
+        "Resolve messageId within authenticated tenant and slot.",
+        "Ground only in the current authorized thread and approved business context.",
+        "Return risk flags and source references.",
+        "Do not send and do not create a provider draft."
+      ]
+    }
+  },
+  "synchronization": {
+    "calendarSyncMinutesDefault": 5,
+    "mailSyncMinutesDefault": 5,
+    "morningBriefLocalTime": "06:00",
+    "eveningBriefLocalTime": "18:00",
+    "calendarHorizonDaysDefault": 7,
+    "providerRules": {
+      "microsoft": [
+        "Persist per-folder @odata.deltaLink server-side.",
+        "Follow @odata.nextLink until the round completes.",
+        "Handle @removed entries and provider-directed resynchronization."
+      ],
+      "google": [
+        "Persist provider history/watch state server-side.",
+        "Use read-only watch/sync mechanisms.",
+        "Perform a safe full resync when history state is invalid."
+      ]
+    },
+    "idempotencyKeys": [
+      "ea140-sync:{tenant}:{slot}:{resource}:{cursor-or-window}",
+      "ea140-signal:{tenant}:{sourceType}:{opaqueId}:{condition}",
+      "ea140-brief:{tenant}:{localDate}:{morning-or-evening}",
+      "ea140-draft:{tenant}:{slot}:{messageId}:{instructionHash}:{threadVersion}"
+    ]
+  },
+  "workstreamLinking": {
+    "order": [
+      "explicit workstreamId",
+      "provider thread relationship",
+      "normalized subject alias",
+      "trusted business entity identifier",
+      "AI semantic suggestion above threshold",
+      "new provisional workstream"
+    ],
+    "semanticAutoMergeThreshold": 0.92,
+    "manualReviewThreshold": 0.7,
+    "neverMergeBelow": 0.7,
+    "contradictionPolicy": "Preserve every source fact and create a contradiction signal; never overwrite conflicting facts silently."
+  },
+  "security": {
+    "required": [
+      "authenticated HydroNexis session",
+      "Executive Assistant module authorization",
+      "tenant and slot isolation",
+      "server-side encrypted tokens and content",
+      "CSRF protection where applicable",
+      "rate and payload limits",
+      "provider webhook signature validation",
+      "prompt-injection controls",
+      "escaped UI rendering",
+      "redacted logs and analytics",
+      "immediate consent revocation and account disconnect"
+    ],
+    "forbiddenInGeneralLogs": [
+      "OAuth tokens",
+      "full email addresses",
+      "email subjects and bodies",
+      "calendar titles and descriptions",
+      "attachments",
+      "draft bodies",
+      "phone numbers",
+      "consent evidence"
+    ]
+  },
+  "releaseGates": [
+    "Both account slots are bound to server-approved identities.",
+    "Separate email and calendar consent is recorded for Eyal and Chen.",
+    "Granted provider scopes contain no send or write permission.",
+    "Cross-tenant and cross-slot message/event IDs are rejected.",
+    "Incremental sync, token expiry and consent revocation tests pass.",
+    "Workstream merge, split, contradiction and provenance tests pass.",
+    "Financial, HR, legal and external commitments route to Eyal approval.",
+    "Private events and sensitive email remain protected in all channels.",
+    "The browser has no email-send or external-calendar mutation route.",
+    "General logs contain no sensitive content.",
+    "06:00 and 18:00 briefings handle empty, stale and partial-source states honestly."
+  ]
+}
