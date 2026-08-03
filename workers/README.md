@@ -58,6 +58,15 @@ wrangler secret put TWILIO_FROM       # registered sender, e.g. +63…
 9. Verify idempotency: notes and reminders never send twice for the same key.
 10. Inspect logs: no tokens, phone numbers, or note bodies logged.
 
+## Email Intelligence routes (v13.46 contract — included)
+- `POST /ea/email/oauth/start` (assistant slot only, `gmail.readonly` / `Mail.Read`) + provider callbacks.
+- `POST /ea/email/scan` and `/ea/email/search` — normalized metadata + worker-side classification (handoff scoring), never full bodies to the browser.
+- `POST /ea/email/draft/generate` — returns a grounded skeleton; plug your approved enterprise model at the marked point. **No send route exists anywhere.**
+- App integration: paste the worker URL into Executive Assistant → 📧 Email Intelligence.
+
+## Two-way SMS commands
+Opted-in recipients can text back: `BRIEF` (today's summary), `NEXT` (next appointment), `STOP`/`START` (consent). Read-only commands only — nothing mutates from SMS.
+
 ## Boundaries kept (per the handoffs)
 - Calendar scopes are read-only; no external calendar mutation route exists.
 - No email-send route; email intelligence (v13.46) is a separate later deployment.
