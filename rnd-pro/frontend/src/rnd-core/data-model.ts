@@ -129,6 +129,8 @@ export interface ImageObj {
   opacity?: number;
   aspectLocked?: boolean;
   locked?: boolean;
+  mirrorX?: boolean;
+  mirrorY?: boolean;
   crop?: { x: number; y: number; w: number; h: number };
   calibratedUnitsPerPixel?: number;
 }

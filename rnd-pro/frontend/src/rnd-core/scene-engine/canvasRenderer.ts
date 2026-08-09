@@ -177,6 +177,11 @@ function paintImage(ctx: CanvasRenderingContext2D, object: ImageObj): void {
     return;
   }
   ctx.globalAlpha = object.opacity ?? 1;
+  if (object.mirrorX || object.mirrorY) {
+    ctx.translate(object.x + object.w / 2, object.y + object.h / 2);
+    ctx.scale(object.mirrorX ? -1 : 1, object.mirrorY ? -1 : 1);
+    ctx.translate(-(object.x + object.w / 2), -(object.y + object.h / 2));
+  }
   if (object.crop) {
     const crop = object.crop;
     ctx.drawImage(
@@ -224,6 +229,8 @@ function paintSelection(ctx: CanvasRenderingContext2D, object: SceneObject, scal
   const bounds = objectBounds(object);
   const rotation = objectRotation(object);
   const handles = resizeHandles(bounds, rotation, 24 / scale);
+  const resizable = object.kind === 'rect' || object.kind === 'ellipse' || object.kind === 'symbol' || object.kind === 'img';
+  const rotatable = object.kind === 'symbol' || object.kind === 'img';
   const handleSize = 8 / scale;
 
   ctx.save();
@@ -241,14 +248,14 @@ function paintSelection(ctx: CanvasRenderingContext2D, object: SceneObject, scal
 
   ctx.strokeStyle = '#06111c';
   ctx.lineWidth = 1 / scale;
-  Object.entries(handles).forEach(([key, point]) => {
+  Object.entries(handles).filter(([key]) => resizable && (key !== 'rotate' || rotatable)).forEach(([key, point]) => {
     ctx.beginPath();
     ctx.fillStyle = key === 'rotate' ? '#f5b942' : '#70efff';
     ctx.arc(point.x, point.y, handleSize / 2, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
   });
-  if (handles.rotate) {
+  if (rotatable && handles.rotate) {
     const top = resizeHandles(bounds, rotation, 0).n;
     ctx.beginPath();
     ctx.moveTo(top.x, top.y);

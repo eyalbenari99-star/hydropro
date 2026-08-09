@@ -3,42 +3,6 @@ import type { Item, CabinetSpecV2, Asset } from './data-model';
 
 const BASE = (window as any).HNX_API_BASE || '/api/rnd';
 const TIMEOUT_MS = 30_000;
-const SERVER_MSG = 'This feature runs on the R&D server, which is not connected yet (it is ready in the company GitHub - ask Eyal to enable it).';
-
-/* ---- standalone mode: items live in the browser + company sync ---- */
-const ITEMS_KEY = 'hydroPro_rndpro_items_v1';
-function localItems(): any[] {
-  try { return JSON.parse(window.localStorage.getItem(ITEMS_KEY) || '[]') || []; } catch { return []; }
-}
-function saveLocalItems(list: any[]): void {
-  try {
-    window.localStorage.setItem(ITEMS_KEY, JSON.stringify(list));
-    const sync = (window as any).hnxScheduleSync; if (typeof sync === 'function') sync();
-  } catch { /* quota */ }
-}
-function localFallback(method: string, path: string, body: any): any {
-  if (path === '/health') return { ok: false, reason: 'standalone' };
-  if (path === '/items' && method === 'GET') return localItems();
-  if (path === '/items' && method === 'POST') {
-    const list = localItems();
-    const item = { id: 'it_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), createdAt: Date.now(), updatedAt: Date.now(), ...(body || {}) };
-    list.push(item); saveLocalItems(list); return item;
-  }
-  const m = /^\/items\/([^/]+)$/.exec(path);
-  if (m) {
-    const list = localItems();
-    const i = list.findIndex((x: any) => x && x.id === m[1]);
-    if (method === 'GET') { if (i < 0) throw new Error('Item not found'); return list[i]; }
-    if (method === 'PUT') { if (i < 0) throw new Error('Item not found'); list[i] = { ...list[i], ...(body || {}), id: m[1], updatedAt: Date.now() }; saveLocalItems(list); return list[i]; }
-    if (method === 'DELETE') { if (i >= 0) { list.splice(i, 1); saveLocalItems(list); } return { ok: true }; }
-  }
-  if (path.indexOf('/assets') === 0 && method === 'GET') return [];
-  if (path === '/cockpit/summary') return { generated_at: new Date().toISOString(), portfolio_confidence: 0, required_decisions: 0, metrics: [], projects: [], source_versions: { mode: 'standalone' } };
-  throw new Error(SERVER_MSG);
-}
-function isNetworkError(err: any): boolean {
-  return err instanceof TypeError || /Failed to fetch|NetworkError|abort/i.test(String(err && err.message || err));
-}
 
 async function http<T>(method: string, path: string, body?: unknown, opts: { timeout?: number; retries?: number } = {}): Promise<T> {
   const timeout = opts.timeout ?? TIMEOUT_MS;
@@ -60,7 +24,6 @@ async function http<T>(method: string, path: string, body?: unknown, opts: { tim
     return res.json() as Promise<T>;
   } catch (err) {
     if (retries > 0) return http<T>(method, path, body, { timeout, retries: retries - 1 });
-    if (isNetworkError(err)) return localFallback(method, path, body) as T;
     throw err;
   } finally {
     clearTimeout(t);
@@ -72,18 +35,7 @@ const resolvePath = (path: string) => path.startsWith('/api/') ? path : BASE + p
 async function rawRequest(method: string, path: string, body?: BodyInit, contentType?: string): Promise<Response> {
   const headers: Record<string, string> = {};
   if (contentType) headers['Content-Type'] = contentType;
-  let response: Response;
-  try {
-    response = await fetch(resolvePath(path), { method, body, headers, credentials: 'include' });
-  } catch (err) {
-    if (isNetworkError(err)) {
-      const rel = path.replace(/^\/api\/rnd/, '');
-      const parsed = typeof body === 'string' ? JSON.parse(body || 'null') : undefined;
-      const data = localFallback(method, rel, parsed);   // throws SERVER_MSG when not supported locally
-      return new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    }
-    throw err;
-  }
+  const response = await fetch(resolvePath(path), { method, body, headers, credentials: 'include' });
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
     throw new Error(`${response.status} ${response.statusText}: ${detail.slice(0, 240)}`);

@@ -12,32 +12,10 @@ interface EngineeringStudioProps {
 type RightTab = 'nexi' | 'properties' | 'layers';
 type Tool = 'select' | 'pan' | 'rect' | 'line' | 'dimension' | 'text' | 'image';
 
-const SCENES_KEY = 'hydroPro_rndpro_scenes_v1';
-function loadScene(projectId: string, title: string, phase: string): Scene {
-  try {
-    const all = JSON.parse(window.localStorage.getItem(SCENES_KEY) || '{}') || {};
-    if (all[projectId] && Array.isArray(all[projectId].objects)) return all[projectId];
-  } catch { /* fresh */ }
-  return {
-    w: 1380,
-    h: 860,
-    bg: { type: 'grid', grid: 20 },
-    objects: [
-      { id: 'title', kind: 'text', layer: 'annotations', x: 76, y: 70, text: title.toUpperCase().slice(0, 60), size: 22, color: '#dff8ff', bold: true },
-      { id: 'subtitle', kind: 'text', layer: 'annotations', x: 76, y: 98, text: phase.toUpperCase().slice(0, 80), size: 11, color: '#7897ad' },
-      { id: 'header-line', kind: 'line', layer: 'annotations', x1: 76, y1: 116, x2: 1304, y2: 116, stroke: '#285772', width: 1 },
-    ] as SceneObject[],
-  };
-}
-function persistScene(projectId: string, scene: Scene): void {
-  try {
-    const all = JSON.parse(window.localStorage.getItem(SCENES_KEY) || '{}') || {};
-    all[projectId] = scene;
-    window.localStorage.setItem(SCENES_KEY, JSON.stringify(all));
-    const sync = (window as any).hnxScheduleSync; if (typeof sync === 'function') sync();
-  } catch { /* quota */ }
-}
-const _unusedDemo = {
+const initialScene: Scene = {
+  w: 1380,
+  h: 860,
+  bg: { type: 'grid', grid: 20 },
   objects: [
     { id: 'title', kind: 'text', layer: 'annotations', x: 76, y: 70, text: 'GH7 IRRIGATION & FERTIGATION UPGRADE', size: 22, color: '#dff8ff', bold: true },
     { id: 'subtitle', kind: 'text', layer: 'annotations', x: 76, y: 98, text: 'HYDRAULIC ARRANGEMENT · REVISION 12 · FOR ENGINEERING REVIEW', size: 11, color: '#7897ad' },
@@ -73,26 +51,21 @@ const toolItems: { id: Tool; label: string; key: string; glyph: string }[] = [
 ];
 
 export function EngineeringStudio({ project, onBack }: EngineeringStudioProps) {
-  const [scene, setScene] = useState<Scene>(() => loadScene(project.id, project.title, project.phase));
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [scene, setScene] = useState<Scene>(initialScene);
+  const [selectedId, setSelectedId] = useState<string | null>('main-pipe');
   const [activeTool, setActiveTool] = useState<Tool>('select');
   const [rightTab, setRightTab] = useState<RightTab>('nexi');
   const [view, setView] = useState<CanvasView>({ scale: 0.72, offsetX: 48, offsetY: 56 });
   const [snap, setSnap] = useState(10);
   const [history, setHistory] = useState<Scene[]>([]);
   const [future, setFuture] = useState<Scene[]>([]);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState('Review the current plan and show the highest-impact issue.');
   const [thread, setThread] = useState([
-    { role: 'nexi', text: `Working on "${project.title}". Everything you draw here saves automatically to this project and syncs to your other devices. Full engineering analysis (pipe/breaker sizing, BOM, wiring PDFs) switches on when the R&D server is connected.` },
+    { role: 'nexi', text: 'I completed a traceable review of revision 12. The main finding is a hydraulic velocity conflict during two-zone overlap. I prepared a DN65 alternative without applying it.' },
   ]);
   const [thinking, setThinking] = useState(false);
   const imageInput = useRef<HTMLInputElement | null>(null);
   const selected = useMemo(() => scene.objects.find(object => object.id === selectedId) ?? null, [scene, selectedId]);
-
-  React.useEffect(() => {
-    const t = window.setTimeout(() => persistScene(project.id, scene), 600);
-    return () => window.clearTimeout(t);
-  }, [scene, project.id]);
 
   const commitHistory = (before: Scene) => {
     setHistory(items => [...items.slice(-39), before]);
@@ -188,21 +161,20 @@ export function EngineeringStudio({ project, onBack }: EngineeringStudioProps) {
     setMessage('');
     setThinking(true);
     window.setTimeout(() => {
-      const n = scene.objects.length;
       setThread(items => [...items, {
         role: 'nexi',
-        text: `Noted. This drawing currently has ${n} object${n === 1 ? '' : 's'} and is saved to "${project.title}". I can hold your notes here; live engineering calculations and automatic plan review need the R&D server, which is prepared in the company GitHub but not connected yet.`,
+        text: 'I compared the current revision with the approved design basis. Recommendation: increase the main to DN65, retain DN32 branches, and re-run pump duty. Expected effect: velocity falls below 1.8 m/s; estimated cost increases by PHP 46,800. No drawing change has been applied.',
       }]);
       setThinking(false);
-    }, 700);
+    }, 900);
   };
 
   const exportReview = () => {
-    const payload = { project, exportedAt: new Date().toISOString(), scene };
+    const payload = { project, revision: 12, status: 'For Engineering Review', scene };
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${project.code}-drawing.json`;
+    anchor.download = `${project.code}-revision-12-review.json`;
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -215,7 +187,7 @@ export function EngineeringStudio({ project, onBack }: EngineeringStudioProps) {
           <span>{project.code} · {project.site}</span>
           <strong>{project.title}</strong>
         </div>
-        <div className="rnd-revision-pill"><span /> {project.phase}</div>
+        <div className="rnd-revision-pill"><span /> Revision 12 · For review</div>
         <div className="rnd-studio-header__actions">
           <button className="rnd-button rnd-button--quiet">Compare</button>
           <button className="rnd-button rnd-button--quiet" onClick={exportReview}>Export</button>
@@ -279,7 +251,7 @@ export function EngineeringStudio({ project, onBack }: EngineeringStudioProps) {
               onHistoryCommit={(before) => commitHistory(before)}
             />
             <div className="rnd-canvas-status">
-              <span>{scene.objects.length} object{scene.objects.length === 1 ? '' : 's'}</span><span>Autosaved to this project</span>
+              <span>X 810.00</span><span>Y 283.00</span><span>DN65 preview available</span>
             </div>
             <div className="rnd-canvas-zoom">
               <button onClick={() => setView(current => ({ ...current, scale: Math.max(.25, current.scale - .1) }))}>−</button>
@@ -298,7 +270,14 @@ export function EngineeringStudio({ project, onBack }: EngineeringStudioProps) {
           {rightTab === 'nexi' && (
             <div className="rnd-nexi-workbench">
               <div className="rnd-nexi-context">
-                <div><NexiOrb size="medium" /><span><strong>{project.title}</strong><small>{scene.objects.length} object{scene.objects.length === 1 ? '' : 's'} · autosaved</small></span></div>
+                <div><NexiOrb size="medium" /><span><strong>Plan context loaded</strong><small>Revision 12 · 36 objects · 4 sources</small></span></div>
+                <span className="rnd-confidence">91%</span>
+              </div>
+              <div className="rnd-nexi-alert">
+                <span>HIGH IMPACT</span>
+                <strong>Main pipe velocity conflict</strong>
+                <p>Two-zone overlap raises calculated velocity to 2.31 m/s against the project limit of 1.80 m/s.</p>
+                <div><button>Preview fix</button><button>Show evidence</button></div>
               </div>
               <div className="rnd-chat-thread">
                 {thread.map((item, index) => <div className={`rnd-chat rnd-chat--${item.role}`} key={`${item.role}-${index}`}>{item.text}</div>)}

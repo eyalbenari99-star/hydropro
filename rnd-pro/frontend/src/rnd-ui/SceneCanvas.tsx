@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import type { Scene } from '../rnd-core/data-model';
 import { paint } from '../rnd-core/scene-engine/canvasRenderer';
-import { attach } from '../rnd-core/scene-engine/interaction';
+import { attach, type CanvasTool } from '../rnd-core/scene-engine/interaction';
 
 export interface CanvasView {
   scale: number;
@@ -11,6 +11,8 @@ export interface CanvasView {
 
 interface SceneCanvasProps {
   scene: Scene;
+  readOnly?: boolean;
+  activeTool?: CanvasTool;
   selectedId: string | null;
   view: CanvasView;
   snap: number;
@@ -18,10 +20,13 @@ interface SceneCanvasProps {
   onSelect: (id: string | null) => void;
   onViewChange: (view: CanvasView) => void;
   onHistoryCommit: (before: Scene, after: Scene) => void;
+  onToolComplete?: () => void;
 }
 
 export function SceneCanvas({
   scene,
+  readOnly = false,
+  activeTool = 'select',
   selectedId,
   view,
   snap,
@@ -29,17 +34,20 @@ export function SceneCanvas({
   onSelect,
   onViewChange,
   onHistoryCommit,
+  onToolComplete = () => undefined,
 }: SceneCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sceneRef = useRef(scene);
   const selectedRef = useRef(selectedId);
+  const toolRef = useRef(activeTool);
   const viewRef = useRef(view);
-  const callbacksRef = useRef({ onSceneChange, onSelect, onViewChange, onHistoryCommit });
+  const callbacksRef = useRef({ onSceneChange, onSelect, onViewChange, onHistoryCommit, onToolComplete });
 
   sceneRef.current = scene;
   selectedRef.current = selectedId;
+  toolRef.current = activeTool;
   viewRef.current = view;
-  callbacksRef.current = { onSceneChange, onSelect, onViewChange, onHistoryCommit };
+  callbacksRef.current = { onSceneChange, onSelect, onViewChange, onHistoryCommit, onToolComplete };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -55,9 +63,13 @@ export function SceneCanvas({
       next => callbacksRef.current.onSceneChange(next),
       {
         getView: () => viewRef.current,
+        getTool: () => toolRef.current,
         getSelectedId: () => selectedRef.current,
         onSelectionChange: id => callbacksRef.current.onSelect(id),
         onHistoryCommit: (before, after) => callbacksRef.current.onHistoryCommit(before, after),
+        onViewChange: next => callbacksRef.current.onViewChange(next),
+        onToolComplete: () => callbacksRef.current.onToolComplete(),
+        readOnly,
         snap,
       },
     );
@@ -86,7 +98,7 @@ export function SceneCanvas({
       canvas.removeEventListener('hnx-redraw', redraw);
       canvas.removeEventListener('wheel', onWheel);
     };
-  }, [snap]);
+  }, [readOnly, snap]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

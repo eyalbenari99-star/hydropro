@@ -23,7 +23,11 @@ For the fastest visual review after a production build, open `frontend/review-pr
 - Selection, drag, keyboard nudge, delete, eight resize handles, rotation handle, shift-constrained resize, grid snapping, zoom, undo, redo, and exact numeric properties.
 - PNG/JPG/TIFF placement with aspect-ratio lock, opacity, rotation, object lock, and persisted scene properties.
 - Layers, properties, and Nexi inspector modes.
-- Supervised Nexi flow that separates finding, evidence, calculation, proposed change, impact, and approval.
+- Five-stage plan intake with source upload, deterministic local analysis, focused questions, skip controls, assumptions, and baseline confirmation.
+- Pointer-drawn geometry, image crop/mirror/calibration, exact properties, local persistence, snapshots, comparison, and controlled revisions.
+- Synchronized Three.js digital twin with orbit, pan, zoom, standard views, explode, section clipping, and object selection.
+- Live calculation, BOM/warehouse/procurement, AI Gantt, findings, evidence, approval, and multi-format export workbenches.
+- Supervised Nexi flow that separates finding, evidence, calculation, proposed change, impact, approval, apply, and rollback history.
 
 ### Portfolio controls
 
@@ -38,7 +42,10 @@ For the fastest visual review after a production build, open `frontend/review-pr
 |---|---|
 | Product shell | `frontend/src/rnd-ui/RNDApp.tsx` |
 | Executive cockpit | `frontend/src/rnd-ui/CockpitOverview.tsx` |
-| Engineering studio | `frontend/src/rnd-ui/EngineeringStudio.tsx` |
+| Project intake | `frontend/src/rnd-ui/ProjectIntakeWizard.tsx` |
+| Engineering studio | `frontend/src/rnd-ui/EngineeringStudioV2.tsx` |
+| 3D digital twin | `frontend/src/rnd-ui/DigitalTwin3D.tsx` |
+| Calculation/BOM/Gantt/review | `frontend/src/rnd-ui/EngineeringIntelligencePanels.tsx` |
 | High-DPI scene surface | `frontend/src/rnd-ui/SceneCanvas.tsx` |
 | Canvas rendering | `frontend/src/rnd-core/scene-engine/canvasRenderer.ts` |
 | Pointer/resize/rotation | `frontend/src/rnd-core/scene-engine/interaction.ts` |

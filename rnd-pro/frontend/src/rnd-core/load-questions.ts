@@ -7,14 +7,6 @@
  */
 import type { QuestionSet, WizardAnswers, WizardQuestion } from './wizard-questions';
 import { apiClient } from './api-client';
-import electricalSet from '../data/electrical_question_set.json';
-import plumbingSet from '../data/plumbing_question_set.json';
-import civilSet from '../data/civil_question_set.json';
-const FULL_SETS: Record<string, QuestionSet> = {
-  electrical: electricalSet as unknown as QuestionSet,
-  plumbing: plumbingSet as unknown as QuestionSet,
-  civil: civilSet as unknown as QuestionSet,
-};
 
 const cache = new Map<string, QuestionSet>();
 
@@ -28,8 +20,8 @@ export async function loadQuestionSet(discipline: string): Promise<QuestionSet> 
     cache.set(discipline, set);
     return set;
   } catch (e) {
-    console.warn(`[load-questions] API failed for ${discipline}, using bundled full set`, e);
-    return FULL_SETS[discipline] || FALLBACK_SETS[discipline] || { discipline: discipline as any, version: 0, questions: [] };
+    console.warn(`[load-questions] API failed for ${discipline}, using fallback`, e);
+    return FALLBACK_SETS[discipline] || { discipline: discipline as any, version: 0, questions: [] };
   }
 }
 

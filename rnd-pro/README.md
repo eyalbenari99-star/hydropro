@@ -1,6 +1,6 @@
-# HydroNexis-AI R&D — rebuild skeleton
+# HydroNexis-AI R&D Pro V2 — developer review implementation
 
-> **2026 developer-review implementation:** The package now includes the high-fidelity Nexi R&D cockpit, animated engineering design system, professional 2D studio, completed image/object transform foundation, governed Nexi review APIs, operating-system data migration, and review tests. Start with `docs/DEVELOPER_REVIEW_GUIDE.md`.
+> **2026 developer-review implementation:** The package now includes the high-fidelity Nexi R&D cockpit, five-stage project intake, professional 2D studio, synchronized Three.js digital twin, calculations, BOM/warehouse/procurement review, AI Gantt, supervised Nexi changes, revisions, approvals, and exports. Start with `docs/RND_PRO_V2_IMPLEMENTATION_STATUS.md`, then `docs/DEVELOPER_REVIEW_GUIDE.md`.
 
 **Stack:** TypeScript + React + Vite (frontend) · Python FastAPI (backend) · PostgreSQL · Cloudflare R2
 
