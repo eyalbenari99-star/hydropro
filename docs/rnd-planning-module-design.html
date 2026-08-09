@@ -1,0 +1,1036 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>R&D & Planning Module — Design Document · ABA Pardes</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:#1a1a1a;background:#fff;
+  max-width:960px;margin:0 auto;padding:40px 32px 80px;line-height:1.6;font-size:15px;}
+h1{font-size:26px;border-bottom:3px solid #1f6fd0;padding-bottom:10px;color:#0a2b52;}
+h2{font-size:20px;margin-top:38px;color:#0a2b52;border-bottom:1.5px solid #d5dfec;padding-bottom:6px;}
+h3{font-size:16px;margin-top:26px;color:#123c6b;}
+code{background:#eef2f7;border:1px solid #dbe3ed;border-radius:4px;padding:1px 5px;font-size:12.5px;
+  font-family:"SF Mono",Consolas,Menlo,monospace;color:#0a3d91;}
+pre{background:#f4f6fa;border:1px solid #dbe3ed;border-radius:8px;padding:14px;overflow-x:auto;font-size:12.5px;}
+pre code{background:none;border:none;padding:0;}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13px;}
+th{background:#2f5d8f;color:#fff;text-align:left;padding:7px 10px;font-size:12px;}
+td{border:1px solid #ccd6e3;padding:6px 10px;vertical-align:top;}
+tr:nth-child(even) td{background:#f7f9fc;}
+blockquote{border-left:4px solid #1f6fd0;margin:14px 0;padding:6px 16px;background:#f4f8fd;color:#333;}
+li{margin:3px 0;}
+strong{color:#0a2b52;}
+.hdr{display:flex;align-items:center;gap:14px;border-bottom:none;margin-bottom:6px;}
+.hdr .co{font-size:13px;color:#555;}
+@media print{body{padding:10mm;font-size:11.5px;}h1{font-size:20px;}h2{font-size:16px;}table{font-size:10.5px;}
+  h2{page-break-after:avoid;}table,pre{page-break-inside:avoid;}}
+</style></head><body><div class="hdr"><div><div style="font-size:20px;font-weight:900;color:#0a2b52;">ABA PARDES AGRITECH CORP. · HydroNexis-AI</div><div class="co">Internal engineering document · prepared for the development team · August 9, 2026</div></div></div><h1 id="rd-planning-module-design-document">R&amp;D &amp; PLANNING Module — Design Document</h1>
+<p><strong>Codebase:</strong> <code>/home/user/hydropro/index.html</code> (single-file app) · <strong>Module version:</strong> <code>v4.54-rnd</code> + HNX patch stack v1–v28+ (through ~v49) · <strong>Core IIFE:</strong> lines 175720–178422 (<code>&lt;/script&gt;</code> at 178424) · <strong>Audience:</strong> developers</p>
+<hr />
+<h2 id="1-executive-summary">1. Executive Summary</h2>
+<p>The R&amp;D &amp; PLANNING module ("Stage 1") is a self-contained schematic/design tool embedded in the HydroNexis-AI single-file app: farm staff sketch plumbing, electrical, irrigation, and civil schematics on a canvas board, organize them into subjects and project trees, attach design sheets with a Draft → In review → Approved revision workflow, build catalog-priced BOMs rolled up against project budgets, and export branded PDF/Excel/SVG/DXF deliverables. Its intended users are non-technical field staff (create/submit) and admins (approve/lock/manage), but a missing permission-table entry currently locks out every non-admin by default while a deep link (<code>switchView('rnd_home')</code>) bypasses gating entirely. Architecturally it is a 2,700-line core IIFE (registering host view <code>rnd_home</code>, persisting to seven cloud-synced <code>hydroPro_rnd_*</code> localStorage keys, with R2 cloud storage for scenes/images) buried under ~80 additive "hnx-vNN" monkey-patch IIFEs (lines ~178440–201200) that add electrical-cabinet sheet generation, a Three.js 3D viewer, DXF export, voltage-aware sizing, and — critically — four escalating automatic localStorage "cleanup" reapers. Those reapers (v25–v28) permanently zero out drawing geometry for all but the 2–3 most-recently-updated items on 10–15-minute timers, making the module an active data-loss hazard for any hand-drawn content. The bones are genuinely strong (127-symbol library, status machine with approval snapshots, BOM/budget rollups, working R2 scene versioning); the current state is undermined by the destructive trimmers, a silently-dead sync push hook, the unwired permissions, a stub task-linking API with zero external callers, and an untestable patch-on-patch code organization.</p>
+<hr />
+<h2 id="2-current-architecture">2. Current Architecture</h2>
+<h3 id="21-module-boundaries-registration">2.1 Module Boundaries &amp; Registration</h3>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Detail</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Core IIFE</td>
+<td>Lines 175720–178422, single <code>&lt;script&gt;</code>, versioned <code>'v4.54-rnd'</code>, double-load guard <code>window.__RND_LOADED</code>, everything try/catch-wrapped (never throws into host)</td>
+</tr>
+<tr>
+<td>Host hooks</td>
+<td><code>MODULES</code>, <code>switchModule</code>, <code>__hnxApi</code>, <code>getCurrentUserLevel</code>, <code>isAdmin</code>, <code>getCurrentUser</code>, <code>showToast</code></td>
+</tr>
+<tr>
+<td>Registration</td>
+<td>Host registers <code>MODULES.rnd</code> early at line 21772; byte-identical fallback in module <code>register()</code> at 178365: <code>{icon:'📐', name:'R&amp;D &amp; PLANNING', views:[{id:'rnd_home', label:'📐 R&amp;D &amp; Planning', perm:null, title:'R&amp;D &amp; Planning'}]}</code></td>
+</tr>
+<tr>
+<td>Boot</td>
+<td><code>boot()</code>/<code>tryInit()</code> (178410–178421) poll for host readiness every 150 ms, up to 80 tries; <code>register()</code> at 178360, then <code>buildShell()</code></td>
+</tr>
+<tr>
+<td>Public API</td>
+<td><code>window.RND</code> (178373–178407), plus <code>window.linkRndItemToTask</code> (177604) and <code>window.getRndItemsForTask</code> (177605)</td>
+</tr>
+<tr>
+<td>Companion scripts (NOT the core)</td>
+<td>Lines 178425–178484 "Hi Nexi brain wake animation (v4.23)"; 178486–178622 "Hi-Nexi wake word"; 178625–178873 <code>nexi_atlas.js</code> (v5.00); 178875+ New-Board UI overlay v1.0 — start of the HNX patch chain</td>
+</tr>
+<tr>
+<td>Patch chain</td>
+<td>~80 <code>hnx-vNN</code> IIFEs from v1 through v49+ (178875–~201200), each guarded by <code>window.__hnxNewBoardUI_vN</code>, each monkey-patching prior globals (<code>HnxV5.draw</code>, <code>HnxV10.specToScene</code>, …). All overlays gate on <code>ready()</code> = <code>window.RND &amp;&amp; typeof window.RND.newBoard === 'function'</code> (178886, 180019)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="22-screens-navigation-map">2.2 Screens &amp; Navigation Map</h3>
+<p><strong>Shell:</strong> <code>buildShell()</code> (176916) appends <code>&lt;div class='view' id='view-rnd_home'&gt;</code> with header (<code>📐 R&amp;D &amp; Planning</code> + offline chip <code>#rnd-offline</code>), tab strip <code>#rnd-tabs</code>, content pane <code>#rnd-pane</code>. Styles injected once by <code>injectStyles()</code> (176882, <code>#rnd-styles</code>). Router: <code>go(tab)</code> (176939) sets <code>ui.tab</code>, re-renders, triggers <code>migrateDirty()</code>; <code>renderPane()</code> (176940) dispatches. UI state singleton (176875): <code>ui = {tab:'dashboard', aPage:0, showTrash:false, filter:{subject:'all', project:'all', type:'all', status:'all', q:''}}</code>.</p>
+<p><strong>Six tabs</strong> (<code>TABS</code> array, 176933):</p>
+<table>
+<thead>
+<tr>
+<th>Tab</th>
+<th>Renderer</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>📊 Dashboard</td>
+<td><code>renderDashboard</code> (176953)</td>
+<td>Quick actions (+ New Schematic / ✨ Describe → Generate / ⬆ Import); subject tile grid with per-subject counts (click → <code>openSubject</code> 176981); 3 KPI cards (Total schematics / Linked to tasks / In review); Design Health block (<code>designHealthData</code> 177269: status tiles, by-type table, "Needs attention" list); Recent 8 cards</td>
+</tr>
+<tr>
+<td>🗂 Library</td>
+<td><code>renderLibrary</code> (176999)</td>
+<td>Filter row (subject / project / type all·quick_board·ai_generated·imported / status / free-text over title, description, tags, ds.type, drawingNo, client, params, BOM lines); Trash toggle (<code>toggleTrash</code> 177252); 🧾 Audit button (177019); ⬇ Excel (<code>exportModuleXlsx</code>); + New; card grid via <code>cardHTML</code> (176986) — thumb or <code>miniDiagram</code> SVG (177939), badges, v-number, param/BOM/rev/link chips, lock badge, buttons Open / 📐 Sheet / 🧾 BOM / ⋯ (<code>itemMenu</code> 177203: Open, Rename, Duplicate, Attach files, Generate CAD/3D, Export PNG/SVG, Design sheet, BOM, Branded PDF, BOM Excel, Approval snapshots, Version history, Link to planning task, attachments, admin Delete)</td>
+</tr>
+<tr>
+<td>✨ Create</td>
+<td><code>renderCreate</code> (177610)</td>
+<td>5 method tiles: Quick Board, Describe → Generate (guided Q&amp;A), Import PDF spec, Import file, disabled "Diagram (draw.io)" Stage-2 teaser (<code>stageTwo</code> 177620 just toasts)</td>
+</tr>
+<tr>
+<td>🧰 Assets</td>
+<td><code>renderAssets</code> (177847)</td>
+<td>Searchable, subject-filterable, paginated (24/page, <code>pagerHTML</code> 177839) asset card grid; Where-used / admin Specs / admin Del</td>
+</tr>
+<tr>
+<td>📁 Subjects &amp; Projects</td>
+<td><code>renderSubjects</code> (177730)</td>
+<td>Subject cards (admin rename/del only for <code>isCustom</code>); project tree cards with code/status/lock/phase/file/BOM-vs-budget chips; View items / 📎 Attach / + Sub / admin ₱ Budget / admin 🔒 Lock / admin Del</td>
+</tr>
+<tr>
+<td>⚙ Settings</td>
+<td><code>renderSettings</code> (177821)</td>
+<td><code>#rnd-set-grid</code> grid-spacing number input + static "What's live in Stage 1" checklist; <code>saveSettings</code> (177834)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Board (not a tab):</strong> wide modal via <code>openBoardModal</code> (177999) — zoom/Fit/Snap/undo/redo/Save/close header; 10-tool left rail (select ✥, pen, eraser, line, arrow, rect, ellipse, text T, dim ⇔, pan ✋ + color/width inputs); <code>&lt;canvas id='rnd-canvas'&gt;</code>; layer selector (annotations/symbols/background); BG selector (grid/dotted/blank/image); AI instruction row (✨ Apply / ⚡ Offline / 🧪 Fertigation / 🎤 Speak / ⤢ Expand); right aside with collapsible symbol palette (5 categories, live search <code>#rnd-sym-search</code>) plus per-subject asset bank panel (<code>boardAssetsHTML</code> 177866). All modals go through <code>openModal</code>/<code>closeModal</code> (178337/178338, <code>#rnd-modal</code> overlay).</p>
+<p><strong>Navigation surfaces into the module</strong> (see §4 for wiring): left sidebar (order[] 21797), Modules dropdown "Operations" group (133231), rail (211354), rail flyout (212043–212198, registry fallback 212080), Cmd+K search (via <code>NEXI_NAV</code> rebuild 173153–173184 — the hard-coded seed at 173148 lacks rnd), voice (<code>RND.handleVoiceCommand</code> 178343, matches <code>/r&amp;d|r and d|planning module|schematic/</code>), and <code>open()</code> fallback (178356) which directly activates <code>#view-rnd_home</code>.</p>
+<p><strong>HNX toolbar surfaces:</strong> <code>#hnx-v4-toolbar</code> "HNX R&amp;D TOOLS" side panel (built at 180309: New design / IN-1-01 sample / 3D view / DXF / BG image / Export menu / Help), extended by v12 🩺 Diagnose (184038), v22 🕐 Recent (187084), v24 💾 Save .json / 📂 Load .json / 📊 Stats (187569–187603), v25 🗄 Storage (187927), v26 🧹 Clean now (188208), v27 🔥 Deep clean (188531). Board bottom toolbar: v9 📥 Draw cabinet <code>#hnx-v9-draw-btn</code> (182388), v11 "Draw sheet" select <code>#hnx-v11-sheets</code> (183745), v14 "Switch sheet" <code>#hnx-v14-switch</code> (184675), v17 📑 BOM export <code>#hnx-v17-bom</code> (185929, v20 xlsx upgrade 186658). All hidden outside R&amp;D by the v8 CSS gate (<code>body[data-hnx-rnd-active]</code>, 182053–182177).</p>
+<h3 id="23-data-model-storage-keys">2.3 Data Model — Storage Keys</h3>
+<p><strong>Load/save layer:</strong> key constants at 175743–175745 (+ <code>K_AUDIT</code> at 177248). <code>load(k,def)</code> (175746) JSON.parses with default; <code>save(k,v)</code> (175747–175776) stringifies, on success calls <code>window.__hnxSyncPushSoon()</code> (which is <strong>never defined</strong> — see §3.3), and on <code>QuotaExceededError</code> runs a 3-step recovery: (1) delete <code>hydroPro_rnd_items_v1_backup</code> + <code>_backup_meta</code> (v75 auto-backup, 175757) and retry; (2) if <code>k===K_ITEMS</code>, strip any <code>item.thumb</code> that is a <code>data:</code> URL (175760–175772) and retry; (3) toast "⚠ Storage FULL — save aborted. Run HnxData.export()…".</p>
+<h4 id="hydropro_rnd_subjects_v1-k_subj"><code>hydroPro_rnd_subjects_v1</code> (K_SUBJ)</h4>
+<p>Array of subject records. Seeded lazily by <code>subjects()</code> (175785) from <code>DEFAULT_SUBJECTS</code> (175778–175784): plumbing 🚰 #4dd0e1, electrical ⚡ #ffca28, irrigation 💧 #26c6da, machines ("Machines/Equipment") ⚙️ #90a4ae, buildings ("Buildings/Civil") 🏗️ #a1887f, order 1–5.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td>string</td>
+<td>Seed ids fixed; custom via <code>uid('subj')</code></td>
+</tr>
+<tr>
+<td><code>name</code></td>
+<td>string</td>
+<td><code>renameSubject</code> (177743) mutates only this</td>
+</tr>
+<tr>
+<td><code>icon</code></td>
+<td>string</td>
+<td>Custom default <code>'📐'</code></td>
+</tr>
+<tr>
+<td><code>color</code></td>
+<td>string</td>
+<td>Custom default GOLD <code>'#C9A227'</code></td>
+</tr>
+<tr>
+<td><code>order</code></td>
+<td>int</td>
+<td><code>arr.length+1</code> for custom</td>
+</tr>
+<tr>
+<td><code>isCustom</code></td>
+<td>bool</td>
+<td>Seeds <code>false</code></td>
+</tr>
+<tr>
+<td><code>createdBy</code>, <code>createdAt</code></td>
+<td>string</td>
+<td>Custom only (<code>addSubject</code> 177742)</td>
+</tr>
+</tbody>
+</table>
+<p><code>delSubject</code> (177744, admin-only) filters by id; items keep <code>subjectId</code> but lose the folder. <code>subjectById</code> (175789) falls back to <code>{name:'—', icon:'📐', color:'#9e9e9e'}</code>.</p>
+<h4 id="hydropro_rnd_projects_v1-k_proj"><code>hydroPro_rnd_projects_v1</code> (K_PROJ)</h4>
+<p>Array of project records forming an arbitrary-depth tree (phases = child projects). Created by <code>addProject</code> (177745) and <code>newItemMeta</code>'s <code>_mkNewProj</code> (177632); sub-projects via <code>addSubProject</code> (177776) / <code>_mkNewSub</code> (177633).</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td>string</td>
+<td><code>uid('prj')</code></td>
+</tr>
+<tr>
+<td><code>name</code></td>
+<td>string</td>
+<td></td>
+</tr>
+<tr>
+<td><code>code</code></td>
+<td>string?</td>
+<td>Prompted, optional</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td>string</td>
+<td><code>'Active'</code> on create</td>
+</tr>
+<tr>
+<td><code>parentId</code></td>
+<td>string?</td>
+<td>Present on sub-projects/phases</td>
+</tr>
+<tr>
+<td><code>budget</code></td>
+<td>number|null</td>
+<td><code>projSetBudget</code> (177750), admin-only, audited</td>
+</tr>
+<tr>
+<td><code>lockLevel</code></td>
+<td><code>'none'</code>|<code>'design_locked'</code>|<code>'frozen'</code></td>
+<td>Cycled by <code>projLock</code> (177756), admin-only, audited; <strong>inherited down</strong> the tree via <code>projLockOf</code> (177253, walks UP the parent chain, cycle-safe)</td>
+</tr>
+<tr>
+<td><code>files[]</code></td>
+<td>array</td>
+<td><code>attachProjectFile</code> (177784): <code>{name, key (raw R2 key 'rnd/projects/&lt;projId&gt;/…'), type, size, at, by}</code>, ≤25 MB via <code>r2PutRaw</code>; <code>dlProjFile</code> (177802); <code>delProjFile</code> (177811, admin-only)</td>
+</tr>
+<tr>
+<td><code>createdBy</code>, <code>createdAt</code>, <code>updatedAt</code></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Tree render: <code>projTreeHTML</code> (177751); children: <code>projChildren</code> (177748); cascade delete: <code>_collectSubtree</code> (177777) via <code>delProject</code> (177746) — <strong>removes project records only; items are neither deleted nor reassigned</strong> (dangling <code>projectId</code>). <code>projBomTotal</code> (177749) sums <code>qty*unitPrice</code> across non-deleted items in the subtree; over/left chips at 177762–177763. <code>openProject</code> (177747) just sets the library filter.</p>
+<h4 id="hydropro_rnd_items_v1-k_items-the-design-records"><code>hydroPro_rnd_items_v1</code> (K_ITEMS) — the design records</h4>
+<p>Canonical creation shape, <code>baseItem(meta,type)</code> (177721–177725):</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type / shape</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td><code>uid('rnd')</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>subjectId</code></td>
+<td>string</td>
+<td>Required</td>
+</tr>
+<tr>
+<td><code>projectId</code></td>
+<td>string|null</td>
+<td>"— none —" allowed (<code>newItemMeta</code> 177623, nested picker <code>projOptionsNested</code> 177622)</td>
+</tr>
+<tr>
+<td><code>title</code>, <code>description</code></td>
+<td>string</td>
+<td></td>
+</tr>
+<tr>
+<td><code>type</code></td>
+<td><code>'quick_board'</code>|<code>'ai_generated'</code>|<code>'imported'</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td><code>'Draft'</code>|<code>'In review'</code>|<code>'Approved'</code>|<code>'Archived'</code></td>
+<td><code>statusItem</code> (177272) prompt-based setter; admin gate on Approved/Archived</td>
+</tr>
+<tr>
+<td><code>ds</code></td>
+<td>object</td>
+<td>Design sheet: <code>{type, params[], designer, checker, approver, submittedBy, submittedAt, approvedBy, approvedAt, rev:'A', notes}</code>; later gains <code>client</code>, <code>drawingNo</code>, <code>sops:[sopId]</code>, <code>snapshots:[{rev,at,by,params,bom,warnings}]</code> (cap 50, <code>dsApprove</code> 177335). Normalized by <code>getDs</code> (177287)</td>
+</tr>
+<tr>
+<td><code>tags</code></td>
+<td>string[]</td>
+<td></td>
+</tr>
+<tr>
+<td><code>scene</code></td>
+<td>object|null</td>
+<td><strong>Stripped from localStorage by <code>putItem</code></strong> — see persistence rule below</td>
+</tr>
+<tr>
+<td><code>spec</code></td>
+<td>object|null</td>
+<td>AI/guided spec (§2.7)</td>
+</tr>
+<tr>
+<td><code>sceneKey</code></td>
+<td>string|null</td>
+<td>R2 key <code>'rnd/scene/&lt;id&gt;/v&lt;version&gt;.json'</code> (<code>persistScene</code> 176077)</td>
+</tr>
+<tr>
+<td><code>thumb</code></td>
+<td>string|null</td>
+<td><code>r2img:</code> pointer online, JPEG dataURL offline (<code>boardSave</code> 178301–178327)</td>
+</tr>
+<tr>
+<td><code>exportPng</code>, <code>exportKey</code></td>
+<td></td>
+<td><code>exportKey</code> = <code>r2img:</code> pointer to full PNG</td>
+</tr>
+<tr>
+<td><code>version</code></td>
+<td>int</td>
+<td>Starts 1</td>
+</tr>
+<tr>
+<td><code>revisions[]</code></td>
+<td>array</td>
+<td><code>{version, ts, by, kind:'manual', comment, thumb, sceneKey\|null}</code> (<code>pushRevision</code> 177563, <strong>cap 40</strong>; <code>metaCopy</code> re-maps at 177232)</td>
+</tr>
+<tr>
+<td><code>bom</code></td>
+<td>object</td>
+<td><code>{lines:[{assetId, itemCode, name, spec, uom (def 'pc'), qty (def 1), unitPrice (''\|number), remarks}], updatedBy, updatedAt}</code> — <code>bomCommit</code> 177425, normalized <code>getBom</code> 177372</td>
+</tr>
+<tr>
+<td><code>attachments[]</code></td>
+<td>array</td>
+<td><code>{id:uid('att'), name, type, key, at}</code> (<code>importFlow</code> 177646 for PDFs, <code>attachMoreFiles</code> 177031)</td>
+</tr>
+<tr>
+<td><code>aiMeta</code></td>
+<td>object</td>
+<td><code>{generated, engine:'guided'\|'guided-cabinet'\|'guided-plan'\|…}</code> (<code>_gGen</code> 177705)</td>
+</tr>
+<tr>
+<td><code>cad</code></td>
+<td>object</td>
+<td><code>{generatedAt, urls, warnings, log}</code> (<code>generateCad</code> 177134 / <code>_cadPoll</code> 177102)</td>
+</tr>
+<tr>
+<td><code>linkedTasks[]</code></td>
+<td>array</td>
+<td><code>{moduleId, taskId, ts}</code> (<code>linkItem</code> 177596)</td>
+</tr>
+<tr>
+<td><code>deletedAt</code>, <code>deletedBy</code></td>
+<td></td>
+<td>Soft delete (<code>delItem</code> 177250)</td>
+</tr>
+<tr>
+<td><code>_dirty</code></td>
+<td>bool</td>
+<td>Offline flag (scene not yet in R2)</td>
+</tr>
+<tr>
+<td><code>hnxCabinetSpec</code>, <code>hnxSheetNum</code></td>
+<td></td>
+<td><strong>Non-core</strong>, stamped by HNX v6 <code>patchV5</code> (181452–181479); the regenerability key for trimmed sheets</td>
+</tr>
+<tr>
+<td><code>createdBy/At</code>, <code>updatedBy/At</code></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Persistence rule:</strong> <code>putItem</code> (177234) stores <code>metaCopy()</code> (177231), which <strong>strips <code>scene</code> and <code>__img</code></strong> — the full drawing lives in R2 under <code>sceneKey</code>; the scene is kept inline only as an offline fallback (<code>rec.scene</code> + <code>rec._dirty=true</code> when no sceneKey, 177235). <code>migrateDirty()</code> (176083) opportunistically uploads and nulls local scenes. <strong>The HNX patch layers bypass this rule</strong> with raw <code>localStorage.setItem</code> of full inline scenes (§3.2).</p>
+<h4 id="hydropro_rnd_settings_v1-k_set"><code>hydroPro_rnd_settings_v1</code> (K_SET)</h4>
+<p>Single object, default <code>{defaultBoardMode:'quick', gridSpacing:40}</code> (<code>settings()</code> 175788). Only <code>gridSpacing</code> is editable (<code>renderSettings</code> 177821 / <code>saveSettings</code> 177834, must be &gt; 0); it feeds <code>blankScene()</code> (177880) and the board BG selector (<code>_setBg</code>, ~178385). <code>defaultBoardMode</code> is defined but <strong>never read</strong> anywhere.</p>
+<h4 id="hydropro_rnd_assets_v1-k_asset"><code>hydroPro_rnd_assets_v1</code> (K_ASSET)</h4>
+<p>Array of asset records, two kinds:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Seeded symbol (<code>seedAssets</code> 175968)</th>
+<th>Admin upload (<code>addAssetUpload</code> 177864 / <code>addAssetSvg</code> 177865 / <code>_addBoardImage</code> 178405)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td><code>'seed_&lt;category&gt;_&lt;index&gt;'</code></td>
+<td><code>uid('asset')</code></td>
+</tr>
+<tr>
+<td><code>subjectId</code></td>
+<td>via <code>SEED_SUBJ_MAP</code> (175967): plumbing→plumbing, electrical→electrical, irrigation→irrigation, panel→electrical, fixtures→electrical</td>
+<td>picked / board's subjectId</td>
+</tr>
+<tr>
+<td><code>name</code></td>
+<td>symbol name</td>
+<td>user-supplied</td>
+</tr>
+<tr>
+<td><code>kind</code></td>
+<td><code>'symbol_vector'</code></td>
+<td><code>'photo'</code> (upload) or <code>'symbol_vector'</code> (pasted SVG)</td>
+</tr>
+<tr>
+<td><code>svg</code> / <code>src</code></td>
+<td>inline SVG string</td>
+<td><code>src:'r2img:&lt;key&gt;'</code> pointer / <code>svg</code></td>
+</tr>
+<tr>
+<td><code>isSystemDefault</code></td>
+<td><code>true</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>createdBy/At</code></td>
+<td><code>createdAt</code></td>
+<td>both</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Seed versioning:</strong> <code>assetsAll()</code> (175964–175966) writes companion key <code>hydroPro_rnd_assets_seedver</code> = <strong>5</strong>; if stored seedver ≠ 5 it keeps only <code>!isSystemDefault</code> records, prepends fresh <code>seedAssets()</code>, re-saves — built-ins re-seed on bump, custom assets survive. <code>putAsset</code> (175970) upserts by id; <code>delAsset</code> (175971) admin-only + confirm; built-ins show a "built-in" chip instead of Del (<code>renderAssets</code> 177861).</p>
+<h4 id="hydropro_rnd_catalog_v1-k_cat"><code>hydroPro_rnd_catalog_v1</code> (K_CAT)</h4>
+<p><strong>Dictionary (object, not array)</strong> keyed by asset id; <code>catalog()</code> (176009) = <code>load(K_CAT,{})</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>itemCode</code>, <code>desc</code>, <code>specs</code>, <code>uom</code>, <code>unitPrice</code> (number or raw string, <code>''</code> allowed), <code>mfr</code>, <code>model</code></td>
+<td>Admin overrides via <code>catSet(id,fields)</code> (176012, admin-only, stamps <code>updatedBy:who()</code> / <code>updatedAt:now()</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>Effective resolution <code>catEffective(a)</code> (176011), 3-level precedence: per-asset override → <code>CAT_DEFAULTS[a.name]</code> (33-entry hardcoded map at 175974–176008 keyed by symbol name, e.g. <code>'Pump':{itemCode:'PL-PUMP', uom:'pc', specs:'Centrifugal water pump'}</code>, <code>'MCB'→'EL-MCB'</code>, <code>'VFD'→'EL-VFD'</code>, <code>'Ceiling light'→'FX-CL'</code>) → <code>autoCode(a)</code> (176010): <code>'&lt;prefix&gt;-&lt;NAME-SLUG≤10&gt;'</code> with prefix map <code>{plumbing:'PL', electrical:'EL', panel:'EL', fixtures:'FX', irrigation:'IR', machines:'MC', buildings:'CV', default 'GN'}</code>. Edited via <code>editCatalog</code>/<code>saveCatalog</code> modal (176013/176031, admin-only; others get "Admin only — specs are view-only"). Consumed by BOM pickers (<code>bomPickAdd</code> 177428), asset cards, where-used (<code>itemUsage</code> 177262, matches by assetId OR itemCode), the module Excel export "Catalog" sheet (177476–177478), and <code>aiProposeBom</code>'s catalog context (177538).</p>
+<h4 id="hydropro_rnd_audit_v1-k_audit-declared-177248"><code>hydroPro_rnd_audit_v1</code> (K_AUDIT, declared 177248)</h4>
+<p>Append-only array capped at <strong>500</strong> events. <code>audit(action, entity, id, detail)</code> (177249) pushes <code>{ts:now() ISO, by:who() (175738), action, entity, id, detail}</code>. Exact call sites:</p>
+<table>
+<thead>
+<tr>
+<th>Call site</th>
+<th>(action, entity)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>delItem</code> 177250</td>
+<td><code>('purge','design', title)</code> on permanent delete; <code>('soft-delete','design', title)</code> on trash</td>
+</tr>
+<tr>
+<td><code>restoreItem</code> 177251</td>
+<td><code>('restore','design')</code></td>
+</tr>
+<tr>
+<td><code>projLock</code> 177256</td>
+<td><code>('lock','project', name+' → '+newLevel)</code></td>
+</tr>
+<tr>
+<td><code>dsSubmit</code> 177333</td>
+<td><code>('submit','design')</code></td>
+</tr>
+<tr>
+<td><code>dsApprove</code> 177335</td>
+<td><code>('approve','design','Rev X')</code></td>
+</tr>
+<tr>
+<td><code>dsRevise</code> 177336</td>
+<td><code>('revise','design','Rev X')</code></td>
+</tr>
+<tr>
+<td><code>projSetBudget</code> 177750</td>
+<td><code>('budget','project','name = value')</code></td>
+</tr>
+</tbody>
+</table>
+<p>Viewer: <code>openAuditLog</code> (177258), from Library 🧾 button (177019); newest-first, renders max <strong>200</strong> of the 500 rows, modal "AUDIT LOG (R&amp;D)". <strong>Ordinary edits/saves (boardSave, BOM, design-sheet, renames) are NOT audited</strong> — only the seven actions above.</p>
+<h4 id="auxiliary-keys">Auxiliary keys</h4>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hydroPro_rnd_assets_seedver</code></td>
+<td>Seed version int (=5), 175964–175965</td>
+</tr>
+<tr>
+<td><code>hydroPro_rnd_items_v1_backup</code> / <code>_backup_meta</code></td>
+<td>v75 30 s auto-backup (200079–200121) — doubles items footprint; first sacrifice of quota recovery (175757)</td>
+</tr>
+<tr>
+<td><code>hnx_cloud_token</code> (host, read-only)</td>
+<td>R2 auth (<code>r2Token</code> 176043; <code>aiReachable</code> 176283)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="24-drawing-engine">2.4 Drawing Engine</h3>
+<p><strong>Scene shape</strong> (<code>blankScene</code> 177880): <code>{w:1600, h:1000, bg:{type:'grid'|'dotted'|'blank'|'image', grid:&lt;px&gt;, imageKey?:'r2img:…'}, objects:[]}</code>. HNX v5+ uses defaults <code>w:2400, h:3600, bg:{type:'grid',grid:40}</code> (180592–180594) and mm→canvas mapping <code>SCALE=1.5, OX=40, OY=60</code> (<code>specToSceneObjects</code> 180487). Object ids: <code>'o_'+Math.random().toString(36).slice(2,10)</code> (180493).</p>
+<p><strong>Object kinds</strong> (created in <code>onDown</code>/<code>onMove</code>/<code>onUp</code> 178094–178157, <code>addObj</code> 178159):</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>Shape</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td><code>{kind:'path', layer, stroke, width, points:[{x,y,p}]}</code> (pen with pressure)</td>
+</tr>
+<tr>
+<td><code>line</code> / <code>arrow</code></td>
+<td><code>{x1,y1,x2,y2,stroke,width}</code>; Shift = orthogonal lock (178133)</td>
+</tr>
+<tr>
+<td><code>rect</code> / <code>ellipse</code></td>
+<td><code>{x,y,w,h,stroke,width,fill:'none'}</code></td>
+</tr>
+<tr>
+<td><code>text</code></td>
+<td><code>{x,y,text,size,color}</code></td>
+</tr>
+<tr>
+<td><code>symbol</code></td>
+<td><code>{kind:'symbol', layer, x, y, w:80, h:80, rot:0, svg, name}</code> — <strong>full inline SVG per placement</strong> (onDown 178106)</td>
+</tr>
+<tr>
+<td><code>img</code></td>
+<td><code>{x,y,w,h,src,name}</code> — <code>src</code> may be <code>r2img:</code> pointer, 120×120 default from asset bank</td>
+</tr>
+<tr>
+<td>dim tool</td>
+<td>Emits arrow + editable text label pair (178108–178119)</td>
+</tr>
+</tbody>
+</table>
+<p>⚠ <strong>Schema split:</strong> the core renderer reads <code>o.kind</code>; HNX v5 wrote <code>o.type</code> (<code>'rect'</code>/<code>'text'</code>) — v9 (182179–182482) exists solely to fix that mismatch. Both schemas persist in stored data.</p>
+<p><strong>Layers:</strong> background / symbols / annotations, fixed z-order (<code>draw</code> 178182). <strong>Board controller state</strong> (178058–178064): <code>tool</code>, <code>color '#1F4D2C'</code>, <code>width</code>, <code>layer</code>, <code>view {scale, ox, oy}</code>, <code>sel</code>, <code>undoStack</code>/<code>redoStack</code> (full <code>JSON.stringify(board.scene.objects)</code> snapshots per step — RND._undo/_redo 178389–178390), <code>pendingSym</code>/<code>pendingAsset</code>, <code>snapToGrid</code> (default true), palm rejection via <code>activePen</code> pointer id (178097). Zoom: <code>RND._zoom(d)</code> (178391) — <code>d===0</code> fits (<code>scale = min(canvas.w/scene.w, canvas.h/scene.h)</code>, origin 10,10), else ×1.15 / ×0.87. Shortcuts (Help modal <code>openHelp</code> 179211, list 179240–179245): Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Delete, <code>0</code> fit, Ctrl/Cmd+S.</p>
+<p><strong>Save path</strong> (<code>boardSave</code> 178301–178327): renders full PNG + 320 px JPEG thumb; when online (<code>r2Ready</code> = <code>hnx_cloud_token</code> present + <code>navigator.onLine</code>) uploads PNG→<code>exportKey</code>, thumb→<code>thumb</code> (r2img pointers), calls <code>pushRevision()</code>, uploads scene JSON to <code>'rnd/scene/&lt;id&gt;/v&lt;version&gt;.json'</code> → <code>sceneKey</code>, drops local scene ("Saved v# ☁ cloud"); offline keeps dataURL thumb, sets <code>_dirty</code>, stores scene inline until <code>migrateDirty()</code> (176083). <strong><code>boardSave</code> does NOT call <code>ensureEditable</code></strong> — a project lock does not block canvas saves (unlike <code>dsCommit</code> 177328 and <code>bomCommit</code> 177425).</p>
+<p><strong>Versioning:</strong> <code>versionsItem</code>/<code>restoreRev</code> (177551/177555) restore by revision <code>sceneKey</code> (cloud) or legacy embedded <code>r.scene</code>; every save/restore appends a revision (cap 40).</p>
+<p><strong>R2 plumbing:</strong> <code>R2_WORKER = 'https://hnx-sync.eyalbenari99.workers.dev'</code> (176042); <code>POST /r2/upload?key=…</code>, <code>GET /r2/file?key=…</code>, Bearer <code>hnx_cloud_token</code>. Images use the <code>r2img:&lt;key&gt;</code> pointer convention shared with <code>hnx_photovault</code>; JSON scenes/attachments use raw keys so the image rehydrator ignores them (comment 176038–176041; <code>r2PutRaw</code>/<code>r2PutJson</code>/<code>r2GetJson</code> 176074–176076). <code>r2Url()</code> (176056) resolves pointers with object-URL cache <code>_r2cache</code> (reuses <code>window.hnxPhotoVault._cache</code>).</p>
+<p><strong>Exports:</strong> <code>exportPng</code> (177565), <code>exportSvg</code> (177573, <code>sceneToSvg</code> — "opens in Illustrator, Inkscape, AutoCAD"), <code>exportDesignPdf</code> (177507, print-window HTML with logo/title block/params/SOPs/BOM/approval table), <code>exportBomXlsx</code> (177495), <code>exportModuleXlsx</code> (177464, sheets: Designs / BOM lines / Catalog / Summary, <code>window.XLSX</code> via <code>ensureXLSX</code>), <code>brandBlock</code> (177493, drawingNo default <code>'&lt;projectCode||HNX&gt;-&lt;last4 of item id&gt;'</code>). HNX adds: hand-written DXF R12 (<code>exportDXF</code> 179775 / <code>buildDXF</code> 179787: <code>$ACADVER AC1009</code>, 1 unit = 1 mm, layers ENCLOSURE/BREAKER/CONTACTOR/OVERLOAD/CONTROL/METER/CT/LABEL/DEVICE at 179810–179820, rects as 4 LINE entities <code>rect()</code> 179826, TEXT via <code>text()</code> 179838, <code>downloadBlob</code> 179462); export menu popup <code>openExportMenu</code> (179933, routes 179954–179967); 3D snapshot via <code>canvas.toDataURL('image/png')</code> (179715–179725, 181157–181165). Print = PDF export.</p>
+<p><strong>AI/CAD pipeline:</strong> <code>createMethod(m)</code> (177636) routes: <code>'quick'</code> → <code>newBoard</code> (177970; auto-builds fertigation layout via <code>buildFertigationScene</code> if title matches <code>/fertigation|fismart|dosing/</code>, 177973–177988); <code>'import'</code> → <code>importFlow</code> (177646: R2 upload; PDFs→attachments, images→<code>scene.bg={type:'image',imageKey}</code>); <code>'ai'</code> → <code>aiFlow</code> (177664: free-text + voice <code>startVoice</code> 176817, ✨ <code>_aiGen</code> / ⚡ <code>_aiGenOffline</code> / 🧪 fertigation form, plus tap-to-answer <code>GUIDED</code> per-subject question sets 176091–176135; <code>_gGen</code> 177705 builds deterministic scenes via <code>guidedToSpec</code>→<code>renderSpec</code>, or <code>renderCabinet</code>/<code>renderPlan</code>); <code>'pdfspec'</code> → <code>window.RND_importPdfSpec</code>. Spec model (documented 176146): <code>{title, size, subtitle, nodes:[{id,label,sym,role:'source'|'inline'|'dest'}], edges:[{from,to,size,via:[sym]}]}</code>; <code>aiBuildSpec</code> (176289, <code>__hnxApi('/ai/analyze')</code>, 30 s timeout, <code>parseLooseJson</code> 176284) may return richer v1 spec <code>{version,title,subject,units,nodes[kind,symbol,role,spec],edges[type,size,material,via,designation],layout2D,layout3D}</code> or up to 4 follow-ups; symbols constrained to <code>AI_SYMS</code> (176288, 58 names). <code>renderSpec</code> (176147) lays sources→trunk→inline→riser→destinations with labeled pipe sizes. <code>generateCad</code> (177134) POSTs <code>{spec, meta, options:{outputs:['dwg','dxf','pdf','gltf'], pageSize:'A3', scale:'1:50', …}}</code> to <code>__hnxApi('/cad/generate')</code>, accepts 4 response shapes (<code>_cadPickUrls</code> 177087), polls every 2 s up to 5 min (<code>_cadPoll</code> 177102), stores <code>it.cad</code>. <code>aiProposeBom</code> (177537) POSTs catalog-code context to <code>/ai/analyze</code>, parses loose JSON <code>{lines:[…]}</code>, marks remarks "AI suggested".</p>
+<p><strong>HNX drawing pipeline (v9–v17):</strong> v10 (182484–183095) engineer-grade IEC 60617 submittal sheet — SVG symbol generators (MCB/MCCB/contactor/overload/meter/CT/motor/SPD/PLC/relay/PSU/terminal, 182512–182673), sheet border + reference grid, front elevation, DIN rails, panel schedule, legend, title block; <strong>REPLACES <code>scene.objects</code></strong> (183056–183057). v11 (183098–183819): Sheet 2 SLD (<code>buildSLD</code> 183124), Sheet 3 Control Wiring ladder (<code>buildControl</code> 183265), Sheet 4 Terminal Block (<code>buildTerminals</code> 183396), Sheet 5 Panel Internals (<code>buildInternals</code> 183513). v17 Sheet 6 Cross-Section (185845–185895), device click-to-details, SLD IEC 60446 wire-color legend. v13 (184193–184631): critical draw-timing fix — closeModal FIRST, wait 350 ms for host boardSave's empty-state write, THEN write objects and reopen (184457–184511); reroutes all older draw paths to <code>drawV13</code> (184517–184549). v14 (184633–184898): Switch-sheet dropdown (recovery path), 1.5× symbols, <strong>local Data-URL background fallback replacing R2 upload</strong> (184764–184857, embed at 184829). v16 visual depth + brand labels (CHINT/ABB/SCHNEIDER). v7 sizing math (181559–182051): <code>flaFromKw</code> (181583: 3×400V ≈ 1.80×kW, 3×230V ≈ 3.13×kW, 1×230V ≈ 5.43×kW, 1×115V ≈ 10.87×kW via P/(√3·V·0.80)), <code>standardBreakerAbove</code> (181593, ratings 6–63), <code>jr36Range</code> (181598), <code>nxcByKw</code> (181616, CHINT frames), <code>feederSize</code> (181628, breaker = FLA×2.5 per NEC 430.52), <code>parseFeedersText</code> (181650), wizard <code>openMyPlan</code> (181785), <code>drawAndShow</code> chain RND.newBoard → HnxV5.draw → HnxV6.open3D (181882), MutationObserver interceptors (181911, 181969). 3D: v2 <code>open3DViewer</code> (179546, Three.js r128 lazy-load 179372, presets 179649, wireframe 179702, orbit 179667–179698) upgraded by v6 <code>open3DDetailed</code> (181015) with per-device meshes (<code>buildDeviceMesh</code> 180768: breaker 180802, MCCB 180821, contactor 180837, overload 180858, meter 180882, CT 180901, relay 180918, PLC 180935, PSU 180956, terminals 180977, SPD 180994). Templates: hardcoded <code>in101Spec()</code> "ABA PARDES IN-1-01 Main Distribution Cabinet" (duplicated at 179474 and 180448: 1200×2200×600 mm enclosure, ~35 devices), parametric <code>autoLayoutCabinet</code> (181335) and voltage-aware <code>autoLayout</code> (181674). v3 client-side parsing (180048–180245): PDF.js 3.11.174 / SheetJS / mammoth from CDN (<code>lazyScript</code> 180064), <code>parsePdf</code> 180108, <code>parseXlsx</code> 180135, <code>parseDocx</code> 180155, dispatcher <code>parseFile</code> 180168 → <code>window.HnxParseFile</code> (180179), MutationObserver patch of the spec-import modal (<code>attachSpecPatch</code> 180188).</p>
+<h3 id="25-symbol-library-asset-bank">2.5 Symbol Library &amp; Asset Bank</h3>
+<p><code>SYMBOLS</code> (175794): category → array of <code>{n:name, s:'&lt;svg…&gt;'}</code>, 100×100 viewBox inline SVG with painterly gradients. Base set: plumbing 14, electrical 7, irrigation 6, panel 11, fixtures 13. Expansion IIFE (175868–175959, gradient ids <code>nx1..nx75</code>): +16 plumbing, +16 electrical, +16 irrigation, +14 panel, +14 fixtures. <strong>Totals: 127 symbols — plumbing 30, electrical 23, irrigation 22, panel 25, fixtures 27.</strong></p>
+<p><code>SYM_BY_NAME</code> (175961) flattens all categories to a name→svg lookup — <strong>duplicate names (Filter, Manifold, Venturi injector…) collapse, last category wins</strong> — used by guided/AI/offline scene builders (<code>symObj</code> 176138). Board palette (178000–178011) lists 5 categories with counts and per-name search. AI generation is constrained to <code>AI_SYMS</code> (176288, 58 names).</p>
+<p><strong>Asset bank</strong> = persisted, user-extensible mirror of SYMBOLS plus admin photo uploads (see K_ASSET above). Placement: (a) palette → <code>_pickSym(cat,ix)</code> (178386) sets <code>board.pendingSym</code>, next tap stamps 80×80 symbol; (b) asset panel → <code>_pickAsset(id)</code> (178404): <code>symbol_vector</code> → same as palette; <code>photo</code> → <code>{kind:'img', src:'r2img:…'}</code> at 120×120. Board panel filters to the item's subjectId (<code>boardAssetsHTML</code> 177866). Where-used: <code>itemUsage(assetId)</code> (177262) matches BOM lines by assetId or effective itemCode, sums qty/₱ per design; <code>openWhereUsed</code> (177264) with <code>closeModalThenSheet</code> (177263).</p>
+<h3 id="26-permissions">2.6 Permissions</h3>
+<p>Two-tier: <strong>admin vs everyone else</strong>. <code>isAdminLvl()</code> (175737) = <code>getCurrentUserLevel() &gt;= 3 || isAdmin()</code> (defensively probed; failure → non-admin). <code>who()</code> (175738) = <code>getCurrentUser().name||id</code> else <code>'user'</code>. <strong>No per-user ownership anywhere</strong> — any user edits any unlocked item.</p>
+<table>
+<thead>
+<tr>
+<th>Admin-only (explicit <code>isAdminLvl()</code> guard + toast)</th>
+<th>Line</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>delAsset</code></td>
+<td>175971</td>
+</tr>
+<tr>
+<td><code>catSet</code>/<code>editCatalog</code>/<code>saveCatalog</code></td>
+<td>176012–176031</td>
+</tr>
+<tr>
+<td><code>delItem</code> (soft-delete AND purge)</td>
+<td>177250</td>
+</tr>
+<tr>
+<td><code>restoreItem</code></td>
+<td>177251</td>
+</tr>
+<tr>
+<td><code>projLock</code></td>
+<td>177256</td>
+</tr>
+<tr>
+<td><code>statusItem</code> → Approved/Archived</td>
+<td>177272</td>
+</tr>
+<tr>
+<td><code>dsApprove</code></td>
+<td>177335</td>
+</tr>
+<tr>
+<td>SOP link/unlink buttons (render-gated)</td>
+<td>177363–177365</td>
+</tr>
+<tr>
+<td><code>addSubject</code> / <code>delSubject</code></td>
+<td>177742 / 177744 (<code>renameSubject</code> 177743 has NO code guard; button renders only for admin &amp;&amp; isCustom, 177734)</td>
+</tr>
+<tr>
+<td><code>delProject</code></td>
+<td>177746</td>
+</tr>
+<tr>
+<td><code>projSetBudget</code></td>
+<td>177750</td>
+</tr>
+<tr>
+<td><code>delProjFile</code></td>
+<td>177811</td>
+</tr>
+<tr>
+<td><code>addAssetUpload</code> / <code>addAssetSvg</code> / <code>_addBoardImage</code></td>
+<td>177864 / 177865 / 178405</td>
+</tr>
+</tbody>
+</table>
+<p>Non-admins can: create/edit/rename/duplicate items, <code>dsSubmit</code>, back-to-draft, revise, edit BOMs, create projects/sub-projects (<code>addProject</code>/<code>addSubProject</code> unguarded), attach project files, set status Draft/In review.</p>
+<p><strong>Lock enforcement:</strong> <code>ensureEditable(it)</code> (177255) — admins always pass; others blocked when <code>isItemLocked(it)</code> (177254, via inherited <code>projLockOf</code>). Enforced at <code>dsCommit</code> (177328) and <code>bomCommit</code> (177425) <strong>only</strong> — <code>boardSave</code> (178301) skips it, so a <code>frozen</code> project's drawings can still be redrawn by anyone.</p>
+<p><strong>Host-level wiring is broken</strong> (see §3.4): view registered <code>perm:null</code> (21772, 178365); no <code>rnd_home</code> row in switchView guards (21883–21903); no <code>'rnd'</code> row in <code>moduleToRolePerm</code> (57927–57948) → <code>defaultModuleAccessForRole</code> returns <code>'none'</code> (57950) for every non-admin role; <code>'rnd'</code> absent from <code>DEPARTMENT_OPTIONS</code> (57917) so the home-department auto-Edit path (57984–57986) can never grant it. Module gate: <code>switchModule</code> → <code>moduleHasAccess</code> (21410–21422) → <code>canView('rnd')</code> (58013) → <code>getEffectiveModuleAccess</code> (57972). But <code>switchView('rnd_home')</code> is never checked (denial only fires for listed views, 21904) and switchView's module-sync (21912–21919) sets <code>currentModule</code> without a <code>moduleHasAccess</code> check.</p>
+<h3 id="27-design-sheet-workflow">2.7 Design Sheet Workflow</h3>
+<p><code>DESIGN_TYPES</code> (177275–177285): 9 types with parameter templates — <code>gravity_drain_floor</code>, <code>irrigation_room</code>, <code>nft_loop</code>, <code>ventilation</code>, <code>cooling_pad</code>, <code>electrical_distribution</code>, <code>roof_cladding</code>, plus <code>''</code> and <code>'other'</code>; <code>dsSetType</code> (177330) merges missing template rows. <code>DTYPE_RANGES</code> (177290–177298): typical min/max per type (e.g. nft_loop Slope 1–3 %, electrical_distribution Voltage 200–480 V), checked by <code>validateDesignParams</code> (177299), surfaced in sheet, dashboard health, and approval.</p>
+<p><strong>Status machine:</strong> Draft → <code>dsSubmit</code> (177333, stamps <code>ds.submittedBy/At</code>, audited) → In review → admin <code>dsApprove</code> (177335: warns on out-of-range params, stamps <code>approvedBy/At</code>, pushes <code>ds.snapshots</code> entry <code>{rev, at, by, params-copy, bom-copy, warnings}</code> cap 50, audited) → Approved → <code>dsRevise</code> (177336: <code>rev = nextRev</code> (177289: A→B…Z→AA, or numeric suffix +1), clears approval/submission stamps, back to Draft, audited); <code>dsBackToDraft</code> (177334) from review. <code>openSnapshots</code> (177270) lists frozen snapshots. SOPs: <code>ds.sops</code> holds ids from host <code>window.SOP_LIBRARY</code> (<code>sopLib</code> 177310); <code>sopSuggest</code> (177313) keyword-matches by design type via <code>SOP_KW</code> (177301). Edits buffered in <code>_dsEdit</code>, committed by <code>dsCommit</code> (177328, enforces <code>ensureEditable</code>, stamps <code>updatedBy/At</code>). <strong>No notifications on submit; no reject-with-comment; only 7 actions audited.</strong></p>
+<p><strong>BOM sources</strong> (modal <code>renderBomModal</code> 177445): "+ From catalog" (<code>bomAddFromCatalog</code>/<code>renderBomPicker</code> 177427/177432, <code>bomPickAdd</code> 177428 copies <code>catEffective</code> values and keeps <code>assetId</code>); "+ Manual line" (<code>bomAddManual</code> 177379); "🎨 From drawing" (<code>bomAutoFromScene</code> 177383: counts <code>kind:'symbol'</code> scene objects by name; updates qty on existing same-name lines, else adds with itemCode <code>'AUTO-&lt;SLUG&gt;'</code>, remarks "auto-extracted from drawing"); "🤖 AI suggest" (<code>aiProposeBom</code> 177537). Totals: <code>bomLineTotal</code>/<code>bomTotal</code> (177374–177375, ₱).</p>
+<h3 id="28-sync-behavior">2.8 Sync Behavior</h3>
+<ul>
+<li><strong>Primary sync:</strong> v2.75 worker layer (script 138962, <code>WORKER hnx-sync.eyalbenari99.workers.dev</code> 138967, <strong>20 s tick</strong> 138970). <code>shouldSync</code> (139014–139023) syncs any <code>hydroPro_</code>-prefixed key not in <code>SKIP_PREFIXES</code> (138973: session/biometric/audit/rescue/ea-email — <strong>rnd not excluded, and neither are the <code>_backup</code> keys</strong>). <code>collectData</code> (139219–139231) skips empty values. Pull-merge is generic v12.90 <strong>whole-key newer-wins/deep-union</strong> (merge helpers 139258).</li>
+<li><strong>Dead push hook:</strong> the module's <code>save()</code> calls <code>window.__hnxSyncPushSoon()</code> (175751, 175775 — the only two occurrences in the file). <strong>The function is never defined.</strong> All R&amp;D writes ride the 20 s interval only.</li>
+<li><strong>Legacy Firebase whitelist</strong> <code>HNX_SYNCED_KEYS</code> (109650–109663) does NOT include any rnd key.</li>
+<li><strong>AutoVault</strong> (175449+): IndexedDB offload list (175453–175460) <strong>excludes</strong> rnd keys — R&amp;D stays in localStorage; <code>lzEligible</code> (175515–175518) LZ-compresses <code>hydroPro_rnd_*</code> values &gt; 120 KB in place unless containing <code>'data:image/'</code>.</li>
+<li><strong>R2:</strong> board scenes, thumbs, exports, project files, attachments bypass localStorage via pointers (note at 177831: "store only a tiny link").</li>
+<li><strong>v75 auto-backup</strong> (200079–200121): copies <code>hydroPro_rnd_items_v1</code> to <code>_backup</code> every 30 s — doubling footprint, syncing to cloud, and being the first thing deleted under quota pressure (175757).</li>
+</ul>
+<hr />
+<h2 id="3-critical-constraints-known-issues">3. Critical Constraints &amp; Known Issues</h2>
+<p>Blunt summary: <strong>this module actively destroys user data on timers, its "cloud has backups" assumption rests on a sync hook that was never implemented, and every fix must land in a ~80-layer monkey-patch stack with live races and a broken filter.</strong></p>
+<h3 id="31-localstorage-quota-the-destructive-trimmers-the-issue">3.1 localStorage Quota &amp; the Destructive Trimmers (THE issue)</h3>
+<p>All app data — including every R&amp;D board's full rendered scene — lives in localStorage against an <strong>assumed 10 MB quota</strong> (hardcoded <code>quotaEstimate = 10*1024*1024</code> at 187675; perf monitor warns at &gt; 9 MB, 95577; no literal "19MB" constant exists anywhere). Generated engineering sheets write <strong>hundreds-to-thousands of objects</strong> (grid refs, per-terminal table rows, per-device IEC symbol SVG strings embedded as text) and re-serialize the <strong>entire items array</strong> on every draw (183064, 183723, 184491); every draw path has an explicit quota-failure catch (182339–182343, 183064–183065, 183723–183724, 184490–184495, 185080–185087). v14's Data-URL backgrounds (184829) make it worse. The response was four escalating reapers:</p>
+<table>
+<thead>
+<tr>
+<th>Trimmer</th>
+<th>Version</th>
+<th>Trigger</th>
+<th>Keep window</th>
+<th>Strip threshold</th>
+<th>Lines</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>shrinkRndItems</code></td>
+<td>v25.4</td>
+<td><strong>Manual only</strong> (Storage Manager button 187756; <code>HnxV25.shrink</code> 187971)</td>
+<td>Top 2 by <code>updatedAt</code></td>
+<td>&gt; 50 objects</td>
+<td>187882–187922 (strip 187903–187906)</td>
+</tr>
+<tr>
+<td><code>trimRndItems</code></td>
+<td>v26.5</td>
+<td><strong>AUTOMATIC</strong>: every page load +5 s (toast 188193–188196) and silently every 15 min (188201–188203); 🧹 button 188208; <code>HnxV26.trimRnd</code> 188245</td>
+<td>Top 5</td>
+<td>&gt; 50</td>
+<td>188124–188157 (<code>_stripped</code> 188146)</td>
+</tr>
+<tr>
+<td><code>trimRndItemsHard</code></td>
+<td>v27.7</td>
+<td><strong>AUTOMATIC</strong>: every load +4 s (188519–188523) and every 10 min (188526–188528); 🔥 button 188531; <code>HnxV27.trimRndHard</code> 188565</td>
+<td>Top 3</td>
+<td><strong>&gt; 20</strong></td>
+<td>188440–188473 (<code>_stripped</code> 188462)</td>
+</tr>
+<tr>
+<td>v28 "NUCLEAR"</td>
+<td>v28</td>
+<td><strong>Synchronous at script parse time</strong> (starts 188575)</td>
+<td><strong>Top 2</strong></td>
+<td><strong>&gt; 10</strong></td>
+<td>188766–188797 (<code>_stripped</code> 188787)</td>
+</tr>
+</tbody>
+</table>
+<p>Mechanics: for every localStorage key starting <code>hydroPro_rnd_</code> containing <code>items</code> whose value is an array, sort by <code>updatedAt</code> desc, keep the top-N ids, and for every other item over the threshold set <code>it.scene.objects = []</code> and <code>it.scene._stripped = true</code>, then write back. <strong>Permanent, silent for background runs.</strong> Only items carrying <code>hnxCabinetSpec</code> (+ <code>hnxSheetNum</code>) can be regenerated via "Switch sheet" (#hnx-v14-switch, 184675–184723) — <strong>hand-drawn boards, pre-HNX boards, and post-generation manual edits are irrecoverably destroyed</strong> (regeneration rebuilds the pristine sheet, discarding edits). The keep window is per-key recency, and draw functions stamp <code>updatedAt = Date.now()+1</code> (184486), so <strong>rendering one sheet can evict a colleague's board from the keep set</strong>. <code>runAggressive</code> (188478–188517) additionally deletes every local backup key via <code>deleteOldBackups</code> (188293–188318): <code>hydroPro_backup_manual_*</code>, <code>hydroPro_backup_*</code> + <code>hydroPro_backup_index</code>, <code>hydroPro_autobackup_*</code>, <code>/_bak_v\d+$/</code>, <code>/_backup_v\d+$/</code>, <code>hnx_t*_bak*</code> — on the stated assumption "Cloud has backups, safe to trim" (188258), <strong>which is false in the ≤20 s window because the eager push hook is undefined</strong> (§3.3). v26's <code>runAutoClean</code> (188162–188188) also trims <code>hydroPro_error_log_v1</code> (100), <code>hydroPro_audit</code> (200), <code>hydroPro_recurring_instances</code> (90 days), <code>hydroPro_issues_v2</code> (open + last 200 closed); v27/v28 tighten all of these further (error 30→20, audit 100→50, recurring 30→14 days, issues 50→open+30, seed studies 50).</p>
+<p><strong>Hard design rule for any new work:</strong> <code>scene.objects</code> for anything but the ~2–3 most-recently-updated items must be treated as ephemeral. Any feature storing meaningful user work in <code>scene.objects</code> without a regenerable spec <strong>WILL lose data</strong>; any feature growing localStorage must account for the reapers.</p>
+<p><strong>Aggravating factors:</strong> trims do <strong>not</strong> exempt <code>_dirty</code> (offline-only) scenes — an offline drawing's only copy can be zeroed before it ever reaches the cloud; the v75 30 s backup both doubles the footprint and syncs to the cloud; the quota-defense stack is a 6-layer ladder that no one owns end-to-end: global QUOTA GUARD <code>setItem</code> wrapper (6531–6591), LZString shim (6632–6636, "~5MB now holds ~50–70MB of JSON"), AutoVault in-place LZ (175465–175541), the module <code>save()</code> ladder (175747–175776), v25–v28 reapers (187631–188890), v74 <code>HnxData</code> console helpers (199968–200070) + v75 backup (200079).</p>
+<h3 id="32-patch-stack-code-organization">3.2 Patch-Stack Code Organization</h3>
+<p>The module is a 2,700-line core plus ~80 stacked patch IIFEs (~13k+ lines) that never edit earlier code — each monkey-patches prior globals, rebinds buttons by <code>cloneNode</code> replacement, and runs its own 500–1500 ms <code>setInterval</code> poller forever. Observable pathologies:</p>
+<ul>
+<li><strong>Broken prefix filter (v5, line 180433):</strong> <code>if (!k || !k.indexOf('hydroPro_rnd_') === 0) continue;</code> — operator precedence makes this <code>(!k.indexOf(...)) === 0</code>, false for every non-null key, so the filter is a <strong>no-op and every localStorage key is JSON.parsed on each direct-draw</strong> (including multi-MB unrelated keys). The corrected idiom <code>k.indexOf('hydroPro_rnd_') !== 0</code> appears in v6/v7+ (181432, 181462, 15+ sites).</li>
+<li><strong>Wrong-board heuristic (v5 <code>drawToBoard</code>, 180547–180618):</strong> no handle to the open board, so it flushes via <code>RND._save()</code> (180426), walks localStorage (<code>findActiveBoard</code> 180423, loop 180431–180444), prefers the key containing <code>'items'</code> (180555), and picks the item with <strong>highest <code>updatedAt</code></strong> (180573–180581) as "the open board" — acknowledged in-code as a guessable-wrong heuristic; generated geometry can land on a colleague's unrelated schematic. Redraw is forced by <code>RND.closeModal()</code> + <code>RND.openItem(id)</code> (180608–180618); clipboard fallback <code>offerClipboardFallback</code> (180621). Same walk pattern in v6 <code>openFromBoard</code> (181427) and <code>patchV5</code> (181452).</li>
+<li><strong>Load-bearing race:</strong> v13's draw waits a fixed <strong>350 ms</strong> after closeModal for the host boardSave's empty-state write before writing objects (184457–184511) — success is device-speed-dependent.</li>
+<li><strong>Replace-not-append:</strong> sheet generation <strong>replaces</strong> <code>scene.objects</code> (183056–183057) without pushing a revision — manual annotations on a generated sheet are wiped by regeneration with no history entry.</li>
+<li><strong>UI churn wars:</strong> v49 (194720–194800) exists solely to pacify older patches — <code>findRndPanel</code> (194743–194747) locates <code>.hnx-v4-toolbar</code>, <code>lockFlags</code> (194752–194764) stamps fake <code>dataset.v33Done/v34Done/v36Done='locked-v49'</code> every 500 ms, and a MutationObserver deletes "leak" nodes matching <code>LEAK_SIGNATURES</code> (194727). v29.5 (189058–189080) rewrites the toolbar title every 500 ms forever; each version restamps the title (e.g. 187946–187953), so the visible label = last patch loaded. v12 (183821–184191) exists to audit/rebind silently-broken buttons.</li>
+<li><strong>Three competing <code>isRndActive()</code> pollers</strong> (179272–179294, 179994–180013, 182121–182136) plus the v8 gate's 500 ms tick and <code>switchModule</code> monkey-wrap (182150–182165). v4's original gate checked the wrong global (<code>window.currentModule</code> vs <code>window.HN_currentModule</code>, comment 180249–180253) — hence <code>showAll()</code> (180260) force-showed everything and v8 had to reinstate gating via CSS.</li>
+<li><strong>Zero testability:</strong> everything anonymous-IIFE inside a 200k+-line HTML file, entangled with DOM/localStorage/timers/network; the only verification tools are manual in-product harnesses (v12 Diagnose 184053–184157, v15 "🚨 TEST DRAW NOW" 184982–185115, v24 Stats/<code>validateSpec</code> 187429–187558).</li>
+<li>Other fragile patterns worth knowing: v19 temporarily monkey-patches <code>window.Date</code> during an import handler (186344–186365); v21 wraps <code>window.FileReader</code> globally (186783–186862).</li>
+</ul>
+<h3 id="33-sync-conflicts-the-dead-push-hook">3.3 Sync Conflicts &amp; the Dead Push Hook</h3>
+<ol>
+<li><strong><code>window.__hnxSyncPushSoon</code> is never defined</strong> — verified: only the two guarded call sites at 175751/175775 exist. Every R&amp;D <code>save()</code>'s intended eager push is a silent no-op; sync rides the 20 s tick. A user who saves and closes the tab (or whose device sleeps in the field) within 20 s loses the push — while v27/v28 delete local backups on the assumption the cloud has copies.</li>
+<li><strong>Whole-key newer-wins clobbering:</strong> the generic layer pushes/pulls <code>hydroPro_rnd_items_v1</code> as one value. Two devices editing <strong>different</strong> items clobber each other's records wholesale — no per-item merge, no conflict surfacing.</li>
+<li><strong>Backup keys sync too:</strong> <code>hydroPro_rnd_items_v1_backup</code> is not in <code>SKIP_PREFIXES</code> (138973) — wasted bandwidth, wider clobber surface.</li>
+<li>Scene JSONs in R2 are per-version keys (<code>v&lt;version&gt;.json</code>) and effectively immutable — scene-level conflicts don't exist; only the (currently clobber-prone) metadata record conflicts.</li>
+<li><strong>No user-visible sync state</strong> beyond the single <code>#rnd-offline</code> chip — staff cannot tell cloud-safe from local-only.</li>
+</ol>
+<h3 id="34-permissions-gap">3.4 Permissions Gap</h3>
+<p>Simultaneously too strict and too loose: no <code>'rnd'</code> in <code>moduleToRolePerm</code> (57927–57948) or <code>DEPARTMENT_OPTIONS</code> (57917) → every non-admin role defaults to <code>'none'</code> (57950) and the intended user base can't see the module without a per-user <code>'module:rnd'</code> override (57976), <code>user.allDepts</code> (57983), or admin role; meanwhile no guards-table entry (21883–21903) + <code>perm:null</code> view + unguarded module-sync (21912–21919) means <code>switchView('rnd_home')</code> (Cmd+K, Nexi atlas, voice, console, pasted link) opens it for <strong>anyone</strong>, unchecked. Inside the module: no ownership model, and <code>boardSave</code> skips <code>ensureEditable</code> (locks don't stop drawing).</p>
+<h3 id="35-data-integrity-footnotes">3.5 Data-Integrity Footnotes</h3>
+<ul>
+<li>Loose string-id references only, no referential integrity: <code>delSubject</code> leaves items tagged to a "—" fallback (by design, 177744/175789); <code>delProject</code> (177746) strands items with dangling <code>projectId</code> (they silently vanish from the tree, never reassigned).</li>
+<li><code>SYM_BY_NAME</code> name collisions (175961): duplicate symbol names across categories collapse, last wins.</li>
+<li><code>dupItem</code> (177241) resets <code>linkedTasks</code>.</li>
+<li><code>projBomTotal</code> "spend" is estimated BOM cost, not actuals — the over/left budget chips (177762–177763) silently conflate the two.</li>
+<li>Ordinary content edits are unaudited (only 7 lifecycle actions, §2.3); content restores from revisions are not audited either.</li>
+<li>Two disjoint "R&amp;D" features: the Overview R&amp;D domain / rd_engine dashboard (88451–88471) scores from <code>hydroPro_seed_studies</code> + irrigation pool learning — <strong>not</strong> from <code>hydroPro_rnd_*</code>.</li>
+</ul>
+<hr />
+<h2 id="4-integration-map">4. Integration Map</h2>
+<h3 id="what-touches-this-module">What touches this module</h3>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>Wiring</th>
+<th>Line(s)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Host module registry</td>
+<td><code>MODULES.rnd</code> registered early (primary) + module fallback</td>
+<td>21771–21772, 178365</td>
+</tr>
+<tr>
+<td>Sidebar</td>
+<td><code>SIDEBAR_LABELS.rnd='R&amp;D'</code> (21791); order[] between 'projects' and 'admin'</td>
+<td>21794–21820, 21797</td>
+</tr>
+<tr>
+<td>Modules dropdown</td>
+<td>GROUPS 'Operations'; filtered by <code>canView(k)</code></td>
+<td>133231, 133247</td>
+</tr>
+<tr>
+<td>Rail v13.91</td>
+<td><code>NAV()</code> built from registry (comment: R&amp;D was missing from the hand-written list)</td>
+<td>211351–211366</td>
+</tr>
+<tr>
+<td>Rail flyout v13.99</td>
+<td><code>registryViews(k)</code> fallback lists <code>MODULES.rnd.views</code></td>
+<td>212043–212198, 212080–212082</td>
+</tr>
+<tr>
+<td>Cmd+K search</td>
+<td><code>NEXI_NAV</code> v13.13 rebuild from <code>window.MODULES</code> adds rnd_home (hard-coded seed at 173148 lacks it)</td>
+<td>173148, 173153–173184, 211423–211517</td>
+</tr>
+<tr>
+<td>Voice</td>
+<td><code>RND.handleVoiceCommand</code> — open module / new-board intents</td>
+<td>178343–178351</td>
+</tr>
+<tr>
+<td>Nexi cockpit</td>
+<td><code>genericCockpit(key)</code> <strong>defined at 206342</strong> (206322 is inside <code>buildAssistantCockpit</code>); wrapper 206352–206374 assigns <code>HN_BRAIN_MODULES.rnd = genericCockpit('rnd')</code> on first open (206361), rebrands header "NEXI RND COCKPIT" (206366); static placeholder (health 85, one 'observe' insight, zero R&amp;D data). Without the wrapper the base renderer would mislabel-fall-back to the PRODUCTION cockpit (13042–13043). Brain tab injected into every sub-tab bar by <code>injectAllBrainTabs</code> (13963–13965) / <code>injectBrainTab</code> (13935–13961)</td>
+<td></td>
+</tr>
+<tr>
+<td>Generic cloud sync</td>
+<td><code>hydroPro_</code> prefix rule (139014–139023) — all seven keys + backups sync</td>
+<td>138962–139258</td>
+</tr>
+<tr>
+<td>AutoVault</td>
+<td>LZ-compresses <code>hydroPro_rnd_*</code> &gt; 120 KB (excluded from IndexedDB offload)</td>
+<td>175515–175518, 175453–175460</td>
+</tr>
+<tr>
+<td>Data Rescue</td>
+<td>Full export dumps all <code>hydroPro_*</code> keys generically</td>
+<td>209081–209093</td>
+</tr>
+<tr>
+<td>Host SOP library</td>
+<td><code>window.SOP_LIBRARY</code> consumed by design-sheet SOP linking</td>
+<td>177310</td>
+</tr>
+<tr>
+<td>R2 worker</td>
+<td><code>hnx-sync.eyalbenari99.workers.dev</code> — scenes, thumbs, exports, files, CAD</td>
+<td>176042–176076</td>
+</tr>
+<tr>
+<td>AI backend</td>
+<td><code>__hnxApi('/ai/analyze')</code>, <code>__hnxApi('/cad/generate')</code></td>
+<td>176289, 177537, 177134</td>
+</tr>
+<tr>
+<td>CDN (HNX overlays)</td>
+<td>Three.js r128 (multi-CDN fallback 184014–184033), PDF.js 3.11.174, SheetJS, mammoth</td>
+<td>179372, 180058–180061</td>
+</tr>
+</tbody>
+</table>
+<h3 id="what-this-module-touches-exposes">What this module touches / exposes</h3>
+<table>
+<thead>
+<tr>
+<th>Export</th>
+<th>Consumers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>window.RND</code> (178373–178407) — full API: navigation, item lifecycle, DS workflow, BOM, exports, board internals, AI/voice, asset bank</td>
+<td>The ~80 HNX overlays; Nexi atlas; voice layer</td>
+</tr>
+<tr>
+<td><code>window.linkRndItemToTask</code> (177604) / <code>window.getRndItemsForTask</code> (177605)</td>
+<td><strong>ZERO callers anywhere in the file.</strong> The registry-promised "link to planning tasks" is a <code>prompt()</code>-based free-text tag (<code>linkItem</code> 177596–177602: type a module id + free-text task ref → <code>item.linkedTasks</code>); no picker, no validation, no reverse lookup in planning/maintenance/cockpits. Stage-1 list itself calls it a "planning-task link API" (177831), deferring integration to Stage 2</td>
+</tr>
+<tr>
+<td>HNX globals</td>
+<td><code>HnxNewBoardUI</code> (179344), <code>HnxV2</code> (180033), <code>HnxV3</code>/<code>HnxParseFile</code> (180179/180233), <code>HnxV4</code> (180390), <code>HnxV5</code> (180712), <code>HnxV6</code> (181545), <code>HnxV7</code> (182037), <code>HnxV8</code> (182167), <code>HnxLog</code> (184909), <code>HnxV25/26/27</code> shrink/trim handles, <code>HnxV43.center</code> (194066)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Key fact: nothing outside the R&amp;D script chain reads <code>hydroPro_rnd_*</code>.</strong> Reports, daily briefing, cockpits, maintenance, and planning never consume the module's data; every read/write of these keys sits between lines 175720 and 200200.</p>
+<hr />
+<h2 id="5-improvement-roadmap">5. Improvement Roadmap</h2>
+<p>Merged UX + technical proposals. Effort: S / M / L. P1 = ship before anything else; P2 = structural; P3 = capability growth.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Pri</th>
+<th>Problem</th>
+<th>Proposal</th>
+<th>Effort</th>
+<th>Impact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R1</td>
+<td><strong>P1</strong></td>
+<td>Auto-trimmers (v25–v28) permanently zero <code>scene.objects</code> beyond keep-top-2/3 on 10–15-min timers; hand-drawn work, pre-HNX boards, and manual edits irrecoverable; <code>updatedAt+1</code> stamping evicts other boards; v27/v28 delete all local backups on a false "cloud has it" premise</td>
+<td><strong>Archive-then-strip:</strong> disable v28 parse-time strip + v27/v26 auto schedules immediately (stopgap: keep only v26 keep-5/&gt;50 or nothing); rewrite the strip contract to upload scene JSON via existing <code>persistScene</code>/<code>r2PutJson</code> and record <code>sceneKey</code> before zeroing; refuse to strip <code>_dirty</code>/offline/no-sceneKey scenes; rehydrate <code>_stripped &amp;&amp; sceneKey</code> items on open via <code>r2GetJson</code>; show "archived to cloud — tap to reload" instead of a blank canvas; consolidate 4 reapers into ONE storage governor with visible policy; one-time recovery scan of R2/sync worker for orphaned scene JSONs</td>
+<td>M</td>
+<td><strong>CRITICAL</strong> — nothing else matters if drawings vanish</td>
+</tr>
+<tr>
+<td>R2</td>
+<td><strong>P1</strong></td>
+<td><code>__hnxSyncPushSoon</code> never defined → all saves ride 20 s tick; tab-close/device-sleep loses work</td>
+<td>Define it as a debounced (~2 s) wrapper around the existing worker push (~138970); add <code>beforeunload</code>/<code>visibilitychange</code> flush</td>
+<td>S</td>
+<td>High</td>
+</tr>
+<tr>
+<td>R3</td>
+<td><strong>P1</strong></td>
+<td>Line 180433 precedence bug — v5 JSON.parses every localStorage key on each draw</td>
+<td><code>if (!k \|\| k.indexOf('hydroPro_rnd_') !== 0) continue;</code> (idiom already at 181432/181462)</td>
+<td>S</td>
+<td>Med (perf + bug-class)</td>
+</tr>
+<tr>
+<td>R4</td>
+<td><strong>P1</strong></td>
+<td><code>rnd</code> missing from <code>moduleToRolePerm</code> (57927–57948) and <code>DEPARTMENT_OPTIONS</code> (57917) → non-admins locked out; no guards entry (21883–21903) + <code>perm:null</code> → deep-link bypasses all gating</td>
+<td>Add <code>'rnd'</code> rows with role defaults (maintenance/operations = Edit, others = View); add <code>rnd_home</code> to guards (better: derive guards from registry so every view is checked); decide/document <code>perm:null</code> intent</td>
+<td>S</td>
+<td>High — unblocks the actual user base, closes bypass</td>
+</tr>
+<tr>
+<td>R5</td>
+<td><strong>P1</strong></td>
+<td><code>boardSave</code> (178301) skips <code>ensureEditable</code> — frozen/design_locked projects don't stop drawing saves</td>
+<td>Call <code>ensureEditable()</code> in <code>boardSave</code> (matches <code>dsCommit</code> 177328 / <code>bomCommit</code> 177425)</td>
+<td>S</td>
+<td>Med — makes the CEO's lock workflow real</td>
+</tr>
+<tr>
+<td>R6</td>
+<td><strong>P1</strong></td>
+<td>Offline <code>_dirty</code> scenes race the reapers (only copy destroyed); no sync visibility; <code>migrateDirty</code> only runs on tab switch</td>
+<td>Exempt <code>_dirty</code> / no-sceneKey items in every trim (guard in 4 places); per-item sync badge (cloud ✓ / pending ↑ / local-only ⚠) on cards + board header; run <code>migrateDirty</code> on <code>online</code> events; add <code>_backup</code> keys to <code>SKIP_PREFIXES</code> (138973)</td>
+<td>S–M</td>
+<td>High — closes the likeliest real-world loss path</td>
+</tr>
+<tr>
+<td>R7</td>
+<td><strong>P2</strong></td>
+<td>Full scenes + Data-URL backgrounds serialized into one synced localStorage key; HNX draw paths bypass <code>putItem</code> with raw <code>setItem</code> (180599, 183064, 183723, 184491); v75 backup doubles footprint</td>
+<td>Single exported writer <code>RND.putScene(itemId, objects)</code> wrapping <code>putItem</code>/<code>persistScene</code>; move offline scene buffer to IndexedDB (extend AutoVault list 175453–175460); revert v14 Data-URL backgrounds to R2 <code>imageKey</code> + IndexedDB pending queue; move v75 backup to IndexedDB/R2</td>
+<td>M–L</td>
+<td><strong>CRITICAL</strong> — removes the quota ceiling structurally</td>
+</tr>
+<tr>
+<td>R8</td>
+<td><strong>P2</strong></td>
+<td>Generated sheets stored as baked geometry (redundant with stored <code>hnxCabinetSpec</code>); every symbol placement inlines full SVG; dual <code>kind</code>/<code>type</code> schemas; verbose path points</td>
+<td><code>scene.generator = {type:'cabinet-sheet', spec, sheetNum, rendererVersion}</code>, render on open, persist only annotation-layer overlays; symbols as <code>{kind:'symbol', ref:assetId\|name}</code> resolved via <code>SYM_BY_NAME</code>/<code>assetsAll</code> with a permanent load-time shim; one canonical schema (<code>kind</code>) + <code>schemaVersion</code>; flat number arrays for paths; pin <code>rendererVersion</code> (approval snapshots already exist at <code>dsApprove</code>)</td>
+<td>M</td>
+<td>High — 10–50× size cut on sheets; removes the pressure behind R1/R7</td>
+</tr>
+<tr>
+<td>R9</td>
+<td><strong>P2</strong></td>
+<td>Duplication: 127 seeded SVGs persisted despite living in code; offline dataURL thumbs in items key (recovery ladder already strips them, 175760–175772); no content addressing</td>
+<td>Resolve <code>isSystemDefault</code> assets virtually from <code>SYMBOLS</code> (persist custom only; keep deterministic <code>seed_&lt;cat&gt;_&lt;ix&gt;</code> ids for catalog/where-used; drop seedver machinery); SHA-256 content-hash R2 keys for uploads; thumbs always r2img online / IndexedDB offline</td>
+<td>S–M</td>
+<td>Med-High</td>
+</tr>
+<tr>
+<td>R10</td>
+<td><strong>P2</strong></td>
+<td>Whole-key newer-wins sync clobbers concurrent edits to different items</td>
+<td>Per-item merge for <code>hydroPro_rnd_items_v1</code> in the pull-merge path (extension point 139258): union by id, per-item newer-<code>updatedAt</code> wins, <code>deletedAt</code> tombstones; detect same-item conflicts via <code>item.version</code>, push loser into <code>revisions[]</code> with a toast; roll out behind a flag, log divergences first</td>
+<td>M</td>
+<td>High — closes multi-device loss channel</td>
+</tr>
+<tr>
+<td>R11</td>
+<td><strong>P2</strong></td>
+<td>Snapshot undo (full <code>JSON.stringify</code> of objects per step) is heap-hungry on 1000s-object sheets; sheet redraws replace objects with no revision; legacy embedded-scene revisions trimmable; restores unaudited</td>
+<td>Command/delta undo stack (stable <code>o.id</code> makes it easy; op-count cap + one baseline); invariant in the single writer: any replace/zero of <code>scene.objects</code> MUST <code>pushRevision()</code> first; migrate legacy <code>r.scene</code> revisions to R2 sceneKeys in <code>migrateDirty</code>; audit content restores</td>
+<td>M</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>R12</td>
+<td><strong>P2</strong></td>
+<td>~80-patch stack: pollers, cloneNode rebinding, label wars, wrong-item heuristic, 350 ms race</td>
+<td>Freeze the chain (no v50); extract core + patches to separate .js files (even concat/esbuild); fold surviving behavior into core in dependency order, deleting superseded layers (v9→canonical schema, v12→bind-once, v49→one toolbar owner, v25–v28→storage governor); replace localStorage-walk heuristic with <code>RND.getActiveItem()</code>/<code>RND.appendObjects(itemId, objs)</code>; replace pollers with one <code>'rnd:active-changed'</code> event (v8 switchModule wrap exists); one schemaVersion-stamped storage accessor as sole reader/writer of <code>hydroPro_rnd_*</code>; keep <code>HnxVN</code> objects as thin shims during transition, behind existing guards for fallback</td>
+<td>L</td>
+<td>High — every other fix lands in one place</td>
+</tr>
+<tr>
+<td>R13</td>
+<td><strong>P2</strong></td>
+<td>Zero automated tests; manual harnesses (Diagnose/TEST DRAW/Stats) bolted into production</td>
+<td>Extract pure functions to unit-tested modules: <code>flaFromKw</code>, <code>standardBreakerAbove</code>, <code>jr36Range</code>, <code>nxcByKw</code>, <code>feederSize</code> (NEC 430.52 table tests), <code>parseFeedersText</code>, <code>autoLayoutCabinet</code>/<code>autoLayout</code>, <code>guidedToSpec</code>/<code>renderSpec</code>/<code>renderCabinet</code>/<code>renderPlan</code>, <code>buildDXF</code>, sheet builders, <code>catEffective</code>/<code>autoCode</code>, <code>validateSpec</code>/<code>validateDesignParams</code>, <code>nextRev</code>, <code>parseLooseJson</code>, scene normalizers; golden-file storage-contract tests per <code>hydroPro_rnd_*_v1</code> schema (round-trip + size budget); one Playwright smoke: create → draw → save → reload → intact → generate sheet → switch sheet → BOM export non-empty</td>
+<td>M</td>
+<td>High enabler — precondition for R7–R12</td>
+</tr>
+<tr>
+<td>R14</td>
+<td><strong>P3</strong></td>
+<td>Task linking is a <code>prompt()</code> stub; bridge APIs have zero callers; no location/asset dimension</td>
+<td>Real picker over actual planning/maintenance tasks with validated ids; reverse "Schematics" panel on task/project cards calling <code>getRndItemsForTask</code>; first-class location/asset field (greenhouse/zone/system) in items, filters, dashboard; QR code on exported PDFs deep-linking to the live approved revision</td>
+<td>M</td>
+<td>High — turns drawing toy into infrastructure knowledge base</td>
+</tr>
+<tr>
+<td>R15</td>
+<td><strong>P3</strong></td>
+<td>Desktop-modal board on a phone/tablet field app; blocking <code>prompt()</code>/<code>confirm()</code> everywhere (<code>statusItem</code> 177272, <code>linkItem</code> 177596, <code>projSetBudget</code> 177750, project code 177745); button-only zoom; 44 px targets only via v22 retrofit</td>
+<td>Touch-first pass: pinch-zoom/two-finger pan, bottom-sheet palette/toolbar on narrow viewports, bigger handles, long-press context menu; replace all prompt/confirm with <code>openModal</code>-based dialogs; phone "view mode" — read-only pan/zoom + BOM/design-sheet tabs (the dominant field use case)</td>
+<td>M (dialogs+view mode), L (full gesture pass)</td>
+<td>High — view mode alone serves most field usage</td>
+</tr>
+<tr>
+<td>R16</td>
+<td><strong>P3</strong></td>
+<td>Approval flow has no inbox, no notifications, no reject-with-comment, no revision diff</td>
+<td>"Pending my approval" queue (tab badge + dashboard card, one-tap approve); required note on revise/back-to-draft stored on the revision; submit/approve notifications via host toast/briefing; side-by-side thumbnail diff of submitted vs last approved snapshot (revision thumbs exist, 177563)</td>
+<td>M</td>
+<td>Med-High — makes approval the CEO's real control point</td>
+</tr>
+<tr>
+<td>R17</td>
+<td><strong>P3</strong></td>
+<td>Library retrieval doesn't match field lookup ("approved panel drawing for Greenhouse 2"); dangling refs on subject/project delete; generic <code>miniDiagram</code> thumbs</td>
+<td>Location field as primary grouping for non-admins; "Approved only" toggle (default on in view mode); forced reassignment on subject/project delete; "my drafts / recently approved" rail; label miniDiagram fallback as "no preview yet"</td>
+<td>M</td>
+<td>Med-High — retrieval is the everyday use case</td>
+</tr>
+<tr>
+<td>R18</td>
+<td><strong>P3</strong></td>
+<td>BOM/budget dead-ends at export; "spend" chips conflate estimate with actuals; <code>AUTO-</code> lines never reconciled; admin-only catalog goes stale</td>
+<td>Honest labels ("estimated BOM cost vs budget"); "Create purchase request" handing lines to logistics/planning (via R14 linking); reconcile prompt matching <code>AUTO-</code> lines to catalog by name; non-admin price suggestions queued for admin approval</td>
+<td>M</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>R19</td>
+<td><strong>P3</strong></td>
+<td>Five-way create fork with no guidance; engineer-speak (Rev A, checker, BOM, lockLevel); dead draw.io teaser + unused <code>defaultBoardMode</code>; templates buried (IN-1-01 only in overlay pickers); voice undiscoverable</td>
+<td>Collapse Create to "Describe it" (default) + "Draw it", demote imports; template gallery reusing existing generators (<code>buildFertigationScene</code> 177973, <code>guidedToSpec</code>/<code>renderSpec</code> 176147, <code>renderCabinet</code>/<code>renderPlan</code> 177705, IN-1-01 179474/180448); plain-language relabeling + tooltips; remove dead teaser/setting; first-run board overlay</td>
+<td>S–M</td>
+<td>Med — adoption lever, only matters after P1</td>
+</tr>
+<tr>
+<td>R20</td>
+<td><strong>P3</strong></td>
+<td>Static <code>genericCockpit</code> placeholder for rnd; Overview "R&amp;D" domain scores from unrelated seed-study data</td>
+<td>Feed the Nexi rnd cockpit real module data (in-review count, health warnings, recent approvals) once the storage accessor (R12f) exists; reconcile or clearly separate the two "R&amp;D" features</td>
+<td>S–M</td>
+<td>Low-Med</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="6-suggested-phase-plan">6. Suggested Phase Plan</h2>
+<h3 id="phase-1-quick-wins-stop-the-bleeding-days-effort-s-each-negligible-migration-risk">Phase 1 — Quick wins &amp; stop-the-bleeding (days; effort S each; negligible migration risk)</h3>
+<p>All are strict tightenings of intended behavior, shippable independently:</p>
+<ol>
+<li><strong>Disarm the reapers (stopgap):</strong> disable v28's parse-time strip (188766–188797) and v27's 10-min schedule (188519–188528); leave at most v26 keep-5/&gt;50. One-line schedule removals; immediately widens the survival window.</li>
+<li><strong>Define <code>window.__hnxSyncPushSoon</code></strong> as a debounced (~2 s) call into the existing worker push, + <code>beforeunload</code>/<code>visibilitychange</code> flush. Makes every <code>save()</code> eager as designed and makes the "cloud has backups" premise start being true.</li>
+<li><strong>Fix line 180433</strong> prefix filter (<code>!== 0</code> idiom).</li>
+<li><strong>Exempt <code>_dirty</code>/no-<code>sceneKey</code> items</strong> from every remaining trim function (guard in 4 places).</li>
+<li><strong>Add <code>hydroPro_rnd_items_v1_backup</code></strong> to sync <code>SKIP_PREFIXES</code> (138973).</li>
+<li><strong>Call <code>ensureEditable()</code> in <code>boardSave</code></strong> (178301) so project locks block canvas saves.</li>
+<li><strong>Permissions wiring:</strong> add <code>'rnd'</code> to <code>moduleToRolePerm</code> + <code>DEPARTMENT_OPTIONS</code>; add <code>rnd_home</code> to the switchView guards (ideally derive guards from the registry to fix the bug class).</li>
+<li><strong>One-time recovery scan</strong> of R2 / the sync worker for orphaned scene JSONs belonging to already-stripped items.</li>
+</ol>
+<h3 id="phase-2-storage-re-architecture-the-structural-fix-weeks">Phase 2 — Storage re-architecture (the structural fix; weeks)</h3>
+<p>Sequenced so each step de-risks the next:</p>
+<ol>
+<li><strong>Test harness first (R13):</strong> extract and unit-test the pure functions (sizing math, spec/sheet builders, catalog resolution, validators, <code>nextRev</code>, <code>parseLooseJson</code>); golden-file storage-contract tests per key; one Playwright smoke covering the historical bug classes (kind/type mismatch, save races, strip-on-load).</li>
+<li><strong>Single writer (R7a):</strong> <code>RND.putScene(itemId, objects)</code> wrapping <code>putItem</code>/<code>persistScene</code>; route every HNX draw path through it; replace the localStorage-walk heuristic with <code>RND.getActiveItem()</code>/<code>RND.appendObjects()</code> (R12d). Enforce the invariant: any replace/zero of <code>scene.objects</code> pushes a revision first (R11b).</li>
+<li><strong>Archive-then-strip governor (R1):</strong> one storage policy replacing v25–v28; strip only verified-<code>sceneKey</code> or <code>hnxCabinetSpec</code> items; rehydrate-on-open; visible "archived" state.</li>
+<li><strong>IndexedDB offline buffer (R7b–d):</strong> pending scenes, thumbs, backgrounds, and the v75 backup out of the synced localStorage key; revert v14's Data-URL backgrounds.</li>
+<li><strong>Scene format v2 (R8):</strong> <code>scene.generator</code> render-on-open for sheets; symbol-by-ref; canonical <code>kind</code> schema + <code>schemaVersion</code> with permanent load-time shims (cloud peers hold old records); flat path arrays.</li>
+<li><strong>Asset dedup (R9):</strong> virtual seeds, content-hash upload keys, pointer-only thumbs.</li>
+<li><strong>Per-item sync merge (R10):</strong> union-by-id / newer-updatedAt / tombstones behind a logging flag, then enforced; conflict-loser → <code>revisions[]</code> + toast; per-item sync badges (R6).</li>
+<li><strong>Patch-stack consolidation (R12):</strong> freeze the chain, split files, fold layers in dependency order (v9, v12, v49, v25–v28 die first), event-driven activation replacing pollers, one storage accessor module.</li>
+<li><strong>Undo delta stack (R11a)</strong> once the writer choke point exists.</li>
+</ol>
+<h3 id="phase-3-new-capabilities-after-the-module-is-safe-and-reachable">Phase 3 — New capabilities (after the module is safe and reachable)</h3>
+<ol>
+<li><strong>Real task/asset linking (R14):</strong> validated pickers, reverse "Schematics" panels in planning/maintenance, location/greenhouse field, QR deep links on PDFs.</li>
+<li><strong>Field-first UX (R15):</strong> phone view mode first (read-only pan/zoom + BOM/sheet), then prompt()→modal replacement, then the full touch/gesture editing pass.</li>
+<li><strong>Review workflow (R16):</strong> approval inbox + badge, reject-with-comment, notifications, snapshot thumbnail diff.</li>
+<li><strong>Findability (R17):</strong> location grouping, Approved-only toggle, delete-time reassignment, recents/pinned rail.</li>
+<li><strong>BOM → procurement (R18):</strong> honest budget labels, purchase-request handoff, AUTO-line reconciliation, price-suggestion queue.</li>
+<li><strong>Create-flow simplification + templates (R19)</strong> and <strong>real Nexi cockpit data (R20)</strong>.</li>
+</ol>
+<hr />
+<p><em>Every line number in this document refers to <code>/home/user/hydropro/index.html</code>. The visible HNX toolbar version label equals the last patch loaded, not a coherent release; treat <code>v4.54-rnd</code> (core) + the patch high-water mark (~v49, with v28's reaper active) as the deployed state.</em></p></body></html>
