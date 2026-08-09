@@ -8,22 +8,29 @@ interface CockpitOverviewProps {
 }
 
 export function CockpitOverview({ onOpenStudio, onNavigate }: CockpitOverviewProps) {
+  const real = cockpitProjects.filter(p => p.id !== 'empty');
+  const nProjects = real.length;
+  const nReview = real.filter(p => p.status === 'For review').length;
+  const nRisks = real.reduce((s, p) => s + p.openRisks, 0);
+  const disciplines = new Set(real.flatMap(p => p.discipline.split(' · '))).size;
+  const avgConf = real.length ? Math.round(real.reduce((s, p) => s + p.confidence, 0) / real.length) : 100;
   return (
     <div className="rnd-overview rnd-enter">
       <section className="rnd-command-deck">
         <div className="rnd-command-deck__copy">
           <div className="rnd-eyebrow"><span className="rnd-live-dot" /> NEXI ENGINEERING INTELLIGENCE · LIVE</div>
-          <h1>Good morning. Four engineering decisions need attention.</h1>
+          <h1>{nReview ? `Good day. ${nReview} item${nReview > 1 ? 's' : ''} need${nReview > 1 ? '' : 's'} your attention.` : 'Good day. Everything is in order.'}</h1>
           <p>
-            I reviewed 18 active projects, checked the latest drawings against project rules,
-            matched BOM shortages to warehouse stock, and recalculated today&apos;s critical path.
+            {nProjects
+              ? `I am tracking ${nProjects} live item${nProjects > 1 ? 's' : ''} from your Projects & Files libraries, Engineering Board drawings and the classic R&D library.`
+              : 'No projects yet — create one in Projects & Files or draw on the Engineering Board, and it will appear here.'}
           </p>
           <div className="rnd-command-actions">
             <button className="rnd-button rnd-button--primary" onClick={() => onOpenStudio(cockpitProjects[0])}>
               Open priority project <span aria-hidden="true">→</span>
             </button>
             <button className="rnd-button rnd-button--ghost" onClick={() => onNavigate('approvals')}>
-              Review 4 decisions
+              {nReview ? `Review ${nReview} item${nReview > 1 ? 's' : ''}` : 'Reviews & approvals'}
             </button>
           </div>
         </div>
@@ -31,17 +38,17 @@ export function CockpitOverview({ onOpenStudio, onNavigate }: CockpitOverviewPro
           <NexiOrb size="large" />
           <div className="rnd-brain-status">
             <strong>Portfolio confidence</strong>
-            <span>89%</span>
+            <span>{avgConf}%</span>
           </div>
           <div className="rnd-scan-line" />
         </div>
       </section>
 
       <section className="rnd-kpi-grid" aria-label="R&D portfolio indicators">
-        <Kpi label="Active projects" value="18" detail="5 disciplines · 4 sites" trend="+3 this month" tone="cyan" />
-        <Kpi label="Pending approvals" value="07" detail="2 safety-critical" trend="Oldest: 18 hours" tone="amber" />
-        <Kpi label="Open engineering risks" value="12" detail="3 high · 6 medium" trend="−4 this week" tone="red" />
-        <Kpi label="Forecast variance" value="−2.8%" detail="Across approved budgets" trend="PHP 1.24M protected" tone="lime" />
+        <Kpi label="Live projects & drawings" value={String(nProjects)} detail={disciplines + ' discipline' + (disciplines === 1 ? '' : 's')} trend="From your real data" tone="cyan" />
+        <Kpi label="Waiting for review" value={String(nReview)} detail="Drafts & empty projects" trend={nReview ? 'Open each to resolve' : 'All clear'} tone="amber" />
+        <Kpi label="Open engineering risks" value={String(nRisks)} detail="Tracked on live items" trend={nRisks ? 'Needs attention' : 'None recorded'} tone="red" />
+        <Kpi label="Portfolio confidence" value={avgConf + '%'} detail="Across live items" trend="Recomputed on open" tone="lime" />
       </section>
 
       <section className="rnd-section-heading">

@@ -8,12 +8,13 @@ import './rnd-system.css';
 
 type View = 'closed' | 'overview' | 'portfolio' | 'studio' | 'approvals' | 'knowledge' | 'governance';
 
+const _real = cockpitProjects.filter(p => p.id !== 'empty');
 const navigation: { id: Exclude<View, 'closed' | 'studio'>; label: string; glyph: string; count?: number }[] = [
   { id: 'overview', label: 'Executive cockpit', glyph: '⌂' },
-  { id: 'portfolio', label: 'Project portfolio', glyph: '▦', count: 18 },
-  { id: 'approvals', label: 'Reviews & approvals', glyph: '✓', count: 7 },
+  { id: 'portfolio', label: 'Project portfolio', glyph: '▦', count: _real.length || undefined },
+  { id: 'approvals', label: 'Reviews & approvals', glyph: '✓', count: _real.filter(p => p.status === 'For review').length || undefined },
   { id: 'knowledge', label: 'Engineering knowledge', glyph: '◎' },
-  { id: 'governance', label: 'Nexi governance', glyph: '◇', count: 3 },
+  { id: 'governance', label: 'Nexi governance', glyph: '◇' },
 ];
 
 export function RNDApp({ onReady }: { onReady: (controller: RNDController) => void }) {
@@ -77,7 +78,7 @@ export function RNDApp({ onReady }: { onReady: (controller: RNDController) => vo
         <div className="rnd-sidebar__footer">
           <button className="rnd-sidebar-nexi" onClick={() => setCommandOpen(true)}>
             <NexiOrb size="small" />
-            <span><strong>Nexi is monitoring</strong><small>18 projects · 3 alerts</small></span>
+            <span><strong>Nexi is monitoring</strong><small>live data</small></span>
             <i>⌘K</i>
           </button>
           <div className="rnd-user-chip"><span>EB</span><div><strong>Eyal Ben Ari</strong><small>President · Full authority</small></div><button>•••</button></div>
