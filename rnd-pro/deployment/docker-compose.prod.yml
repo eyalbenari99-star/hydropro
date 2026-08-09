@@ -1,0 +1,29 @@
+version: '3.9'
+
+# Production stack — terminate TLS at nginx, backend on internal network, no
+# Postgres container (use managed Neon/Supabase via DATABASE_URL env).
+
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../backend/.env
+    expose:
+      - "8001"
+    depends_on: []
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ../frontend/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - backend

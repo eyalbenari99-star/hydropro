@@ -1,0 +1,51 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: hnx
+      POSTGRES_PASSWORD: hnx
+      POSTGRES_DB: hnx
+    ports:
+      - "5432:5432"
+    volumes:
+      - hnx-pgdata:/var/lib/postgresql/data
+      - ../migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hnx"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://hnx:hnx@postgres:5432/hnx
+      CORS_ORIGINS: http://localhost:5173,http://localhost:8765
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    volumes:
+      - ../backend:/app:ro
+    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+
+  frontend-dev:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ../frontend:/app
+    command: sh -c "npm install && npm run dev -- --host"
+    environment:
+      VITE_API_BASE: http://localhost:8001/api/rnd
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  hnx-pgdata:

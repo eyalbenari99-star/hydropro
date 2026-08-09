@@ -1,0 +1,31 @@
+# Render.com Infrastructure-as-Code
+services:
+  - type: web
+    name: hnx-rnd-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    plan: starter
+    healthCheckPath: /api/rnd/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false              # set via dashboard
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        value: hnx-rnd
+      - key: CORS_ORIGINS
+        value: https://your-app.pages.dev
+
+  - type: web
+    name: hnx-rnd-frontend
+    runtime: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: ./frontend/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
