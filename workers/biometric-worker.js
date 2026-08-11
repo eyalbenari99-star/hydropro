@@ -77,6 +77,20 @@ export default {
       }
       return json({ ok: true, days: out });
     }
+    if (p === '/bio/import' && req.method === 'POST') {
+      /* NGTeco Office route: the Gmail bridge (workers/gmail-bio-bridge.gs)
+         parses the scheduled NGTeco report emails and posts punches here:
+         { punches: [ { userId, ts: "YYYY-MM-DD HH:MM[:SS]", sn? } ] } */
+      const body = await req.json().catch(() => ({}));
+      const list = Array.isArray(body.punches) ? body.punches : [];
+      const lines = list
+        .filter(x => x && x.userId && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(String(x.ts || '')))
+        .map(x => `${String(x.userId).trim()}\t${String(x.ts).slice(0, 19)}\t\t`)
+        .join('\n');
+      const n = lines ? await storePunches(env, body.sn || 'NGTECO-OFFICE', lines) : 0;
+      await touchDevice(env, body.sn || 'NGTECO-OFFICE');
+      return json({ ok: true, imported: n });
+    }
     if (p === '/bio/status') {
       const obj = await env.R2.get('bio/devices.json');
       let devices = {};
