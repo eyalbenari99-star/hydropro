@@ -95,7 +95,8 @@ function parseRows(rows) {
   for (var r2 = header + 1; r2 < rows.length; r2++) {
     var row = rows[r2];
     var id = idCol >= 0 ? String(row[idCol]).trim() : '';
-    if (id && /^\d+$/.test(id)) lastId = id;
+    /* v15.57: IDs are alphanumeric (OFFICE001, PROD002), not only digits */
+    if (id && /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id)) lastId = id;
     var date = '';
     if (dateCol >= 0) date = normDate(row[dateCol]);
     if (!date) { // hunt any cell that looks like a date
@@ -105,12 +106,21 @@ function parseRows(rows) {
     if (!lastId || !lastDate) continue;
     var seen = {};
     for (var c3 = 0; c3 < row.length; c3++) {
-      var times = String(row[c3]).match(/\b([01]?\d|2[0-3]):[0-5]\d\b/g) || [];
-      times.forEach(function (t) {
-        if (t.length === 4) t = '0' + t;
-        if (seen[t]) return; seen[t] = 1;
+      /* v15.57: NGTeco reports use 12-hour times (06:43:29 AM / 02:30 PM) —
+         capture optional seconds + AM/PM and normalize to 24-hour */
+      var re = /\b(\d{1,2}):([0-5]\d)(?::[0-5]\d)?\s*([AaPp])\.?\s*[Mm]?\.?\b|\b([01]?\d|2[0-3]):([0-5]\d)\b/g, m;
+      var cell = String(row[c3]);
+      while ((m = re.exec(cell))) {
+        var hh, mm;
+        if (m[3] !== undefined && m[1] !== undefined) { // 12-hour with AM/PM
+          hh = Number(m[1]) % 12; mm = m[2];
+          if (/p/i.test(m[3])) hh += 12;
+        } else { hh = Number(m[4]); mm = m[5]; } // plain 24-hour
+        if (hh > 23) continue;
+        var t = ('0' + hh).slice(-2) + ':' + mm;
+        if (seen[t]) continue; seen[t] = 1;
         punches.push({ userId: lastId, ts: lastDate + ' ' + t + ':00' });
-      });
+      }
     }
   }
   return punches;
