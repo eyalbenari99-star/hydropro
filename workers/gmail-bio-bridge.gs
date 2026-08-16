@@ -1,7 +1,7 @@
 /** Nexi ⇄ NGTeco Office bridge — Google Apps Script
  *
  * Runs under nexi@abapardes.com.ph. NGTeco Office is set to email its
- * scheduled attendance/timecard report (Excel) to that inbox daily.
+ * scheduled attendance/timecard report (Excel or CSV) to that inbox daily.
  * This script (time-driven trigger, every 30 min):
  *   1. finds unprocessed NGTeco report emails,
  *   2. converts the Excel attachment to a Google Sheet and reads it,
@@ -31,8 +31,10 @@ function runBridge() {
     thread.getMessages().forEach(function (msg) {
       msg.getAttachments().forEach(function (att) {
         var name = String(att.getName() || '').toLowerCase();
-        if (!/\.xlsx?$/.test(name)) return;
-        try { punches = punches.concat(parseExcel(att)); }
+        try {
+          if (/\.xlsx?$/.test(name)) punches = punches.concat(parseExcel(att));
+          else if (/\.csv$/.test(name)) punches = punches.concat(parseCsvAtt(att)); // v15.56: the clock's automatic email is CSV
+        }
         catch (e) { Logger.log('parse fail ' + name + ': ' + e); }
       });
     });
@@ -49,6 +51,13 @@ function runBridge() {
     }
     thread.addLabel(label);
   });
+}
+
+/* CSV attachment → rows (the NGTeco clock's automatic email format) */
+function parseCsvAtt(att) {
+  var txt = att.getDataAsString('UTF-8');
+  var rows = Utilities.parseCsv(txt);
+  return parseRows(rows.map(function (r) { return r.map(String); }));
 }
 
 /* Excel attachment → rows, via Drive convert-to-Sheet */
