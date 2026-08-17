@@ -60,11 +60,17 @@ function parseCsvAtt(att) {
   return parseRows(rows.map(function (r) { return r.map(String); }));
 }
 
-/* Excel attachment → rows, via Drive convert-to-Sheet */
+/* Excel attachment → rows, via Drive convert-to-Sheet.
+   v15.57: works with the Drive advanced service in BOTH v2 and v3 —
+   v2 has Drive.Files.insert, v3 renamed it to Drive.Files.create. */
 function parseExcel(att) {
-  var file = Drive.Files.insert(
-    { title: 'nexi-tmp-' + Date.now(), mimeType: MimeType.GOOGLE_SHEETS },
-    att.copyBlob(), { convert: true });
+  var file = Drive.Files.insert
+    ? Drive.Files.insert(
+        { title: 'nexi-tmp-' + Date.now(), mimeType: MimeType.GOOGLE_SHEETS },
+        att.copyBlob(), { convert: true })
+    : Drive.Files.create(
+        { name: 'nexi-tmp-' + Date.now(), mimeType: MimeType.GOOGLE_SHEETS },
+        att.copyBlob());
   try {
     var ss = SpreadsheetApp.openById(file.id);
     var out = [];
