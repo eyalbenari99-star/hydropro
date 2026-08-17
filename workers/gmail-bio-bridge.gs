@@ -21,24 +21,55 @@
 
 var BIO_URL = 'https://nexi-bio.YOUR-ACCOUNT.workers.dev'; // ← fill in
 var BIO_TOKEN = 'PASTE-BIO_TOKEN-HERE';                    // ← fill in
-var SEARCH = 'has:attachment (from:ngteco.com OR subject:attendance OR subject:timecard OR subject:report) -label:nexi-done newer_than:7d';
+/* v15.82: NGTeco/ZKTeco groups every report under one subject ("Timecard
+   Export"), so Gmail puts them in ONE THREAD. The old query excluded whole
+   threads carrying the nexi-done label — once the first report was processed,
+   every later report in that thread was skipped forever. Now: no label
+   exclusion, and each MESSAGE is remembered by id so nothing repeats.
+   Sender widened too: the mail actually comes from @zkteco.in. */
+var SEARCH = 'has:attachment (from:ngteco.com OR from:zkteco.in OR from:zkteco.com OR subject:attendance OR subject:timecard OR subject:report OR subject:export) newer_than:14d';
+var DONE_PROP = 'nexi_done_msg_ids';
+var DONE_MAX = 400;
+
+function _doneIds() {
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty(DONE_PROP);
+    var a = raw ? JSON.parse(raw) : [];
+    return Array.isArray(a) ? a : [];
+  } catch (e) { return []; }
+}
+function _markDone(ids) {
+  try {
+    var a = _doneIds().concat(ids);
+    if (a.length > DONE_MAX) a = a.slice(a.length - DONE_MAX);
+    PropertiesService.getScriptProperties().setProperty(DONE_PROP, JSON.stringify(a));
+  } catch (e) {}
+}
 
 function runBridge() {
   var label = GmailApp.getUserLabelByName('nexi-done') || GmailApp.createLabel('nexi-done');
-  var threads = GmailApp.search(SEARCH, 0, 20);
+  var done = _doneIds(), doneSet = {};
+  done.forEach(function (id) { doneSet[id] = 1; });
+  var threads = GmailApp.search(SEARCH, 0, 30);
+  var justDone = [];
   threads.forEach(function (thread) {
-    var punches = [];
     thread.getMessages().forEach(function (msg) {
+      var mid = msg.getId();
+      if (doneSet[mid]) return;                 /* this exact report already imported */
+      var punches = [];
       msg.getAttachments().forEach(function (att) {
         var name = String(att.getName() || '').toLowerCase();
         try {
           if (/\.xlsx?$/.test(name)) punches = punches.concat(parseExcel(att));
-          else if (/\.csv$/.test(name)) punches = punches.concat(parseCsvAtt(att)); // v15.56: the clock's automatic email is CSV
+          else if (/\.csv$/.test(name)) punches = punches.concat(parseCsvAtt(att));
         }
         catch (e) { Logger.log('parse fail ' + name + ': ' + e); }
       });
-    });
-    if (punches.length) {
+      if (!punches.length) {                    /* nothing to send (e.g. empty report) */
+        justDone.push(mid);
+        Logger.log('no punches in message ' + mid + ' (' + msg.getSubject() + ')');
+        return;
+      }
       var res = UrlFetchApp.fetch(BIO_URL + '/bio/import', {
         method: 'post',
         contentType: 'application/json',
@@ -46,11 +77,12 @@ function runBridge() {
         payload: JSON.stringify({ punches: punches, sn: 'NGTECO-OFFICE' }),
         muteHttpExceptions: true,
       });
-      Logger.log('imported ' + punches.length + ' → ' + res.getResponseCode() + ' ' + res.getContentText());
-      if (res.getResponseCode() !== 200) return; // retry next run, no label
-    }
-    thread.addLabel(label);
+      Logger.log('imported ' + punches.length + ' \u2192 ' + res.getResponseCode() + ' ' + res.getContentText());
+      if (res.getResponseCode() === 200) justDone.push(mid);   /* retry next run if not 200 */
+    });
+    try { thread.addLabel(label); } catch (e) {}               /* label = visual marker only */
   });
+  if (justDone.length) _markDone(justDone);
 }
 
 /* CSV attachment → rows (the NGTeco clock's automatic email format) */
