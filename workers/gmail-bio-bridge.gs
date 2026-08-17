@@ -115,52 +115,77 @@ function parseExcel(att) {
   }
 }
 
-/* Tolerant parser: find the header row, then per data row take the person
-   ID, the date, and EVERY HH:MM time in the row as punches of that day. */
+/* Header-aware parser. v15.83 (Mea/Jomel): the old version read EVERY HH:MM
+   found in a row, so a report carrying a TIMETABLE / schedule column (08:00,
+   08:00-17:00) imported that schedule as if it were a punch — every employee
+   ended up with a single 08:00 "scan" and no time-out. Now real punch columns
+   are identified from the header (Clock In/Out, Time In/Out, In/Out, Punch,
+   Check In/Out) and schedule/summary columns are ignored outright. If a sheet
+   has no punch columns, nothing is imported from it (better than fake punches).
+   The Execution log names the columns used, so a new report layout is easy to
+   diagnose. */
+var PUNCH_RE = /(clock|check|punch|time)\s*(in|out)|^(in|out)$|^(am|pm)\s*(in|out)$|punch\s*time|swipe/;
+var SKIP_RE  = /timetable|time\s*table|schedule|shift|duty|roster|break|required|expected|standard|late|early|absent|leave|overtime|\bot\b|total|work\s*(time|hour)|duration|hours|remark|status|approve|note|department|position/;
+
 function parseRows(rows) {
   var punches = [];
-  var idCol = -1, dateCol = -1, header = -1;
-  for (var r = 0; r < Math.min(rows.length, 12); r++) {
+  var idCol = -1, dateCol = -1, header = -1, punchCols = [], skipCols = {};
+  function norm(v) { return String(v == null ? '' : v).toLowerCase().replace(/\s+/g, ' ').trim(); }
+  for (var r = 0; r < Math.min(rows.length, 15); r++) {
+    var lid = -1, ldate = -1, lp = [], lskip = {};
     for (var c = 0; c < rows[r].length; c++) {
-      var v = String(rows[r][c]).toLowerCase().replace(/\s+/g, ' ').trim();
-      if (idCol < 0 && /(person|employee|user)?\s*id\b|emp no|no\./.test(v) && v.length < 20) { idCol = c; header = r; }
-      if (dateCol < 0 && /^date\b|att.*date|work date/.test(v)) { dateCol = c; header = r; }
+      var v = norm(rows[r][c]);
+      if (!v) continue;
+      if (lid < 0 && (/(person|employee|user)?\s*id\b|emp no|no\./.test(v)) && v.length < 20) lid = c;
+      if (ldate < 0 && /^date\b|att.*date|work date|punch date/.test(v)) ldate = c;
+      if (SKIP_RE.test(v)) { lskip[c] = 1; continue; }
+      if (PUNCH_RE.test(v)) lp.push(c);
     }
-    if (idCol >= 0) break;
+    if (lid >= 0) { idCol = lid; header = r; if (ldate >= 0) dateCol = ldate; punchCols = lp; skipCols = lskip; break; }
   }
-  if (header < 0) return punches;
+  if (header < 0) { Logger.log('parseRows: no header row found'); return punches; }
+  Logger.log('parseRows: idCol=' + idCol + ' dateCol=' + dateCol +
+             ' punchCols=[' + punchCols.join(',') + '] skipped=[' + Object.keys(skipCols).join(',') + ']');
+  if (!punchCols.length) {
+    Logger.log('parseRows: NO clock-in/out columns in this sheet — skipping it so schedule times are never imported as punches');
+    return punches;
+  }
   var lastId = '', lastDate = '';
   for (var r2 = header + 1; r2 < rows.length; r2++) {
     var row = rows[r2];
-    var id = idCol >= 0 ? String(row[idCol]).trim() : '';
-    /* v15.57: IDs are alphanumeric (OFFICE001, PROD002), not only digits */
+    if (!row) continue;
+    var id = idCol >= 0 ? String(row[idCol] == null ? '' : row[idCol]).trim() : '';
     if (id && /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id)) lastId = id;
     var date = '';
     if (dateCol >= 0) date = normDate(row[dateCol]);
-    if (!date) { // hunt any cell that looks like a date
-      for (var c2 = 0; c2 < row.length; c2++) { date = normDate(row[c2]); if (date) break; }
+    if (!date) {
+      for (var c2 = 0; c2 < row.length; c2++) {
+        if (skipCols[c2]) continue;
+        date = normDate(row[c2]); if (date) break;
+      }
     }
     if (date) lastDate = date;
     if (!lastId || !lastDate) continue;
     var seen = {};
-    for (var c3 = 0; c3 < row.length; c3++) {
-      /* v15.57: NGTeco reports use 12-hour times (06:43:29 AM / 02:30 PM) —
-         capture optional seconds + AM/PM and normalize to 24-hour */
+    punchCols.forEach(function (c3) {
+      var cell = String(row[c3] == null ? '' : row[c3]);
+      if (!cell) return;
+      /* a punch cell can hold several stamps ("06:43 AM 05:02 PM") */
       var re = /\b(\d{1,2}):([0-5]\d)(?::[0-5]\d)?\s*([AaPp])\.?\s*[Mm]?\.?\b|\b([01]?\d|2[0-3]):([0-5]\d)\b/g, m;
-      var cell = String(row[c3]);
       while ((m = re.exec(cell))) {
         var hh, mm;
-        if (m[3] !== undefined && m[1] !== undefined) { // 12-hour with AM/PM
+        if (m[3] !== undefined && m[1] !== undefined) {
           hh = Number(m[1]) % 12; mm = m[2];
           if (/p/i.test(m[3])) hh += 12;
-        } else { hh = Number(m[4]); mm = m[5]; } // plain 24-hour
+        } else { hh = Number(m[4]); mm = m[5]; }
         if (hh > 23) continue;
         var t = ('0' + hh).slice(-2) + ':' + mm;
         if (seen[t]) continue; seen[t] = 1;
         punches.push({ userId: lastId, ts: lastDate + ' ' + t + ':00' });
       }
-    }
+    });
   }
+  Logger.log('parseRows: ' + punches.length + ' punch(es) extracted');
   return punches;
 }
 
