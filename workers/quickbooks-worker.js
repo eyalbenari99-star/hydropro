@@ -57,7 +57,8 @@
  *                                             { at, ageSeconds, data:{accounts, balanceSheet,
  *                                               profitAndLoss, trialBalance, agedPayables,
  *                                               agedReceivables} }
- *   /qb/sync?realm=                         → run one sync right now, don't wait for the tick
+ *   /qb/sync?realm=&full=1                 → run one sync right now, don't wait for the tick
+ *                                             (full=1 also pulls the slow tier)
  *   /qb/company?realm=                      → company name, address, fiscal year
  *   /qb/accounts?realm=                     → [{id,name,acctNum,type,subType,parent,balance,active}]
  *   /qb/gl?realm=&account=&start=&end=      → {rows:[{date,type,num,name,memo,amount}]}
@@ -87,9 +88,29 @@ const SYNC = [
   { key: 'accounts', kind: 'accounts' },
   { key: 'balanceSheet', kind: 'report', name: 'BalanceSheet', params: { accounting_method: 'Accrual' } },
   { key: 'profitAndLoss', kind: 'report', name: 'ProfitAndLoss', params: { accounting_method: 'Accrual', date_macro: 'This Fiscal Year-to-date' } },
-  { key: 'trialBalance', kind: 'report', name: 'TrialBalance', params: { accounting_method: 'Accrual' } },
   { key: 'agedPayables', kind: 'report', name: 'AgedPayables', params: {} },
   { key: 'agedReceivables', kind: 'report', name: 'AgedReceivables', params: {} },
+];
+
+/* The rest of the books. These move slowly and cost more to pull, so they are
+ * refreshed every SLOW_EVERY ticks instead of every tick — with a 5-minute
+ * cron that is roughly every half hour. Together with SYNC above, the app
+ * holds a complete working copy of each company without ever calling Intuit
+ * from a browser. */
+const SLOW_EVERY = 6;
+const SYNC_SLOW = [
+  { key: 'trialBalance', kind: 'report', name: 'TrialBalance', params: { accounting_method: 'Accrual' } },
+  { key: 'profitAndLossDetail', kind: 'report', name: 'ProfitAndLossDetail', params: { accounting_method: 'Accrual', date_macro: 'This Month-to-date' } },
+  { key: 'cashFlow', kind: 'report', name: 'CashFlow', params: { date_macro: 'This Fiscal Year-to-date' } },
+  { key: 'agedPayableDetail', kind: 'report', name: 'AgedPayableDetail', params: {} },
+  { key: 'agedReceivableDetail', kind: 'report', name: 'AgedReceivableDetail', params: {} },
+  { key: 'openBills', kind: 'query', q: "select * from Bill where Balance > '0' maxresults 500" },
+  { key: 'openInvoices', kind: 'query', q: "select * from Invoice where Balance > '0' maxresults 500" },
+  { key: 'vendors', kind: 'query', q: 'select * from Vendor where Active = true maxresults 500' },
+  { key: 'customers', kind: 'query', q: 'select * from Customer where Active = true maxresults 500' },
+  { key: 'items', kind: 'query', q: 'select * from Item where Active = true maxresults 1000' },
+  { key: 'recentJournalEntries', kind: 'query', q: 'select * from JournalEntry orderby MetaData.LastUpdatedTime desc maxresults 200' },
+  { key: 'recentPurchases', kind: 'query', q: 'select * from Purchase orderby MetaData.LastUpdatedTime desc maxresults 200' },
 ];
 
 /* Every report QuickBooks Online publishes. Nexi may read all of them and
@@ -121,7 +142,12 @@ export default {
       const synced = {};
       for (const rid of realms) {
         const snap = await loadSnap(env, rid);
-        synced[rid] = snap ? { at: snap.at, ageSeconds: Math.round((Date.now() - snap.at) / 1000), ok: !!snap.ok, error: snap.error || '' } : null;
+        synced[rid] = snap ? {
+          at: snap.at, ageSeconds: Math.round((Date.now() - snap.at) / 1000),
+          ok: !!snap.ok, error: snap.error || '',
+          fullAt: snap.fullAt || 0,
+          has: Object.keys(snap.data || {}),
+        } : null;
       }
       return json({ ok: true, connectedRealms: realms, hasClient: !!(env.INTUIT_CLIENT_ID && env.INTUIT_CLIENT_SECRET), lastSync: synced });
     }
@@ -173,7 +199,7 @@ export default {
     /* force one sync now instead of waiting for the next tick */
     if (p === '/qb/sync') {
       if (!realm) return json({ error: 'need realm' }, 400);
-      const snap = await syncRealm(env, realm);
+      const snap = await syncRealm(env, realm, url.searchParams.get('full') === '1');
       return json({ ok: snap.ok, at: snap.at, error: snap.error || '', keys: Object.keys(snap.data || {}) });
     }
 
@@ -292,7 +318,7 @@ export default {
 /* Pull the SYNC list for one company and store it. On failure the previous
  * snapshot is kept and the error is recorded on it, so a bad tick never
  * blanks the app's numbers — it just makes them visibly older. */
-async function syncRealm(env, realm) {
+async function syncRealm(env, realm, full) {
   const prev = (await loadSnap(env, realm)) || {};
   const access = await accessToken(env, realm);
   if (!access) {
@@ -302,7 +328,11 @@ async function syncRealm(env, realm) {
   }
   const data = {};
   let error = '';
-  for (const job of SYNC) {
+  /* carry the previous copy forward, so a fast tick keeps the slow data */
+  if (prev.data) for (const k of Object.keys(prev.data)) data[k] = prev.data[k];
+  const tick = full ? 0 : ((prev.tick || 0) + 1) % SLOW_EVERY;
+  const jobs = tick === 0 ? SYNC.concat(SYNC_SLOW) : SYNC;
+  for (const job of jobs) {
     try {
       if (job.kind === 'accounts') {
         const q = encodeURIComponent('select * from Account where Active in (true,false) maxresults 1000');
@@ -315,6 +345,12 @@ async function syncRealm(env, realm) {
           balance: typeof a.CurrentBalance === 'number' ? a.CurrentBalance : null,
           active: a.Active !== false,
         }));
+      } else if (job.kind === 'query') {
+        const r = await qbo(access, realm, '/query?minorversion=75&query=' + encodeURIComponent(job.q));
+        if (r.error) throw new Error(r.error);
+        const qr = r.QueryResponse || {};
+        const key = Object.keys(qr).filter((k) => Array.isArray(qr[k]))[0] || '';
+        data[job.key] = { type: key, rows: qr[key] || [] };
       } else {
         const qp = new URLSearchParams({ ...(job.params || {}), minorversion: '75' });
         const r = await qbo(access, realm, '/reports/' + job.name + '?' + qp.toString());
@@ -327,7 +363,8 @@ async function syncRealm(env, realm) {
       if (prev.data && prev.data[job.key]) data[job.key] = prev.data[job.key];
     }
   }
-  const snap = { realm, ok: !error, error, at: Date.now(), data };
+  const snap = { realm, ok: !error, error, at: Date.now(), tick,
+    fullAt: tick === 0 ? Date.now() : (prev.fullAt || 0), data };
   await env.R2.put(SNAP_KEY(realm), JSON.stringify(snap));
   return snap;
 }
