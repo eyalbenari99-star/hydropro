@@ -1,8 +1,22 @@
-/* nexi-qb — NEXI's QuickBooks Online connector (Cloudflare Worker)
+/* nexi-qb — NEXI's READ-ONLY QuickBooks Online reader (Cloudflare Worker)
  *
- * Lets the app PULL transactions straight from QuickBooks for bank/card
- * reconciliation — no more manual Excel exports. The worker holds the
- * Intuit OAuth tokens; the browser only ever talks to this worker.
+ * WHY THIS EXISTS
+ * The claude.ai QuickBooks connector is an interactive session login: its
+ * token lapses and QuickBooks "disconnects" every few days. This worker
+ * holds the Intuit refresh token itself and rolls it forward on every call,
+ * so once each company is authorized ONE time, Nexi can read QuickBooks
+ * for ~100 days without anybody logging in again. That is the fix for the
+ * repeated "QB disconnected".
+ *
+ * READ-ONLY BY CONSTRUCTION — not by policy
+ * Every request this worker sends to Intuit is a GET (see qbo(), which takes
+ * no method and no body). There is no code path in this file that can create,
+ * update, void or delete anything in QuickBooks. Nexi can see 100% of the
+ * books and cannot change one peso.
+ *   - /qb/query only accepts a statement starting with SELECT.
+ *   - /qb/report only accepts report names on the REPORTS whitelist.
+ *   - The Intuit API's write operations are POSTs; this worker never POSTs
+ *     to the API host (the only POSTs are to Intuit's token endpoint).
  *
  * DEPLOY (Cloudflare dashboard → Workers & Pages → Create → paste this):
  *   name: nexi-qb
@@ -27,12 +41,26 @@
  *      Tokens refresh themselves after that (Intuit refresh tokens last ~100
  *      days and roll forward on every use).
  *
- * ROUTES
- *   GET /qb/health                          → { ok, connectedRealms } (no auth)
- *   GET /qb/connect                         → Intuit OAuth (no auth — Intuit login IS the auth)
- *   GET /qb/callback                        → OAuth landing (Intuit calls it)
- *   GET /qb/accounts?realm=                 → [{id,name,acctNum,type}]      (Bearer QB_TOKEN)
- *   GET /qb/gl?realm=&account=&start=&end=  → {rows:[{date,type,num,name,memo,amount}]}
+ * NOTE ON THE INTUIT LOGIN USED IN STEP 4
+ * Intuit only lets a company ADMIN authorize an app, so step 4 is done with
+ * an admin login — but the grant is scoped to this worker, and this worker
+ * can only read. A QuickBooks "Reports only" user cannot authorize apps, so
+ * it is not an alternative here; the read-only guarantee comes from the code
+ * above, which is stronger than a user role you can later widen by accident.
+ *
+ * ROUTES (all GET; every data route needs  Authorization: Bearer QB_TOKEN)
+ *   /qb/health                              → { ok, connectedRealms }   (no auth)
+ *   /qb/connect                             → Intuit OAuth (no auth — Intuit login IS the auth)
+ *   /qb/callback                            → OAuth landing (Intuit calls it)
+ *   /qb/company?realm=                      → company name, address, fiscal year
+ *   /qb/accounts?realm=                     → [{id,name,acctNum,type,subType,parent,balance,active}]
+ *   /qb/gl?realm=&account=&start=&end=      → {rows:[{date,type,num,name,memo,amount}]}
+ *   /qb/report?realm=&name=X&<params>       → {rows:[{depth,label,values[]}], raw}
+ *                                             any extra query param is passed to
+ *                                             Intuit (start_date, end_date,
+ *                                             accounting_method, summarize_column_by…)
+ *   /qb/query?realm=&q=SELECT+...           → {entities:[…]}  SELECT statements only
+ *   /qb/entity?realm=&type=Bill&id=123      → the full record, every field
  */
 
 const CORS = {
@@ -44,6 +72,22 @@ const AUTH_BASE = 'https://appcenter.intuit.com/connect/oauth2';
 const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
 const API = 'https://quickbooks.api.intuit.com/v3/company/';
 const TOK_KEY = 'qb/tokens.json';
+
+/* Every report QuickBooks Online publishes. Nexi may read all of them and
+ * write none of them. Adding a name here can never grant write access —
+ * /reports/* is a read-only family in the Intuit API. */
+const REPORTS = [
+  'BalanceSheet', 'BalanceSheetDetail', 'ProfitAndLoss', 'ProfitAndLossDetail',
+  'TrialBalance', 'GeneralLedger', 'GeneralLedgerDetail', 'CashFlow', 'JournalReport',
+  'AccountList', 'TransactionList', 'TransactionListByCustomer', 'TransactionListByVendor',
+  'AgedReceivables', 'AgedReceivableDetail', 'AgedPayables', 'AgedPayableDetail',
+  'CustomerBalance', 'CustomerBalanceDetail', 'VendorBalance', 'VendorBalanceDetail',
+  'CustomerIncome', 'CustomerSales', 'VendorExpenses',
+  'SalesByCustomer', 'SalesByCustomerSummary', 'SalesByProduct', 'SalesByProductSummary',
+  'ItemSales', 'InventoryValuationSummary', 'InventoryValuationDetail',
+  'ClassSalesSummary', 'DepartmentSalesSummary', 'ProfitAndLossByClass',
+  'PurchaseByVendorDetail', 'ExpensesByVendorSummary', 'TaxSummary',
+];
 
 export default {
   async fetch(req, env) {
@@ -94,10 +138,59 @@ export default {
     if (!env.QB_TOKEN || auth !== 'Bearer ' + env.QB_TOKEN) return json({ error: 'unauthorized' }, 401);
 
     const realm = url.searchParams.get('realm') || '';
-    if (p === '/qb/accounts' || p === '/qb/gl') {
+    const DATA = ['/qb/accounts', '/qb/gl', '/qb/company', '/qb/report', '/qb/query', '/qb/entity'];
+    if (DATA.indexOf(p) >= 0) {
       if (!realm) return json({ error: 'need realm' }, 400);
       const access = await accessToken(env, realm);
       if (!access) return json({ error: 'realm not connected — open /qb/connect in a browser and authorize this company' }, 503);
+
+      /* who are we looking at — so the app can label the numbers it shows */
+      if (p === '/qb/company') {
+        const r = await qbo(access, realm, '/companyinfo/' + realm + '?minorversion=75');
+        if (r.error) return json(r, 502);
+        const c = r.CompanyInfo || {};
+        return json({
+          ok: true, realm,
+          name: c.CompanyName || '', legalName: c.LegalName || '',
+          country: c.Country || '', fiscalYearStart: c.FiscalYearStartMonth || '',
+          address: ((c.CompanyAddr || {}).Line1 || '') + ' ' + ((c.CompanyAddr || {}).City || ''),
+        });
+      }
+
+      /* any QuickBooks report, by name — this is how Nexi sees 100% of the books */
+      if (p === '/qb/report') {
+        const name = url.searchParams.get('name') || '';
+        if (REPORTS.indexOf(name) < 0)
+          return json({ error: 'unknown report: ' + name, allowed: REPORTS }, 400);
+        const qp = new URLSearchParams();
+        url.searchParams.forEach((v, k) => { if (k !== 'realm' && k !== 'name') qp.set(k, v); });
+        if (!qp.has('minorversion')) qp.set('minorversion', '75');
+        const r = await qbo(access, realm, '/reports/' + name + '?' + qp.toString());
+        if (r.error) return json(r, 502);
+        return json({ ok: true, report: name, rows: flatten(r), header: r.Header || {}, columns: colNames(r) });
+      }
+
+      /* read any list of records. SELECT only — nothing else is accepted. */
+      if (p === '/qb/query') {
+        const q = (url.searchParams.get('q') || '').trim();
+        if (!/^select\s/i.test(q)) return json({ error: 'only SELECT statements are allowed' }, 400);
+        if (q.indexOf(';') >= 0) return json({ error: 'one SELECT statement only' }, 400);
+        const r = await qbo(access, realm, '/query?minorversion=75&query=' + encodeURIComponent(q));
+        if (r.error) return json(r, 502);
+        const qr = r.QueryResponse || {};
+        const key = Object.keys(qr).filter((k) => Array.isArray(qr[k]))[0] || '';
+        return json({ ok: true, type: key, count: (qr[key] || []).length, entities: qr[key] || [], total: qr.totalCount });
+      }
+
+      /* one record, every field — for drilling into a bill, JE, invoice… */
+      if (p === '/qb/entity') {
+        const type = (url.searchParams.get('type') || '').replace(/[^a-z]/gi, '').toLowerCase();
+        const id = (url.searchParams.get('id') || '').replace(/[^0-9]/g, '');
+        if (!type || !id) return json({ error: 'need type and id' }, 400);
+        const r = await qbo(access, realm, '/' + type + '/' + id + '?minorversion=75');
+        if (r.error) return json(r, 502);
+        return json({ ok: true, type, id, record: r });
+      }
 
       if (p === '/qb/accounts') {
         const q = encodeURIComponent("select Id, Name, AcctNum, AccountType, CurrencyRef from Account where Active in (true,false) maxresults 1000");
@@ -168,6 +261,34 @@ async function qbo(access, realm, path) {
     if (!res.ok) return { error: 'qbo ' + res.status, detail: (d.Fault && d.Fault.Error) || d };
     return d;
   } catch (e) { return { error: String(e) }; }
+}
+/* QuickBooks reports come back as nested Rows/Row. Flatten to one line per
+ * row, keeping depth so the app can redraw the indentation of the real report. */
+function flatten(r) {
+  const out = [];
+  (function walk(node, depth) {
+    if (!node) return;
+    if (node.Rows) walk(node.Rows, depth);
+    if (Array.isArray(node.Row)) node.Row.forEach((row) => {
+      const cells = (row.ColData || row.Header && row.Header.ColData || []).map((c) => (c && c.value) || '');
+      if (cells.length) out.push({
+        depth,
+        label: cells[0] || '',
+        values: cells.slice(1),
+        type: row.type || '',
+        id: (row.ColData && row.ColData[0] && row.ColData[0].id) || '',
+      });
+      if (row.Rows) walk(row.Rows, depth + 1);
+      if (row.Summary && row.Summary.ColData) {
+        const c = row.Summary.ColData.map((x) => (x && x.value) || '');
+        out.push({ depth, label: c[0] || '', values: c.slice(1), type: 'Summary', id: '' });
+      }
+    });
+  })(r, 0);
+  return out;
+}
+function colNames(r) {
+  return (((r.Columns || {}).Column) || []).map((c) => (c && c.ColTitle) || '');
 }
 function text(s) { return new Response(s, { headers: { 'Content-Type': 'text/plain; charset=utf-8', ...CORS } }); }
 function json(o, status = 200) { return new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json', ...CORS } }); }
