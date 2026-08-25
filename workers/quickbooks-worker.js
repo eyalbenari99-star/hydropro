@@ -193,11 +193,16 @@ export default {
       }
 
       if (p === '/qb/accounts') {
-        const q = encodeURIComponent("select Id, Name, AcctNum, AccountType, CurrencyRef from Account where Active in (true,false) maxresults 1000");
-        const r = await qbo(access, realm, '/query?query=' + q);
+        const q = encodeURIComponent("select * from Account where Active in (true,false) maxresults 1000");
+        const r = await qbo(access, realm, '/query?minorversion=75&query=' + q);
         if (r.error) return json(r, 502);
         const list = (((r.QueryResponse || {}).Account) || []).map(a => ({
           id: a.Id, name: a.Name, acctNum: a.AcctNum || '', type: a.AccountType || '',
+          subType: a.AccountSubType || '',
+          parent: (a.ParentRef && a.ParentRef.value) || '',
+          fullName: a.FullyQualifiedName || a.Name,
+          balance: typeof a.CurrentBalance === 'number' ? a.CurrentBalance : null,
+          active: a.Active !== false,
           currency: (a.CurrencyRef && a.CurrencyRef.value) || '',
         }));
         return json({ ok: true, accounts: list });
