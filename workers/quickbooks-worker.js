@@ -52,6 +52,12 @@
  *   /qb/health                              → { ok, connectedRealms }   (no auth)
  *   /qb/connect                             → Intuit OAuth (no auth — Intuit login IS the auth)
  *   /qb/callback                            → OAuth landing (Intuit calls it)
+ *   /qb/snapshot?realm=                     → the every-few-minutes copy of the books,
+ *                                             answered from R2 with no call to Intuit:
+ *                                             { at, ageSeconds, data:{accounts, balanceSheet,
+ *                                               profitAndLoss, trialBalance, agedPayables,
+ *                                               agedReceivables} }
+ *   /qb/sync?realm=                         → run one sync right now, don't wait for the tick
  *   /qb/company?realm=                      → company name, address, fiscal year
  *   /qb/accounts?realm=                     → [{id,name,acctNum,type,subType,parent,balance,active}]
  *   /qb/gl?realm=&account=&start=&end=      → {rows:[{date,type,num,name,memo,amount}]}
@@ -72,6 +78,19 @@ const AUTH_BASE = 'https://appcenter.intuit.com/connect/oauth2';
 const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
 const API = 'https://quickbooks.api.intuit.com/v3/company/';
 const TOK_KEY = 'qb/tokens.json';
+const SNAP_KEY = (realm) => 'qb/snap/' + realm + '.json';
+
+/* What the every-few-minutes sync pulls for each company. Keep this short:
+ * the whole point is that it finishes well inside one cron tick. Anything not
+ * on this list is still readable live through /qb/report and /qb/query. */
+const SYNC = [
+  { key: 'accounts', kind: 'accounts' },
+  { key: 'balanceSheet', kind: 'report', name: 'BalanceSheet', params: { accounting_method: 'Accrual' } },
+  { key: 'profitAndLoss', kind: 'report', name: 'ProfitAndLoss', params: { accounting_method: 'Accrual', date_macro: 'This Fiscal Year-to-date' } },
+  { key: 'trialBalance', kind: 'report', name: 'TrialBalance', params: { accounting_method: 'Accrual' } },
+  { key: 'agedPayables', kind: 'report', name: 'AgedPayables', params: {} },
+  { key: 'agedReceivables', kind: 'report', name: 'AgedReceivables', params: {} },
+];
 
 /* Every report QuickBooks Online publishes. Nexi may read all of them and
  * write none of them. Adding a name here can never grant write access —
@@ -98,7 +117,13 @@ export default {
 
     if (p === '/qb/health') {
       const t = await loadTokens(env);
-      return json({ ok: true, connectedRealms: Object.keys(t), hasClient: !!(env.INTUIT_CLIENT_ID && env.INTUIT_CLIENT_SECRET) });
+      const realms = Object.keys(t);
+      const synced = {};
+      for (const rid of realms) {
+        const snap = await loadSnap(env, rid);
+        synced[rid] = snap ? { at: snap.at, ageSeconds: Math.round((Date.now() - snap.at) / 1000), ok: !!snap.ok, error: snap.error || '' } : null;
+      }
+      return json({ ok: true, connectedRealms: realms, hasClient: !!(env.INTUIT_CLIENT_ID && env.INTUIT_CLIENT_SECRET), lastSync: synced });
     }
 
     if (p === '/qb/connect') {
@@ -138,6 +163,20 @@ export default {
     if (!env.QB_TOKEN || auth !== 'Bearer ' + env.QB_TOKEN) return json({ error: 'unauthorized' }, 401);
 
     const realm = url.searchParams.get('realm') || '';
+    /* the every-few-minutes copy — answers instantly, never calls Intuit */
+    if (p === '/qb/snapshot') {
+      if (!realm) return json({ error: 'need realm' }, 400);
+      const snap = await loadSnap(env, realm);
+      if (!snap) return json({ error: 'no snapshot yet — the sync has not run for this company. Check /qb/health.' }, 503);
+      return json({ ...snap, ageSeconds: Math.round((Date.now() - snap.at) / 1000) });
+    }
+    /* force one sync now instead of waiting for the next tick */
+    if (p === '/qb/sync') {
+      if (!realm) return json({ error: 'need realm' }, 400);
+      const snap = await syncRealm(env, realm);
+      return json({ ok: snap.ok, at: snap.at, error: snap.error || '', keys: Object.keys(snap.data || {}) });
+    }
+
     const DATA = ['/qb/accounts', '/qb/gl', '/qb/company', '/qb/report', '/qb/query', '/qb/entity'];
     if (DATA.indexOf(p) >= 0) {
       if (!realm) return json({ error: 'need realm' }, 400);
@@ -235,7 +274,66 @@ export default {
 
     return json({ error: 'not found' }, 404);
   },
+
+  /* Cloudflare cron. Set the schedule in the dashboard under
+   * Settings -> Triggers -> Cron Triggers. Use the expression
+   *     star-slash-5 space star space star space star space star
+   * (written normally it would end this comment) for every five minutes. Every connected company is refreshed on every tick, so the app
+   * reads QuickBooks numbers that are minutes old without ever waiting for
+   * Intuit and without anybody logging in. */
+  async scheduled(event, env, ctx) {
+    const toks = await loadTokens(env);
+    for (const realm of Object.keys(toks)) {
+      ctx.waitUntil(syncRealm(env, realm));
+    }
+  },
 };
+
+/* Pull the SYNC list for one company and store it. On failure the previous
+ * snapshot is kept and the error is recorded on it, so a bad tick never
+ * blanks the app's numbers — it just makes them visibly older. */
+async function syncRealm(env, realm) {
+  const prev = (await loadSnap(env, realm)) || {};
+  const access = await accessToken(env, realm);
+  if (!access) {
+    const snap = { ...prev, realm, ok: false, error: 'realm not connected — open /qb/connect', at: prev.at || Date.now() };
+    await env.R2.put(SNAP_KEY(realm), JSON.stringify(snap));
+    return snap;
+  }
+  const data = {};
+  let error = '';
+  for (const job of SYNC) {
+    try {
+      if (job.kind === 'accounts') {
+        const q = encodeURIComponent('select * from Account where Active in (true,false) maxresults 1000');
+        const r = await qbo(access, realm, '/query?minorversion=75&query=' + q);
+        if (r.error) throw new Error(r.error);
+        data.accounts = (((r.QueryResponse || {}).Account) || []).map((a) => ({
+          id: a.Id, name: a.Name, acctNum: a.AcctNum || '', type: a.AccountType || '',
+          subType: a.AccountSubType || '', parent: (a.ParentRef && a.ParentRef.value) || '',
+          fullName: a.FullyQualifiedName || a.Name,
+          balance: typeof a.CurrentBalance === 'number' ? a.CurrentBalance : null,
+          active: a.Active !== false,
+        }));
+      } else {
+        const qp = new URLSearchParams({ ...(job.params || {}), minorversion: '75' });
+        const r = await qbo(access, realm, '/reports/' + job.name + '?' + qp.toString());
+        if (r.error) throw new Error(r.error);
+        data[job.key] = { rows: flatten(r), columns: colNames(r), header: r.Header || {} };
+      }
+    } catch (e) {
+      /* one report failing must not lose the other five — keep the old copy */
+      error += (error ? '; ' : '') + job.key + ': ' + String(e && e.message ? e.message : e);
+      if (prev.data && prev.data[job.key]) data[job.key] = prev.data[job.key];
+    }
+  }
+  const snap = { realm, ok: !error, error, at: Date.now(), data };
+  await env.R2.put(SNAP_KEY(realm), JSON.stringify(snap));
+  return snap;
+}
+async function loadSnap(env, realm) {
+  try { const o = await env.R2.get(SNAP_KEY(realm)); return o ? await o.json() : null; } catch { return null; }
+}
 
 async function loadTokens(env) {
   try { const o = await env.R2.get(TOK_KEY); return o ? await o.json() : {}; } catch { return {}; }
