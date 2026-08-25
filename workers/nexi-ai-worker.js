@@ -67,6 +67,52 @@ export default {
       });
     }
 
+    /* v17.08 · POST /ai/fs — read a filed financial statement (PDF, scans
+       included: the model reads images inside PDFs) and return its key
+       figures so the app can reconcile FS-as-filed against QuickBooks. */
+    if (url.pathname === '/ai/fs' && req.method === 'POST') {
+      const auth2 = req.headers.get('Authorization') || '';
+      if (!env.AI_TOKEN || auth2 !== 'Bearer ' + env.AI_TOKEN)
+        return json({ error: 'unauthorized' }, 401);
+      if (!env.ANTHROPIC_API_KEY)
+        return json({ error: 'worker not configured — set the ANTHROPIC_API_KEY secret' }, 503);
+      const body2 = await req.json().catch(() => ({}));
+      const pdf = String(body2.pdf || '');
+      if (!pdf || pdf.length > 11_500_000) return json({ error: 'need { pdf } (base64, ≤ 8 MB file)' }, 400);
+      let r2;
+      try {
+        r2 = await fetch(API, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': env.ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+            'anthropic-beta': 'server-side-fallback-2026-07-01',
+          },
+          body: JSON.stringify({
+            model: env.AI_MODEL || DEFAULT_MODEL,
+            max_tokens: 2000,
+            output_config: { effort: 'medium' },
+            fallbacks: 'default',
+            system: 'You read Philippine audited financial statements. Extract ONLY figures printed in the document — never estimate. Respond with ONE JSON object, no prose: {"year":"YYYY","figures":{"ta":n,"tl":n,"eq":n,"rev":n,"ni":n,"fag":n,"fad":n,"fan":n}} where ta=total assets, tl=total liabilities, eq=total equity, rev=total revenue/net sales, ni=net income (negative if a loss), fag=property&equipment gross cost, fad=accumulated depreciation (positive number), fan=property&equipment net. Omit any key that is not clearly printed. Amounts in PHP as plain numbers.',
+            messages: [{ role: 'user', content: [
+              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdf } },
+              { type: 'text', text: 'Extract the figures from this filed FS (' + String(body2.name || '') + ').' },
+            ] }],
+          }),
+        });
+      } catch (e) {
+        return json({ error: 'could not reach the model: ' + String(e) }, 502);
+      }
+      const d2 = await r2.json().catch(() => ({}));
+      if (!r2.ok) return json({ error: (d2 && d2.error && d2.error.message) || 'model error ' + r2.status }, 502);
+      const txt = (Array.isArray(d2.content) ? d2.content : []).filter((b3) => b3.type === 'text').map((b3) => b3.text).join('');
+      const m2 = txt.match(/\{[\s\S]*\}/);
+      if (!m2) return json({ error: 'the model returned no figures' }, 502);
+      try { const parsed = JSON.parse(m2[0]); return json({ year: parsed.year || '', figures: parsed.figures || {} }); }
+      catch (e) { return json({ error: 'unreadable figures from the model' }, 502); }
+    }
+
     if (url.pathname !== '/ai/ask' || req.method !== 'POST')
       return json({ error: 'not found' }, 404);
 
