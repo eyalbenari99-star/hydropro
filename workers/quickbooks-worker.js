@@ -350,17 +350,22 @@ async function syncRealm(env, realm, full) {
         if (r.error) throw new Error(r.error);
         const qr = r.QueryResponse || {};
         const key = Object.keys(qr).filter((k) => Array.isArray(qr[k]))[0] || '';
-        data[job.key] = { type: key, rows: qr[key] || [] };
+        data[job.key] = { type: key, rows: qr[key] || [], at: Date.now() };
       } else {
         const qp = new URLSearchParams({ ...(job.params || {}), minorversion: '75' });
         const r = await qbo(access, realm, '/reports/' + job.name + '?' + qp.toString());
         if (r.error) throw new Error(r.error);
-        data[job.key] = { rows: flatten(r), columns: colNames(r), header: r.Header || {} };
+        data[job.key] = { rows: flatten(r), columns: colNames(r), header: r.Header || {}, at: Date.now() };
       }
     } catch (e) {
-      /* one report failing must not lose the other five — keep the old copy */
+      /* one report failing must not lose the other five — keep the old copy,
+         but STAMP it stale so nothing advertises it as freshly synced */
       error += (error ? '; ' : '') + job.key + ': ' + String(e && e.message ? e.message : e);
-      if (prev.data && prev.data[job.key]) data[job.key] = prev.data[job.key];
+      if (prev.data && prev.data[job.key]) {
+        data[job.key] = prev.data[job.key];
+        if (data[job.key] && typeof data[job.key] === 'object' && !data[job.key].staleSince)
+          data[job.key] = { ...data[job.key], staleSince: prev.at || Date.now() };
+      }
     }
   }
   const snap = { realm, ok: !error, error, at: Date.now(), tick,
@@ -416,12 +421,13 @@ function flatten(r) {
         label: cells[0] || '',
         values: cells.slice(1),
         type: row.type || '',
+        group: row.group || '',
         id: (row.ColData && row.ColData[0] && row.ColData[0].id) || '',
       });
       if (row.Rows) walk(row.Rows, depth + 1);
       if (row.Summary && row.Summary.ColData) {
         const c = row.Summary.ColData.map((x) => (x && x.value) || '');
-        out.push({ depth, label: c[0] || '', values: c.slice(1), type: 'Summary', id: '' });
+        out.push({ depth, label: c[0] || '', values: c.slice(1), type: 'Summary', group: row.group || '', id: '' });
       }
     });
   })(r, 0);
