@@ -266,6 +266,7 @@ export default {
           subType: a.AccountSubType || '',
           parent: (a.ParentRef && a.ParentRef.value) || '',
           fullName: a.FullyQualifiedName || a.Name,
+          desc: a.Description || '',
           balance: typeof a.CurrentBalance === 'number' ? a.CurrentBalance : null,
           active: a.Active !== false,
           currency: (a.CurrencyRef && a.CurrencyRef.value) || '',
@@ -342,6 +343,7 @@ async function syncRealm(env, realm, full) {
           id: a.Id, name: a.Name, acctNum: a.AcctNum || '', type: a.AccountType || '',
           subType: a.AccountSubType || '', parent: (a.ParentRef && a.ParentRef.value) || '',
           fullName: a.FullyQualifiedName || a.Name,
+          desc: a.Description || '',
           balance: typeof a.CurrentBalance === 'number' ? a.CurrentBalance : null,
           active: a.Active !== false,
         }));
