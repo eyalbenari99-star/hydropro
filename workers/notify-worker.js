@@ -57,6 +57,21 @@ export default {
       const r = await sendSMS(env, to, body.message || 'Nexi test: SMS reminders are working. 🌱');
       return json({ ok: r.ok, detail: r.detail });
     }
+    // Generic authenticated send — used by Projects to email an approved
+    // item request to purchasing. Recipients are restricted to the company
+    // domain so a leaked token cannot turn this into an open relay.
+    if (req.method === 'POST' && url.pathname === '/notify/mail') {
+      const body = await req.json().catch(() => ({}));
+      const to = (Array.isArray(body.to) ? body.to : [body.to])
+        .map((x) => String(x || '').trim())
+        .filter((x) => /^[^@\s]+@abapardes\.com\.ph$/i.test(x));
+      if (!to.length) return json({ ok: false, detail: 'no valid @abapardes.com.ph recipient' }, 400);
+      const subject = String(body.subject || 'Nexi notification').slice(0, 200);
+      const text = String(body.text || '').slice(0, 100000);
+      if (!text) return json({ ok: false, detail: 'empty body' }, 400);
+      const r = await sendMail(env, to, subject, text);
+      return json({ ok: r.ok, detail: r.detail });
+    }
     if (req.method === 'POST' && url.pathname === '/notify/run') {
       const out = await runReminders(env);
       return json(out);
