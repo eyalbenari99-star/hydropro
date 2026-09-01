@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 /** Nexi ☀️ Morning Brief — Google Apps Script (v2, one brief per person)
-=======
-/** Nexi ☀️ Morning Brief — Google Apps Script (v18.07)
->>>>>>> origin/main
  *
  * Every morning at BRIEF_HOUR (Asia/Manila) this script mails Eyal one
  * e-mail with the day in it:
@@ -39,7 +35,6 @@
  */
 
 var SYNC_URL   = 'https://hnx-sync.eyalbenari99.workers.dev';
-<<<<<<< HEAD
 var BRIEF_HOUR = 6;                     // 06:00 Asia/Manila
 var TZ         = 'Asia/Manila';
 
@@ -59,14 +54,6 @@ var RECIPIENTS = [
     sections: ['calendar', 'release_queue', 'my_calls', 'checklist'] }
 ];
 
-=======
-var BRIEF_TO   = 'eyalbenari99@gmail.com';
-var BRIEF_CC   = 'eyal@abapardes.com.ph';
-var CAL_IDS    = ['eyal@abapardes.com.ph', 'nexi@abapardes.com.ph'];
-var BRIEF_HOUR = 6;                     // 06:00 Asia/Manila
-var TZ         = 'Asia/Manila';
-
->>>>>>> origin/main
 /* ---------------- install / self-heal ---------------- */
 
 function installMorningBrief() {
@@ -88,7 +75,6 @@ function ensureTrigger_() {
 
 function nexiMorningBrief() {
   ensureTrigger_();
-<<<<<<< HEAD
   var data = null, pullErr = null;
   try { data = pullCloud_(); } catch (e) { pullErr = e; }
   var today = Utilities.formatDate(new Date(), TZ, 'EEE d MMM yyyy');
@@ -104,20 +90,6 @@ function nexiMorningBrief() {
         'Most often this is the HNX_USER / HNX_PASS script property or the sync worker being unreachable.');
     }
   });
-=======
-  try {
-    var data = pullCloud_();
-    var html = buildBrief_(data);
-    var today = Utilities.formatDate(new Date(), TZ, 'EEE d MMM yyyy');
-    GmailApp.sendEmail(BRIEF_TO, '☀️ Nexi Morning Brief — ' + today,
-      'Open this e-mail in an HTML mail client.',
-      { htmlBody: html, cc: BRIEF_CC, name: 'Nexi · HydroNexis-AI' });
-  } catch (e) {
-    GmailApp.sendEmail(BRIEF_TO, '⚠ Nexi Morning Brief failed',
-      'The morning brief could not be produced:\n\n' + e + '\n\n' +
-      'Most often this is the HNX_USER / HNX_PASS script property or the sync worker being unreachable.');
-  }
->>>>>>> origin/main
 }
 
 /* ---------------- cloud data ---------------- */
@@ -152,7 +124,6 @@ function day_(offset) {
 
 /* ---------------- sections ---------------- */
 
-<<<<<<< HEAD
 function buildBrief_(data, rc) {
   var mk = {
     calendar:      function () { return calendarSection_(rc.calendars || []); },
@@ -166,17 +137,6 @@ function buildBrief_(data, rc) {
   var s = (rc.sections || []).map(function (k) { return mk[k] ? mk[k]() : ''; });
   return '<div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;">'
     + '<h2 style="margin:0 0 2px 0;">☀️ Good morning, ' + esc_(rc.name) + '</h2>'
-=======
-function buildBrief_(data) {
-  var s = [];
-  s.push(calendarSection_());
-  s.push(attendanceSection_(data));
-  s.push(checklistSection_(data));
-  s.push(callsSection_(data));
-  s.push(requestsSection_(data));
-  return '<div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;">'
-    + '<h2 style="margin:0 0 2px 0;">☀️ Good morning, Eyal</h2>'
->>>>>>> origin/main
     + '<div style="color:#777;margin-bottom:14px;">'
     + Utilities.formatDate(new Date(), TZ, 'EEEE, d MMMM yyyy · HH:mm') + ' · Nexi</div>'
     + s.join('')
@@ -192,20 +152,12 @@ function esc_(x) {
 }
 
 /* 📅 today's events from both calendars; a calendar that cannot be read says so */
-<<<<<<< HEAD
 function calendarSection_(calIds) {
-=======
-function calendarSection_() {
->>>>>>> origin/main
   var out = [h_('📅', "Today's calendar")];
   var start = new Date(); start.setHours(0, 0, 0, 0);
   var end = new Date(start.getTime() + 86400000);
   var any = false;
-<<<<<<< HEAD
   (calIds || []).forEach(function (id) {
-=======
-  CAL_IDS.forEach(function (id) {
->>>>>>> origin/main
     try {
       var cal = CalendarApp.getCalendarById(id);
       if (!cal) { out.push('<div style="color:#c62828;">' + esc_(id) + ' — not shared with nexi yet (share it once in Google Calendar settings)</div>'); return; }
@@ -315,7 +267,6 @@ function requestsSection_(data) {
   }
   return out.join('');
 }
-<<<<<<< HEAD
 
 /* 📦 approved requests waiting for the warehouse to release */
 function releaseQueueSection_(data) {
@@ -362,5 +313,3 @@ function myCallsSection_(data, rc) {
   }
   return out.join('');
 }
-=======
->>>>>>> origin/main
