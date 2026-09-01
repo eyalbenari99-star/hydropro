@@ -47,7 +47,7 @@ var TZ         = 'Asia/Manila';
 var RECIPIENTS = [
   { name: 'Eyal', to: 'eyalbenari99@gmail.com', cc: 'eyal@abapardes.com.ph',
     calendars: ['eyal@abapardes.com.ph', 'nexi@abapardes.com.ph'],
-    sections: ['calendar', 'attendance', 'checklist', 'calls', 'requests'] },
+    sections: ['calendar', 'tasks', 'attendance', 'checklist', 'calls', 'requests'] },
   { name: 'Chen', to: 'cheriet@abapardes.com.ph',
     calendars: ['cheriet@abapardes.com.ph'],
     match: /chen|cheriet/i,
@@ -131,6 +131,7 @@ function buildBrief_(data, rc) {
     checklist:     function () { return checklistSection_(data); },
     calls:         function () { return callsSection_(data); },
     requests:      function () { return requestsSection_(data); },
+    tasks:         function () { return tasksSection_(data); },
     release_queue: function () { return releaseQueueSection_(data); },
     my_calls:      function () { return myCallsSection_(data, rc); }
   };
@@ -312,5 +313,70 @@ function myCallsSection_(data, rc) {
     });
     out.push('</ul>');
   }
+  return out.join('');
+}
+
+/* 📋 tasks, commitments and Nexi-diary events from the EA desk */
+function tasksSection_(data) {
+  var out = [h_('📋', 'Your tasks & commitments')];
+  var today = day_(0), soon = day_(7), any = false;
+
+  /* EA delegated tasks: open ones, overdue first */
+  var tasks = store_(data, 'hydroPro_ea_tasks_v1', []);
+  var openT = (Array.isArray(tasks) ? tasks : []).filter(function (k) {
+    return k && k.status !== 'done' && k.status !== 'completed' && k.status !== 'cancelled';
+  });
+  openT.sort(function (a, b) { return String(a.due || '9999') < String(b.due || '9999') ? -1 : 1; });
+  if (openT.length) {
+    any = true;
+    out.push('<ul style="margin:4px 0;">');
+    openT.slice(0, 10).forEach(function (k) {
+      var due = k.due ? String(k.due).slice(0, 10) : '';
+      var overdue = due && due < today;
+      out.push('<li>' + (overdue ? '<span style="color:#c62828;font-weight:bold;">OVERDUE</span> ' : '')
+        + esc_(k.title || k.name || k.text || k.task || '(untitled)')
+        + (due ? ' <span style="color:#777;">- due ' + esc_(due) + '</span>' : '') + '</li>');
+    });
+    out.push('</ul>');
+    if (openT.length > 10) out.push('<div style="color:#777;">+' + (openT.length - 10) + ' more open tasks</div>');
+  }
+
+  /* commitments falling due in the next 7 days */
+  var cms = store_(data, 'hydroPro_ea_commitments_v1', []);
+  var dueCms = (Array.isArray(cms) ? cms : []).filter(function (c) {
+    return c && c.status === 'open' && c.due && String(c.due).slice(0, 10) <= soon;
+  });
+  dueCms.sort(function (a, b) { return String(a.due) < String(b.due) ? -1 : 1; });
+  if (dueCms.length) {
+    any = true;
+    out.push('<div style="font-weight:bold;margin-top:6px;">Commitments due this week</div><ul style="margin:4px 0;">');
+    dueCms.slice(0, 8).forEach(function (c) {
+      var due = String(c.due).slice(0, 10);
+      out.push('<li>' + (due < today ? '<span style="color:#c62828;font-weight:bold;">OVERDUE</span> ' : '')
+        + esc_(c.title || c.what || c.text || '(untitled)')
+        + (c.who ? ' <span style="color:#777;">- ' + esc_(c.who) + '</span>' : '')
+        + ' <span style="color:#777;">- ' + esc_(due) + '</span></li>');
+    });
+    out.push('</ul>');
+  }
+
+  /* events written in Nexi's own diary for today (works even before the
+     Google calendar is shared) */
+  var evs = store_(data, 'hydroPro_ea_events_v1', []);
+  var todayEv = (Array.isArray(evs) ? evs : []).filter(function (ev) {
+    return ev && ev.start && String(ev.start).slice(0, 10) === today;
+  });
+  if (todayEv.length) {
+    any = true;
+    out.push('<div style="font-weight:bold;margin-top:6px;">In Nexi\u2019s diary today</div><ul style="margin:4px 0;">');
+    todayEv.forEach(function (ev) {
+      var tm = String(ev.start).length > 10 ? String(ev.start).slice(11, 16) : '';
+      out.push('<li>' + (tm ? '<b>' + esc_(tm) + '</b> ' : '') + esc_(ev.title || ev.name || '(untitled)') + '</li>');
+    });
+    out.push('</ul>');
+  }
+
+  if (!any) out.push('<div style="color:#777;">No open tasks, due commitments or diary events yet - '
+    + 'this reads from the Executive Assistant desk in Nexi, so anything logged there appears here.</div>');
   return out.join('');
 }
