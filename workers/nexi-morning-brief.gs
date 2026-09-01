@@ -135,7 +135,8 @@ function buildBrief_(data, rc) {
     my_calls:      function () { return myCallsSection_(data, rc); }
   };
   var s = (rc.sections || []).map(function (k) { return mk[k] ? mk[k]() : ''; });
-  return '<div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;">'
+  /* Apple Mail renders the emoji as ������ without an explicit charset */
+  return '<meta charset="UTF-8"><div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;">'
     + '<h2 style="margin:0 0 2px 0;">☀️ Good morning, ' + esc_(rc.name) + '</h2>'
     + '<div style="color:#777;margin-bottom:14px;">'
     + Utilities.formatDate(new Date(), TZ, 'EEEE, d MMMM yyyy · HH:mm') + ' · Nexi</div>'
