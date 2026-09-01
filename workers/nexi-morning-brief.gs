@@ -82,9 +82,12 @@ function nexiMorningBrief() {
   RECIPIENTS.forEach(function (rc) {
     try {
       if (pullErr) throw pullErr;
+      /* GmailApp garbles 4-byte emoji (📅 📋 📞) into ������ while
+         2-byte ones (⏰ ☀) survive - so every wide character is sent as an
+         HTML numeric entity, which no mail client can misread. */
       GmailApp.sendEmail(rc.to, '☀️ Nexi Morning Brief — ' + today,
         'Open this e-mail in an HTML mail client.',
-        { htmlBody: buildBrief_(data, rc), cc: rc.cc || '', name: 'Nexi · HydroNexis-AI' });
+        { htmlBody: entify_(buildBrief_(data, rc)), cc: rc.cc || '', name: 'Nexi · HydroNexis-AI' });
     } catch (e) {
       GmailApp.sendEmail(RECIPIENTS[0].to, '⚠ Nexi Morning Brief failed for ' + rc.name,
         'The brief for ' + rc.name + ' could not be produced:\n\n' + e + '\n\n' +
@@ -149,6 +152,11 @@ function buildBrief_(data, rc) {
 
 function h_(icon, title) {
   return '<h3 style="margin:16px 0 6px 0;border-bottom:1px solid #ddd;padding-bottom:3px;">' + icon + ' ' + title + '</h3>';
+}
+function entify_(html) {
+  return String(html).replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, function (m) {
+    return '&#' + m.codePointAt(0) + ';';
+  });
 }
 function esc_(x) {
   return String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
