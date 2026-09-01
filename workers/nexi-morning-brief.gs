@@ -48,12 +48,27 @@ var RECIPIENTS = [
   { name: 'Eyal', to: 'eyalbenari99@gmail.com', cc: 'eyal@abapardes.com.ph',
     calendars: ['eyal@abapardes.com.ph', 'nexi@abapardes.com.ph',
                 'ABA PARDES - ADMIN', 'ABA PARDES - MAINTANENCE', 'ABA PARDES - PRODUCTION'],
-    sections: ['calendar', 'tasks', 'attendance', 'checklist', 'calls', 'requests'] },
+    sections: ['calendar', 'tasks', 'attendance', 'checklist', 'calls', 'requests'],
+    waKeyProp: 'WA_EYAL' },
   { name: 'Chen', to: 'cheriet@abapardes.com.ph',
     calendars: ['cheriet@abapardes.com.ph'],
     match: /chen|cheriet/i,
-    sections: ['calendar', 'release_queue', 'my_calls', 'checklist'] }
+    sections: ['calendar', 'release_queue', 'my_calls', 'checklist'],
+    waKeyProp: 'WA_CHEN' }
 ];
+
+/* WHATSAPP DELIVERY (optional, per person) — via CallMeBot, a relay that
+   sends TO your own WhatsApp from ITS number: the ABA Pardes company SIM
+   (+63 977 857 2214) is never used, registered, or touched.
+   One-time activation, per person, on their own phone:
+     1. Save +34 644 51 95 23 as a contact (CallMeBot).
+     2. Send it the WhatsApp message:  I allow callmebot to send me messages
+     3. It replies with your personal apikey within a minute.
+   Then in Project Settings → Script properties add one property per person:
+     WA_EYAL = 63XXXXXXXXXX|apikey     (phone with country code, |, the key)
+     WA_CHEN = 63XXXXXXXXXX|apikey
+   From the next run, a compact text version of the brief lands in WhatsApp
+   alongside the e-mail. No property = no WhatsApp for that person, no error. */
 
 /* ---------------- install / self-heal ---------------- */
 
@@ -88,6 +103,7 @@ function nexiMorningBrief() {
       GmailApp.sendEmail(rc.to, '☀️ Nexi Morning Brief — ' + today,
         'Open this e-mail in an HTML mail client.',
         { htmlBody: entify_(buildBrief_(data, rc)), cc: rc.cc || '', name: 'Nexi · HydroNexis-AI' });
+      try { sendWhatsApp_(rc, data); } catch (e) {}   /* WhatsApp never blocks the e-mail */
     } catch (e) {
       GmailApp.sendEmail(RECIPIENTS[0].to, '⚠ Nexi Morning Brief failed for ' + rc.name,
         'The brief for ' + rc.name + ' could not be produced:\n\n' + e + '\n\n' +
@@ -113,6 +129,60 @@ function pullCloud_() {
     muteHttpExceptions: true
   }).getContentText());
   return res.data || {};
+}
+
+/* ---------------- WhatsApp (CallMeBot relay — company SIM untouched) ---------------- */
+
+function sendWhatsApp_(rc, data) {
+  if (!rc.waKeyProp) return;
+  var cfg = PropertiesService.getScriptProperties().getProperty(rc.waKeyProp);
+  if (!cfg || cfg.indexOf('|') < 0) return;             /* not activated for this person */
+  var phone = cfg.split('|')[0].trim(), key = cfg.split('|')[1].trim();
+  var text = waText_(rc, data);
+  UrlFetchApp.fetch('https://api.callmebot.com/whatsapp.php'
+    + '?phone=' + encodeURIComponent(phone)
+    + '&apikey=' + encodeURIComponent(key)
+    + '&text=' + encodeURIComponent(text),
+    { muteHttpExceptions: true });
+}
+
+/* a compact plain-text brief that reads well in a chat bubble */
+function waText_(rc, data) {
+  var L = ['☀ Nexi Brief · ' + Utilities.formatDate(new Date(), TZ, 'EEE d MMM')];
+  try {
+    if ((rc.sections || []).indexOf('attendance') >= 0) {
+      var att = store_(data, 'hydroPro_attendance', {}), emps = store_(data, 'hydroPro_employees', []);
+      var t = att[day_(0)] || {}, act = emps.filter(function (e) { return e && e.status !== 'inactive' && !e.separated; });
+      var inC = 0; act.forEach(function (e) { var r = t[e.id]; if (r && (r.status === 'present' || r.status === 'late')) inC++; });
+      L.push('⏰ ' + inC + '/' + act.length + ' punched in');
+    }
+    var st = store_(data, 'hydroPro_' + day_(-1), {}), w = 0, c = 0;
+    Object.keys(st).forEach(function (gh) { var g = st[gh]; if (!g || !g.statuses) return;
+      Object.keys(g.statuses).forEach(function (k) { if (g.statuses[k] === 'warn') w++; if (g.statuses[k] === 'danger') c++; }); });
+    L.push('🌱 yesterday: ' + (c ? c + ' critical, ' : '') + w + ' warnings');
+    var iss = store_(data, 'hydroPro_issues_v2', []);
+    var open = (Array.isArray(iss) ? iss : []).filter(function (i) {
+      return i && !/closed|resolved|done|cancelled|approved/i.test(String(i.status || '')); });
+    var crit = open.filter(function (i) { return /crit|urgent|high/i.test(String(i.severity || i.priority || '')); });
+    L.push('📞 ' + open.length + ' open calls' + (crit.length ? ' · ' + crit.length + ' CRITICAL' : ''));
+    crit.slice(0, 3).forEach(function (i) { L.push('  • ' + String(i.title || i.subject || i.issue || '').slice(0, 60)); });
+    if ((rc.sections || []).indexOf('release_queue') >= 0) {
+      var q = 0;
+      ['hydroPro_prj15_reqs_v1', 'hydroPro_prj16_reqs_v1', 'hydroPro_inv_requests_v1'].forEach(function (k) {
+        var arr = store_(data, k, []);
+        (Array.isArray(arr) ? arr : []).forEach(function (r) { if (r && /^APPROVED$/i.test(String(r.status || ''))) q++; }); });
+      L.push('📦 ' + q + ' approved waiting for release');
+    }
+    if ((rc.sections || []).indexOf('requests') >= 0) {
+      var wtg = 0;
+      ['hydroPro_prj15_reqs_v1', 'hydroPro_prj16_reqs_v1', 'hydroPro_inv_requests_v1'].forEach(function (k) {
+        var arr = store_(data, k, []);
+        (Array.isArray(arr) ? arr : []).forEach(function (r) { if (r && /SUBMITTED|PENDING/i.test(String(r.status || ''))) wtg++; }); });
+      L.push('🛒 ' + wtg + ' requests waiting for approval');
+    }
+  } catch (e) {}
+  L.push('Full brief in your e-mail 📧');
+  return L.join('\n');
 }
 
 function store_(data, key, fallback) {
