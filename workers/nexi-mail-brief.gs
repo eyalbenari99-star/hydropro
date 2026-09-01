@@ -64,6 +64,7 @@ function nexiMailBrief() {
     GmailApp.sendEmail(me, '✉ Nexi Mail Brief — ' + today,
       'Open this e-mail in an HTML mail client.',
       { htmlBody: entifyM_(html), name: 'Nexi · Mail' });
+    try { sendMailWhatsApp_(picked); } catch (e2) {}   // WhatsApp is best-effort, never fails the e-mail
   } catch (e) {
     GmailApp.sendEmail(me, '⚠ Nexi Mail Brief failed',
       'The mail brief could not be produced:\n\n' + e);
@@ -178,6 +179,32 @@ function renderMailBrief_(me, picked) {
         : 'Add the AI_TOKEN script property to get suggested replies drafted automatically.')
     + '</div></div>');
   return out.join('');
+}
+
+/* ---------------- WhatsApp (optional) ----------------
+ * Script property WA_MAIL = phone|apikey  (e.g. 639175385888|123456)
+ * — the CallMeBot relay, same as the morning brief. The company SIM is
+ * never used. Without the property, nothing is sent.                  */
+
+function sendMailWhatsApp_(picked) {
+  var prop = PropertiesService.getScriptProperties().getProperty('WA_MAIL');
+  if (!prop || prop.indexOf('|') < 0) return;
+  var phone = prop.split('|')[0].trim(), key = prop.split('|')[1].trim();
+  var L = ['✉ Nexi Mail Brief'];
+  L.push('Needs your reply: ' + picked.needsReply.length);
+  picked.needsReply.slice(0, 6).forEach(function (r) {
+    L.push('• ' + r.from + ' — ' + String(r.subject).slice(0, 70));
+  });
+  if (picked.worthALook.length) {
+    L.push('Worth a look: ' + picked.worthALook.length);
+    picked.worthALook.slice(0, 4).forEach(function (r) {
+      L.push('· ' + r.from + ' — ' + String(r.subject).slice(0, 60));
+    });
+  }
+  L.push(picked.restCount + ' routine message(s) skipped. Drafted replies are in your Drafts.');
+  UrlFetchApp.fetch('https://api.callmebot.com/whatsapp.php?phone=' + encodeURIComponent(phone)
+    + '&apikey=' + encodeURIComponent(key)
+    + '&text=' + encodeURIComponent(L.join('\n')), { muteHttpExceptions: true });
 }
 
 /* ---------------- helpers ---------------- */
