@@ -1,4 +1,4 @@
-/** Nexi ☀️ Morning Brief — Google Apps Script (v18.07)
+/** Nexi ☀️ Morning Brief — Google Apps Script (v2, one brief per person)
  *
  * Every morning at BRIEF_HOUR (Asia/Manila) this script mails Eyal one
  * e-mail with the day in it:
@@ -35,11 +35,24 @@
  */
 
 var SYNC_URL   = 'https://hnx-sync.eyalbenari99.workers.dev';
-var BRIEF_TO   = 'eyalbenari99@gmail.com';
-var BRIEF_CC   = 'eyal@abapardes.com.ph';
-var CAL_IDS    = ['eyal@abapardes.com.ph', 'nexi@abapardes.com.ph'];
 var BRIEF_HOUR = 6;                     // 06:00 Asia/Manila
 var TZ         = 'Asia/Manila';
+
+/* One brief per person, each with their own calendar and their own sections.
+   sections: calendar | attendance | checklist | calls | requests (waiting for
+   approval — for approvers) | release_queue (approved, waiting to be handed
+   out — for the warehouse) | my_calls (open calls assigned to this person,
+   matched by the `match` pattern against assignee names).
+   To add a person: add a row and share their calendar with nexi once. */
+var RECIPIENTS = [
+  { name: 'Eyal', to: 'eyalbenari99@gmail.com', cc: 'eyal@abapardes.com.ph',
+    calendars: ['eyal@abapardes.com.ph', 'nexi@abapardes.com.ph'],
+    sections: ['calendar', 'attendance', 'checklist', 'calls', 'requests'] },
+  { name: 'Chen', to: 'cheriet@abapardes.com.ph',
+    calendars: ['cheriet@abapardes.com.ph'],
+    match: /chen|cheriet/i,
+    sections: ['calendar', 'release_queue', 'my_calls', 'checklist'] }
+];
 
 /* ---------------- install / self-heal ---------------- */
 
@@ -62,18 +75,21 @@ function ensureTrigger_() {
 
 function nexiMorningBrief() {
   ensureTrigger_();
-  try {
-    var data = pullCloud_();
-    var html = buildBrief_(data);
-    var today = Utilities.formatDate(new Date(), TZ, 'EEE d MMM yyyy');
-    GmailApp.sendEmail(BRIEF_TO, '☀️ Nexi Morning Brief — ' + today,
-      'Open this e-mail in an HTML mail client.',
-      { htmlBody: html, cc: BRIEF_CC, name: 'Nexi · HydroNexis-AI' });
-  } catch (e) {
-    GmailApp.sendEmail(BRIEF_TO, '⚠ Nexi Morning Brief failed',
-      'The morning brief could not be produced:\n\n' + e + '\n\n' +
-      'Most often this is the HNX_USER / HNX_PASS script property or the sync worker being unreachable.');
-  }
+  var data = null, pullErr = null;
+  try { data = pullCloud_(); } catch (e) { pullErr = e; }
+  var today = Utilities.formatDate(new Date(), TZ, 'EEE d MMM yyyy');
+  RECIPIENTS.forEach(function (rc) {
+    try {
+      if (pullErr) throw pullErr;
+      GmailApp.sendEmail(rc.to, '☀️ Nexi Morning Brief — ' + today,
+        'Open this e-mail in an HTML mail client.',
+        { htmlBody: buildBrief_(data, rc), cc: rc.cc || '', name: 'Nexi · HydroNexis-AI' });
+    } catch (e) {
+      GmailApp.sendEmail(RECIPIENTS[0].to, '⚠ Nexi Morning Brief failed for ' + rc.name,
+        'The brief for ' + rc.name + ' could not be produced:\n\n' + e + '\n\n' +
+        'Most often this is the HNX_USER / HNX_PASS script property or the sync worker being unreachable.');
+    }
+  });
 }
 
 /* ---------------- cloud data ---------------- */
@@ -108,15 +124,19 @@ function day_(offset) {
 
 /* ---------------- sections ---------------- */
 
-function buildBrief_(data) {
-  var s = [];
-  s.push(calendarSection_());
-  s.push(attendanceSection_(data));
-  s.push(checklistSection_(data));
-  s.push(callsSection_(data));
-  s.push(requestsSection_(data));
+function buildBrief_(data, rc) {
+  var mk = {
+    calendar:      function () { return calendarSection_(rc.calendars || []); },
+    attendance:    function () { return attendanceSection_(data); },
+    checklist:     function () { return checklistSection_(data); },
+    calls:         function () { return callsSection_(data); },
+    requests:      function () { return requestsSection_(data); },
+    release_queue: function () { return releaseQueueSection_(data); },
+    my_calls:      function () { return myCallsSection_(data, rc); }
+  };
+  var s = (rc.sections || []).map(function (k) { return mk[k] ? mk[k]() : ''; });
   return '<div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;">'
-    + '<h2 style="margin:0 0 2px 0;">☀️ Good morning, Eyal</h2>'
+    + '<h2 style="margin:0 0 2px 0;">☀️ Good morning, ' + esc_(rc.name) + '</h2>'
     + '<div style="color:#777;margin-bottom:14px;">'
     + Utilities.formatDate(new Date(), TZ, 'EEEE, d MMMM yyyy · HH:mm') + ' · Nexi</div>'
     + s.join('')
@@ -132,12 +152,12 @@ function esc_(x) {
 }
 
 /* 📅 today's events from both calendars; a calendar that cannot be read says so */
-function calendarSection_() {
+function calendarSection_(calIds) {
   var out = [h_('📅', "Today's calendar")];
   var start = new Date(); start.setHours(0, 0, 0, 0);
   var end = new Date(start.getTime() + 86400000);
   var any = false;
-  CAL_IDS.forEach(function (id) {
+  (calIds || []).forEach(function (id) {
     try {
       var cal = CalendarApp.getCalendarById(id);
       if (!cal) { out.push('<div style="color:#c62828;">' + esc_(id) + ' — not shared with nexi yet (share it once in Google Calendar settings)</div>'); return; }
@@ -244,6 +264,52 @@ function requestsSection_(data) {
     waiting.slice(0, 10).forEach(function (w) { out.push('<li>' + esc_(w) + '</li>'); });
     out.push('</ul>');
     if (waiting.length > 10) out.push('<div style="color:#777;">+' + (waiting.length - 10) + ' more</div>');
+  }
+  return out.join('');
+}
+
+/* 📦 approved requests waiting for the warehouse to release */
+function releaseQueueSection_(data) {
+  var out = [h_('📦', 'Approved — waiting for release')];
+  var q = [];
+  ['hydroPro_prj15_reqs_v1', 'hydroPro_prj16_reqs_v1', 'hydroPro_inv_requests_v1'].forEach(function (k) {
+    var arr = store_(data, k, []);
+    (Array.isArray(arr) ? arr : []).forEach(function (r) {
+      if (r && /^APPROVED$/i.test(String(r.status || ''))) {
+        q.push((r.no || r.id || '?')
+          + (r.gh ? ' → ' + r.gh : '')
+          + (r.purpose ? ' — ' + r.purpose : ''));
+      }
+    });
+  });
+  if (!q.length) { out.push('<div style="color:#2e7d32;">Nothing approved is waiting — the queue is clear.</div>'); }
+  else {
+    out.push('<ul style="margin:4px 0;">');
+    q.slice(0, 12).forEach(function (w) { out.push('<li>' + esc_(w) + '</li>'); });
+    out.push('</ul>');
+    if (q.length > 12) out.push('<div style="color:#777;">+' + (q.length - 12) + ' more</div>');
+  }
+  return out.join('');
+}
+
+/* 📋 open calls assigned to this person */
+function myCallsSection_(data, rc) {
+  var out = [h_('📋', 'Your open calls')];
+  if (!rc.match) { out.push('<div style="color:#777;">No name pattern configured.</div>'); return out.join(''); }
+  var iss = store_(data, 'hydroPro_issues_v2', []);
+  var mine = (Array.isArray(iss) ? iss : []).filter(function (i) {
+    if (!i || /closed|resolved|done|cancelled|approved/i.test(String(i.status || ''))) return false;
+    var who = [i.assignee, i.assignedTo].concat(Array.isArray(i.assignees) ? i.assignees : []).join(' ');
+    return rc.match.test(who);
+  });
+  if (!mine.length) { out.push('<div style="color:#2e7d32;">Nothing assigned to you is open.</div>'); }
+  else {
+    out.push('<ul style="margin:4px 0;">');
+    mine.slice(0, 10).forEach(function (i) {
+      out.push('<li>' + esc_(i.title || i.subject || i.desc || i.issue || '(untitled)')
+        + (i.gh || i.location ? ' <span style="color:#777;">· ' + esc_(i.gh || i.location) + '</span>' : '') + '</li>');
+    });
+    out.push('</ul>');
   }
   return out.join('');
 }
