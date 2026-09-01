@@ -46,7 +46,8 @@ var TZ         = 'Asia/Manila';
    To add a person: add a row and share their calendar with nexi once. */
 var RECIPIENTS = [
   { name: 'Eyal', to: 'eyalbenari99@gmail.com', cc: 'eyal@abapardes.com.ph',
-    calendars: ['eyal@abapardes.com.ph', 'nexi@abapardes.com.ph'],
+    calendars: ['eyal@abapardes.com.ph', 'nexi@abapardes.com.ph',
+                'ABA PARDES - ADMIN', 'ABA PARDES - MAINTANENCE', 'ABA PARDES - PRODUCTION'],
     sections: ['calendar', 'tasks', 'attendance', 'checklist', 'calls', 'requests'] },
   { name: 'Chen', to: 'cheriet@abapardes.com.ph',
     calendars: ['cheriet@abapardes.com.ph'],
@@ -161,8 +162,12 @@ function calendarSection_(calIds) {
   var any = false;
   (calIds || []).forEach(function (id) {
     try {
+      /* an entry can be a calendar ID (an e-mail) or a calendar NAME
+         (e.g. 'ABA PARDES - ADMIN') — named calendars are found among the
+         calendars the nexi account has accepted */
       var cal = CalendarApp.getCalendarById(id);
-      if (!cal) { out.push('<div style="color:#c62828;">' + esc_(id) + ' — not shared with nexi yet (share it once in Google Calendar settings)</div>'); return; }
+      if (!cal) { var byName = CalendarApp.getCalendarsByName(id); if (byName && byName.length) cal = byName[0]; }
+      if (!cal) { out.push('<div style="color:#c62828;">' + esc_(id) + ' — not visible to nexi yet (share it with nexi@abapardes.com.ph, and accept the share on the nexi account)</div>'); return; }
       var evs = cal.getEvents(start, end);
       if (!evs.length) return;
       any = true;
