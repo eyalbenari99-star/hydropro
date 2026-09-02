@@ -35,7 +35,8 @@
  */
 
 var SYNC_URL   = 'https://hnx-sync.eyalbenari99.workers.dev';
-var BRIEF_HOUR = 6;                     // 06:00 Asia/Manila
+var BRIEF_HOUR = 7;                     // 07:15 Asia/Manila — people punch in until 7,
+var BRIEF_MIN  = 15;                    // so a 6:00 brief always said 0/97 punched in
 var TZ         = 'Asia/Manila';
 
 /* One brief per person, each with their own calendar and their own sections.
@@ -73,6 +74,11 @@ var RECIPIENTS = [
 /* ---------------- install / self-heal ---------------- */
 
 function installMorningBrief() {
+  /* re-running install moves the schedule: old triggers are removed so the
+     brief fires at the CURRENT BRIEF_HOUR/BRIEF_MIN, not the old one */
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'nexiMorningBrief') ScriptApp.deleteTrigger(t);
+  });
   ensureTrigger_();
   nexiMorningBrief();                   // send one now so setup is verifiable
 }
@@ -83,7 +89,7 @@ function ensureTrigger_() {
   });
   if (!have) {
     ScriptApp.newTrigger('nexiMorningBrief')
-      .timeBased().everyDays(1).atHour(BRIEF_HOUR).inTimezone(TZ).create();
+      .timeBased().everyDays(1).atHour(BRIEF_HOUR).nearMinute(BRIEF_MIN).inTimezone(TZ).create();
   }
 }
 
@@ -150,6 +156,29 @@ function sendWhatsApp_(rc, data) {
 function waText_(rc, data) {
   var L = ['☀ Nexi Brief · ' + Utilities.formatDate(new Date(), TZ, 'EEE d MMM')];
   try {
+    /* 📅 today's calendar — same calendars the e-mail uses, compact */
+    if ((rc.sections || []).indexOf('calendar') >= 0 && rc.calendars && rc.calendars.length) {
+      var cs = new Date(); cs.setHours(0, 0, 0, 0);
+      var ce = new Date(cs.getTime() + 86400000);
+      var evLines = [];
+      rc.calendars.forEach(function (id) {
+        try {
+          var cal = CalendarApp.getCalendarById(id);
+          if (!cal) { var byName = CalendarApp.getCalendarsByName(id); if (byName && byName.length) cal = byName[0]; }
+          if (!cal) return;
+          cal.getEvents(cs, ce).forEach(function (ev) {
+            var when = ev.isAllDayEvent() ? 'all day' : Utilities.formatDate(ev.getStartTime(), TZ, 'HH:mm');
+            evLines.push([ev.isAllDayEvent() ? '' : when, when + ' ' + String(ev.getTitle() || '').slice(0, 48)]);
+          });
+        } catch (e) {}
+      });
+      evLines.sort(function (a, b) { return a[0] < b[0] ? -1 : 1; });
+      var seen = {};
+      var uniq = evLines.filter(function (x) { if (seen[x[1]]) return false; seen[x[1]] = 1; return true; });
+      L.push('📅 ' + (uniq.length ? 'today:' : 'no events today'));
+      uniq.slice(0, 6).forEach(function (x) { L.push('  • ' + x[1]); });
+      if (uniq.length > 6) L.push('  … +' + (uniq.length - 6) + ' more');
+    }
     if ((rc.sections || []).indexOf('attendance') >= 0) {
       var att = store_(data, 'hydroPro_attendance', {}), emps = store_(data, 'hydroPro_employees', []);
       var t = att[day_(0)] || {}, act = emps.filter(function (e) { return e && e.status !== 'inactive' && !e.separated; });
