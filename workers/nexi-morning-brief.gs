@@ -1,4 +1,4 @@
-/** Nexi ☀️ Morning Brief — Google Apps Script (v3: 06:00 calendar brief + 07:15 attendance report, WhatsApp + e-mail)
+/** Nexi ☀️ Morning Brief — Google Apps Script (v3.1: 06:00 calendar brief for TODAY + TOMORROW, 07:15 attendance report; Eyal, Dr Amy, Chen; WhatsApp + e-mail)
  *
  * Every morning at BRIEF_HOUR (Asia/Manila) this script mails Eyal one
  * e-mail with the day in it:
@@ -54,6 +54,11 @@ var RECIPIENTS = [
                 'ABA PARDES - ADMIN', 'ABA PARDES - MAINTANENCE', 'ABA PARDES - PRODUCTION'],
     sections: ['calendar', 'tasks', 'attendance', 'checklist', 'calls', 'requests'],
     waKeyProp: 'WA_EYAL' },
+  { name: 'Dr Amy', to: 'dramypatdu@gmail.com',
+    calendars: ['dramypatdu@gmail.com', 'nexi@abapardes.com.ph',
+                'ABA PARDES - ADMIN', 'ABA PARDES - MAINTANENCE', 'ABA PARDES - PRODUCTION'],
+    sections: ['calendar', 'attendance', 'checklist', 'calls', 'requests'],
+    waKeyProp: 'WA_AMY' },                 /* WA_AMY = 639778572208|apikey once she activates CallMeBot */
   { name: 'Chen', to: 'cheriet@abapardes.com.ph',
     calendars: ['cheriet@abapardes.com.ph'],
     match: /chen|cheriet/i,
@@ -172,25 +177,33 @@ function waText_(rc, data) {
     /* 📅 today's calendar — same calendars the e-mail uses, compact */
     if ((rc.sections || []).indexOf('calendar') >= 0 && rc.calendars && rc.calendars.length) {
       var cs = new Date(); cs.setHours(0, 0, 0, 0);
-      var ce = new Date(cs.getTime() + 86400000);
-      var evLines = [], unread = [];
-      rc.calendars.forEach(function (id) {
-        try {
-          var cal = CalendarApp.getCalendarById(id);
-          if (!cal) { var byName = CalendarApp.getCalendarsByName(id); if (byName && byName.length) cal = byName[0]; }
-          if (!cal) { unread.push(id); return; }
-          cal.getEvents(cs, ce).forEach(function (ev) {
-            var when = ev.isAllDayEvent() ? 'all day' : Utilities.formatDate(ev.getStartTime(), TZ, 'HH:mm');
-            evLines.push([ev.isAllDayEvent() ? '' : when, when + ' ' + String(ev.getTitle() || '').slice(0, 48)]);
-          });
-        } catch (e) {}
-      });
-      evLines.sort(function (a, b) { return a[0] < b[0] ? -1 : 1; });
-      var seen = {};
-      var uniq = evLines.filter(function (x) { if (seen[x[1]]) return false; seen[x[1]] = 1; return true; });
-      L.push('📅 ' + (uniq.length ? 'today:' : 'no events today'));
-      uniq.slice(0, 8).forEach(function (x) { L.push('  • ' + x[1]); });
-      if (uniq.length > 8) L.push('  … +' + (uniq.length - 8) + ' more');
+      var unread = [];
+      var dayLines = function (from, to) {
+        var evLines = [];
+        rc.calendars.forEach(function (id) {
+          try {
+            var cal = CalendarApp.getCalendarById(id);
+            if (!cal) { var byName = CalendarApp.getCalendarsByName(id); if (byName && byName.length) cal = byName[0]; }
+            if (!cal) { if (unread.indexOf(id) < 0) unread.push(id); return; }
+            cal.getEvents(from, to).forEach(function (ev) {
+              var when = ev.isAllDayEvent() ? 'all day' : Utilities.formatDate(ev.getStartTime(), TZ, 'HH:mm');
+              evLines.push([ev.isAllDayEvent() ? '' : when, when + ' ' + String(ev.getTitle() || '').slice(0, 48)]);
+            });
+          } catch (e) {}
+        });
+        evLines.sort(function (a, b) { return a[0] < b[0] ? -1 : 1; });
+        var seen = {};
+        return evLines.filter(function (x) { if (seen[x[1]]) return false; seen[x[1]] = 1; return true; }).map(function (x) { return x[1]; });
+      };
+      /* v3: always TODAY and TOMORROW */
+      var d1 = new Date(cs.getTime() + 86400000), d2 = new Date(cs.getTime() + 2 * 86400000);
+      var today = dayLines(cs, d1), tmrw = dayLines(d1, d2);
+      L.push('📅 today ' + Utilities.formatDate(cs, TZ, 'EEE d') + (today.length ? ':' : ': no events'));
+      today.slice(0, 8).forEach(function (x) { L.push('  • ' + x); });
+      if (today.length > 8) L.push('  … +' + (today.length - 8) + ' more');
+      L.push('📅 tomorrow ' + Utilities.formatDate(d1, TZ, 'EEE d') + (tmrw.length ? ':' : ': no events'));
+      tmrw.slice(0, 6).forEach(function (x) { L.push('  • ' + x); });
+      if (tmrw.length > 6) L.push('  … +' + (tmrw.length - 6) + ' more');
       if (unread.length) L.push('  ⚠ not shared with nexi: ' + unread.join(', '));
     }
     if (false) { /* v3: attendance moved to the 07:15 report — at 06:00 it always read 0 punched in */
@@ -330,11 +343,15 @@ function esc_(x) {
   return String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/* 📅 today's events from both calendars; a calendar that cannot be read says so */
+/* 📅 TODAY and TOMORROW from every calendar (v3: the brief always shows both days); a calendar that cannot be read says so */
 function calendarSection_(calIds) {
-  var out = [h_('📅', "Today's calendar")];
   var start = new Date(); start.setHours(0, 0, 0, 0);
-  var end = new Date(start.getTime() + 86400000);
+  var mid = new Date(start.getTime() + 86400000), end = new Date(start.getTime() + 2 * 86400000);
+  return calendarDay_(calIds, "Today's calendar · " + Utilities.formatDate(start, TZ, 'EEE d MMM'), start, mid)
+       + calendarDay_(calIds, "Tomorrow · " + Utilities.formatDate(mid, TZ, 'EEE d MMM'), mid, end);
+}
+function calendarDay_(calIds, title, start, end) {
+  var out = [h_('📅', title)];
   var any = false;
   (calIds || []).forEach(function (id) {
     try {
@@ -359,7 +376,7 @@ function calendarSection_(calIds) {
       out.push('<div style="color:#c62828;">' + esc_(id) + ' — could not be read: ' + esc_(e.message) + '</div>');
     }
   });
-  if (!any) out.push('<div style="color:#777;">No events today.</div>');
+  if (!any) out.push('<div style="color:#777;">No events.</div>');
   return out.join('');
 }
 
