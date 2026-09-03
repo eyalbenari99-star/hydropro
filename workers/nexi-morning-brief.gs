@@ -1,4 +1,4 @@
-/** Nexi ☀️ Morning Brief — Google Apps Script (v2, one brief per person)
+/** Nexi ☀️ Morning Brief — Google Apps Script (v3: 06:00 calendar brief + 07:15 attendance report, WhatsApp + e-mail)
  *
  * Every morning at BRIEF_HOUR (Asia/Manila) this script mails Eyal one
  * e-mail with the day in it:
@@ -35,8 +35,11 @@
  */
 
 var SYNC_URL   = 'https://hnx-sync.eyalbenari99.workers.dev';
-var BRIEF_HOUR = 7;                     // 07:15 Asia/Manila — people punch in until 7,
-var BRIEF_MIN  = 15;                    // so a 6:00 brief always said 0/97 punched in
+/* v3 (Eyal, 4 Sep 2026): TWO sends a day, WhatsApp + e-mail each —
+     06:00  ☀ Morning brief   — calendars review, yesterday's checklist, open calls, requests
+     07:15  ⏰ Attendance report — who punched in, who is late, who is missing (people punch until 7) */
+var BRIEF_HOUR = 6,  BRIEF_MIN = 0;     // morning brief (calendar review)
+var ATT_HOUR   = 7,  ATT_MIN   = 15;    // attendance report
 var TZ         = 'Asia/Manila';
 
 /* One brief per person, each with their own calendar and their own sections.
@@ -74,28 +77,37 @@ var RECIPIENTS = [
 /* ---------------- install / self-heal ---------------- */
 
 function installMorningBrief() {
-  /* re-running install moves the schedule: old triggers are removed so the
-     brief fires at the CURRENT BRIEF_HOUR/BRIEF_MIN, not the old one */
+  /* re-running install moves the schedule: old triggers are removed so both
+     sends fire at the CURRENT hours, not the old ones */
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'nexiMorningBrief') ScriptApp.deleteTrigger(t);
+    var f = t.getHandlerFunction();
+    if (f === 'nexiMorningBrief' || f === 'nexiAttendanceReport') ScriptApp.deleteTrigger(t);
   });
   ensureTrigger_();
   nexiMorningBrief();                   // send one now so setup is verifiable
+  nexiAttendanceReport();               // and one attendance report
 }
 
 function ensureTrigger_() {
-  var have = ScriptApp.getProjectTriggers().some(function (t) {
-    return t.getHandlerFunction() === 'nexiMorningBrief';
-  });
-  if (!have) {
+  var have = {};
+  ScriptApp.getProjectTriggers().forEach(function (t) { have[t.getHandlerFunction()] = 1; });
+  if (!have.nexiMorningBrief)
     ScriptApp.newTrigger('nexiMorningBrief')
       .timeBased().everyDays(1).atHour(BRIEF_HOUR).nearMinute(BRIEF_MIN).inTimezone(TZ).create();
-  }
+  if (!have.nexiAttendanceReport)
+    ScriptApp.newTrigger('nexiAttendanceReport')
+      .timeBased().everyDays(1).atHour(ATT_HOUR).nearMinute(ATT_MIN).inTimezone(TZ).create();
 }
 
 /* ---------------- the brief ---------------- */
 
-function nexiMorningBrief() {
+function nexiMorningBrief()     { sendRound_('morning'); }
+function nexiAttendanceReport() { sendRound_('attendance'); }
+
+/* one round = one e-mail + one WhatsApp per recipient.
+   'morning'    = the person's own sections MINUS attendance (nobody has punched at 06:00)
+   'attendance' = the attendance report (+ a one-line calendar reminder) */
+function sendRound_(mode) {
   ensureTrigger_();
   var data = null, pullErr = null;
   try { data = pullCloud_(); } catch (e) { pullErr = e; }
@@ -103,15 +115,16 @@ function nexiMorningBrief() {
   RECIPIENTS.forEach(function (rc) {
     try {
       if (pullErr) throw pullErr;
+      var subj = mode === 'attendance' ? '⏰ Nexi Attendance — ' + today : '☀️ Nexi Morning Brief — ' + today;
       /* GmailApp garbles 4-byte emoji (📅 📋 📞) into ������ while
          2-byte ones (⏰ ☀) survive - so every wide character is sent as an
          HTML numeric entity, which no mail client can misread. */
-      GmailApp.sendEmail(rc.to, '☀️ Nexi Morning Brief — ' + today,
+      GmailApp.sendEmail(rc.to, subj,
         'Open this e-mail in an HTML mail client.',
-        { htmlBody: entify_(buildBrief_(data, rc)), cc: rc.cc || '', name: 'Nexi · HydroNexis-AI' });
-      try { sendWhatsApp_(rc, data); } catch (e) {}   /* WhatsApp never blocks the e-mail */
+        { htmlBody: entify_(buildBrief_(data, rc, mode)), cc: rc.cc || '', name: 'Nexi · HydroNexis-AI' });
+      try { sendWhatsApp_(rc, data, mode); } catch (e) {}   /* WhatsApp never blocks the e-mail */
     } catch (e) {
-      GmailApp.sendEmail(RECIPIENTS[0].to, '⚠ Nexi Morning Brief failed for ' + rc.name,
+      GmailApp.sendEmail(RECIPIENTS[0].to, '⚠ Nexi ' + mode + ' brief failed for ' + rc.name,
         'The brief for ' + rc.name + ' could not be produced:\n\n' + e + '\n\n' +
         'Most often this is the HNX_USER / HNX_PASS script property or the sync worker being unreachable.');
     }
@@ -139,12 +152,12 @@ function pullCloud_() {
 
 /* ---------------- WhatsApp (CallMeBot relay — company SIM untouched) ---------------- */
 
-function sendWhatsApp_(rc, data) {
+function sendWhatsApp_(rc, data, mode) {
   if (!rc.waKeyProp) return;
   var cfg = PropertiesService.getScriptProperties().getProperty(rc.waKeyProp);
   if (!cfg || cfg.indexOf('|') < 0) return;             /* not activated for this person */
   var phone = cfg.split('|')[0].trim(), key = cfg.split('|')[1].trim();
-  var text = waText_(rc, data);
+  var text = mode === 'attendance' ? waAttendanceText_(rc, data) : waText_(rc, data);
   UrlFetchApp.fetch('https://api.callmebot.com/whatsapp.php'
     + '?phone=' + encodeURIComponent(phone)
     + '&apikey=' + encodeURIComponent(key)
@@ -160,12 +173,12 @@ function waText_(rc, data) {
     if ((rc.sections || []).indexOf('calendar') >= 0 && rc.calendars && rc.calendars.length) {
       var cs = new Date(); cs.setHours(0, 0, 0, 0);
       var ce = new Date(cs.getTime() + 86400000);
-      var evLines = [];
+      var evLines = [], unread = [];
       rc.calendars.forEach(function (id) {
         try {
           var cal = CalendarApp.getCalendarById(id);
           if (!cal) { var byName = CalendarApp.getCalendarsByName(id); if (byName && byName.length) cal = byName[0]; }
-          if (!cal) return;
+          if (!cal) { unread.push(id); return; }
           cal.getEvents(cs, ce).forEach(function (ev) {
             var when = ev.isAllDayEvent() ? 'all day' : Utilities.formatDate(ev.getStartTime(), TZ, 'HH:mm');
             evLines.push([ev.isAllDayEvent() ? '' : when, when + ' ' + String(ev.getTitle() || '').slice(0, 48)]);
@@ -176,10 +189,11 @@ function waText_(rc, data) {
       var seen = {};
       var uniq = evLines.filter(function (x) { if (seen[x[1]]) return false; seen[x[1]] = 1; return true; });
       L.push('📅 ' + (uniq.length ? 'today:' : 'no events today'));
-      uniq.slice(0, 6).forEach(function (x) { L.push('  • ' + x[1]); });
-      if (uniq.length > 6) L.push('  … +' + (uniq.length - 6) + ' more');
+      uniq.slice(0, 8).forEach(function (x) { L.push('  • ' + x[1]); });
+      if (uniq.length > 8) L.push('  … +' + (uniq.length - 8) + ' more');
+      if (unread.length) L.push('  ⚠ not shared with nexi: ' + unread.join(', '));
     }
-    if ((rc.sections || []).indexOf('attendance') >= 0) {
+    if (false) { /* v3: attendance moved to the 07:15 report — at 06:00 it always read 0 punched in */
       var att = store_(data, 'hydroPro_attendance', {}), emps = store_(data, 'hydroPro_employees', []);
       var t = att[day_(0)] || {}, act = emps.filter(function (e) { return e && e.status !== 'inactive' && !e.separated; });
       var inC = 0; act.forEach(function (e) { var r = t[e.id]; if (r && (r.status === 'present' || r.status === 'late')) inC++; });
@@ -214,6 +228,48 @@ function waText_(rc, data) {
   return L.join('\n');
 }
 
+/* ⏰ 07:15 attendance report for WhatsApp: in / late / missing, by name */
+function waAttendanceText_(rc, data) {
+  var L = ['⏰ Nexi Attendance · ' + Utilities.formatDate(new Date(), TZ, 'EEE d MMM HH:mm')];
+  try {
+    var a = attendanceStats_(data);
+    L.push('✅ ' + a.inCount + '/' + a.total + ' punched in' + (a.late.length ? ' · ' + a.late.length + ' late' : ''));
+    if (a.late.length) { L.push('⏱ late:'); a.late.slice(0, 10).forEach(function (x) { L.push('  • ' + x); }); if (a.late.length > 10) L.push('  … +' + (a.late.length - 10) + ' more'); }
+    if (a.leave.length) L.push('🌴 on leave: ' + a.leave.length);
+    L.push('❌ no punch yet: ' + a.missing.length);
+    a.missing.slice(0, 12).forEach(function (x) { L.push('  • ' + x); });
+    if (a.missing.length > 12) L.push('  … +' + (a.missing.length - 12) + ' more (e-mail has all)');
+    /* one-line calendar reminder for the next event today */
+    if (rc.calendars && rc.calendars.length) {
+      var now = new Date(), ce = new Date(now); ce.setHours(23, 59, 59, 0), nxt = null;
+      rc.calendars.forEach(function (id) { try { var cal = CalendarApp.getCalendarById(id); if (!cal) { var bn = CalendarApp.getCalendarsByName(id); if (bn && bn.length) cal = bn[0]; } if (!cal) return;
+        cal.getEvents(now, ce).forEach(function (ev) { if (ev.isAllDayEvent()) return; if (!nxt || ev.getStartTime() < nxt.getStartTime()) nxt = ev; }); } catch (e) {} });
+      if (nxt) L.push('📅 next: ' + Utilities.formatDate(nxt.getStartTime(), TZ, 'HH:mm') + ' ' + String(nxt.getTitle() || '').slice(0, 48));
+    }
+  } catch (e) { L.push('⚠ ' + e); }
+  L.push('Full list in your e-mail 📧');
+  return L.join('\n');
+}
+
+/* who is in / late / on leave / missing right now (today's attendance store) */
+function attendanceStats_(data) {
+  var att = store_(data, 'hydroPro_attendance', {}), emps = store_(data, 'hydroPro_employees', []);
+  var t = att[day_(0)] || {};
+  var act = emps.filter(function (e) { return e && e.id && e.name && !/inactive|terminat|resign|separated/i.test(String(e.status || '')) && !e.separated; });
+  var out = { total: act.length, inCount: 0, late: [], leave: [], missing: [] };
+  var nm = function (e) { return String(e.name || e.id).slice(0, 30) + (e.dept ? ' (' + String(e.dept).slice(0, 12) + ')' : ''); };
+  act.forEach(function (e) {
+    var r = t[e.id];
+    if (r && (r.status === 'present' || r.status === 'late')) {
+      out.inCount++;
+      if (r.status === 'late' || (Number(r.lateMinutes) || 0) > 0) out.late.push(nm(e) + (r.lateMinutes ? ' L' + r.lateMinutes : '') + (r.timeIn ? ' · in ' + r.timeIn : ''));
+    } else if (r && /authorized|leave/i.test(String(r.status || ''))) out.leave.push(nm(e));
+    else out.missing.push(nm(e));
+  });
+  out.late.sort(); out.missing.sort();
+  return out;
+}
+
 function store_(data, key, fallback) {
   var v = data[key];
   if (v == null) return fallback;
@@ -227,7 +283,20 @@ function day_(offset) {
 
 /* ---------------- sections ---------------- */
 
-function buildBrief_(data, rc) {
+function buildBrief_(data, rc, mode) {
+  if (mode === 'attendance') {
+    var a = attendanceStats_(data);
+    var list = function (arr, color) { return arr.length ? '<ul style="margin:4px 0;columns:2;">' + arr.map(function (x) { return '<li style="color:' + color + ';">' + esc_(x) + '</li>'; }).join('') + '</ul>' : '<div style="color:#777;">none</div>'; };
+    return '<meta charset="UTF-8"><div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;">'
+      + '<h2 style="margin:0 0 2px 0;">⏰ Attendance report — ' + esc_(rc.name) + '</h2>'
+      + '<div style="color:#777;margin-bottom:14px;">' + Utilities.formatDate(new Date(), TZ, 'EEEE, d MMMM yyyy · HH:mm') + ' · Nexi</div>'
+      + '<div style="font-size:18px;font-weight:bold;">' + a.inCount + ' / ' + a.total + ' punched in</div>'
+      + h_('⏱', 'Late (' + a.late.length + ')') + list(a.late, '#e65100')
+      + h_('🌴', 'On approved leave (' + a.leave.length + ')') + list(a.leave, '#2e7d32')
+      + h_('❌', 'No punch yet (' + a.missing.length + ')') + list(a.missing, '#c62828')
+      + (rc.calendars && rc.calendars.length ? calendarSection_(rc.calendars) : '')
+      + '<div style="color:#999;font-size:11px;margin-top:18px;">Punches come from the biometric clock through the cloud store. A person on the list who is on site should scan again; a person marked by hand in the app shows as punched.</div></div>';
+  }
   var mk = {
     calendar:      function () { return calendarSection_(rc.calendars || []); },
     attendance:    function () { return attendanceSection_(data); },
@@ -238,7 +307,7 @@ function buildBrief_(data, rc) {
     release_queue: function () { return releaseQueueSection_(data); },
     my_calls:      function () { return myCallsSection_(data, rc); }
   };
-  var s = (rc.sections || []).map(function (k) { return mk[k] ? mk[k]() : ''; });
+  var s = (rc.sections || []).filter(function (k) { return mode !== 'morning' || k !== 'attendance'; }).map(function (k) { return mk[k] ? mk[k]() : ''; });
   /* Apple Mail renders the emoji as ������ without an explicit charset */
   return '<meta charset="UTF-8"><div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;">'
     + '<h2 style="margin:0 0 2px 0;">☀️ Good morning, ' + esc_(rc.name) + '</h2>'
