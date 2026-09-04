@@ -1,4 +1,4 @@
-/** Nexi ☀️ Morning Brief — Google Apps Script (v3.1: 06:00 calendar brief for TODAY + TOMORROW, 07:15 attendance report; Eyal, Dr Amy, Chen; WhatsApp + e-mail)
+/** Nexi ☀️ Morning Brief — Google Apps Script (v3.2: 06:00 calendar brief for TODAY + TOMORROW, 07:15 attendance report; Eyal, Dr Amy, Chen; WhatsApp + e-mail)
  *
  * Every morning at BRIEF_HOUR (Asia/Manila) this script mails Eyal one
  * e-mail with the day in it:
@@ -268,7 +268,9 @@ function waAttendanceText_(rc, data) {
 function attendanceStats_(data) {
   var att = store_(data, 'hydroPro_attendance', {}), emps = store_(data, 'hydroPro_employees', []);
   var t = att[day_(0)] || {};
-  var act = emps.filter(function (e) { return e && e.id && e.name && !/inactive|terminat|resign|separated/i.test(String(e.status || '')) && !e.separated; });
+  /* shareholders / senior management are not on the biometric clock — never listed (same names the app exempts) */
+  var EXEMPT = /amy\s*patdu|dra\.?\s*amy|patdu|ben\s*ari|kshepitsky|iris\s*ben/i;
+  var act = emps.filter(function (e) { return e && e.id && e.name && !EXEMPT.test(String(e.name || '')) && !/inactive|terminat|resign|separated/i.test(String(e.status || '')) && !e.separated; });
   var out = { total: act.length, inCount: 0, late: [], leave: [], missing: [] };
   var nm = function (e) { return String(e.name || e.id).slice(0, 30) + (e.dept ? ' (' + String(e.dept).slice(0, 12) + ')' : ''); };
   act.forEach(function (e) {
