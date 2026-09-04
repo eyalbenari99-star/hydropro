@@ -50,7 +50,15 @@ var TZ         = 'Asia/Manila';
    To add a person: add a row and share their calendar with nexi once. */
 var RECIPIENTS = [
   { name: 'Eyal', to: 'eyalbenari99@gmail.com', cc: 'eyal@abapardes.com.ph',
-    calendars: ['eyal@abapardes.com.ph', 'nexi@abapardes.com.ph',
+    /* v3.3: the brief said "no events" on a day full of flights and pool cleaning because
+       it never looked at the calendar those events are actually on. Eyal's real day lives on
+       his PERSONAL calendar (eyalbenari99@gmail.com) plus the two AteretPaz management
+       calendars; the work calendar was readable but empty. Each of these still has to be
+       shared with nexi@abapardes.com.ph once — the brief now says loudly which ones are not. */
+    calendars: ['eyalbenari99@gmail.com',
+                'fcbr0bbhpo6uv4c75csesba3vc@group.calendar.google.com',   /* AteretPaz Managment */
+                '3ggu0pqlmrod4brbhqujt3lhk8@group.calendar.google.com',   /* AterePaz Technologies Managment */
+                'eyal@abapardes.com.ph', 'nexi@abapardes.com.ph',
                 'ABA PARDES - ADMIN', 'ABA PARDES - MAINTANENCE', 'ABA PARDES - PRODUCTION'],
     sections: ['calendar', 'tasks', 'attendance', 'checklist', 'calls', 'requests'],
     waKeyProp: 'WA_EYAL' },
@@ -187,24 +195,37 @@ function waText_(rc, data) {
             if (!cal) { if (unread.indexOf(id) < 0) unread.push(id); return; }
             cal.getEvents(from, to).forEach(function (ev) {
               var when = ev.isAllDayEvent() ? 'all day' : Utilities.formatDate(ev.getStartTime(), TZ, 'HH:mm');
-              evLines.push([ev.isAllDayEvent() ? '' : when, when + ' ' + String(ev.getTitle() || '').slice(0, 48)]);
+              evLines.push([ev.isAllDayEvent() ? '' : when, when + ' ' + String(ev.getTitle() || '').slice(0, 48), String(ev.getTitle() || '')]);
             });
           } catch (e) {}
         });
         evLines.sort(function (a, b) { return a[0] < b[0] ? -1 : 1; });
+        /* v3.3: the same flight arrives from the airline mail, the booking site and a manual
+           entry — three lines for one trip. Collapse by start time + flight code when there is
+           one, otherwise by start time + the squashed title. */
         var seen = {};
-        return evLines.filter(function (x) { if (seen[x[1]]) return false; seen[x[1]] = 1; return true; }).map(function (x) { return x[1]; });
+        return evLines.filter(function (x) {
+          var k = dedupeKey_(x[0], x[2]);
+          if (seen[k]) return false; seen[k] = 1; return true;
+        }).map(function (x) { return x[1]; });
       };
       /* v3: always TODAY and TOMORROW */
       var d1 = new Date(cs.getTime() + 86400000), d2 = new Date(cs.getTime() + 2 * 86400000);
       var today = dayLines(cs, d1), tmrw = dayLines(d1, d2);
-      L.push('📅 today ' + Utilities.formatDate(cs, TZ, 'EEE d') + (today.length ? ':' : ': no events'));
+      /* v3.3: "no events" is only true when every calendar was actually READ. If any could
+         not be opened, say that instead — the old wording hid a blind brief for weeks. */
+      var blind = unread.length, seen = rc.calendars.length - blind;
+      if (blind) {
+        L.push('⚠ I can only see ' + seen + ' of ' + rc.calendars.length + ' calendars — your day may look emptier than it is.');
+        L.push('  not shared with nexi: ' + unread.join(', '));
+      }
+      var noneTxt = blind ? ': nothing on the calendars I can see' : ': no events';
+      L.push('📅 today ' + Utilities.formatDate(cs, TZ, 'EEE d') + (today.length ? ':' : noneTxt));
       today.slice(0, 8).forEach(function (x) { L.push('  • ' + x); });
       if (today.length > 8) L.push('  … +' + (today.length - 8) + ' more');
-      L.push('📅 tomorrow ' + Utilities.formatDate(d1, TZ, 'EEE d') + (tmrw.length ? ':' : ': no events'));
+      L.push('📅 tomorrow ' + Utilities.formatDate(d1, TZ, 'EEE d') + (tmrw.length ? ':' : noneTxt));
       tmrw.slice(0, 6).forEach(function (x) { L.push('  • ' + x); });
       if (tmrw.length > 6) L.push('  … +' + (tmrw.length - 6) + ' more');
-      if (unread.length) L.push('  ⚠ not shared with nexi: ' + unread.join(', '));
     }
     if (false) { /* v3: attendance moved to the 07:15 report — at 06:00 it always read 0 punched in */
       var att = store_(data, 'hydroPro_attendance', {}), emps = store_(data, 'hydroPro_employees', []);
@@ -352,9 +373,11 @@ function calendarSection_(calIds) {
   return calendarDay_(calIds, "Today's calendar · " + Utilities.formatDate(start, TZ, 'EEE d MMM'), start, mid)
        + calendarDay_(calIds, "Tomorrow · " + Utilities.formatDate(mid, TZ, 'EEE d MMM'), mid, end);
 }
+var unreadable_ = false;
 function calendarDay_(calIds, title, start, end) {
   var out = [h_('📅', title)];
   var any = false;
+  unreadable_ = false;
   (calIds || []).forEach(function (id) {
     try {
       /* an entry can be a calendar ID (an e-mail) or a calendar NAME
@@ -362,7 +385,7 @@ function calendarDay_(calIds, title, start, end) {
          calendars the nexi account has accepted */
       var cal = CalendarApp.getCalendarById(id);
       if (!cal) { var byName = CalendarApp.getCalendarsByName(id); if (byName && byName.length) cal = byName[0]; }
-      if (!cal) { out.push('<div style="color:#c62828;">' + esc_(id) + ' — not visible to nexi yet (share it with nexi@abapardes.com.ph, and accept the share on the nexi account)</div>'); return; }
+      if (!cal) { unreadable_ = true; out.push('<div style="color:#c62828;">' + esc_(id) + ' — not visible to nexi yet (share it with nexi@abapardes.com.ph, and accept the share on the nexi account)</div>'); return; }
       var evs = cal.getEvents(start, end);
       if (!evs.length) return;
       any = true;
@@ -378,8 +401,15 @@ function calendarDay_(calIds, title, start, end) {
       out.push('<div style="color:#c62828;">' + esc_(id) + ' — could not be read: ' + esc_(e.message) + '</div>');
     }
   });
-  if (!any) out.push('<div style="color:#777;">No events.</div>');
+  if (!any) out.push('<div style="color:#777;">' + (unreadable_ ? 'Nothing on the calendars nexi can read — the ones marked in red above are invisible to it.' : 'No events.') + '</div>');
   return out.join('');
+}
+/* one key per real-world event: 09:00 + "CX901" collapses the flight however it was imported */
+function dedupeKey_(when, title) {
+  var t = String(title || '');
+  var f = t.toUpperCase().match(/\b([A-Z]{2})\s?(\d{2,4})\b/);
+  if (f) return when + '|' + f[1] + f[2];
+  return when + '|' + t.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24);
 }
 
 /* ⏰ punches so far this morning + who has nothing yet */
