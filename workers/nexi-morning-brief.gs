@@ -1,4 +1,4 @@
-/** Nexi ☀️ Morning Brief — Google Apps Script (v3.2: 06:00 calendar brief for TODAY + TOMORROW, 07:15 attendance report; Eyal, Dr Amy, Chen; WhatsApp + e-mail)
+/** Nexi ☀️ Morning Brief — Google Apps Script (v3.4: 06:00 calendar brief for TODAY + TOMORROW, 07:15 attendance report; Eyal, Dr Amy, Chen; WhatsApp + e-mail)
  *
  * Every morning at BRIEF_HOUR (Asia/Manila) this script mails Eyal one
  * e-mail with the day in it:
@@ -193,6 +193,8 @@ function waText_(rc, data) {
             var cal = CalendarApp.getCalendarById(id);
             if (!cal) { var byName = CalendarApp.getCalendarsByName(id); if (byName && byName.length) cal = byName[0]; }
             if (!cal) { if (unread.indexOf(id) < 0) unread.push(id); return; }
+            /* v3.4: opens but is mute — counts as blind, not as an empty day */
+            if (calMute_(id, cal)) { if (unread.indexOf(id) < 0) unread.push(id); return; }
             cal.getEvents(from, to).forEach(function (ev) {
               var when = ev.isAllDayEvent() ? 'all day' : Utilities.formatDate(ev.getStartTime(), TZ, 'HH:mm');
               evLines.push([ev.isAllDayEvent() ? '' : when, when + ' ' + String(ev.getTitle() || '').slice(0, 48), String(ev.getTitle() || '')]);
@@ -217,7 +219,7 @@ function waText_(rc, data) {
       var blind = unread.length, seen = rc.calendars.length - blind;
       if (blind) {
         L.push('⚠ I can only see ' + seen + ' of ' + rc.calendars.length + ' calendars — your day may look emptier than it is.');
-        L.push('  not shared with nexi: ' + unread.join(', '));
+        L.push('  not shared with nexi (or shared as free/busy only): ' + unread.join(', '));
       }
       var noneTxt = blind ? ': nothing on the calendars I can see' : ': no events';
       L.push('📅 today ' + Utilities.formatDate(cs, TZ, 'EEE d') + (today.length ? ':' : noneTxt));
@@ -366,6 +368,27 @@ function esc_(x) {
   return String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/* v3.4: a calendar shared as "See only free/busy (hide details)", or shared but never
+   accepted on the nexi account, still OPENS — getCalendarById returns it — and then hands
+   back an empty event list. That is indistinguishable from a genuinely quiet day, so the
+   brief printed "No events." for weeks while Eyal's personal calendar was full. A calendar
+   that has nothing at all across a 60-day window is not quiet, it is mute: say so.
+   The probe is cached per run — it costs one extra getEvents per calendar, not per day. */
+var muteProbe_ = {};
+function calMute_(id, cal) {
+  if (muteProbe_.hasOwnProperty(id)) return muteProbe_[id];
+  var mute = false;
+  try {
+    var now = new Date();
+    var from = new Date(now.getTime() - 30 * 86400000), to = new Date(now.getTime() + 30 * 86400000);
+    mute = cal.getEvents(from, to).length === 0;
+  } catch (e) { mute = true; }
+  muteProbe_[id] = mute;
+  return mute;
+}
+var MUTE_MSG = ' \u2014 nexi can open this calendar but sees nothing in it. Set the share to '
+             + '"See all event details" (not free/busy) and accept the share on the nexi account.';
+
 /* 📅 TODAY and TOMORROW from every calendar (v3: the brief always shows both days); a calendar that cannot be read says so */
 function calendarSection_(calIds) {
   var start = new Date(); start.setHours(0, 0, 0, 0);
@@ -387,7 +410,10 @@ function calendarDay_(calIds, title, start, end) {
       if (!cal) { var byName = CalendarApp.getCalendarsByName(id); if (byName && byName.length) cal = byName[0]; }
       if (!cal) { unreadable_ = true; out.push('<div style="color:#c62828;">' + esc_(id) + ' — not visible to nexi yet (share it with nexi@abapardes.com.ph, and accept the share on the nexi account)</div>'); return; }
       var evs = cal.getEvents(start, end);
-      if (!evs.length) return;
+      if (!evs.length) {
+        if (calMute_(id, cal)) { unreadable_ = true; out.push('<div style="color:#c62828;">' + esc_(id) + esc_(MUTE_MSG) + '</div>'); }
+        return;
+      }
       any = true;
       out.push('<div style="font-weight:bold;margin-top:4px;">' + esc_(id) + '</div><ul style="margin:4px 0;">');
       evs.forEach(function (ev) {
