@@ -1,4 +1,4 @@
-/** Nexi ☀️ Morning Brief — Google Apps Script (v3.4: 06:00 calendar brief for TODAY + TOMORROW, 07:15 attendance report; Eyal, Dr Amy, Chen; WhatsApp + e-mail)
+/** Nexi ☀️ Morning Brief — Google Apps Script (v3.5: 06:00 calendar brief for TODAY + TOMORROW, 07:15 attendance report; Eyal, Dr Amy, Chen; WhatsApp + e-mail)
  *
  * Every morning at BRIEF_HOUR (Asia/Manila) this script mails Eyal one
  * e-mail with the day in it:
@@ -38,6 +38,27 @@ var SYNC_URL   = 'https://hnx-sync.eyalbenari99.workers.dev';
 /* v3 (Eyal, 4 Sep 2026): TWO sends a day, WhatsApp + e-mail each —
      06:00  ☀ Morning brief   — calendars review, yesterday's checklist, open calls, requests
      07:15  ⏰ Attendance report — who punched in, who is late, who is missing (people punch until 7) */
+/* v3.5: people who are NOT on the biometric clock by policy — shareholders and
+   management are paid whether they punch or not, so they must never appear in
+   "no punch yet". Matched by NAME (the three named here) and by DEPARTMENT
+   (the app files them under MANAGEMENT). The report prints who it skipped so
+   a wrong exclusion is visible, not silent. The v3.2 filter only covered ONE
+   of the three attendance paths; this one is applied in all of them. */
+var NO_CLOCK_NAMES = /ben\s*ari|kshepitsk|patdu|dra\.?\s*amy|amy\s*patdu|iris\s*ben/i;
+var NO_CLOCK_DEPTS = /^(MANAGEMENT|SHAREHOLDER|SHAREHOLDERS|OWNER|BOARD)$/i;
+function onClock_(e) {
+  if (!e) return false;
+  if (e.noBio || e.bioExempt || e.exemptBio || e.noClock) return false;      /* app-side flag, if ever set */
+  if (NO_CLOCK_NAMES.test(String(e.name || e.fullname || ''))) return false;
+  if (NO_CLOCK_DEPTS.test(String(e.dept || e.department || '').trim())) return false;
+  return true;
+}
+function offClockNames_(emps) {
+  return (emps || []).filter(function (e) { return e && e.id && e.name && !onClock_(e)
+      && !/inactive|terminat|resign|separated/i.test(String(e.status || '')) && !e.separated; })
+    .map(function (e) { return String(e.name).slice(0, 30); }).sort();
+}
+
 var BRIEF_HOUR = 6,  BRIEF_MIN = 0;     // morning brief (calendar review)
 var ATT_HOUR   = 7,  ATT_MIN   = 15;    // attendance report
 var TZ         = 'Asia/Manila';
@@ -275,6 +296,7 @@ function waAttendanceText_(rc, data) {
     L.push('❌ no punch yet: ' + a.missing.length);
     a.missing.slice(0, 12).forEach(function (x) { L.push('  • ' + x); });
     if (a.missing.length > 12) L.push('  … +' + (a.missing.length - 12) + ' more (e-mail has all)');
+    if (a.offClock && a.offClock.length) L.push('👔 not on the clock by policy: ' + a.offClock.length + ' (' + a.offClock.map(function (n) { return n.split(',')[0]; }).join(', ') + ')');
     /* one-line calendar reminder for the next event today */
     if (rc.calendars && rc.calendars.length) {
       var now = new Date(), ce = new Date(now); ce.setHours(23, 59, 59, 0), nxt = null;
@@ -291,10 +313,9 @@ function waAttendanceText_(rc, data) {
 function attendanceStats_(data) {
   var att = store_(data, 'hydroPro_attendance', {}), emps = store_(data, 'hydroPro_employees', []);
   var t = att[day_(0)] || {};
-  /* shareholders / senior management are not on the biometric clock — never listed (same names the app exempts) */
-  var EXEMPT = /amy\s*patdu|dra\.?\s*amy|patdu|ben\s*ari|kshepitsky|iris\s*ben/i;
-  var act = emps.filter(function (e) { return e && e.id && e.name && !EXEMPT.test(String(e.name || '')) && !/inactive|terminat|resign|separated/i.test(String(e.status || '')) && !e.separated; });
-  var out = { total: act.length, inCount: 0, late: [], leave: [], missing: [] };
+  /* v3.5: shareholders / management are not on the biometric clock — never listed, and the report says who it skipped */
+  var act = emps.filter(function (e) { return e && e.id && e.name && onClock_(e) && !/inactive|terminat|resign|separated/i.test(String(e.status || '')) && !e.separated; });
+  var out = { total: act.length, inCount: 0, late: [], leave: [], missing: [], offClock: offClockNames_(emps) };
   var nm = function (e) { return String(e.name || e.id).slice(0, 30) + (e.dept ? ' (' + String(e.dept).slice(0, 12) + ')' : ''); };
   act.forEach(function (e) {
     var r = t[e.id];
@@ -332,6 +353,7 @@ function buildBrief_(data, rc, mode) {
       + h_('⏱', 'Late (' + a.late.length + ')') + list(a.late, '#e65100')
       + h_('🌴', 'On approved leave (' + a.leave.length + ')') + list(a.leave, '#2e7d32')
       + h_('❌', 'No punch yet (' + a.missing.length + ')') + list(a.missing, '#c62828')
+      + (a.offClock && a.offClock.length ? '<div style="color:#777;font-size:12px;margin-top:8px;">👔 Not on the biometric clock by policy (' + a.offClock.length + '): ' + esc_(a.offClock.join(', ')) + '</div>' : '')
       + (rc.calendars && rc.calendars.length ? calendarSection_(rc.calendars) : '')
       + '<div style="color:#999;font-size:11px;margin-top:18px;">Punches come from the biometric clock through the cloud store. A person on the list who is on site should scan again; a person marked by hand in the app shows as punched.</div></div>';
   }
@@ -443,7 +465,8 @@ function attendanceSection_(data) {
   var att = store_(data, 'hydroPro_attendance', {});
   var emps = store_(data, 'hydroPro_employees', []);
   var today = att[day_(0)] || {};
-  var active = emps.filter(function (e) { return e && e.status !== 'inactive' && !e.separated; });
+  /* v3.5: same exclusion as the 07:15 report — this section used to list management too */
+  var active = emps.filter(function (e) { return e && onClock_(e) && e.status !== 'inactive' && !e.separated; });
   var inCount = 0, late = 0, none = [];
   active.forEach(function (e) {
     var r = today[e.id];
