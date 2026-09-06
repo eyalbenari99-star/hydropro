@@ -1,4 +1,4 @@
-/** Nexi ☀️ Morning Brief — Google Apps Script (v3.5: 06:00 calendar brief for TODAY + TOMORROW, 07:15 attendance report; Eyal, Dr Amy, Chen; WhatsApp + e-mail)
+/** Nexi ☀️ Morning Brief — Google Apps Script (v3.6: 06:00 calendar brief for TODAY + TOMORROW, 07:15 attendance report; Eyal, Dr Amy, Chen; WhatsApp + e-mail)
  *
  * Every morning at BRIEF_HOUR (Asia/Manila) this script mails Eyal one
  * e-mail with the day in it:
@@ -84,7 +84,8 @@ var RECIPIENTS = [
     sections: ['calendar', 'tasks', 'attendance', 'checklist', 'calls', 'requests'],
     waKeyProp: 'WA_EYAL' },
   { name: 'Dr Amy', to: 'dramypatdu@gmail.com',
-    calendars: ['dramypatdu@gmail.com', 'nexi@abapardes.com.ph',
+    /* v3.6: her working calendar is on the Gurlavi company account, shared with nexi (Eyal, 6 Sep) */
+    calendars: ['amyp@gurlaviholdings.com.ph', 'dramypatdu@gmail.com', 'nexi@abapardes.com.ph',
                 'ABA PARDES - ADMIN', 'ABA PARDES - MAINTANENCE', 'ABA PARDES - PRODUCTION'],
     sections: ['calendar', 'attendance', 'checklist', 'calls', 'requests'],
     waKeyProp: 'WA_AMY' },                 /* WA_AMY = 639778572208|apikey once she activates CallMeBot */
