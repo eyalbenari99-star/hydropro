@@ -1,4 +1,4 @@
-/** Nexi 📬 Mail Brief v2 — Google Apps Script (one copy per mailbox): 06:00 daily digest + hourly WhatsApp 06–20
+/** Nexi 📬 Mail Brief v2.1 — Google Apps Script (one copy per mailbox): 06:00 daily digest + hourly WhatsApp 06–20
  *
  * Runs UNDER THE MAILBOX OWNER'S OWN ACCOUNT (Google only lets a script
  * read the inbox it runs as), once every morning. It reads the last day's
@@ -81,7 +81,7 @@ function nexiMailHourly() {
       picked.needsReply.forEach(function (rec) {
         if (drafted < MAX_REPLY_DRAFTS) {
           var ai = aiSuggest_(rec);
-          if (ai && ai.reply) { try { rec.last.createDraftReply(ai.reply); rec.drafted = true; drafted++; } catch (e) {} }
+          if (ai && ai.reply) { try { rec.last.createDraftReply(draftBody_(ai)); rec.drafted = ai.replyB ? 2 : 1; drafted++; } catch (e) {} }
           if (ai) rec.summary = ai.summary;
         }
       });
@@ -107,7 +107,7 @@ function sendHourlyWhatsApp_(picked) {
   if (picked.needsReply.length) {
     L.push('Needs your reply (' + picked.needsReply.length + '):');
     picked.needsReply.slice(0, 6).forEach(function (r) {
-      L.push('• ' + r.from + ' — ' + String(r.subject).slice(0, 70) + (r.drafted ? '  ✍ draft saved' : ''));
+      L.push('• ' + r.from + ' — ' + String(r.subject).slice(0, 70) + (r.drafted ? (r.drafted === 2 ? '  ✍ 2 draft options saved' : '  ✍ draft saved') : ''));
       if (r.summary) L.push('   ' + String(r.summary).slice(0, 140));
     });
   }
@@ -192,16 +192,31 @@ function aiSuggest_(rec) {
       muteHttpExceptions: true,
       payload: JSON.stringify({
         q: 'This e-mail was sent to me (' + Session.getActiveUser().getEmail() + '). '
-          + 'First give a ONE-SENTENCE summary of what they want, then on a new line after '
-          + '"REPLY:" write a short, polite reply I could send, in the same language the '
-          + 'e-mail uses. Do not invent facts I did not give you.\n\n'
+          + 'First give a ONE-SENTENCE summary of what they want. Then give me TWO reply options I could send, '
+          + 'both in the same language the e-mail uses, both polite, neither inventing facts I did not give you: '
+          + 'on a new line after "REPLY A:" a SHORT reply (2-4 sentences, acknowledges and states the next step); '
+          + 'on a new line after "REPLY B:" a FULLER reply (answers each point raised, asks the one question that '
+          + 'is still open if any). No greetings to me, no commentary, no markdown.\n\n'
           + 'From: ' + rec.from + '\nSubject: ' + rec.subject + '\n\n' + body
       })
     }).getContentText());
     if (!res.answer) return null;
-    var parts = String(res.answer).split(/\nREPLY:\s*/i);
-    return { summary: (parts[0] || '').trim(), reply: (parts[1] || '').trim() };
+    var txt = String(res.answer);
+    var mA = txt.match(/REPLY A:\s*([\s\S]*?)(?=\n\s*REPLY B:|$)/i), mB = txt.match(/REPLY B:\s*([\s\S]*)$/i);
+    var summary = txt.split(/\n\s*REPLY A:/i)[0].replace(/^summary:\s*/i, '').trim();
+    var a = mA ? mA[1].trim() : '', b = mB ? mB[1].trim() : '';
+    if (!a && !b) { var old = txt.split(/\nREPLY:\s*/i); a = (old[1] || '').trim(); }   // tolerate the v1 shape
+    return { summary: summary, reply: a || b, replyB: (a && b) ? b : '' };
   } catch (e) { return null; }
+}
+
+/* v2.1: the draft carries BOTH options; the person deletes the one they do not want and sends */
+function draftBody_(ai) {
+  if (!ai || !ai.reply) return '';
+  if (!ai.replyB) return ai.reply;
+  return '[Nexi drafted two options - keep one, delete the other and this line]\n\n'
+       + '--- Option A (short) ---\n' + ai.reply + '\n\n'
+       + '--- Option B (fuller) ---\n' + ai.replyB;
 }
 
 /* ---------------- render + send ---------------- */
@@ -227,8 +242,8 @@ function renderMailBrief_(me, picked) {
         out.push('<div style="color:#555;margin-top:4px;">' + escM_(ai.summary) + '</div>');
         if (ai.reply) {
           try {
-            rec.last.createDraftReply(ai.reply);
-            out.push('<div style="color:#1565c0;margin-top:2px;">✏️ Suggested reply saved to your Drafts — review and send.</div>');
+            rec.last.createDraftReply(draftBody_(ai));
+            out.push('<div style="color:#1565c0;margin-top:2px;">✏️ ' + (ai.replyB ? 'Two reply options' : 'Suggested reply') + ' saved to your Drafts — keep one, edit, send.</div>');
           } catch (e) {
             out.push('<div style="color:#777;margin-top:2px;">Suggested reply: ' + escM_(ai.reply).slice(0, 400) + '</div>');
           }
