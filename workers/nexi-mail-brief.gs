@@ -1,4 +1,4 @@
-/** Nexi 📬 Mail Brief — Google Apps Script (one copy per mailbox)
+/** Nexi 📬 Mail Brief v2.1 — Google Apps Script (one copy per mailbox): 06:00 daily digest + hourly WhatsApp 06–20
  *
  * Runs UNDER THE MAILBOX OWNER'S OWN ACCOUNT (Google only lets a script
  * read the inbox it runs as), once every morning. It reads the last day's
@@ -28,7 +28,15 @@
  * trigger re-creates itself if lost, and a failed run e-mails the error.
  */
 
-var MAIL_BRIEF_HOUR = 6;                // 06:00 Asia/Manila (after the farm brief)
+var MAIL_BRIEF_HOUR = 6;                // 06:00 Asia/Manila (after the farm brief): full daily digest, e-mail + WhatsApp
+/* v2 (Eyal, 6 Sep 2026): a ROLLING brief as well — every hour from HOURLY_FROM to HOURLY_TO
+   (Manila) a WhatsApp message with only the mail that is NEW since the last check, real
+   people only (spam, promotions, machines and newsletters are never mentioned). Silent when
+   nothing new needs a person. Threads already reported carry the Gmail label BRIEFED_LABEL so
+   the same e-mail is never announced twice. Needs the WA_MAIL script property (phone|apikey);
+   without it only the 06:00 e-mail goes out. */
+var HOURLY_FROM     = 6,  HOURLY_TO = 20;   // inclusive, Asia/Manila
+var BRIEFED_LABEL   = 'Nexi/briefed';
 var MAIL_TZ         = 'Asia/Manila';
 var AI_URL          = 'https://nexi-ai.eyalbenari99.workers.dev';
 var MAX_REPLY_DRAFTS = 5;               // AI drafts per morning, newest threads first
@@ -38,17 +46,81 @@ var LOOKBACK_HOURS   = 26;              // a little more than a day, so nothing 
 
 function installMailBrief() {
   ensureMailTrigger_();
+  PropertiesService.getScriptProperties().setProperty('MAIL_LAST_HOURLY', String(Date.now()));
   nexiMailBrief();                      // send one now so setup is verifiable
 }
 
 function ensureMailTrigger_() {
-  var have = ScriptApp.getProjectTriggers().some(function (t) {
-    return t.getHandlerFunction() === 'nexiMailBrief';
-  });
-  if (!have) {
+  var fns = {};
+  ScriptApp.getProjectTriggers().forEach(function (t) { fns[t.getHandlerFunction()] = true; });
+  if (!fns.nexiMailBrief) {
     ScriptApp.newTrigger('nexiMailBrief')
       .timeBased().everyDays(1).atHour(MAIL_BRIEF_HOUR).inTimezone(MAIL_TZ).create();
   }
+  if (!fns.nexiMailHourly) {
+    ScriptApp.newTrigger('nexiMailHourly').timeBased().everyHours(1).create();
+  }
+}
+
+/* ---------------- v2: the hourly WhatsApp brief ---------------- */
+
+function nexiMailHourly() {
+  ensureMailTrigger_();
+  var props = PropertiesService.getScriptProperties();
+  var hour = Number(Utilities.formatDate(new Date(), MAIL_TZ, 'H'));
+  if (hour < HOURLY_FROM || hour > HOURLY_TO) return;          // quiet hours
+  if (!props.getProperty('WA_MAIL')) return;                   // WhatsApp not set up for this mailbox
+  var me = Session.getActiveUser().getEmail();
+  var last = Number(props.getProperty('MAIL_LAST_HOURLY')) || (Date.now() - 3600000);
+  var now = Date.now();
+  try {
+    var picked = collectMail_(me, { sinceMs: last - 120000, excludeBriefed: true });   // 2-min overlap, never a gap
+    if (picked.needsReply.length || picked.worthALook.length) {
+      var lbl = briefedLabel_();
+      var drafted = 0;
+      picked.needsReply.forEach(function (rec) {
+        if (drafted < MAX_REPLY_DRAFTS) {
+          var ai = aiSuggest_(rec);
+          if (ai && ai.reply) { try { rec.last.createDraftReply(draftBody_(ai)); rec.drafted = ai.replyB ? 2 : 1; drafted++; } catch (e) {} }
+          if (ai) rec.summary = ai.summary;
+        }
+      });
+      sendHourlyWhatsApp_(picked);
+      picked.needsReply.concat(picked.worthALook).forEach(function (rec) { try { rec.thread.addLabel(lbl); } catch (e) {} });
+    }
+    props.setProperty('MAIL_LAST_HOURLY', String(now));
+  } catch (e) {
+    /* never spam the inbox hourly with failures; the 06:00 run reports problems */
+    props.setProperty('MAIL_LAST_ERROR', String(e));
+  }
+}
+
+function briefedLabel_() {
+  return GmailApp.getUserLabelByName(BRIEFED_LABEL) || GmailApp.createLabel(BRIEFED_LABEL);
+}
+
+function sendHourlyWhatsApp_(picked) {
+  var prop = PropertiesService.getScriptProperties().getProperty('WA_MAIL');
+  if (!prop || prop.indexOf('|') < 0) return;
+  var phone = prop.split('|')[0].trim(), key = prop.split('|')[1].trim();
+  var L = ['✉ New mail · ' + Utilities.formatDate(new Date(), MAIL_TZ, 'HH:mm')];
+  if (picked.needsReply.length) {
+    L.push('Needs your reply (' + picked.needsReply.length + '):');
+    picked.needsReply.slice(0, 6).forEach(function (r) {
+      L.push('• ' + r.from + ' — ' + String(r.subject).slice(0, 70) + (r.drafted ? (r.drafted === 2 ? '  ✍ 2 draft options saved' : '  ✍ draft saved') : ''));
+      if (r.summary) L.push('   ' + String(r.summary).slice(0, 140));
+    });
+  }
+  if (picked.worthALook.length) {
+    L.push('Worth a look (' + picked.worthALook.length + '):');
+    picked.worthALook.slice(0, 4).forEach(function (r) {
+      L.push('· ' + r.from + ' — ' + String(r.subject).slice(0, 60));
+    });
+  }
+  if (picked.restCount) L.push(picked.restCount + ' routine skipped.');
+  UrlFetchApp.fetch('https://api.callmebot.com/whatsapp.php?phone=' + encodeURIComponent(phone)
+    + '&apikey=' + encodeURIComponent(key)
+    + '&text=' + encodeURIComponent(L.join('\n')), { muteHttpExceptions: true });
 }
 
 /* ---------------- the brief ---------------- */
@@ -73,18 +145,24 @@ function nexiMailBrief() {
 
 /* ---------------- reading the inbox ---------------- */
 
-function collectMail_(me) {
-  var since = Math.floor((Date.now() - LOOKBACK_HOURS * 3600000) / 1000);
-  var threads = GmailApp.search('in:inbox after:' + since + ' -category:promotions -category:social', 0, 60);
+function collectMail_(me, opt) {
+  opt = opt || {};
+  var sinceMs = opt.sinceMs || (Date.now() - LOOKBACK_HOURS * 3600000);
+  var since = Math.floor(sinceMs / 1000);
+  var q = 'in:inbox after:' + since + ' -category:promotions -category:social';
+  if (opt.excludeBriefed) q += ' -label:' + BRIEFED_LABEL.replace('/', '-');
+  var threads = GmailApp.search(q, 0, 60);
   var needsReply = [], worthALook = [], restCount = 0;
   threads.forEach(function (th) {
     try {
       var msgs = th.getMessages();
       var last = msgs[msgs.length - 1];
+      if (opt.sinceMs && last.getDate().getTime() < opt.sinceMs) { restCount++; return; }   // nothing new on this thread
       var from = String(last.getFrom() || '');
       var fromMe = from.indexOf(me) >= 0;
       var toMe = (String(last.getTo() || '') + ' ' + String(last.getCc() || '')).indexOf(me) >= 0;
-      var isAuto = /no-?reply|noreply|notification|mailer-daemon|do-?not-?reply|@google\.com|@netlify|@github\.com|calendar-notification/i.test(from);
+      var isAuto = /no-?reply|noreply|notification|mailer-daemon|do-?not-?reply|@google\.com|@netlify|@github\.com|calendar-notification|newsletter|marketing|promo|info@|news@|hello@|support@|alerts?@|digest|@mail\.|@e\.|@em\.|@email\./i.test(from)
+        || /unsubscribe|view (this|in) browser|manage (your )?preferences/i.test(String(last.getPlainBody() || '').slice(-1500));
       var rec = {
         subject: th.getFirstMessageSubject() || '(no subject)',
         from: from.replace(/<.*>/, '').trim() || from,
@@ -114,16 +192,31 @@ function aiSuggest_(rec) {
       muteHttpExceptions: true,
       payload: JSON.stringify({
         q: 'This e-mail was sent to me (' + Session.getActiveUser().getEmail() + '). '
-          + 'First give a ONE-SENTENCE summary of what they want, then on a new line after '
-          + '"REPLY:" write a short, polite reply I could send, in the same language the '
-          + 'e-mail uses. Do not invent facts I did not give you.\n\n'
+          + 'First give a ONE-SENTENCE summary of what they want. Then give me TWO reply options I could send, '
+          + 'both in the same language the e-mail uses, both polite, neither inventing facts I did not give you: '
+          + 'on a new line after "REPLY A:" a SHORT reply (2-4 sentences, acknowledges and states the next step); '
+          + 'on a new line after "REPLY B:" a FULLER reply (answers each point raised, asks the one question that '
+          + 'is still open if any). No greetings to me, no commentary, no markdown.\n\n'
           + 'From: ' + rec.from + '\nSubject: ' + rec.subject + '\n\n' + body
       })
     }).getContentText());
     if (!res.answer) return null;
-    var parts = String(res.answer).split(/\nREPLY:\s*/i);
-    return { summary: (parts[0] || '').trim(), reply: (parts[1] || '').trim() };
+    var txt = String(res.answer);
+    var mA = txt.match(/REPLY A:\s*([\s\S]*?)(?=\n\s*REPLY B:|$)/i), mB = txt.match(/REPLY B:\s*([\s\S]*)$/i);
+    var summary = txt.split(/\n\s*REPLY A:/i)[0].replace(/^summary:\s*/i, '').trim();
+    var a = mA ? mA[1].trim() : '', b = mB ? mB[1].trim() : '';
+    if (!a && !b) { var old = txt.split(/\nREPLY:\s*/i); a = (old[1] || '').trim(); }   // tolerate the v1 shape
+    return { summary: summary, reply: a || b, replyB: (a && b) ? b : '' };
   } catch (e) { return null; }
+}
+
+/* v2.1: the draft carries BOTH options; the person deletes the one they do not want and sends */
+function draftBody_(ai) {
+  if (!ai || !ai.reply) return '';
+  if (!ai.replyB) return ai.reply;
+  return '[Nexi drafted two options - keep one, delete the other and this line]\n\n'
+       + '--- Option A (short) ---\n' + ai.reply + '\n\n'
+       + '--- Option B (fuller) ---\n' + ai.replyB;
 }
 
 /* ---------------- render + send ---------------- */
@@ -149,8 +242,8 @@ function renderMailBrief_(me, picked) {
         out.push('<div style="color:#555;margin-top:4px;">' + escM_(ai.summary) + '</div>');
         if (ai.reply) {
           try {
-            rec.last.createDraftReply(ai.reply);
-            out.push('<div style="color:#1565c0;margin-top:2px;">✏️ Suggested reply saved to your Drafts — review and send.</div>');
+            rec.last.createDraftReply(draftBody_(ai));
+            out.push('<div style="color:#1565c0;margin-top:2px;">✏️ ' + (ai.replyB ? 'Two reply options' : 'Suggested reply') + ' saved to your Drafts — keep one, edit, send.</div>');
           } catch (e) {
             out.push('<div style="color:#777;margin-top:2px;">Suggested reply: ' + escM_(ai.reply).slice(0, 400) + '</div>');
           }
@@ -175,8 +268,13 @@ function renderMailBrief_(me, picked) {
   out.push('<div style="color:#999;font-size:11px;margin-top:14px;">' + picked.restCount
     + ' other message(s) in the last day looked routine (notifications, machines, already answered). '
     + (PropertiesService.getScriptProperties().getProperty('AI_TOKEN')
-        ? 'Reply suggestions come from Nexi’s own AI brain and are saved as drafts — nothing sends itself.'
-        : 'Add the AI_TOKEN script property to get suggested replies drafted automatically.')
+        ? 'Reply suggestions come from Nexi’s own AI brain and are saved as drafts — nothing sends itself. '
+        : 'Add the AI_TOKEN script property to get suggested replies drafted automatically. ')
+    + (PropertiesService.getScriptProperties().getProperty('WA_MAIL')
+        ? 'New mail is also announced on WhatsApp every hour ' + HOURLY_FROM + ':00–' + HOURLY_TO + ':00.'
+        : 'Add the WA_MAIL script property (phone|apikey from CallMeBot) to get hourly WhatsApp updates ' + HOURLY_FROM + ':00–' + HOURLY_TO + ':00.')
+    + (PropertiesService.getScriptProperties().getProperty('MAIL_LAST_ERROR')
+        ? ' Last hourly error: ' + escM_(PropertiesService.getScriptProperties().getProperty('MAIL_LAST_ERROR')).slice(0, 200) : '')
     + '</div></div>');
   return out.join('');
 }
