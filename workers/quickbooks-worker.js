@@ -258,10 +258,9 @@ export default {
       }
 
       if (p === '/qb/accounts') {
-        const q = encodeURIComponent("select * from Account where Active in (true,false) maxresults 1000");
-        const r = await qbo(access, realm, '/query?minorversion=75&query=' + q);
+        const r = await qbAllAccounts(access, realm);
         if (r.error) return json(r, 502);
-        const list = (((r.QueryResponse || {}).Account) || []).map(a => ({
+        const list = (r.Account || []).map(a => ({
           id: a.Id, name: a.Name, acctNum: a.AcctNum || '', type: a.AccountType || '',
           subType: a.AccountSubType || '',
           parent: (a.ParentRef && a.ParentRef.value) || '',
@@ -336,10 +335,9 @@ async function syncRealm(env, realm, full) {
   for (const job of jobs) {
     try {
       if (job.kind === 'accounts') {
-        const q = encodeURIComponent('select * from Account where Active in (true,false) maxresults 1000');
-        const r = await qbo(access, realm, '/query?minorversion=75&query=' + q);
+        const r = await qbAllAccounts(access, realm);
         if (r.error) throw new Error(r.error);
-        data.accounts = (((r.QueryResponse || {}).Account) || []).map((a) => ({
+        data.accounts = (r.Account || []).map((a) => ({
           id: a.Id, name: a.Name, acctNum: a.AcctNum || '', type: a.AccountType || '',
           subType: a.AccountSubType || '', parent: (a.ParentRef && a.ParentRef.value) || '',
           fullName: a.FullyQualifiedName || a.Name,
@@ -400,6 +398,22 @@ async function accessToken(env, realm) {
   toks[realm] = { refresh_token: d.refresh_token || t.refresh_token, access_token: d.access_token, at: Date.now() };
   await env.R2.put(TOK_KEY, JSON.stringify(toks));
   return d.access_token;
+}
+/* v19.04: the chart of accounts can exceed 1,000 rows (one account per fixed asset) and
+   QuickBooks returns at most 1,000 per query - page with STARTPOSITION until a short page. */
+async function qbAllAccounts(access, realm) {
+  const out = [];
+  let start = 1;
+  for (let page = 0; page < 20; page++) {
+    const q = encodeURIComponent('select * from Account where Active in (true,false) startposition ' + start + ' maxresults 1000');
+    const r = await qbo(access, realm, '/query?minorversion=75&query=' + q);
+    if (r.error) return r;
+    const a = (((r.QueryResponse || {}).Account) || []);
+    for (const x of a) out.push(x);
+    if (a.length < 1000) break;
+    start += 1000;
+  }
+  return { Account: out };
 }
 async function qbo(access, realm, path) {
   try {
