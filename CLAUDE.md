@@ -40,3 +40,13 @@
   scheduled report email → nexi inbox → gmail-bio-bridge.gs (15-min trigger) →
   nexi-bio worker /bio/import → app IT → 🖐 Biometric Sync pulls every 3 min →
   fills attendance (first scan = in, last = out; manual wins).
+
+## SOS Inventory domain notes
+- Deliveries / supply (open sales orders, the Supply Plan) live in the **APAC**
+  SOS Inventory account, not APTI (Eyal, 9 Sep 2026). The hnx-sync worker holds
+  one SOS OAuth token; Administration → 📦 SOS Inventory Sync shows which
+  account it is on. Any sales-orders route must read the APAC account.
+- The SOS→inventory bridge is `<script id="hnx-sos-inventory-bridge-v1936">`
+  (global `_invLoadStock`). A stranded, non-functional copy of the same merge
+  sits inside the "MY CALLS + FLEET GPS" block (~line 99313) — edit the bridge,
+  never that copy.
