@@ -24,7 +24,10 @@
 - `workers/` holds Cloudflare Workers: `biometric-worker.js` (nexi-bio,
   ZKTeco/NGTeco iclock receiver + /bio/* API), `gmail-bio-bridge.gs`
   (Google Apps Script: NGTeco report email → /bio/import; runs under
-  nexi@abapardes.com.ph), plus sync/notify/speech/EA workers.
+  nexi@abapardes.com.ph), `nexi-gov-watch.js` (government-source change monitor
+  for Compliance → Water / Deep Well: `/gov/check?url=` returns a content hash;
+  allowlisted .gov.ph hosts only; URL is set in the Deep Well → Gov. Sources tab),
+  plus sync/notify/speech/EA workers.
 - After JS edits inside `index.html`, extract the touched `<script>` block and
   `node --check` it before committing.
 
