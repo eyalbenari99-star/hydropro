@@ -18,7 +18,8 @@
  *   optional secret GOV_TOKEN: when set, requests must carry  Authorization: Bearer <GOV_TOKEN>
  * Then put the worker URL in Nexi → Compliance → Water / Deep Well → Gov. Sources → Gov-watch worker URL.
  */
-const ALLOW_HOSTS = ['muntinlupacity.gov.ph','www.muntinlupacity.gov.ph','eia.emb.gov.ph','emb.gov.ph','www.emb.gov.ph','cshp.dole.gov.ph','dole.gov.ph','www.dole.gov.ph','r7.denr.gov.ph','denr.gov.ph','www.denr.gov.ph','nwrb.gov.ph','www.nwrb.gov.ph','bfp.gov.ph','www.bfp.gov.ph'];
+const ALLOW_HOSTS = ['muntinlupacity.gov.ph','www.muntinlupacity.gov.ph','eia.emb.gov.ph','emb.gov.ph','www.emb.gov.ph','cshp.dole.gov.ph','dole.gov.ph','www.dole.gov.ph','r7.denr.gov.ph','denr.gov.ph','www.denr.gov.ph','nwrb.gov.ph','www.nwrb.gov.ph','bfp.gov.ph','www.bfp.gov.ph',
+  /* v19.48 immigration & visa paths */ 'immigration.gov.ph','www.immigration.gov.ph','e-services.immigration.gov.ph','ble.dole.gov.ph','philjobnet.gov.ph','www.philjobnet.gov.ph','pra.gov.ph','www.pra.gov.ph','boi.gov.ph','www.boi.gov.ph','peza.gov.ph','www.peza.gov.ph','doj.gov.ph','www.doj.gov.ph','dfa.gov.ph','www.dfa.gov.ph','bir.gov.ph','www.bir.gov.ph','nbi.gov.ph','www.nbi.gov.ph'];
 
 function cors(env, req) {
   const origins = String(env.APP_ORIGIN || '*').split(',').map(s => s.trim()).filter(Boolean);
