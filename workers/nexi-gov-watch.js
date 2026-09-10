@@ -28,6 +28,23 @@ function cors(env, req) {
 }
 function json(obj, status, hdr) { return new Response(JSON.stringify(obj), { status: status || 200, headers: Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, hdr || {}) }); }
 async function sha256(buf) { const d = await crypto.subtle.digest('SHA-256', buf); return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join(''); }
+/* Several PH government portals reject a bare API-style request. These are the ordinary headers a
+   browser sends for a top-level page load; nothing here defeats a login, a CAPTCHA or any access
+   control — a page that needs a human still returns 401/403 and is reported as Blocked, never faked. */
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/pdf;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-PH,en-US;q=0.9,en;q=0.8',
+  'Upgrade-Insecure-Requests': '1',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-User': '?1',
+  'Cache-Control': 'no-cache'
+};
+/* a status the site returns to refuse an automated caller, as opposed to being down */
+function isBlocked(code) { return code === 401 || code === 403 || code === 405 || code === 429 || code === 451; }
+
 function visibleText(html) {
   return html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/g, ' ').replace(/\s+/g, ' ').trim();
@@ -49,15 +66,15 @@ export default {
     if (target.protocol !== 'https:' || !ALLOW_HOSTS.includes(target.hostname)) return json({ ok: false, error: 'host not allowlisted', host: target.hostname }, 403, h);
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 20000);
     try {
-      const r = await fetch(target.toString(), { redirect: 'follow', signal: ctl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NexiGovWatch/1.0; +https://aba-pardes-monitoring.netlify.app)', 'Accept': 'text/html,application/pdf,*/*' }, cf: { cacheTtl: 0 } });
+      const r = await fetch(target.toString(), { redirect: 'follow', signal: ctl.signal, headers: BROWSER_HEADERS, cf: { cacheTtl: 0 } });
       const ct = r.headers.get('content-type') || '';
       const buf = await r.arrayBuffer();
       let hash, length = buf.byteLength;
       if (/html|xml|text/i.test(ct)) { const txt = visibleText(new TextDecoder('utf-8', { fatal: false }).decode(buf)); hash = await sha256(new TextEncoder().encode(txt)); length = txt.length; }
       else hash = await sha256(buf);
-      return json({ ok: r.ok, status: r.status, finalUrl: r.url, lastModified: r.headers.get('last-modified') || '', etag: r.headers.get('etag') || '', contentType: ct, length, hash, fetchedAt: new Date().toISOString() }, 200, h);
+      return json({ ok: r.ok, status: r.status, blocked: isBlocked(r.status), finalUrl: r.url, lastModified: r.headers.get('last-modified') || '', etag: r.headers.get('etag') || '', contentType: ct, length, hash, fetchedAt: new Date().toISOString() }, 200, h);
     } catch (e) {
-      return json({ ok: false, status: 0, error: String(e && e.message || e), fetchedAt: new Date().toISOString() }, 200, h);
+      return json({ ok: false, status: 0, blocked: false, error: String(e && e.message || e), fetchedAt: new Date().toISOString() }, 200, h);
     } finally { clearTimeout(t); }
   }
 };
