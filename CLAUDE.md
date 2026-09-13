@@ -53,3 +53,13 @@
   (global `_invLoadStock`). A stranded, non-functional copy of the same merge
   sits inside the "MY CALLS + FLEET GPS" block (~line 99313) — edit the bridge,
   never that copy.
+
+## User guides (IMPORTANT)
+- Every user-facing change to `index.html` MUST also update the matching guide in
+  `<script id="hnx-help-guides-v1991">` (`window.HNX_HELP_GUIDES`) — that block is
+  the single source of truth for the in-app Help centre (🆘 button, `HNX_HELP`).
+  A behaviour change with no guide change is an incomplete change.
+- The Word guides under `nexidoc/` are GENERATED from the same content, so the
+  in-app guide is what gets edited first; regenerate the .docx afterwards.
+- The Help centre is deliberately read-only: never add a download, export, print
+  or copy path to it, and never serve guide content as a file from inside Nexi.
