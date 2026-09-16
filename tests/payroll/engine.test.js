@@ -73,7 +73,7 @@ module.exports=[
   run:async()=>{const e=labour('OLD','OLD HAND',{dateHired:'2025-01-01',hireDate:'2025-01-01'});setE([e]);const a={};
     ['2026-09-10','2026-09-11','2026-09-14','2026-09-15','2026-09-16'].forEach((d,i)=>{a[d]={OLD:i===0?rec('late','08:00','17:00'):rec('present','07:00','17:00')};});setA(a);
     const l=L(calcEmployeePayroll(e,'2026-09-10','2026-09-16','weekly'));return {latePending:l.latePending};},
-  expect:{latePending:1} },,
+  expect:{latePending:1} },
 { name:'office: a SPECIAL holiday is not inside monthly/2 - unworked 16,000 pays 8,000.00 (not 8,800), worked adds only +30% = 8,218.18 (v20.68)',
   seed:()=>{localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({'2026-08-21':{name:'Ninoy Aquino Day',kind:'special'}}));},
   run:async()=>{const ann=office('ANN','ANN',{monthlyBasic:16000});setE([ann]);setA({});

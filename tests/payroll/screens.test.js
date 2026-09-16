@@ -51,7 +51,7 @@ module.exports=[
     const snap=()=>keys.map(k=>k+'='+(localStorage.getItem(k)||'')).join('\n');const before=snap();
     const rb=window.hnxRulebook({quiet:true});const after=snap();
     return {ok:rb.ok,failed:rb.results.filter(r=>!r.ok).map(r=>r.name),storeUntouched:before===after,hookCleared:window.__hnxRulebook==null};},
-  expect:{ok:true,failed:[],storeUntouched:true,hookCleared:true} },,
+  expect:{ok:true,failed:[],storeUntouched:true,hookCleared:true} },
 { name:'biometric sync: five labourers scanning the same minute at the gate keep their in-scan; a timetable column repeated daily is still dropped (v20.68)',
   seed:()=>{localStorage.setItem('hydroPro_bio_cfg_v1',JSON.stringify({url:'http://bio.test',token:'t'}));
     const map={};const E=[];for(let i=1;i<=8;i++){map['10'+i]='W'+i;E.push({id:'W'+i,name:'WORKER '+i,status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',dailyRate:658,dateHired:'2025-01-01'});}

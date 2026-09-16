@@ -7,6 +7,7 @@ const {runCase}=require('./lib');
   for(const f of files){
     const cases=require(path.join(__dirname,f));
     for(const t of cases){
+      if(!t)continue;
       total++;
       const r=await runCase(t);
       if(r.ok)console.log('  ✓ '+t.name);
