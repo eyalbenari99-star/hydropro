@@ -63,3 +63,12 @@
   in-app guide is what gets edited first; regenerate the .docx afterwards.
 - The Help centre is deliberately read-only: never add a download, export, print
   or copy path to it, and never serve guide content as a file from inside Nexi.
+
+## Regression suite (IMPORTANT)
+- `tests/payroll/` is the owner's payroll rulebook in executable form (engine, trips,
+  screens). Run it after ANY change to `index.html` that touches attendance, payroll,
+  trips, approvals or exports: `cd tests && npm i && bash payroll/run.sh` (serves the
+  repo root, drives the real `index.html` in Chromium; `CHROME=` overrides the browser).
+- Every fix to a pay rule MUST add or extend a case there, with the expected numbers
+  in the test name. A fix with no test is an incomplete fix. The suite must be green
+  before a push to `main`.
