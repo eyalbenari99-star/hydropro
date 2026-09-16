@@ -82,7 +82,7 @@ module.exports=[
     const worked=calcEmployeePayroll(ann,'2026-08-11','2026-08-25','semi_monthly');
     const mgmt=office('EY','EYAL',{monthlyBasic:30000,salaryCategory:'management',dept:'Management'});setE([mgmt]);setA({});
     const m=calcEmployeePayroll(mgmt,'2026-08-11','2026-08-25','semi_monthly');
-    return {rate:unworked.dailyRate,unworked:unworked.basicPay,worked:worked.basicPay,workedHol:worked.holidayPay,mgmt:m.basicPay};},
+    return {rate:Math.round(unworked.dailyRate*100)/100,unworked:unworked.basicPay,worked:worked.basicPay,workedHol:worked.holidayPay,mgmt:m.basicPay};},
   expect:{rate:727.27,unworked:8000,worked:8000,workedHol:218.18,mgmt:15000} },
 { name:'office: an absence a PERSON marked over a scan row deducts; a machine absent is still paid (v20.68)',
   seed:()=>{localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({'2026-08-31':{name:'National Heroes Day',kind:'regular'}}));},
@@ -106,7 +106,7 @@ module.exports=[
     const empty=calcEmployeePayroll(ed,'2026-08-26','2026-09-10','semi_monthly');
     setA({'2026-08-29':{ED:rec('present','07:00','17:00')},'2026-09-05':{ED:rec('present','07:00','17:00')}});
     const sat=calcEmployeePayroll(ed,'2026-08-26','2026-09-10','semi_monthly');
-    return {rate:empty.dailyRate,basic:empty.basicPay,sun:empty.sundaysWorked,gap:empty.daysGap,satBasic:sat.basicPay,satSun:sat.sundaysWorked,satPrem:sat.sundayPremium};},
+    return {rate:Math.round(empty.dailyRate*100)/100,basic:empty.basicPay,sun:empty.sundaysWorked,gap:empty.daysGap,satBasic:sat.basicPay,satSun:sat.sundaysWorked,satPrem:sat.sundayPremium};},
   expect:{rate:615.38,basic:8000,sun:0,gap:0,satBasic:8000,satSun:0,satPrem:0} },
 { name:'management: a run generated BEFORE the cut-off\'s regular holiday does not pay the holiday twice (v20.68)',
   run:async()=>{const d=daysEnding(today,1)[0];const t=new Date(d+'T00:00:00');

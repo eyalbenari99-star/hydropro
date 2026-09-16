@@ -54,15 +54,17 @@ module.exports=[
   expect:{ok:true,failed:[],storeUntouched:true,hookCleared:true} },
 { name:'biometric sync: five labourers scanning the same minute at the gate keep their in-scan; a timetable column repeated daily is still dropped (v20.68)',
   seed:()=>{localStorage.setItem('hydroPro_bio_cfg_v1',JSON.stringify({url:'http://bio.test',token:'t'}));
-    const map={};const E=[];for(let i=1;i<=8;i++){map['10'+i]='W'+i;E.push({id:'W'+i,name:'WORKER '+i,status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',dailyRate:658,dateHired:'2025-01-01'});}
+    /* distinct real-looking names: boot merges look-alike names into one person */
+    const NAMES=['SANTOS, ERIC','REYES, MARLON','CRUZ, DANILO','BAUTISTA, JOEL','GARCIA, RONALD','MENDOZA, ALLAN','TORRES, RAMIL','FLORES, JUNJUN'];
+    const map={};const E=[];for(let i=1;i<=8;i++){map['10'+i]='W'+i;E.push({id:'W'+i,name:NAMES[i-1],status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',dailyRate:658,dateHired:'2025-01-01'});}
     localStorage.setItem('hydroPro_bio_map_v1',JSON.stringify(map));localStorage.setItem('hydroPro_employees',JSON.stringify(E));},
   run:async()=>{const days=daysEnding(today,5);const D=[];
-    days.forEach((d,di)=>{const p=[];for(let i=1;i<=8;i++){const tin=(di===4&&i<=5)?'06:58':'06:45';p.push({userId:'10'+i,time:tin});p.push({userId:'10'+i,time:'08:00'});p.push({userId:'10'+i,time:'17:0'+(i%6)});}D.push({date:d,punches:p});});
+    days.forEach((d,di)=>{const p=[];for(let i=1;i<=8;i++){const tin=(di===4&&i<=5)?'06:58':'06:4'+i; /* 08:00 every day is the timetable column; 06:58 once is the gate queue */p.push({userId:'10'+i,time:tin});p.push({userId:'10'+i,time:'08:00'});p.push({userId:'10'+i,time:'17:0'+(i%6)});}D.push({date:d,punches:p});});
     window.fetch=(u)=>Promise.resolve({json:()=>Promise.resolve(/punches/.test(String(u))?{days:D}:{devices:{}})});
     window.hnxBioPull();await sleep(2500);
     const a=JSON.parse(localStorage.getItem('hydroPro_attendance')||'{}');const last=a[days[4]]||{};
-    return {w1:{st:last.W1&&last.W1.status,tin:last.W1&&last.W1.timeIn,late:last.W1&&last.W1.lateMinutes},w7:{st:last.W7&&last.W7.status,tin:last.W7&&last.W7.timeIn},lateQ:Object.keys(JSON.parse(localStorage.getItem('hydroPro_late_approvals_v1')||'{}')).length};},
-  expect:{'w1.st':'present','w1.tin':'06:58','w1.late':0,'w7.st':'present','w7.tin':'06:45',lateQ:0} },
+    return {w1:{st:last.W1&&last.W1.status,tin:last.W1&&last.W1.timeIn,late:last.W1&&last.W1.lateMinutes},w7:{st:last.W7&&last.W7.status,tin:last.W7&&last.W7.timeIn},sched:Object.values(last).some(r=>r.timeIn==='08:00'),lateQ:Object.keys(JSON.parse(localStorage.getItem('hydroPro_late_approvals_v1')||'{}')).length};},
+  expect:{'w1.st':'present','w1.tin':'06:58','w1.late':0,'w7.st':'present','w7.tin':'06:47',sched:false,lateQ:0} },
 { name:'timecard bridge: an out-only row is measured from the out-scan and queued as late, never a silent 07:00 present day (v20.68)',
   seed:()=>{localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'JO1',name:'JO SANTOS',status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',dailyRate:658,dateHired:'2025-01-01'}]));
     localStorage.setItem('hydroPro_timecard_runs_v1',JSON.stringify([{headers:['Date','Name','Time In','Time Out'],rows:[['2026-09-14','JO SANTOS','','13:05']],periodStart:'2026-09-14',periodEnd:'2026-09-14'}]));},
