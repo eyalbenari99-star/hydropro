@@ -153,4 +153,45 @@ module.exports=[
     window.hnxBioPull();await sleep(2500);const x=JSON.parse(localStorage.getItem('hydroPro_attendance'))[d];
     return {aOut:x.A1.timeOut,aReason:x.A1.reason,aSt:x.A1.status,bSt:x.B1.status,bIn:x.B1.timeIn};},
   expect:{aOut:'17:02',aReason:'Reconcile: accepted',aSt:'present',bSt:'authorized',bIn:''} },
+{ name:'a draft re-persist keeps the reopen stamps, so the cloud merge cannot re-lock a reopened run with the old figures (v20.70)',
+  seed:()=>{localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:'ops_2026-09-07_2026-09-13',type:'weekly',periodStart:'2026-09-07',periodEnd:'2026-09-13',status:'draft',reopenedAt:1758000000000,reopenedBy:'eyal',approvalHistory:[{approvedBy:'eyal',reason:'reopened'}],lines:[],totals:{}}]));},
+  run:async()=>{upsertPayrollRun({id:'ops_2026-09-07_2026-09-13',type:'weekly',periodStart:'2026-09-07',periodEnd:'2026-09-13',status:'draft',lines:[{empId:'X'}],totals:{netPay:1},createdAt:1});
+    const r=JSON.parse(localStorage.getItem('hydroPro_payroll_runs'))[0];return {reopenedAt:r.reopenedAt,by:r.reopenedBy,hist:(r.approvalHistory||[]).length,lines:r.lines.length};},
+  expect:{reopenedAt:1758000000000,by:'eyal',hist:1,lines:1} },
+{ name:'Approve & Lock asks about pending memos and unsigned weekends, not only lates (v20.70)',
+  seed:()=>{localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'JO',name:'SANTOS, JO',status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',employmentType:'Regular',dailyRate:658,dateHired:'2025-01-01'}]));
+    const a={};['2026-09-07','2026-09-08','2026-09-09','2026-09-10','2026-09-11','2026-09-12'].forEach(d=>{a[d]={JO:{status:'present',timeIn:'07:00',timeOut:'17:00',lateMinutes:0,source:'fingerprint'}};});localStorage.setItem('hydroPro_attendance',JSON.stringify(a));
+    localStorage.setItem('hydroPro_memos',JSON.stringify([{id:'M1',category:'hr',type:'good',empId:'JO',date:'2026-09-08',status:'pending',totalAmount:500,reasonLabel:'bonus',signatures:{}},{id:'M2',category:'hr',type:'good',empId:'JO',date:'2026-09-09',status:'pending',totalAmount:700,reasonLabel:'bonus',signatures:{}}]));},
+  run:async()=>{const asked=[];window.confirm=m=>{asked.push(String(m).slice(0,120));return !/memo\(s\) not yet signed/.test(String(m));};
+    window._payOpsCurrentPeriod={start:'2026-09-07',end:'2026-09-13',payday:'2026-09-19',label:'w'};renderPayrollOps();await sleep(1500);
+    payOpsApprove();await sleep(400);const ov=document.getElementById('hnxAnomOv');if(ov&&window.__hnxAnomGo){ov.remove();window.__hnxAnomGo();} /* the pre-sign anomaly check is a separate gate */
+    await sleep(500);const r=JSON.parse(localStorage.getItem('hydroPro_payroll_runs')).find(x=>x.id==='ops_2026-09-07_2026-09-13');
+    return {asked:asked.some(m=>/2 memo\(s\) not yet signed/.test(m)),status:r&&r.status,pend:r&&r.lines[0]&&r.lines[0].pending&&r.lines[0].pending.memo.n};},
+  expect:{asked:true,status:'draft',pend:2} },
+{ name:'tardiness policy is one snapshot (last writer wins), memo delete and attendance clear leave tombstones (v20.70)',
+  seed:()=>{localStorage.setItem('hydroPro_memos',JSON.stringify([{id:'M9',category:'hr',type:'good',empId:'X',date:'2026-09-14',status:'pending',totalAmount:500,signatures:{}}]));
+    const a={};a['2026-09-14']={L1:{status:'present',timeIn:'07:00',timeOut:'17:00',source:'fingerprint'}};localStorage.setItem('hydroPro_attendance',JSON.stringify(a));},
+  run:async()=>{window.confirm=()=>true;hnxTardyToggle('office');await sleep(300);const c=JSON.parse(localStorage.getItem('hydroPro_pay_tardy_v1')||'{}');
+    _editingMemoId='M9';memoDelete();await sleep(200);deleteAttRecord('2026-09-14','L1');
+    const tomb=JSON.parse(localStorage.getItem('hydroPro_optomb')||'{}');
+    return {lww:c._lww===true&&c.updatedAt>0,memoGone:!JSON.parse(localStorage.getItem('hydroPro_memos')).some(m=>m.id==='M9'),memoTomb:!!(tomb.hydroPro_memos||{}).M9,attGone:!((JSON.parse(localStorage.getItem('hydroPro_attendance'))['2026-09-14']||{}).L1),attTomb:!!(tomb.hydroPro_attendance||{})['2026-09-14|L1']};},
+  expect:{lww:true,memoGone:true,memoTomb:true,attGone:true,attTomb:true} },
+{ name:'gates: a supervisor cannot rewrite pay rates on Pay Basis Check, cannot change the late policy, and cannot give both memo signatures (v20.70)',
+  seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true},{username:'sup',fullname:'Super Visor',passwordHash:'x',role:'supervisor',active:true}]));
+    localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'D1',name:'DRIVER ONE',status:'Active',salaryCategory:'drivers',dept:'Logistics',payType:'weekly',dailyRate:600,dateHired:'2025-01-01'}]));
+    localStorage.setItem('hydroPro_memos',JSON.stringify([{id:'M2',category:'hr',type:'good',empId:'D1',date:'2026-09-14',status:'pending',totalAmount:500,signatures:{}}]));},
+  run:async()=>{window.confirm=()=>true;sessionStorage.setItem('hydroPro_session',JSON.stringify({username:'sup',loginAt:Date.now()}));
+    const cfg0=JSON.parse(JSON.stringify(hnxLate.cfg()));
+    hnxPBSet('D1','dailyRate','999');const rate=JSON.parse(localStorage.getItem('hydroPro_employees'))[0].dailyRate;
+    hnxLateCfg('minMinutes',45);const cfg1=hnxLate.cfg();
+    window._viewingMemoId='M2';memoSign('supervisor');memoSign('hrManager');const m=memos.find(x=>x.id==='M2');
+    sessionStorage.setItem('hydroPro_session',JSON.stringify({username:'tester',loginAt:Date.now()}));
+    return {rate,minUnchanged:cfg1.minMinutes===cfg0.minMinutes,supSigned:!!m.signatures.supervisor,hrSigned:!!m.signatures.hrManager,status:m.status};},
+  expect:{rate:600,minUnchanged:true,supSigned:true,hrSigned:false,status:'pending'} },
+{ name:'payroll-line modal prints the same Gross as the table and the payslip (v20.70)',
+  seed:()=>{localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:'ops_2026-09-07_2026-09-13',type:'weekly',periodStart:'2026-09-07',periodEnd:'2026-09-13',status:'approved',approvedBy:'eyal',approvedAt:1,lines:[{empId:'D1',name:'DRIVER ONE',dailyRate:600,daysWorked:6,basicPay:3600,grossPay:3600,grossEarnings:3900,allowanceNonTaxAmt:300,sss:0,phic:0,hdmf:0,withholdingTax:0,netPay:3900,memoAdd:0,memoDed:0}],totals:{}}]));
+    localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'D1',name:'DRIVER ONE',status:'Active',salaryCategory:'drivers',dept:'Logistics',payType:'weekly',dailyRate:600,dateHired:'2025-01-01'}]));},
+  run:async()=>{window._payOpsCurrentPeriod={start:'2026-09-07',end:'2026-09-13',payday:'2026-09-19',label:'w'};openPayrollLine('ops_2026-09-07_2026-09-13','D1','weekly');await sleep(600);
+    const t=document.body.innerText||'';const i=t.indexOf('Gross Pay');return {gross:t.slice(i,i+19).replace(/\s+/g,' ')};},
+  expect:{gross:'Gross Pay ₱3,900.00'} },
 ];
