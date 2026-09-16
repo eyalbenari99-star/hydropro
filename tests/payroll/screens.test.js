@@ -43,4 +43,13 @@ module.exports=[
     const r={inModules:!!MODULES.hr.views.find(x=>x.id==='hr_att_matrix'),inSearch:!!(window.NEXI_NAV||[]).find(x=>x.id==='hr_att_matrix'),registry:(window.HNX_VIEW_REGISTRY.get('hr_att_matrix')||{}).status,tab,active:!!(v&&v.classList.contains('active')),overlay:!!document.getElementById('hnxAttMx')};
     document.getElementById('hnxAttMx')&&document.getElementById('hnxAttMx').remove();return r;},
   expect:{inModules:true,inSearch:true,registry:'live',tab:true,active:true,overlay:true} },
+{ name:'the in-app Rulebook passes on this build and touches nothing in the store (v20.67)',
+  seed:()=>{localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'REAL1',name:'REAL, PERSON',status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',dailyRate:658,dateHired:'2025-01-01'}]));
+    localStorage.setItem('hydroPro_attendance',JSON.stringify({'2026-09-15':{REAL1:{status:'late',timeIn:'09:00',timeOut:'17:00',lateMinutes:120,source:'fingerprint'}}}));
+    localStorage.setItem('hydroPro_memos',JSON.stringify([{id:'REALM',category:'hr',type:'good',empId:'REAL1',date:'2026-09-15',status:'pending',totalAmount:123}]));},
+  run:async()=>{const keys=['hydroPro_employees','hydroPro_attendance','hydroPro_memos','hydroPro_late_approvals_v1','hydroPro_weekend_approvals_v1','hydroPro_ph_holidays'];
+    const snap=()=>keys.map(k=>k+'='+(localStorage.getItem(k)||'')).join('\n');const before=snap();
+    const rb=window.hnxRulebook({quiet:true});const after=snap();
+    return {ok:rb.ok,failed:rb.results.filter(r=>!r.ok).map(r=>r.name),storeUntouched:before===after,hookCleared:window.__hnxRulebook==null};},
+  expect:{ok:true,failed:[],storeUntouched:true,hookCleared:true} },
 ];
