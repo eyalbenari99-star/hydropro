@@ -74,4 +74,48 @@ module.exports=[
     ['2026-09-10','2026-09-11','2026-09-14','2026-09-15','2026-09-16'].forEach((d,i)=>{a[d]={OLD:i===0?rec('late','08:00','17:00'):rec('present','07:00','17:00')};});setA(a);
     const l=L(calcEmployeePayroll(e,'2026-09-10','2026-09-16','weekly'));return {latePending:l.latePending};},
   expect:{latePending:1} },
+{ name:'office: a SPECIAL holiday is not inside monthly/2 - unworked 16,000 pays 8,000.00 (not 8,800), worked adds only +30% = 8,218.18 (v20.68)',
+  seed:()=>{localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({'2026-08-21':{name:'Ninoy Aquino Day',kind:'special'}}));},
+  run:async()=>{const ann=office('ANN','ANN',{monthlyBasic:16000});setE([ann]);setA({});
+    const unworked=calcEmployeePayroll(ann,'2026-08-11','2026-08-25','semi_monthly');
+    setA({'2026-08-21':{ANN:rec('present','07:00','17:30')}});
+    const worked=calcEmployeePayroll(ann,'2026-08-11','2026-08-25','semi_monthly');
+    const mgmt=office('EY','EYAL',{monthlyBasic:30000,salaryCategory:'management',dept:'Management'});setE([mgmt]);setA({});
+    const m=calcEmployeePayroll(mgmt,'2026-08-11','2026-08-25','semi_monthly');
+    return {rate:Math.round(unworked.dailyRate*100)/100,unworked:unworked.basicPay,worked:worked.basicPay,workedHol:worked.holidayPay,mgmt:m.basicPay};},
+  expect:{rate:727.27,unworked:8000,worked:8000,workedHol:218.18,mgmt:15000} },
+{ name:'office: an absence a PERSON marked over a scan row deducts; a machine absent is still paid (v20.68)',
+  seed:()=>{localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({'2026-08-31':{name:'National Heroes Day',kind:'regular'}}));},
+  run:async()=>{const ann=office('ANN','ANN',{monthlyBasic:16000});setE([ann]);
+    setA({'2026-09-01':{ANN:{status:'absent',timeIn:'',timeOut:'',lateMinutes:0,source:'fingerprint',editedBy:'jinky',reason:'sent home'}}});
+    const human=L(calcEmployeePayroll(ann,'2026-08-26','2026-09-10','semi_monthly'));
+    setA({'2026-09-01':{ANN:{status:'absent',timeIn:'',timeOut:'',lateMinutes:0,source:'fingerprint'}}});
+    const machine=L(calcEmployeePayroll(ann,'2026-08-26','2026-09-10','semi_monthly'));
+    return {human:{absU:human.absU,basic:human.basic,gap:human.gap},machine:{absU:machine.absU,basic:machine.basic}};},
+  expect:{'human.absU':1,'human.basic':7272.73,'human.gap':0,'machine.absU':0,'machine.basic':8000} },
+{ name:'leaver flagged inactive by the override is clamped to the Last Working Day like a status Inactive (v20.68)',
+  run:async()=>{const ov=office('OV','OVERRIDE',{monthlyBasic:16000,activeOverride:'inactive',activeOverrideAt:'2026-09-03T10:00:00.000Z',lastWorkingDay:'2026-09-03'});
+    const st=office('ST','STATUS',{monthlyBasic:16000,status:'Inactive',lastWorkingDay:'2026-09-03'});
+    const nd=office('ND','NODATE',{monthlyBasic:16000,activeOverride:'inactive',activeOverrideAt:'2026-09-03T10:00:00.000Z'});setE([ov,st,nd]);setA({});
+    const F=e=>{const l=calcEmployeePayroll(e,'2026-09-01','2026-09-15','semi_monthly');return {days:l.daysWorked,basic:l.basicPay};};
+    return {ov:F(ov),st:F(st),nd:F(nd)};},
+  expect:{'ov.days':3,'ov.basic':2181.82,'st.days':3,'st.basic':2181.82,'nd.days':3,'nd.basic':2181.82} },
+{ name:'six-day office card: Saturday is a scheduled basic day, so a full half-month pays 8,000.00 not 11/13 (v20.68)',
+  seed:()=>{localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({'2026-08-31':{name:'National Heroes Day',kind:'regular'}}));},
+  run:async()=>{const ed=office('ED','EDERLYN',{monthlyBasic:16000,sixDayWeek:true});setE([ed]);setA({});
+    const empty=calcEmployeePayroll(ed,'2026-08-26','2026-09-10','semi_monthly');
+    setA({'2026-08-29':{ED:rec('present','07:00','17:00')},'2026-09-05':{ED:rec('present','07:00','17:00')}});
+    const sat=calcEmployeePayroll(ed,'2026-08-26','2026-09-10','semi_monthly');
+    return {rate:Math.round(empty.dailyRate*100)/100,basic:empty.basicPay,sun:empty.sundaysWorked,gap:empty.daysGap,satBasic:sat.basicPay,satSun:sat.sundaysWorked,satPrem:sat.sundayPremium};},
+  expect:{rate:615.38,basic:8000,sun:0,gap:0,satBasic:8000,satSun:0,satPrem:0} },
+{ name:'management: a run generated BEFORE the cut-off\'s regular holiday does not pay the holiday twice (v20.68)',
+  run:async()=>{const d=daysEnding(today,1)[0];const t=new Date(d+'T00:00:00');
+    /* a 15-day window that starts today, with a regular holiday on its last weekday */
+    const days=[];for(let i=0;i<15;i++){const x=new Date(t);x.setDate(x.getDate()+i);days.push(ymd(x));}
+    const wk=days.filter(x=>{const w=new Date(x+'T00:00:00').getDay();return w>=1&&w<=5;});const hol=wk[wk.length-1];
+    localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({[hol]:{name:'Test holiday',kind:'regular'}}));
+    const m=office('EY','EYAL',{monthlyBasic:30000,salaryCategory:'management',dept:'Management'});setE([m]);setA({});
+    const l=calcEmployeePayroll(m,days[0],days[14],'semi_monthly');
+    return {basic:l.basicPay,rate:l.dailyRate,divisor:wk.length-1,hol};},
+  expect:{basic:15000} },
 ];

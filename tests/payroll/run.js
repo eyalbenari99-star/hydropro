@@ -2,11 +2,13 @@ const fs=require('fs'),path=require('path');
 const {runCase}=require('./lib');
 (async()=>{
   const only=process.argv[2]||'';
-  const files=fs.readdirSync(__dirname).filter(f=>/\.test\.js$/.test(f)&&(!only||f.includes(only))).sort();
+  const files=fs.readdirSync(__dirname).filter(f=>/\.test\.js$/.test(f)&&true).sort();
   let failed=0,total=0;
   for(const f of files){
     const cases=require(path.join(__dirname,f));
     for(const t of cases){
+      if(!t)continue;
+      if(only&&!f.includes(only)&&!t.name.includes(only))continue;
       total++;
       const r=await runCase(t);
       if(r.ok)console.log('  ✓ '+t.name);
