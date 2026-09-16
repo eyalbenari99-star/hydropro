@@ -93,4 +93,64 @@ module.exports=[
     payOpsAddEmpDialog();await sleep(300);const ops=names();payOfficeAddEmpDialog();await sleep(300);const off=names();
     return {ops,off};},
   expect:{ops:[],off:[]} },
+{ name:'office CSV carries Late Mins, Tardy Ded, the three pending columns and the uncollected shortfall; Late min is the DECIDED minutes (v20.69)',
+  seed:()=>{localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:'office_2026-09-01_2026-09-15',type:'semi_monthly',periodStart:'2026-09-01',periodEnd:'2026-09-15',status:'approved',approvedAt:1,approvedBy:'eyal',totals:{},
+    lines:[{empId:'O1',name:'OFFICE ANN',salaryCategory:'accounting',dailyRate:727.27,daysWorked:11,daysAbsentUnauth:0,daysAbsentAuth:0,sundaysWorked:0,basicPay:7909.09,sundayPremium:0,holidayPay:0,memoAdd:0,memoDed:0,referralBonus:0,lateMinutes:200,lateDecidedMins:60,lateGate:true,tardyDeduction:90.91,grossPay:7909.09,grossEarnings:7909.09,sss:0,phic:0,hdmf:0,withholdingTax:0,netPay:7909.09,netShortfall:0,pending:{late:{n:0,amt:0},memo:{n:1,amt:1000},sun:{n:1,amt:945.45},total:1945.45}},
+           {empId:'O2',name:'OFFICE ZERO',salaryCategory:'accounting',dailyRate:727.27,daysWorked:0,daysAbsentUnauth:11,daysAbsentAuth:0,sundaysWorked:0,basicPay:0,grossPay:0,grossEarnings:0,sss:275.34,phic:0,hdmf:0,withholdingTax:0,netPay:0,netShortfall:275.34,memoAdd:0,memoDed:0,lateMinutes:0,tardyDeduction:0}]}]));},
+  run:async()=>{let text='';const _c=URL.createObjectURL;URL.createObjectURL=()=>'blob:x';
+    const _B=window.Blob;window.Blob=function(parts,o){text=parts.join('');return new _B(parts,o);};
+    window._payOfficeCurrentPeriod={start:'2026-09-01',end:'2026-09-15',half:1,label:'h'};
+    payOfficeExportCSV();window.Blob=_B;URL.createObjectURL=_c;
+    const rows=text.split('\n').map(r=>r.split('","').map(c=>c.replace(/^"|"$/g,'')));const H=rows[0];const col=n=>H.indexOf(n);
+    const r1=rows[1],r2=rows[2],tot=rows[3];
+    return {hasCols:['Late Mins','Tardy Ded','Pending Late (not paid)','Pending Memo (not paid)','Pending Sun OT (not paid)','Net shortfall (uncollected)'].every(c=>col(c)>=0),
+      lateMins:r1[col('Late Mins')],tardy:r1[col('Tardy Ded')],pendMemo:r1[col('Pending Memo (not paid)')],pendSun:r1[col('Pending Sun OT (not paid)')],short:r2[col('Net shortfall (uncollected)')],totShort:tot[col('Net shortfall (uncollected)')]};},
+  expect:{hasCols:true,lateMins:'60',tardy:'90.91',pendMemo:'1000',pendSun:'945.45',short:'275.34',totShort:'275.34'} },
+{ name:'payroll rows and payslip show the tardy note on the office row and the uncollected shortfall under Net (v20.69)',
+  run:async()=>{const l={netPay:0,netShortfall:275.34,tardyDeduction:90.91,lateGate:true,lateDecidedMins:60,lateMinutes:200};
+    const note=hnxNetShortNote(l);const mins=hnxLateMinsShown(l);const none=hnxNetShortNote({netPay:100,netShortfall:0});
+    return {noteHas:/275\.34 uncollected/.test(note),mins,none:none===''};},
+  expect:{noteHas:true,mins:60,none:true} },
+{ name:'engine: the payslip allowance basis says what the engine did — weekly ÷26 × Mon–Sat days, office monthly ÷ 2 × scheduled days (v20.69)',
+  run:async()=>{const jo=labour('JO','JO SANTOS');const ann=office('ANN','ANN OFFICE',{monthlyBasic:16000});setE([jo,ann]);const a={};
+    ['2026-09-07','2026-09-08','2026-09-09','2026-09-10','2026-09-11','2026-09-12'].forEach(d=>{a[d]={JO:rec('present','07:00','17:00'),ANN:rec('present','07:00','17:30')};});setA(a);
+    const w=calcEmployeePayroll(jo,'2026-09-07','2026-09-13','weekly');const o=calcEmployeePayroll(ann,'2026-09-01','2026-09-15','semi_monthly');
+    return {w:w.allowBasis,o:o.allowBasis};},
+  expect:{w:'÷ 26 × 6 Mon–Sat days worked',o:'monthly ÷ 2 × 11 of 11 scheduled days'} },
+{ name:'Attendance Matrix: a present row carrying late minutes is painted as the late it is; a labour Sunday with no record is rest, not ✗ (v20.69)',
+  seed:()=>{localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'L1',name:'SANTOS, JO',status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',dailyRate:658,dateHired:'2025-01-01'}]));
+    const a={};a['2026-09-14']={L1:{status:'present',timeIn:'07:45',timeOut:'17:00',lateMinutes:45,source:'hrmatrix'}};a['2026-09-06']={L1:{status:'absent',timeIn:'',timeOut:'',source:'timecard-bridge'}};
+    a['2026-09-15']={L1:{status:'present',timeIn:'07:00',timeOut:'17:00',source:'fingerprint'}};localStorage.setItem('hydroPro_attendance',JSON.stringify(a));},
+  run:async()=>{document.getElementById('hnxAttMx')&&document.getElementById('hnxAttMx').remove();window.hnxAttMatrix();await sleep(1200);
+    const host=document.getElementById('hnxAttMxBody');const tr=[...host.querySelectorAll('tr')].find(t=>(t.textContent||'').indexOf('SANTOS, JO')>=0);
+    const cell=day=>{const td=tr&&[...tr.querySelectorAll('td')].find(t=>(t.getAttribute('title')||'').indexOf(day)>=0);return td?{text:(td.textContent||'').replace(/\s+/g,' ').trim(),title:td.getAttribute('title')||''}:null;};
+    const out={late:cell('2026-09-14'),sunAbs:cell('2026-09-06'),sunNone:cell('2026-09-13')};
+    document.getElementById('hnxAttMx')&&document.getElementById('hnxAttMx').remove();
+    return {lateIsLate:!!out.late&&/LATE 45 min/.test(out.late.title)&&/waiting/.test(out.late.text),sunAbsRest:!!out.sunAbs&&/Sun ?rest/i.test(out.sunAbs.text.replace(/\s/g,'')),sunNoneRest:!!out.sunNone&&/Sunrest/i.test(out.sunNone.text.replace(/\s/g,'')),out};},
+  expect:{lateIsLate:true,sunAbsRest:true,sunNoneRest:true} },
+{ name:'Attendance screen: a Sunday is never Late; a late the clock-in implies but the record does not carry is flagged not queued (v20.69)',
+  run:async()=>{const sun=hnxAttEff({status:'late',timeIn:'09:00',timeOut:'17:00',lateMinutes:120},'2026-09-13');
+    const derived=hnxAttEff({status:'present',timeIn:'07:30',timeOut:'17:00',lateMinutes:0},'2026-09-14');
+    const stored=hnxAttEff({status:'present',timeIn:'07:30',timeOut:'17:00',lateMinutes:30},'2026-09-14');
+    return {sun:[sun.status,sun.lateMinutes],derived:[derived.status,derived.lateMinutes,!!derived.notQueued],stored:[stored.status,stored.lateMinutes,!!stored.notQueued]};},
+  expect:{sun:['present',0],derived:['late',30,true],stored:['late',30,false]} },
+{ name:'Reconcile ✓ Approve by an approver excuses the late in the Eyal / Dr Amy queue; the day stays present with its minutes (v20.69)',
+  seed:()=>{localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'L1',name:'SANTOS, JO',status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',dailyRate:658,dateHired:'2025-01-01'}]));
+    const a={};a['2026-09-14']={L1:{status:'late',timeIn:'08:00',timeOut:'17:00',lateMinutes:60,source:'fingerprint'}};localStorage.setItem('hydroPro_attendance',JSON.stringify(a));},
+  run:async()=>{window.prompt=()=>'Eyal';recCurrentDate='2026-09-14';const before=hnxLate.scan('2026-09-14','2026-09-14','L1')[0];
+    recApproveLate('L1');await sleep(500);
+    const after=hnxLate.scan('2026-09-14','2026-09-14','L1')[0];const st=JSON.parse(localStorage.getItem('hydroPro_late_approvals_v1')||'{}')['2026-09-14|L1']||{};
+    const r=JSON.parse(localStorage.getItem('hydroPro_attendance'))['2026-09-14'].L1;
+    return {before:before&&before.decision,after:after&&after.decision,stored:st.decision,sup:r.supervisorApproval,st:r.status,mins:r.lateMinutes};},
+  expect:{before:'',after:'excuse',stored:'excuse',sup:'Eyal',st:'late',mins:60} },
+{ name:'biometric sync: a fingerprint row a person tagged (reason) still receives its evening OUT punch; a human decision on the status is left alone (v20.69)',
+  seed:()=>{localStorage.setItem('hydroPro_bio_cfg_v1',JSON.stringify({url:'http://bio.test',token:'t'}));
+    localStorage.setItem('hydroPro_bio_map_v1',JSON.stringify({'201':'A1','202':'B1'}));
+    localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'A1',name:'REYES, MARLON',status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',dailyRate:658,dateHired:'2025-01-01'},{id:'B1',name:'CRUZ, DANILO',status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',dailyRate:658,dateHired:'2025-01-01'}]));},
+  run:async()=>{const d=daysEnding(today,2)[0];const a={};a[d]={A1:{status:'present',timeIn:'06:50',timeOut:'',lateMinutes:0,source:'fingerprint',reason:'Reconcile: accepted',editedBy:'jinky'},B1:{status:'authorized',timeIn:'',timeOut:'',lateMinutes:0,source:'fingerprint',reason:'sick',editedBy:'jinky'}};setA(a);
+    const D=[{date:d,punches:[{userId:'201',time:'06:50'},{userId:'201',time:'17:02'},{userId:'202',time:'06:55'},{userId:'202',time:'17:00'}]}];
+    window.fetch=(u)=>Promise.resolve({json:()=>Promise.resolve(/punches/.test(String(u))?{days:D}:{devices:{}})});
+    window.hnxBioPull();await sleep(2500);const x=JSON.parse(localStorage.getItem('hydroPro_attendance'))[d];
+    return {aOut:x.A1.timeOut,aReason:x.A1.reason,aSt:x.A1.status,bSt:x.B1.status,bIn:x.B1.timeIn};},
+  expect:{aOut:'17:02',aReason:'Reconcile: accepted',aSt:'present',bSt:'authorized',bIn:''} },
 ];
