@@ -12,4 +12,26 @@ module.exports=[
     const amt=re=>{const l=txt.find(x=>re.test(x)&&/1st /.test(x));const m=l&&l.match(/(\d[\d,]*\.\d\d)\s*[—✅]/);return m?+m[1].replace(/,/g,''):(l||'no row');};
     return {eviaFirst:amt(/^— 1st EVIA \(D ₱\d+\) /),alabangThenEvia:amt(/1st ALABANG AREA .*2nd EVIA/),three:amt(/1st EVIA .*2nd HOUSING .*3rd RV/),clark:amt(/2nd CLARK CITY/)};},
   expect:{eviaFirst:100,alabangThenEvia:100,three:300,clark:500} },
+{ name:'⭐ Other trip: an EVIA run tagged ⭐ keeps its own round, so the delivery and the ₱100 both pay instead of one swallowing the other (v20.73)',
+  seed:()=>{localStorage.setItem('hydroPro_fleet_drivers',JSON.stringify([{id:'D1',name:'Dante',active:true}]));},
+  run:async()=>{const RK='hydroPro_trip_rates_v1',DK='hydroPro_log_deliveries';
+    switchView('pay_trips');await sleep(2200);
+    const r=JSON.parse(localStorage.getItem(RK)||'{}');r.live=JSON.parse(JSON.stringify(r.draft));r.draftDirty=false;localStorage.setItem(RK,JSON.stringify(r));
+    const areas=(r.live&&r.live.areas)||[];
+    const evia=areas.filter(a=>/evia/i.test(a.name))[0],alab=areas.filter(a=>/alabang/i.test(a.name))[0];
+    const t=today;
+    const row=(id,areaId,trip)=>Object.assign({id,date:t,driverId:'D1',areaId,status:'delivered',createdAt:Date.parse(t+'T0'+(id.slice(-1))+':00:00'),vehicleId:''},trip?{trip}:{});
+    const plan=()=>{const P=hnxTripBridge.plan();const g=(P.groups||[]).filter(x=>x.date===t&&x.driverId==='D1')[0]||{};
+      return {trips:(g.trips||[]).map(a=>a==='_prior'?'_prior':((areas.filter(z=>z.id===a)[0]||{}).name||a)),otherAt:g.otherAt,badges:(g.rows||[]).map(x=>{const b=P.byDelivery[String(x.r.id)]||{};return String(x.r.id)+':'+(b.other?'other':('t'+b.idx+'/'+b.n));})};};
+    /* the old way: both drops tagged "2nd trip" collide into ONE round, so only one area pays */
+    localStorage.setItem(DK,JSON.stringify([row('d1',alab.id,2),row('d2',evia.id,2)]));
+    const collide=plan();
+    /* the new way: the EVIA drop is tagged ⭐ and keeps its own round */
+    localStorage.setItem(DK,JSON.stringify([row('d1',alab.id,2),row('d2',evia.id,'o')]));
+    const tagged=plan();
+    /* two ⭐ drops of the same run are ONE round, exactly as two drops sharing a number are */
+    localStorage.setItem(DK,JSON.stringify([row('d1',alab.id,2),row('d2',evia.id,'o'),row('d3',evia.id,'o')]));
+    const twoDrops=plan();
+    return {collideLen:collide.trips.length,taggedTrips:tagged.trips,taggedOtherAt:tagged.otherAt,taggedBadges:tagged.badges,twoDropsLen:twoDrops.trips.length};},
+  expect:{collideLen:2,taggedTrips:['_prior','ALABANG AREA','EVIA'],taggedOtherAt:2,taggedBadges:['d1:t2/3','d2:other'],twoDropsLen:3} },
 ];
