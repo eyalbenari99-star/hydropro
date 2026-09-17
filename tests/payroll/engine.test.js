@@ -118,4 +118,20 @@ module.exports=[
     const l=calcEmployeePayroll(m,days[0],days[14],'semi_monthly');
     return {basic:l.basicPay,rate:l.dailyRate,divisor:wk.length-1,hol};},
   expect:{basic:15000} },
+{ name:'labour: a sheet mark / placeholder with no clock hours and nobody\'s name is NOT a paid day; clock, timecard, history and a hand mark are (v20.71)',
+  run:async()=>{const jo=labour('JO','JO SANTOS');setE([jo]);const a={};
+    a['2026-09-10']={JO:{status:'present',timeIn:'07:00',timeOut:'',lateMinutes:0,source:'hrmatrix'}};          /* HR 1/0 sheet, no hours */
+    a['2026-09-11']={JO:{status:'present',timeIn:'07:00',timeOut:'',lateMinutes:0,source:'bulk'}};              /* app fill */
+    a['2026-09-13']={JO:{status:'present',timeIn:'07:00',timeOut:'',lateMinutes:0,source:'hrmatrix'}};          /* Sunday sheet mark */
+    a['2026-09-14']={JO:rec('present','07:02','17:00','fingerprint')};                                          /* clock */
+    a['2026-09-15']={JO:{status:'present',timeIn:'07:00',timeOut:'17:00',lateMinutes:0,source:'timecard-bridge'}};/* timecard with hours */
+    a['2026-09-16']={JO:{status:'present',timeIn:'07:00',timeOut:'',lateMinutes:0,source:'hrmatrix',editedBy:'jinky'}}; /* sheet mark a person signed */
+    setA(a);const l=calcEmployeePayroll(jo,'2026-09-10','2026-09-16','weekly');
+    return {days:l.daysWorked,sun:l.sundaysWorked,absU:l.daysAbsentUnauth,noProof:l.dayAudit.noProof,dates:l.noProofDates,gap:l.daysGap,basic:l.basicPay,paid:(l.paidDayList||[]).map(p=>p.d.slice(5)+':'+p.s)};},
+  expect:{days:3,sun:0,absU:0,noProof:3,dates:['2026-09-10','2026-09-11','2026-09-13'],gap:0,basic:1974,paid:['09-14:fingerprint','09-15:timecard-bridge','09-16:hrmatrix']} },
+{ name:'labour: the attendance sheet from before the clock (history) still pays (v20.71)',
+  run:async()=>{const jo=labour('JO','JO SANTOS');setE([jo]);const a={};
+    ['2026-09-10','2026-09-11','2026-09-12','2026-09-14','2026-09-15','2026-09-16'].forEach(d=>{a[d]={JO:{status:'present',timeIn:'',timeOut:'',lateMinutes:0,source:'sheet-history',history:1}};});setA(a);
+    const l=calcEmployeePayroll(jo,'2026-09-10','2026-09-16','weekly');return {days:l.daysWorked,noProof:l.dayAudit.noProof,satNoProof:l.dayAudit.satNoProof,gap:l.daysGap};},
+  expect:{days:5,noProof:0,satNoProof:1,gap:0} }, /* the Saturday still wants hours, as since v20.59 */
 ];
