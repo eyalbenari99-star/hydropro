@@ -51,8 +51,12 @@ module.exports=[
     days.slice(0,6).forEach(d=>{a[d]={ERIC:rec('present','07:00','17:00'),OTH:rec('present','07:00','17:00')};});setA(a);
     const A=L(calcEmployeePayroll(e,days[0],days[6],'weekly'));
     a[days[6]]={OTH:rec('present','07:00','17:00')};setA(a);const B=L(calcEmployeePayroll(e,days[0],days[6],'weekly'));
-    delete a[days[1]].ERIC;setA(a);const C=L(calcEmployeePayroll(e,days[0],days[6],'weekly'));
-    return {A:{absU:A.absU,todayWait:A.todayWait,gap:A.gap},B:{absU:B.absU,dates:B.absentDates},C:{absU:C.absU,dates:C.absentDates,gap:C.gap},d1:days[1],d6:days[6]};},
+    /* v20.71: pick a MON-FRI day deliberately. This used to delete days[1], whose weekday moves with
+       the calendar: on a Wednesday it was a Friday (an absence) and on a Thursday a Saturday (a rest
+       day needing proof), so the case passed or failed by the day it was run on, not by the rule. */
+    const wd=days.slice(0,6).filter(d=>{const w=new Date(d+'T00:00:00').getDay();return w>=1&&w<=5;})[0];
+    delete a[wd].ERIC;setA(a);const C=L(calcEmployeePayroll(e,days[0],days[6],'weekly'));
+    return {A:{absU:A.absU,todayWait:A.todayWait,gap:A.gap},B:{absU:B.absU,dates:B.absentDates},C:{absU:C.absU,dates:C.absentDates,gap:C.gap},wd:wd,d6:days[6]};},
   expect:{'A.absU':0,'A.todayWait':1,'A.gap':0,'B.absU':1,'C.absU':2,'C.gap':0} },
 { name:'day audit raises no false alarm on an office half day or an unworked regular holiday (v20.65)',
   seed:()=>{localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({'2026-08-31':{name:'National Heroes Day',kind:'regular'}}));},
