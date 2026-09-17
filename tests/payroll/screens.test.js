@@ -214,4 +214,42 @@ module.exports=[
     const tot=nums.slice(-2); /* the TOTALS row's DEBIT then CREDIT, printed last */
     return {netGap:x.netGap,shortfall:x.shortfall,net:x.net,td:tot[0],tc:tot[1],hasShortfallRow:/Due from employee/.test(html)};},
   expect:{netGap:0,shortfall:312.5,net:0,td:3512.5,tc:3512.5,hasShortfallRow:true} },
+{ name:'🏗 Fixed Assets: importing a lapsing schedule (Excel rows) registers every valid row as a New Asset — a title banner above the header does not break it, and a row missing cost is skipped (v20.80)',
+  seed:()=>{localStorage.removeItem('hydroPro_asset_recon_v1');},
+  run:async()=>{const rows=[
+      [null,null,null,null,null,null,null,null,null,null,null,null,'LAPSING YEAR 2026'], /* banner row above the header, like the real file */
+      ['MOTHER ACCOUNT','CATEGORY','DEPARTMENT','Equipment Per Lapsing','QUANTITY','ESTIMATED YEARS','Acquisition Date','END DATE','Recorded in Quickbook','VENDOR','COST','MONTHLY AMORTIZATION'],
+      ['1025-003-002 Furniture & Fixtures - Office Machine and Equipment','Machinery and Equipment','Corporate','Epson Ecotank L6460 Ink Tank Printer','1','5','2026-01-19','2031-01-19','1025-003-005 FURNITURE & FIXTURES:Office Machine and Equipment','LAZADA.COM.PH','22361.33','372.69'],
+      ['1025-007 VEHICLES','Vehicle','Management','2026 Chery Tiggo PRO PHEV','1','8','2026-02-02','2034-02-02','1013-001-001 ADVANCES','Caraso Motors Givatim Israel','3563104.36','37115.67'],
+      ['1025-001-002 Machinery and Equipment - Construction','Machinery and Equipment','Construction','Scaffolding 1.7h','18','5','2026-08-20','2031-08-20','1016-300-003 INVENTORY','E.E Scaffolding','','444'], /* no COST — must be skipped */
+      [null,null,null,null,null,null,null,null,null,null,null,null], /* blank row */
+    ];
+    const r=window.hnxArImportLapsingRows(rows);
+    const s=JSON.parse(localStorage.getItem('hydroPro_asset_recon_v1'));
+    const na=(s.newAssets||[]).slice().sort((a,b)=>b.price-a.price);
+    return {added:r.added,skipped:r.skipped,count:na.length,
+      vehicle:{desc:na[0].desc,price:na[0].price,qty:na[0].qty,years:na[0].lifeYears,uc:na[0].uc,acq:na[0].acq,supplier:na[0].supplier},
+      printer:{desc:na[1].desc,price:na[1].price,type:na[1].type}};},
+  expect:{added:2,skipped:1,count:2,'vehicle.desc':'2026 Chery Tiggo PRO PHEV','vehicle.price':3563104.36,'vehicle.qty':1,'vehicle.years':8,'vehicle.uc':'Management','vehicle.acq':'2026-02-02','vehicle.supplier':'Caraso Motors Givatim Israel','printer.desc':'Epson Ecotank L6460 Ink Tank Printer','printer.price':22361.33,'printer.type':'Machinery and Equipment'} },
+{ name:'📍 Per-Greenhouse Schedule: a greenhouse outside today\'s rotation is a tappable dashed cell, not a dead one — marking it works and shows done, whatever weekday the suite runs on (v20.81)',
+  run:async()=>{
+    switchView('prod_recurring');await sleep(1500);
+    const v=document.getElementById('view-prod_recurring');
+    /* find any live "na" cell — not scheduled today for that GH, but now clickable — and read
+       its taskId/gh straight out of the onclick it renders, so the test needs no assumption
+       about which weekday it happens to run on */
+    const naCell=[...v.querySelectorAll('.hnx-ghm-c.na[onclick]')][0];
+    if(!naCell)return {found:false};
+    const m=(naCell.getAttribute('onclick')||'').match(/hnxGhmCell\('([^']+)','([^']*)'\)/);
+    const beforeCls=naCell.className;
+    window._openRecurringCellModal(m[1],m[2]);await sleep(200);
+    const btn=document.querySelector('.hnx-rm-sb.done');if(btn)window.hnxRmPickStatus(btn);
+    if(typeof window.hnxRmSave==='function')window.hnxRmSave();
+    await sleep(600);
+    if(typeof renderRecurringHub==='function')renderRecurringHub();await sleep(600);
+    const v2=document.getElementById('view-prod_recurring');
+    const key=m[1]+"','"+m[2];
+    const after=[...v2.querySelectorAll('.hnx-ghm-c[onclick]')].find(el=>(el.getAttribute('onclick')||'').indexOf(key)>=0);
+    return {found:true,beforeCls,afterCls:after&&after.className,afterText:after&&(after.textContent||'').trim()};},
+  expect:{found:true,beforeCls:'hnx-ghm-c na',afterCls:'hnx-ghm-c hit offsched done',afterText:'✓'} },
 ];
