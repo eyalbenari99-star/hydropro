@@ -238,16 +238,27 @@ function parseRows(rows) {
     var row = rows[r2];
     if (!row) continue;
     var id = idCol >= 0 ? String(row[idCol] == null ? '' : row[idCol]).trim() : '';
-    if (id && /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id)) lastId = id;
+    /* v20.71: an ID cell that is present but not ID-shaped (a name, "PROD 012" with a space, a
+       'Total' label) used to be ignored, so the row inherited the PREVIOUS person's ID and its
+       punches were credited to the wrong employee. A non-blank cell now ends the previous
+       person's rows; only a truly blank cell continues them. Spaces inside an ID are dropped. */
+    if (id) { var idc = id.replace(/\s+/g, ''); lastId = (/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(idc) && !/^(total|subtotal|sum|average|avg|name|remarks?|id|no\.?)$/i.test(idc)) ? idc : ''; }
     var date = '';
     if (dateCol >= 0) date = normDate(row[dateCol]);
-    if (!date) {
+    if (!date && dateCol < 0) {
+      /* v20.71: the date column is found ONCE (the first data column whose cells parse as dates)
+         and then locked; scanning every cell of every row let a 'Print date' or period-end cell
+         file a whole report under the wrong day. */
       for (var c2 = 0; c2 < row.length; c2++) {
-        if (skipCols[c2]) continue;
-        date = normDate(row[c2]); if (date) break;
+        if (skipCols[c2] || c2 === idCol) continue;
+        if (normDate(row[c2])) { dateCol = c2; date = normDate(row[c2]); break; }
       }
     }
-    if (date) lastDate = date;
+    if (date) {
+      /* v20.71: a date in the future is not a punch day */
+      if (date > Utilities.formatDate(new Date(), 'Asia/Manila', 'yyyy-MM-dd')) { lastDate = ''; continue; }
+      lastDate = date;
+    }
     if (!lastId || !lastDate) continue;
     var seen = {};
     punchCols.forEach(function (c3) {
