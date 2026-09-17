@@ -138,4 +138,33 @@ module.exports=[
     ['2026-09-10','2026-09-11','2026-09-12','2026-09-14','2026-09-15','2026-09-16'].forEach(d=>{a[d]={JO:{status:'present',timeIn:'',timeOut:'',lateMinutes:0,source:'sheet-history',history:1}};});setA(a);
     const l=calcEmployeePayroll(jo,'2026-09-10','2026-09-16','weekly');return {days:l.daysWorked,noProof:l.dayAudit.noProof,satNoProof:l.dayAudit.satNoProof,gap:l.daysGap};},
   expect:{days:5,noProof:0,satNoProof:1,gap:0} }, /* the Saturday still wants hours, as since v20.59 */
+{ name:'labour: a SATURDAY from the NGTeco timecard (06:58-17:05, source timecard-bridge) is a paid day — 7 days, basic 4,606.00, satNoProof 0, gap 0 (v20.78)',
+  run:async()=>{const jo=labour('JO','JO SANTOS');setE([jo]);const a={};
+    ['2026-09-10','2026-09-11','2026-09-14','2026-09-15','2026-09-16'].forEach(d=>{a[d]={JO:rec('present','07:00','17:00')};});
+    a['2026-09-12']={JO:{status:'present',timeIn:'06:58',timeOut:'17:05',lateMinutes:0,source:'timecard-bridge'}};setA(a);
+    const l=L(calcEmployeePayroll(jo,'2026-09-10','2026-09-16','weekly'));
+    return {days:l.days,satNoProof:l.satNoProof,basic:l.basic,gap:l.gap};},
+  expect:{days:6,satNoProof:0,basic:3948,gap:0} },
+{ name:'labour: a bulk-fill Saturday (no hours, no name) with NO timecard evidence is still refused (v20.78 negative twin)',
+  run:async()=>{const jo=labour('JO','JO SANTOS');setE([jo]);const a={};
+    ['2026-09-10','2026-09-11','2026-09-14','2026-09-15','2026-09-16'].forEach(d=>{a[d]={JO:rec('present','07:00','17:00')};});
+    a['2026-09-12']={JO:{status:'present',timeIn:'07:00',timeOut:'',lateMinutes:0,source:'bulk'}};setA(a);
+    const l=L(calcEmployeePayroll(jo,'2026-09-10','2026-09-16','weekly'));
+    return {days:l.days,satNoProof:l.satNoProof,gap:l.gap};},
+  expect:{days:5,satNoProof:1,gap:0} },
+{ name:'labour: a refused Saturday with NO record that is also a REGULAR holiday still pays 100% unworked-holiday (658.00), even though the day itself stays unproven (v20.78)',
+  seed:()=>{localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({'2026-09-12':{name:'Test Regular Holiday',kind:'regular'}}));},
+  run:async()=>{const jo=labour('JO','JO SANTOS');setE([jo]);const a={};
+    ['2026-09-10','2026-09-11','2026-09-14','2026-09-15','2026-09-16'].forEach(d=>{a[d]={JO:rec('present','07:00','17:00')};});setA(a);
+    const l=calcEmployeePayroll(jo,'2026-09-10','2026-09-16','weekly');
+    return {days:l.daysWorked,satNoProof:l.dayAudit.satNoProof,holidayPay:l.holidayPay,gap:l.daysGap};},
+  expect:{days:5,satNoProof:0,holidayPay:658,gap:0} },
+{ name:'labour: a refused WEEKDAY (hrmatrix sheet mark, no hours) that is also a REGULAR holiday still pays 100% unworked-holiday (658.00) even though refused for lack of proof (v20.78)',
+  seed:()=>{localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({'2026-09-14':{name:'Test Regular Holiday',kind:'regular'}}));},
+  run:async()=>{const jo=labour('JO','JO SANTOS');setE([jo]);const a={};
+    ['2026-09-10','2026-09-11','2026-09-15','2026-09-16'].forEach(d=>{a[d]={JO:rec('present','07:00','17:00')};});
+    a['2026-09-14']={JO:{status:'present',timeIn:'07:00',timeOut:'',lateMinutes:0,source:'hrmatrix'}};setA(a);
+    const l=calcEmployeePayroll(jo,'2026-09-10','2026-09-16','weekly');
+    return {days:l.daysWorked,noProof:l.dayAudit.noProof,holidayPay:l.holidayPay,gap:l.daysGap};},
+  expect:{days:4,noProof:1,holidayPay:658,gap:0} },
 ];
