@@ -81,4 +81,20 @@ module.exports=[
             trips:(g.trips||[]).map(a=>a==='_prior'?'_prior':((areas.filter(z=>z.id===a)[0]||{}).name||a)),
             fifthKept:(g2.trips||[]).length,fifthBadge:(P2.byDelivery['d3']||{}).idx};},
   expect:{tripTag:'o',areaSet:true,areaAuto:false,trips:['_prior','ALABANG AREA','EVIA'],fifthKept:5,fifthBadge:5} },
+{ name:'➕ Add a new zone is navigation only: the delivery row keeps the area it had (v20.76)',
+  seed:()=>{localStorage.setItem('hydroPro_fleet_drivers',JSON.stringify([{id:'D1',name:'Dante',active:true}]));},
+  run:async()=>{const RK='hydroPro_trip_rates_v1',DK='hydroPro_log_deliveries';
+    switchView('pay_trips');await sleep(2200);
+    const r=JSON.parse(localStorage.getItem(RK)||'{}');r.live=JSON.parse(JSON.stringify(r.draft));r.draftDirty=false;localStorage.setItem(RK,JSON.stringify(r));
+    const alab=(r.live.areas||[]).filter(a=>/alabang/i.test(a.name))[0];
+    const t=today;
+    localStorage.setItem(DK,JSON.stringify([{id:'d1',date:t,driverId:'D1',areaId:alab.id,destination:'MUNTINLUPA',status:'delivered',createdAt:Date.parse(t+'T01:00:00')}]));
+    const before=JSON.parse(localStorage.getItem(DK))[0];
+    hnxTripBridge.pickArea('d1','__add');await sleep(900);
+    const after=(JSON.parse(localStorage.getItem(DK))||[]).filter(x=>x.id==='d1')[0]||{};
+    const nameBox=document.getElementById('hnxRaName');
+    const prefilled=nameBox?nameBox.value:'(no add box)';
+    try{window.hnxTripRateAddClose();}catch(e){}
+    return {areaKept:after.areaId===before.areaId,untouched:after.updatedAt===before.updatedAt,prefilled};},
+  expect:{areaKept:true,untouched:true,prefilled:'MUNTINLUPA'} },
 ];
