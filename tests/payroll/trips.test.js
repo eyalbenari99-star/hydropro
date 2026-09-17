@@ -60,4 +60,25 @@ module.exports=[
             roundPricedBy:(g.trips||[]).map(a=>a==='_prior'?'_prior':((areas.filter(z=>z.id===a)[0]||{}).name||a)),
             draftOnlyDayTrips:(g2.trips||[])};},
   expect:{draftRowAccepted:true,roundPricedBy:['_prior','ALABANG AREA'],draftOnlyDayTrips:['zz_new']} },
+{ name:'🚚 the trip box carries the tariff table: picking ⭐ EVIA by name tags the run and sets the area in one action, and a 5th trip is never truncated to the 1st (v20.75)',
+  seed:()=>{localStorage.setItem('hydroPro_fleet_drivers',JSON.stringify([{id:'D1',name:'Dante',active:true}]));},
+  run:async()=>{const RK='hydroPro_trip_rates_v1',DK='hydroPro_log_deliveries';
+    switchView('pay_trips');await sleep(2200);
+    const r=JSON.parse(localStorage.getItem(RK)||'{}');r.live=JSON.parse(JSON.stringify(r.draft));r.draftDirty=false;localStorage.setItem(RK,JSON.stringify(r));
+    const areas=r.live.areas||[];
+    const evia=areas.filter(a=>/evia/i.test(a.name))[0],alab=areas.filter(a=>/alabang/i.test(a.name))[0];
+    const t=today;
+    const row=(id,areaId,trip)=>Object.assign({id,date:t,driverId:'D1',areaId,status:'delivered',createdAt:Date.parse(t+'T0'+(id.slice(-1))+':00:00')},trip?{trip}:{});
+    /* Syra picks "⭐ EVIA" by name on a row that had no area at all */
+    localStorage.setItem(DK,JSON.stringify([row('d1',alab.id,2),row('d2','',null)]));
+    hnxTripBridge.pickTrip('d2','o:'+evia.id);await sleep(400);
+    const saved=(JSON.parse(localStorage.getItem(DK))||[]).filter(x=>x.id==='d2')[0]||{};
+    const P=hnxTripBridge.plan();const g=(P.groups||[]).filter(x=>x.date===t&&x.driverId==='D1')[0]||{};
+    /* a row the GPS put on the 5th round keeps the 5th */
+    localStorage.setItem(DK,JSON.stringify([row('d3',alab.id,5)]));
+    const P2=hnxTripBridge.plan();const g2=(P2.groups||[]).filter(x=>x.date===t&&x.driverId==='D1')[0]||{};
+    return {tripTag:saved.trip,areaSet:saved.areaId===evia.id,areaAuto:saved.areaAuto,
+            trips:(g.trips||[]).map(a=>a==='_prior'?'_prior':((areas.filter(z=>z.id===a)[0]||{}).name||a)),
+            fifthKept:(g2.trips||[]).length,fifthBadge:(P2.byDelivery['d3']||{}).idx};},
+  expect:{tripTag:'o',areaSet:true,areaAuto:false,trips:['_prior','ALABANG AREA','EVIA'],fifthKept:5,fifthBadge:5} },
 ];
