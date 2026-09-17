@@ -205,4 +205,13 @@ module.exports=[
       out[W[i]]=r&&r.ok?'ok':((r&&r.results)||[]).filter(x=>!x.ok).map(x=>x.name);}
     window.hnxLocalToday=orig;return out;},
   expect:{Mon:'ok',Tue:'ok',Wed:'ok',Thu:'ok',Fri:'ok',Sat:'ok',Sun:'ok'} },
+{ name:'a floored line (net 0, shortfall 312.50) reconciles with netGap 0 — the strip no longer false-alarms, and the QB journal balances via a shortfall debit line (v20.79)',
+  seed:()=>{localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:'ops_2026-09-10_2026-09-16',type:'weekly',periodStart:'2026-09-10',periodEnd:'2026-09-16',status:'approved',approvedAt:1,approvedBy:'eyal',totals:{},
+    lines:[{empId:'F1',name:'FLOORED, ONE',dailyRate:658,daysWorked:5,basicPay:3200,grossPay:3200,grossEarnings:3200,sss:900,phic:800,hdmf:800,totalGovDed:2500,withholdingTax:1012.5,taxCompanyPaid:false,netPay:0,netShortfall:312.50,memoAdd:0,memoDed:0}]}]));},
+  run:async()=>{const runs=JSON.parse(localStorage.getItem('hydroPro_payroll_runs'));const x=window.hnxPaySums(runs[0].lines);
+    const html=window._hnxPayJeHtml('2026-09');
+    const nums=(html.match(/₱[\d,]+\.\d{2}/g)||[]).map(s=>parseFloat(s.replace(/[₱,]/g,'')));
+    const tot=nums.slice(-2); /* the TOTALS row's DEBIT then CREDIT, printed last */
+    return {netGap:x.netGap,shortfall:x.shortfall,net:x.net,td:tot[0],tc:tot[1],hasShortfallRow:/Due from employee/.test(html)};},
+  expect:{netGap:0,shortfall:312.5,net:0,td:3512.5,tc:3512.5,hasShortfallRow:true} },
 ];
