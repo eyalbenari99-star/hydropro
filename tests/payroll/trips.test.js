@@ -97,4 +97,28 @@ module.exports=[
     try{window.hnxTripRateAddClose();}catch(e){}
     return {areaKept:after.areaId===before.areaId,untouched:after.updatedAt===before.updatedAt,prefilled};},
   expect:{areaKept:true,untouched:true,prefilled:'MUNTINLUPA'} },
+{ name:'🧊 the REAL dropdown on the REAL screen shows ⭐ Other trip, and a zone ticked ⭐ appears without a reload (v20.77)',
+  seed:()=>{localStorage.setItem('hydroPro_fleet_drivers',JSON.stringify([{id:'D1',name:'Dante',active:true}]));},
+  run:async()=>{const RK='hydroPro_trip_rates_v1',DK='hydroPro_log_deliveries';
+    switchView('pay_trips');await sleep(2200);
+    const r=JSON.parse(localStorage.getItem(RK)||'{}');r.live=JSON.parse(JSON.stringify(r.draft));r.draftDirty=false;localStorage.setItem(RK,JSON.stringify(r));
+    const areas=r.live.areas||[];const alab=areas.filter(a=>/alabang/i.test(a.name))[0];
+    const t=today;
+    localStorage.setItem(DK,JSON.stringify([{id:'d1',date:t,driverId:'D1',areaId:alab.id,destination:'MUNTINLUPA',status:'delivered',createdAt:Date.parse(t+'T01:00:00')}]));
+    switchView('log_deliveries');await sleep(4000);
+    const opts=()=>{const sels=[...document.querySelectorAll('#view-log_deliveries td.hnx-br-area select')];
+      const trip=sels.filter(s=>[...s.options].some(o=>/\dst trip|\dnd trip|\drd trip|\dth trip/.test(o.textContent||'')))[0];
+      return trip?[...trip.options].map(o=>(o.textContent||'').trim()):['(no trip select found)'];};
+    const before=opts();
+    /* Jinky ticks a brand new zone as ⭐ Other trip while the row is on screen */
+    const r2=JSON.parse(localStorage.getItem(RK));
+    r2.live.areas=(r2.live.areas||[]).concat([{id:'zz_star',name:'BULACAN RUN',d1:150,h1:50,d2:150,h2:50,dbl:false,night3:false,special:true}]);
+    localStorage.setItem(RK,JSON.stringify(r2));
+    await sleep(4000);
+    const after=opts();
+    return {hasOtherBefore:before.some(x=>/Other trip/.test(x)),
+            newZoneBefore:before.some(x=>/BULACAN RUN/.test(x)),
+            newZoneAfter:after.some(x=>/BULACAN RUN/.test(x)),
+            numbered:before.filter(x=>/trip$/.test(x)).length>=4};},
+  expect:{hasOtherBefore:true,newZoneBefore:false,newZoneAfter:true,numbered:true} },
 ];
