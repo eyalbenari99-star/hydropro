@@ -194,4 +194,15 @@ module.exports=[
   run:async()=>{window._payOpsCurrentPeriod={start:'2026-09-07',end:'2026-09-13',payday:'2026-09-19',label:'w'};openPayrollLine('ops_2026-09-07_2026-09-13','D1','weekly');await sleep(600);
     const t=document.body.innerText||'';const i=t.indexOf('Gross Pay');return {gross:t.slice(i,i+19).replace(/\s+/g,' ')};},
   expect:{gross:'Gross Pay ₱3,900.00'} },
+{ name:'the Rulebook passes on EVERY day of the week, not only the day the suite happens to run (v20.72)',
+  run:async()=>{const orig=window.hnxLocalToday;const out={};const W=['Thu','Fri','Sat','Sun','Mon','Tue','Wed'];
+    /* seven CONSECUTIVE days covering every weekday, all at or after the fixed fixtures' week
+       (2026-09-10..16), so only calendar-dependence is under test, not a clock set to the past */
+    for(let i=0;i<7;i++){const d=new Date('2026-09-17T00:00:00');d.setDate(d.getDate()+i);
+      const y=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      window.hnxLocalToday=()=>y;
+      let r=null;try{r=hnxRulebook({quiet:true});}catch(e){r={ok:false,results:[{ok:false,name:'THREW '+e.message}]};}
+      out[W[i]]=r&&r.ok?'ok':((r&&r.results)||[]).filter(x=>!x.ok).map(x=>x.name);}
+    window.hnxLocalToday=orig;return out;},
+  expect:{Mon:'ok',Tue:'ok',Wed:'ok',Thu:'ok',Fri:'ok',Sat:'ok',Sun:'ok'} },
 ];
