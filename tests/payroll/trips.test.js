@@ -34,4 +34,30 @@ module.exports=[
     const twoDrops=plan();
     return {collideLen:collide.trips.length,taggedTrips:tagged.trips,taggedOtherAt:tagged.otherAt,taggedBadges:tagged.badges,twoDropsLen:twoDrops.trips.length};},
   expect:{collideLen:2,taggedTrips:['_prior','ALABANG AREA','EVIA'],taggedOtherAt:2,taggedBadges:['d1:t2/3','d2:other'],twoDropsLen:3} },
+{ name:'🔗 a zone added to the DRAFT tariff table is taggable at once, and can never take a round from an approved zone (v20.74)',
+  seed:()=>{localStorage.setItem('hydroPro_fleet_drivers',JSON.stringify([{id:'D1',name:'Dante',active:true}]));},
+  run:async()=>{const RK='hydroPro_trip_rates_v1',DK='hydroPro_log_deliveries';
+    switchView('pay_trips');await sleep(2200);
+    const r=JSON.parse(localStorage.getItem(RK)||'{}');
+    r.live=JSON.parse(JSON.stringify(r.draft));          /* approve what exists */
+    const areas=r.live.areas||[];
+    const alab=areas.filter(a=>/alabang/i.test(a.name))[0];
+    /* Jinky adds a new zone. It is in the DRAFT only, and deliberately dearer than the approved one. */
+    r.draft.areas=(r.draft.areas||[]).concat([{id:'zz_new',name:'NEW ZONE',d1:0,h1:0,d2:9999,h2:9999,dbl:false,night3:false,special:false}]);
+    r.draftDirty=true;localStorage.setItem(RK,JSON.stringify(r));
+    const t=today;
+    const row=(id,areaId,trip)=>Object.assign({id,date:t,driverId:'D1',areaId,status:'delivered',createdAt:Date.parse(t+'T0'+(id.slice(-1))+':00:00')},trip?{trip}:{});
+    /* one round holding an approved drop and an unapproved one */
+    localStorage.setItem(DK,JSON.stringify([row('d1',alab.id,2),row('d2','zz_new',2)]));
+    const P=hnxTripBridge.plan();
+    const g=(P.groups||[]).filter(x=>x.date===t&&x.driverId==='D1')[0]||{};
+    const b2=P.byDelivery['d2']||{};
+    /* and a day whose only zone is the unapproved one */
+    localStorage.setItem(DK,JSON.stringify([row('d3','zz_new',1)]));
+    const P2=hnxTripBridge.plan();
+    const g2=(P2.groups||[]).filter(x=>x.date===t&&x.driverId==='D1')[0]||{};
+    return {draftRowAccepted:b2.reason===null||b2.reason===undefined,
+            roundPricedBy:(g.trips||[]).map(a=>a==='_prior'?'_prior':((areas.filter(z=>z.id===a)[0]||{}).name||a)),
+            draftOnlyDayTrips:(g2.trips||[])};},
+  expect:{draftRowAccepted:true,roundPricedBy:['_prior','ALABANG AREA'],draftOnlyDayTrips:['zz_new']} },
 ];
