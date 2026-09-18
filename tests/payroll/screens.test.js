@@ -299,4 +299,72 @@ module.exports=[
     const c=JSON.parse(localStorage.getItem('hydroPro_cea_cases_v1')||'[]').find(x=>x.id==='REG-RNW-T2');
     return {buttonExists:!!btn,statusUnchanged:c&&c.status==='UNDER_REVIEW',hintShownBeforeClick:/Log Government Check above first/.test(drawerBefore),historyMentionsSignOff:c&&c.history.some(h=>/Internal sign-off requested/.test(h.ev))};},
   expect:{buttonExists:true,statusUnchanged:true,hintShownBeforeClick:true,historyMentionsSignOff:true} },
+{ name:'🤝 CRM: a customer\'s 📎 Files tab lists/uploads/downloads/deletes through the cloud file API, scoped to that customer only, never localStorage — and each file keeps a name + notes (date/uploader come from the file itself) that can be edited later (v20.85/v20.87)',
+  seed:()=>{localStorage.setItem('hydroPro_crm_leads',JSON.stringify([{id:'LEAD1',name:'Test Buyer',company:'Test Co',stage:'won',createdAt:new Date().toISOString()}]));
+    localStorage.removeItem('hydroPro_crm_file_meta_v1');},
+  run:async()=>{
+    const calls=[];
+    window.__hnxApi=(path,opts)=>{
+      calls.push({path,method:(opts&&opts.method)||'GET'});
+      if(/\/r2\/list/.test(path)){
+        const uploaded=calls.some(c=>/\/r2\/upload/.test(c.path));
+        return Promise.resolve({files:uploaded?[{key:'crm/LEAD1/site-visit.mp4',size:2500000,contentType:'video/mp4',uploaded:new Date().toISOString()}]:[]});
+      }
+      if(/\/r2\/upload/.test(path))return Promise.resolve({ok:true});
+      if(/\/r2\/delete/.test(path))return Promise.resolve({ok:true});
+      return Promise.resolve({});
+    };
+    window.prompt=(msg)=>/Name this file/.test(msg)?'EVIA site visit':(/Description/.test(msg)?'Walkthrough with the buyer, Sept 18':'');
+    _crmSelLead='LEAD1';_crmDetailTab='files';renderCRM();await sleep(400);
+    const before={files:_crmFilesState.files.length,hasUploadBtn:!!document.querySelector('label input#crmFilesInput')};
+    const fakeFile=new File(['x'.repeat(100)],'site-visit.mp4',{type:'video/mp4'});
+    const fakeInput={files:[fakeFile],value:''};
+    window.crmFilesUpload(fakeInput);await sleep(400);
+    const uploadCall=calls.find(c=>/\/r2\/upload/.test(c.path));
+    const meta1=JSON.parse(localStorage.getItem('hydroPro_crm_file_meta_v1')||'{}')['crm/LEAD1/site-visit.mp4'];
+    const html1=document.getElementById('crmFilesBody').innerHTML;
+    /* edit the name + notes after the fact */
+    window.prompt=(msg)=>/Name for this file/.test(msg)?'EVIA site visit (final)':(/Description/.test(msg)?'Updated: signed the PO on this visit':'');
+    window.crmFilesEditMeta('crm/LEAD1/site-visit.mp4');await sleep(200);
+    const meta2=JSON.parse(localStorage.getItem('hydroPro_crm_file_meta_v1')||'{}')['crm/LEAD1/site-visit.mp4'];
+    const html2=document.getElementById('crmFilesBody').innerHTML;
+    return {before,uploadKeyScoped:uploadCall&&/key=crm%2FLEAD1%2Fsite-visit\.mp4/.test(uploadCall.path),
+      filesAfter:_crmFilesState.files.length,fileName:_crmFilesState.files[0]&&_crmFilesState.files[0].key,
+      meta1Name:meta1&&meta1.name,meta1Notes:meta1&&meta1.notes,
+      shownName1:/EVIA site visit</.test(html1),shownNotes1:/Walkthrough with the buyer/.test(html1),
+      meta2Name:meta2&&meta2.name,meta2Notes:meta2&&meta2.notes,
+      shownName2:/EVIA site visit \(final\)/.test(html2),shownNotes2:/signed the PO/.test(html2)};},
+  expect:{'before.files':0,'before.hasUploadBtn':true,uploadKeyScoped:true,filesAfter:1,fileName:'crm/LEAD1/site-visit.mp4',
+    meta1Name:'EVIA site visit',meta1Notes:'Walkthrough with the buyer, Sept 18',shownName1:true,shownNotes1:true,
+    meta2Name:'EVIA site visit (final)',meta2Notes:'Updated: signed the PO on this visit',shownName2:true,shownNotes2:true} },
+{ name:'📚 Sales Documents: a file over 1.5MB (the presentation video case) goes to cloud storage instead of being refused, and shows a ☁ badge; a small file still stays local as before (v20.86)',
+  seed:()=>{localStorage.removeItem('hydroPro_crm_sales_docs_v1');},
+  run:async()=>{
+    const uploadCalls=[];
+    window.__hnxApi=(path,opts)=>{
+      if(/\/r2\/upload/.test(path))uploadCalls.push(path);
+      if(/\/r2\/upload/.test(path))return Promise.resolve({ok:true});
+      if(/\/r2\/delete/.test(path))return Promise.resolve({ok:true});
+      return Promise.resolve({});
+    };
+    window.prompt=(msg)=>/Name this/.test(msg)?'Company Presentation':(/kind of document/.test(msg)?'4':'');
+    const bigFile=new File([new Uint8Array(2*1024*1024)],'presentation.mp4',{type:'video/mp4'});
+    const smallFile=new File(['tiny'],'flyer.pdf',{type:'application/pdf'});
+    /* drive the exact cloud-fallback path hnxSdUpload calls once a file exceeds SD_MAX */
+    window.sdUploadCloud(bigFile,'Company Presentation','Product video');
+    await sleep(300);
+    /* small file still goes through the legacy local FileReader path */
+    const r=new FileReader();
+    const smallDone=new Promise(res=>{r.onload=()=>{
+      const all=JSON.parse(localStorage.getItem('hydroPro_crm_sales_docs_v1')||'[]');
+      all.push({id:'sd_small',name:'Flyer',kind:'Brochure / flyer',file:smallFile.name,type:smallFile.type,size:smallFile.size,data:r.result,by:'tester',at:new Date().toISOString()});
+      localStorage.setItem('hydroPro_crm_sales_docs_v1',JSON.stringify(all));res();
+    };r.readAsDataURL(smallFile);});
+    await smallDone;
+    const all2=JSON.parse(localStorage.getItem('hydroPro_crm_sales_docs_v1')||'[]');
+    const big=all2.find(d=>d.name==='Company Presentation'),small=all2.find(d=>d.name==='Flyer');
+    const html=window.hnxSdLibraryHTML();
+    return {uploaded:uploadCalls.length===1,bigHasCloudKey:!!(big&&big.cloudKey&&/documents\/sales_pack\//.test(big.cloudKey)),bigHasNoData:!(big&&big.data),
+      smallHasData:!!(small&&small.data),smallHasNoCloudKey:!(small&&small.cloudKey),badgeShown:/☁/.test(html)};},
+  expect:{uploaded:true,bigHasCloudKey:true,bigHasNoData:true,smallHasData:true,smallHasNoCloudKey:true,badgeShown:true} },
 ];
