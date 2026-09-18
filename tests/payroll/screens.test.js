@@ -267,4 +267,24 @@ module.exports=[
     const it=reg.find(r=>r.name==='SEC — Certificate of Registration');
     return {saved:!!it,expiry:it&&it.expiry,status:it&&it.status};},
   expect:{saved:true,expiry:'',status:'Active'} },
+{ name:'📜 CEA case: APPROVED is refused with no VERIFIED government check, accepted once one is logged, and the case is stamped with when — plus the linked register item\'s file-by-renewal date shows in the header (v20.83)',
+  seed:()=>{localStorage.removeItem('hydroPro_cea_cases_v1');localStorage.removeItem('hydroPro_cea_gov_v1');localStorage.removeItem('hydroPro_cea_reg_v1');localStorage.removeItem('hydroPro_cea_docs_v1');
+    localStorage.setItem('hydroPro_cea_reg_v1',JSON.stringify([{id:'RG1',name:'FPA Warehouse Registration',company:'APTI',agency:'FPA',expiry:'2026-12-01',leadDays:90,owner:'edelyn'}]));
+    localStorage.setItem('hydroPro_cea_cases_v1',JSON.stringify([{id:'REG-RNW-TEST',kind:'renewal',company:'APTI',title:'FPA Warehouse Registration Renewal',owner:'Edelyn',status:'UNDER_REVIEW',priority:'med',due:'2026-10-01',nextAction:'',waitingOn:'',risk:'orange',riskReason:'',createdAt:1,createdBy:'test',archived:false,history:[],docs:[],tasks:[],approvals:[],gov:[],extra:{regItemId:'RG1'},updatedAt:1}]));},
+  run:async()=>{
+    switchView('cea_regulatory');await sleep(1200);
+    const refused=CEA.advance('REG-RNW-TEST','APPROVED'); /* no VERIFIED check yet — must be refused */
+    const afterRefusal=JSON.parse(localStorage.getItem('hydroPro_cea_cases_v1')||'[]').find(x=>x.id==='REG-RNW-TEST');
+    /* drive it exactly as a user does: log a VERIFIED check, then flip status */
+    const gv=JSON.parse(localStorage.getItem('hydroPro_cea_gov_v1')||'[]');
+    gv.push({id:'GV1',caseId:'REG-RNW-TEST',method:'Email',agency:'FPA',refNo:'FPA-2026-4471',checkedAt:new Date().toISOString(),checkedBy:'tester',
+      rawStatus:'Approved',normStatus:'APPROVED',confidence:'VERIFIED',evidenceDoc:'',nextCheck:'2026-11-01',note:''});
+    localStorage.setItem('hydroPro_cea_gov_v1',JSON.stringify(gv));
+    const accepted=CEA.advance('REG-RNW-TEST','APPROVED');
+    const cases=JSON.parse(localStorage.getItem('hydroPro_cea_cases_v1')||'[]');
+    const c=cases.find(x=>x.id==='REG-RNW-TEST');
+    CEA.openCase('REG-RNW-TEST');await sleep(300);
+    const drawerText=(document.getElementById('ceaDrawer')||{}).textContent||'';
+    return {refused,statusAfterRefusal:afterRefusal&&afterRefusal.status,accepted,status:c&&c.status,stamped:!!(c&&c.approvedAt),applyByShown:/file the renewal by/.test(drawerText)};},
+  expect:{refused:false,statusAfterRefusal:'UNDER_REVIEW',accepted:true,status:'APPROVED',stamped:true,applyByShown:true} },
 ];
