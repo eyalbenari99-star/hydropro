@@ -252,4 +252,19 @@ module.exports=[
     const after=[...v2.querySelectorAll('.hnx-ghm-c[onclick]')].find(el=>(el.getAttribute('onclick')||'').indexOf(key)>=0);
     return {found:true,beforeCls,afterCls:after&&after.className,afterText:after&&(after.textContent||'').trim()};},
   expect:{found:true,beforeCls:'hnx-ghm-c na',afterCls:'hnx-ghm-c hit offsched done',afterText:'✓'} },
+{ name:'📜 CEA Regulatory Register: a license with no expiration date (SEC/BIR Certificate of Registration) can be saved — it no longer requires an expiry (v20.82)',
+  seed:()=>{localStorage.removeItem('hydroPro_cea_reg_v1');},
+  run:async()=>{
+    const form=document.createElement('div');form.style.display='none';
+    form.innerHTML='<input id="ceaRgN"><select id="ceaRgCo"><option>APTI</option></select><select id="ceaRgAg"><option>Other</option></select>'
+      +'<input id="ceaRgLic"><input id="ceaRgIs" type="date"><input id="ceaRgEx" type="date"><input id="ceaRgLd" type="number" value="90"><input id="ceaRgOw" value="tester">';
+    document.body.appendChild(form);
+    document.getElementById('ceaRgN').value='SEC — Certificate of Registration';
+    document.getElementById('ceaRgEx').value=''; /* deliberately blank — the never-expires case */
+    window.ceaRgSaveItem();
+    form.remove();
+    const reg=JSON.parse(localStorage.getItem('hydroPro_cea_reg_v1')||'[]');
+    const it=reg.find(r=>r.name==='SEC — Certificate of Registration');
+    return {saved:!!it,expiry:it&&it.expiry,status:it&&it.status};},
+  expect:{saved:true,expiry:'',status:'Active'} },
 ];
