@@ -287,4 +287,16 @@ module.exports=[
     const drawerText=(document.getElementById('ceaDrawer')||{}).textContent||'';
     return {refused,statusAfterRefusal:afterRefusal&&afterRefusal.status,accepted,status:c&&c.status,stamped:!!(c&&c.approvedAt),applyByShown:/file the renewal by/.test(drawerText)};},
   expect:{refused:false,statusAfterRefusal:'UNDER_REVIEW',accepted:true,status:'APPROVED',stamped:true,applyByShown:true} },
+{ name:'📜 CEA case: 🖊 Request Internal Sign-off never sets the government status, and says so — Edelyn pressed it 3x over 4 days expecting APPROVED, this stops the trap (v20.84)',
+  seed:()=>{localStorage.removeItem('hydroPro_cea_cases_v1');localStorage.removeItem('hydroPro_cea_gov_v1');localStorage.removeItem('hydroPro_cea_appr_v1');localStorage.removeItem('hydroPro_cea_reg_v1');
+    localStorage.setItem('hydroPro_cea_cases_v1',JSON.stringify([{id:'REG-RNW-T2',kind:'renewal',company:'APTI',title:'FPA Warehouse Registration Renewal',owner:'Edelyn',status:'UNDER_REVIEW',priority:'med',due:'2026-10-01',nextAction:'',waitingOn:'',risk:'orange',riskReason:'',createdAt:1,createdBy:'test',archived:false,history:[],docs:[],tasks:[],approvals:[],gov:[],extra:{},updatedAt:1}]));},
+  run:async()=>{
+    switchView('cea_regulatory');await sleep(1200);
+    CEA.openCase('REG-RNW-T2');await sleep(300);
+    const drawerBefore=(document.getElementById('ceaDrawer')||{}).textContent||'';
+    const btn=[...document.querySelectorAll('#ceaDrawer button')].find(b=>/Request Internal Sign-off/.test(b.textContent||''));
+    CEA.reqApproval('REG-RNW-T2','Case approval',0);await sleep(300);
+    const c=JSON.parse(localStorage.getItem('hydroPro_cea_cases_v1')||'[]').find(x=>x.id==='REG-RNW-T2');
+    return {buttonExists:!!btn,statusUnchanged:c&&c.status==='UNDER_REVIEW',hintShownBeforeClick:/Log Government Check above first/.test(drawerBefore),historyMentionsSignOff:c&&c.history.some(h=>/Internal sign-off requested/.test(h.ev))};},
+  expect:{buttonExists:true,statusUnchanged:true,hintShownBeforeClick:true,historyMentionsSignOff:true} },
 ];
