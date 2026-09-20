@@ -415,4 +415,27 @@ module.exports=[
     return {noConsentOn:!!(noConsent&&noConsent.email&&noConsent.email.on),consented,noValueOn:noValue,
       onWithValue:{on:onWithValue.on,value:onWithValue.value},afterClear:{on:afterClear.on,value:afterClear.value}};},
   expect:{noConsentOn:false,consented:true,noValueOn:false,'onWithValue.on':true,'onWithValue.value':'jinky@abapardes.com.ph','afterClear.on':false,'afterClear.value':''} },
+{ name:'🌙 Dashboard: the Night Auditor banner stays silent unconfigured, offers admin a setup link, and shows the real GPS-gap finding once a worker URL answers (v20.90)',
+  run:async()=>{
+    localStorage.removeItem('hydroPro_night_audit_cfg');
+    switchView('dashboard');await sleep(600);
+    const unconfigured=(document.getElementById('dbNightAudit')||{}).innerHTML||'';
+    localStorage.setItem('hydroPro_night_audit_cfg',JSON.stringify({workerUrl:'https://fake-night-audit.example'}));
+    const realFetch=window.fetch;
+    window.fetch=function(url){
+      if(String(url).indexOf('/audit/latest')>=0){
+        return Promise.resolve({json:()=>Promise.resolve({date:'2026-09-16',findings:[
+          {rule:'gps_odo_gap',severity:'danger',entity:'V1',date:'2026-09-16',detail:'GPS +43.9 km (+40.6%) vs odometer'}
+        ]})});
+      }
+      return realFetch(url);
+    };
+    _renderDbNightAudit();await sleep(300);
+    const withFindings=document.getElementById('dbNightAudit').innerHTML;
+    window.fetch=realFetch;
+    localStorage.removeItem('hydroPro_night_audit_cfg');
+    _renderDbNightAudit();
+    return {unconfiguredHasLink:/הגדר את כתובת/.test(unconfigured),
+      findingsShown:/V1/.test(withFindings)&&/40\.6%/.test(withFindings)&&/🔴/.test(withFindings)};},
+  expect:{unconfiguredHasLink:true,findingsShown:true} },
 ];
