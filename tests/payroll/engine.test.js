@@ -46,7 +46,7 @@ module.exports=[
     const sun=L(calcEmployeePayroll(ann,'2026-09-01','2026-09-15','semi_monthly'));
     return {before:before.pending,after:after.pending,afterMemo:after.memoAdd,afterTardy:after.tardy,sun:sun.pending,sunPaid:sun.sun};},
   expect:{'before.late':[1,82.25],'before.memo':[1,500],'after.late':[0,0],'after.memo':[0,0],afterMemo:500,afterTardy:82.25,'sun.sun':[1,910],sunPaid:0} },
-{ name:'today with no report is not an absence; a missing past day is, and is named (v20.64)',
+{ name:'today with no report is not an absence; a missing past day is, and is named (v20.64/v20.89)',
   run:async()=>{const e=labour('ERIC','ERIC');const o=labour('OTH','OTHER');setE([e,o]);const days=daysEnding(today,7);const a={};
     days.slice(0,6).forEach(d=>{a[d]={ERIC:rec('present','07:00','17:00'),OTH:rec('present','07:00','17:00')};});setA(a);
     const A=L(calcEmployeePayroll(e,days[0],days[6],'weekly'));
@@ -56,8 +56,21 @@ module.exports=[
        day needing proof), so the case passed or failed by the day it was run on, not by the rule. */
     const wd=days.slice(0,6).filter(d=>{const w=new Date(d+'T00:00:00').getDay();return w>=1&&w<=5;})[0];
     delete a[wd].ERIC;setA(a);const C=L(calcEmployeePayroll(e,days[0],days[6],'weekly'));
-    return {A:{absU:A.absU,todayWait:A.todayWait,gap:A.gap},B:{absU:B.absU,dates:B.absentDates},C:{absU:C.absU,dates:C.absentDates,gap:C.gap},wd:wd,d6:days[6]};},
-  expect:{'A.absU':0,'A.todayWait':1,'A.gap':0,'B.absU':1,'C.absU':2,'C.gap':0} },
+    /* v20.89: days[6] ("today") is a fixed offset from the real calendar day the suite runs on, so its
+       weekday moves too — the "no report yet" rule lands in a different (still non-absence) bucket on a
+       weekday (⏳ today), a Saturday (unproven) or a Sunday (rest). Same fault class as v20.71/v20.72:
+       the case must ask for the bucket the day it landed on, not hard-code the weekday's answer. */
+    const d6wd=new Date(days[6]+'T00:00:00').getDay();
+    const landed=(d6wd>=1&&d6wd<=5)?A.todayWait:(d6wd===0?A.rest:((A.satNoRec||0)+(A.satNoProof||0)));
+    /* v20.89: B and C both leave ERIC's "today" record missing while OTHER staff DO have one, which only
+       flips today from "waiting" to a real absence on a Mon-Fri day — the Saturday-proof-gate and the
+       Sunday-rest rule each intercept a missing Saturday/Sunday record before the "does anybody's data
+       exist yet" check ever runs, so on those days ERIC's missing "today" is never an absence, whoever
+       else scanned. wdIsAbsence is always true — it is the deliberately-forced Mon-Fri day from v20.71. */
+    const todayFlips=(d6wd>=1&&d6wd<=5)?1:0;
+    return {A:{absU:A.absU,landed:landed,gap:A.gap},B:{absU:B.absU,dates:B.absentDates},C:{absU:C.absU,dates:C.absentDates,gap:C.gap},wd:wd,d6:days[6],
+      checkB:B.absU===todayFlips,checkC:C.absU===(1+todayFlips)};},
+  expect:{'A.absU':0,'A.landed':1,'A.gap':0,'C.gap':0,checkB:true,checkC:true} },
 { name:'day audit raises no false alarm on an office half day or an unworked regular holiday (v20.65)',
   seed:()=>{localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({'2026-08-31':{name:'National Heroes Day',kind:'regular'}}));},
   run:async()=>{const ann=office('ANN','ANN');setE([ann]);const a={};

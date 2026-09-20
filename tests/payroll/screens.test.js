@@ -1,14 +1,25 @@
 /* The screens must say what the engine says. */
 module.exports=[
-{ name:'Attendance Matrix: a late day carries its approval state (v20.58)',
-  seed:()=>{const d=new Date();const t=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+{ name:'Attendance Matrix: a late day carries its approval state (v20.58/v20.89)',
+  /* v20.89 (a real fix, not a rewrite of the rule): the late-approval badge only applies on a weekday —
+     an office Saturday/Sunday shows the weekend "⏳ unsigned" badge instead (v20.65, by design). This test
+     used to stamp the case on whatever day the suite happened to run, so on a Sunday it collided with the
+     weekend badge and failed a sound build. It now always exercises a Mon-Fri day, whatever day it runs.
+     seed() and run() are stringified and evaluated separately in the page, so the weekday-picker is
+     duplicated inline in each rather than shared via an outer const (which the page never sees). */
+  seed:()=>{
+    const d=new Date();if(d.getDay()===0)d.setDate(d.getDate()-2);else if(d.getDay()===6)d.setDate(d.getDate()-1);
+    const t=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'CYR',name:'VIRGO, MARIA CYRIL',status:'Active',salaryCategory:'accounting',dept:'Accounting',payType:'semi',dailyRate:700,dateHired:'2025-01-01'}]));
     const a={};a[t]={CYR:{status:'late',timeIn:'10:30',timeOut:'17:00',lateMinutes:210,source:'fingerprint'}};localStorage.setItem('hydroPro_attendance',JSON.stringify(a));},
-  run:async()=>{const grab=async()=>{document.getElementById('hnxAttMx')&&document.getElementById('hnxAttMx').remove();window.hnxAttMatrix();await sleep(1200);
+  run:async()=>{
+    const d=new Date();if(d.getDay()===0)d.setDate(d.getDate()-2);else if(d.getDay()===6)d.setDate(d.getDate()-1);
+    const t=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const grab=async()=>{document.getElementById('hnxAttMx')&&document.getElementById('hnxAttMx').remove();window.hnxAttMatrix();await sleep(1200);
       const td=[...document.querySelectorAll('#hnxAttMxBody td')].find(t=>/10:30/.test(t.textContent||''));return td?{badge:(td.textContent||'').replace(/[\s\d:]+/g,' ').trim(),border:td.style.border}:'no cell';};
     const waiting=await grab();
-    localStorage.setItem('hydroPro_late_approvals_v1',JSON.stringify({[today+'|CYR']:{decision:'excuse',by:'Eyal',at:Date.now()}}));const excused=await grab();
-    localStorage.setItem('hydroPro_late_approvals_v1',JSON.stringify({[today+'|CYR']:{decision:'deduct',lateMinutes:210,by:'Dr Amy',at:Date.now()}}));const deduct=await grab();
+    localStorage.setItem('hydroPro_late_approvals_v1',JSON.stringify({[t+'|CYR']:{decision:'excuse',by:'Eyal',at:Date.now()}}));const excused=await grab();
+    localStorage.setItem('hydroPro_late_approvals_v1',JSON.stringify({[t+'|CYR']:{decision:'deduct',lateMinutes:210,by:'Dr Amy',at:Date.now()}}));const deduct=await grab();
     document.getElementById('hnxAttMx')&&document.getElementById('hnxAttMx').remove();return {waiting,excused,deduct};},
   expect:{'waiting.badge':'⏳ waiting','waiting.border':'1px dashed rgb(255, 202, 40)','excused.badge':'✓ excused','excused.border':'1px solid rgb(102, 187, 106)','deduct.badge':'➖ deduct','deduct.border':'1px solid rgb(239, 83, 80)'} },
 { name:'Attendance Matrix: half day, imported office absent, and pre-hire days agree with the engine (v20.65)',
@@ -367,4 +378,23 @@ module.exports=[
     return {uploaded:uploadCalls.length===1,bigHasCloudKey:!!(big&&big.cloudKey&&/documents\/sales_pack\//.test(big.cloudKey)),bigHasNoData:!(big&&big.data),
       smallHasData:!!(small&&small.data),smallHasNoCloudKey:!(small&&small.cloudKey),badgeShown:/☁/.test(html)};},
   expect:{uploaded:true,bigHasCloudKey:true,bigHasNoData:true,smallHasData:true,smallHasNoCloudKey:true,badgeShown:true} },
+{ name:'📍 GPS Daily Report: _gpsOdoGap flags the real Sept-16 case (108 odo vs 151.90 GPS, +40.6%) as danger, and a normal row (188 vs 210.40, +11.9%) as ok (v20.88)',
+  run:async()=>{
+    const real=window._gpsOdoGap(108,151.90);
+    const normal=window._gpsOdoGap(188,210.40);
+    const watch=window._gpsOdoGap(100,118); /* +18% — amber band */
+    const noOdo=window._gpsOdoGap(null,80);
+    return {real,normal,watch,noOdo};},
+  expect:{'real.gapKm':43.9,'real.gapPct':40.6,'real.flag':'danger','normal.gapKm':22.4,'normal.gapPct':11.9,'normal.flag':'ok','watch.flag':'warn',noOdo:null} },
+{ name:'📍 GPS Daily Report: the on-screen "GPS vs Odometer" tile shows the flagged gap for a real vehicle/day (v20.88)',
+  seed:()=>{localStorage.setItem('hydroPro_fleet_vehicles',JSON.stringify([{id:'V1',name:'ISUZU TRAVIZ',plate:'NEQ 4101'}]));
+    localStorage.setItem('hydroPro_gps_reports',JSON.stringify({'2026-09-16::V1':{vehicleId:'V1',date:'2026-09-16',odoOut:119740,odoIn:119848,kmMode:'odometer',
+      stops:[{location:'Base',timeIn:'16:01',timeOut:'16:01',km:119740},{location:'Drop',timeIn:'16:23',timeOut:'16:23',km:119891.90}],
+      fillUpLiters:null,perLiter:null,dashCam:'WORKING',generalNote:''}}));},
+  run:async()=>{
+    switchView('fleet_gps');await sleep(300);
+    hnxGpsSel('2026-09-16','V1');await sleep(300);
+    const el=document.getElementById('gpsOdoGap');
+    return {text:el&&el.textContent.trim(),color:el&&el.style.color,warned:/too big to be normal GPS drift/.test(document.getElementById('view-fleet_gps').innerHTML)};},
+  expect:{text:'+43.90 km (+40.6%)',warned:true} },
 ];
