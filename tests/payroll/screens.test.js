@@ -397,4 +397,22 @@ module.exports=[
     const el=document.getElementById('gpsOdoGap');
     return {text:el&&el.textContent.trim(),color:el&&el.style.color,warned:/too big to be normal GPS drift/.test(document.getElementById('view-fleet_gps').innerHTML)};},
   expect:{text:'+43.90 km (+40.6%)',warned:true} },
+{ name:'📡 Admin → Users → ערוצי תקשורת: a channel cannot be switched on without consent, needs a value, and clearing the value auto-disables it (v20.89)',
+  seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true},{username:'jinky',fullname:'JINKY',passwordHash:'x',role:'accounting',active:true}]));},
+  run:async()=>{
+    const users0=()=>JSON.parse(localStorage.getItem('hydroPro_users'));
+    window._toggleUserChannel('jinky','email',true); /* no consent yet — must be refused */
+    const noConsent=users0().find(u=>u.username==='jinky').channels;
+    window._toggleUserChannelConsent('jinky',true);
+    const consented=users0().find(u=>u.username==='jinky').channels.consent.signed;
+    window._toggleUserChannel('jinky','email',true); /* consented but no value — must still be refused */
+    const noValue=users0().find(u=>u.username==='jinky').channels.email.on;
+    window._setUserChannelValue('jinky','email','jinky@abapardes.com.ph');
+    window._toggleUserChannel('jinky','email',true); /* consented + value — must succeed */
+    const onWithValue=users0().find(u=>u.username==='jinky').channels.email;
+    window._setUserChannelValue('jinky','email',''); /* clearing the value must auto-disable */
+    const afterClear=users0().find(u=>u.username==='jinky').channels.email;
+    return {noConsentOn:!!(noConsent&&noConsent.email&&noConsent.email.on),consented,noValueOn:noValue,
+      onWithValue:{on:onWithValue.on,value:onWithValue.value},afterClear:{on:afterClear.on,value:afterClear.value}};},
+  expect:{noConsentOn:false,consented:true,noValueOn:false,'onWithValue.on':true,'onWithValue.value':'jinky@abapardes.com.ph','afterClear.on':false,'afterClear.value':''} },
 ];
