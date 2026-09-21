@@ -22,9 +22,18 @@
  *                  answers come back fast; raise it for harder reasoning)
  *
  * ROUTES
- *   GET  /ai/health → { ok, configured, model }            (no auth)
- *   POST /ai/ask    → { answer } | { error }               (Bearer AI_TOKEN)
+ *   GET  /ai/health  → { ok, configured, model }            (no auth)
+ *   POST /ai/ask     → { answer } | { error }               (Bearer AI_TOKEN)
  *        body: { q, context?, history?: [{role,text}] }
+ *   POST /ai/analyze → { analysis:{severity,monitoring,conclusion,recommendation,pastExperience} } | { error }
+ *        (Bearer AI_TOKEN) — the app-wide "analyse this and recommend action" convention used by
+ *        ~30 call sites across index.html (Inventory Diagnostics, module drill-downs, etc.).
+ *        body: { context: { module, summary, question, images？:[{mediaType,data}] } }
+ *        images (v20.93, optional): up to 3 photos, each { mediaType:'image/jpeg'|'image/png'|
+ *        'image/webp', data: base64 (≤ 6 MB decoded) } — lets a "report a problem" photo upload
+ *        (a Maintenance call attachment, an IT checklist Fail photo) get a real vision read: what's
+ *        wrong in the photo and what to do about it, in the same severity/recommendation shape every
+ *        other AI panel in the app already renders.
  *
  * COST CONTROL: answers are capped and the app only calls this worker for
  * questions its own on-device brain could not answer.
@@ -111,6 +120,67 @@ export default {
       if (!m2) return json({ error: 'the model returned no figures' }, 502);
       try { const parsed = JSON.parse(m2[0]); return json({ year: parsed.year || '', figures: parsed.figures || {} }); }
       catch (e) { return json({ error: 'unreadable figures from the model' }, 502); }
+    }
+
+    /* v20.93 · POST /ai/analyze — the app-wide "analyse this, tell me what to do" convention.
+       Accepts an optional images[] for vision (a photo of a broken part, a bad root system, a leak)
+       alongside the usual text context, and always answers in the same fixed shape every other
+       /ai/analyze panel in the app already knows how to render. */
+    if (url.pathname === '/ai/analyze' && req.method === 'POST') {
+      const authA = req.headers.get('Authorization') || '';
+      if (!env.AI_TOKEN || authA !== 'Bearer ' + env.AI_TOKEN) return json({ error: 'unauthorized' }, 401);
+      if (!env.ANTHROPIC_API_KEY) return json({ error: 'worker not configured — set the ANTHROPIC_API_KEY secret' }, 503);
+
+      const bodyA = await req.json().catch(() => ({}));
+      const ctx = (bodyA && bodyA.context) || {};
+      const module = String(ctx.module || '').slice(0, 200);
+      const question = String(ctx.question || '').slice(0, 2000);
+      let summaryTxt = '';
+      try { summaryTxt = JSON.stringify(ctx.summary != null ? ctx.summary : {}).slice(0, 12000); } catch (e) { summaryTxt = String(ctx.summary || '').slice(0, 12000); }
+
+      const ALLOWED_IMG_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+      const images = (Array.isArray(ctx.images) ? ctx.images : []).slice(0, 3).filter((im) => {
+        return im && ALLOWED_IMG_TYPES.includes(im.mediaType) && typeof im.data === 'string' && im.data.length > 0 && im.data.length <= 8_000_000;
+      });
+      if (Array.isArray(ctx.images) && ctx.images.length && !images.length)
+        return json({ error: 'images[] present but none were usable (need mediaType image/jpeg|png|webp|gif and data ≤ 6 MB decoded)' }, 400);
+      if (!question && !images.length) return json({ error: 'need context.question or context.images' }, 400);
+
+      const content = [];
+      images.forEach((im) => content.push({ type: 'image', source: { type: 'base64', media_type: im.mediaType, data: im.data } }));
+      content.push({ type: 'text', text: (module ? 'Module: ' + module + '\n' : '') + (summaryTxt && summaryTxt !== '{}' ? 'Data:\n' + summaryTxt + '\n' : '') + (question || 'Look at the attached photo(s) and say what is wrong and what to do about it.') });
+
+      let rA;
+      try {
+        rA = await fetch(API, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': env.ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+            'anthropic-beta': 'server-side-fallback-2026-07-01',
+          },
+          body: JSON.stringify({
+            model: env.AI_MODEL || DEFAULT_MODEL,
+            max_tokens: 1500,
+            output_config: { effort: env.AI_EFFORT || 'low' },
+            fallbacks: 'default',
+            system: PERSONA + '\n\nRespond with ONE JSON object, no prose outside it: {"severity":"ok"|"watch"|"warn"|"critical","monitoring":"...","conclusion":"...","recommendation":"...","pastExperience":"..."}. "monitoring" names what you actually see/read. "conclusion" is your read of what is going on. "recommendation" is the concrete next action for farm/maintenance staff — specific, not generic. "pastExperience" may be empty ("") if you have nothing relevant to add. Never invent data not shown to you.',
+            messages: [{ role: 'user', content }],
+          }),
+        });
+      } catch (e) {
+        return json({ error: 'could not reach the model: ' + String(e) }, 502);
+      }
+      const dA = await rA.json().catch(() => ({}));
+      if (!rA.ok) return json({ error: (dA && dA.error && dA.error.message) || 'model error ' + rA.status }, 502);
+      if (dA.stop_reason === 'refusal') return json({ error: 'The model declined to analyse this one.' }, 200);
+      const txtA = (Array.isArray(dA.content) ? dA.content : []).filter((b) => b && b.type === 'text').map((b) => b.text).join('');
+      const mA = txtA.match(/\{[\s\S]*\}/);
+      let analysis = null;
+      if (mA) { try { analysis = JSON.parse(mA[0]); } catch (e) { analysis = null; } }
+      if (!analysis) return json({ error: 'the model returned no analysis' }, 502);
+      return json({ analysis, ts: Date.now(), model: dA.model || '' });
     }
 
     if (url.pathname !== '/ai/ask' || req.method !== 'POST')

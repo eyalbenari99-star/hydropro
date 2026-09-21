@@ -438,4 +438,56 @@ module.exports=[
     return {unconfiguredHasLink:/הגדר את כתובת/.test(unconfigured),
       findingsShown:/V1/.test(withFindings)&&/40\.6%/.test(withFindings)&&/🔴/.test(withFindings)};},
   expect:{unconfiguredHasLink:true,findingsShown:true} },
+{ name:'🤖 Maintenance call: "Analyze" on a photo attachment calls /ai/analyze with the image, renders severity+recommendation, and the result is saved onto the submitted call (v20.93)',
+  run:async()=>{
+    document.getElementById('callAttachAiHost')&&document.getElementById('callAttachAiHost').remove();
+    const host=document.createElement('div');host.id='callAttachAiHost';
+    host.innerHTML='<div id="callAttachList"></div>';document.body.appendChild(host);
+    _callDraft.attachments=[{name:'crack.jpg',type:'image/jpeg',size:12345,dataUrl:'data:image/jpeg;base64,AAAA'}];
+    _callDraft.aiAnalysis=null;
+    _renderAttachmentList();
+    const hasBtn=/🤖 Analyze/.test(document.getElementById('callAttachList').innerHTML);
+    const realApi=window.__hnxApi;
+    let sentBody=null;
+    window.__hnxApi=function(path,opts){
+      if(path==='/ai/analyze'){sentBody=JSON.parse(opts.body);
+        return Promise.resolve({analysis:{severity:'warn',monitoring:'Cracked pipe fitting visible',conclusion:'Fitting has failed and is leaking',recommendation:'Replace the fitting today, shut the line first'}});}
+      return Promise.resolve({});
+    };
+    hnxAnalyzeCallPhoto(0);
+    await sleep(300);
+    const panelHtml=document.getElementById('callAttachAiPanel').innerHTML;
+    window.__hnxApi=realApi;
+    const savedOnCall=(_callDraft.aiAnalysis&&_callDraft.aiAnalysis.recommendation)||null;
+    host.remove();
+    return {hasBtn,imageSent:!!(sentBody&&sentBody.context&&sentBody.context.images&&sentBody.context.images[0]&&sentBody.context.images[0].data==='AAAA'),
+      panelShowsRecommendation:/Replace the fitting today/.test(panelHtml),panelShowsSeverity:/WARN/.test(panelHtml),savedOnCall};},
+  expect:{hasBtn:true,imageSent:true,panelShowsRecommendation:true,panelShowsSeverity:true,savedOnCall:'Replace the fitting today, shut the line first'} },
+{ name:'🤖 Pool Monitor: "AI Trend Analysis" reads the last 5 days of EC/pH for the picked pool and renders the recommendation (v20.93)',
+  seed:()=>{
+    /* v20.93: _irrDate defaults to the REAL today (index.html:38053), and the trend window is the
+       5 days ending there — so the fixture must end at real today too, not a hardcoded literal date,
+       or it silently misses a day whenever the suite runs on a different date than it was written on
+       (the same fault class fixed in v20.71/v20.72/v20.89). */
+    const ymd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const days=[];for(let i=4;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);days.push(ymd(d));}
+    const data={};days.forEach((d,i)=>{data[d]={P01:{'08:00':{EC:String(1.9+i*0.08),pH:'6.0',manualEC:'',manualPH:''}}};});
+    localStorage.setItem('hydroPro_irr_pool',JSON.stringify(data));},
+  run:async()=>{
+    switchView('irr_nutrients');await sleep(1000);
+    const sel=document.getElementById('irrAiPoolSel');if(sel)sel.value='P01';
+    const realApi=window.__hnxApi;
+    let sentSummary=null;
+    window.__hnxApi=function(path,opts){
+      if(path==='/ai/analyze'){sentSummary=JSON.parse(opts.body).context.summary;
+        return Promise.resolve({analysis:{severity:'watch',monitoring:'EC has risen from 1.90 to 2.22 over 5 days',conclusion:'Steady upward drift, not yet critical',recommendation:'Reduce A/B dose slightly tomorrow and recheck'}});}
+      return Promise.resolve({});
+    };
+    hnxAnalyzePoolTrend('P01');
+    await sleep(300);
+    const panelHtml=document.getElementById('irrAiTrendPanel').innerHTML;
+    window.__hnxApi=realApi;
+    return {readingsSent:!!(sentSummary&&sentSummary.readings&&sentSummary.readings.length===5),
+      panelShowsTrend:/risen from 1\.90 to 2\.22/.test(panelHtml),panelShowsRecommendation:/Reduce A\/B dose/.test(panelHtml)};},
+  expect:{readingsSent:true,panelShowsTrend:true,panelShowsRecommendation:true} },
 ];
