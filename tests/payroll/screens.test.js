@@ -490,4 +490,15 @@ module.exports=[
     return {readingsSent:!!(sentSummary&&sentSummary.readings&&sentSummary.readings.length===5),
       panelShowsTrend:/risen from 1\.90 to 2\.22/.test(panelHtml),panelShowsRecommendation:/Reduce A\/B dose/.test(panelHtml)};},
   expect:{readingsSent:true,panelShowsTrend:true,panelShowsRecommendation:true} },
+{ name:'📜 CEA renewal card: a CLOSED case shows a quiet ✓ date, never the red days-left countdown (Edelyn, v20.94)',
+  run:async()=>{
+    const soon=new Date();soon.setDate(soon.getDate()+10);
+    const dueStr=soon.getFullYear()+'-'+String(soon.getMonth()+1).padStart(2,'0')+'-'+String(soon.getDate()).padStart(2,'0');
+    const closedCase={id:'REG-RNW-TEST94',title:'FPA Warehouse Registration Renewal',company:'APTI',owner:'Edelyn',status:'CLOSED',due:dueStr,risk:'',riskReason:'',nextAction:'',history:[],docs:[]};
+    const openCase=Object.assign({},closedCase,{id:'REG-RNW-TEST94B',status:'UNDER_REVIEW'});
+    const closedHtml=window.ceaRgRenewalCard(closedCase,0);
+    const openHtml=window.ceaRgRenewalCard(openCase,0);
+    return {closedHasCheck:/✓ /.test(closedHtml),closedHasCountdown:/\d+d → /.test(closedHtml),
+      openHasCountdown:/\d+d → /.test(openHtml),openHasCheck:/✓ /.test(openHtml)};},
+  expect:{closedHasCheck:true,closedHasCountdown:false,openHasCountdown:true,openHasCheck:false} },
 ];
