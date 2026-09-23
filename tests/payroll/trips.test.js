@@ -145,4 +145,22 @@ module.exports=[
     const tl=JSON.parse(localStorage.getItem(LK))[0];
     return {n,d:tl.pricedD,h:tl.pricedH};},
   expect:{n:1,d:500,h:200} },
+{ name:'🚚 Re-price skips a day inside an APPROVED payroll run (stays D ₱1,000), the orange "priced at an OLD rate" button shows, and a ⭐ special row cannot be ticked ×2 (v20.96)',
+  run:async()=>{const RK='hydroPro_trip_rates_v1',LK='hydroPro_trip_log_v1';
+    switchView('pay_trips');await sleep(2200);
+    const r=JSON.parse(localStorage.getItem(RK)||'{}');
+    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=250;a.h2=100;a.dbl=true;}});
+    r.live=JSON.parse(JSON.stringify(r.draft));r.draftDirty=false;localStorage.setItem(RK,JSON.stringify(r));
+    localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:'R1',status:'approved',periodStart:today,periodEnd:today}]));
+    localStorage.setItem(LK,JSON.stringify([{id:'c3',date:today,driverId:'D1',helperId:'H1',truck:'V1',trips:['alabang','clark'],status:'approved',pricedD:1000,pricedH:400}]));
+    hnxTripTab('rates');await sleep(800);
+    const btn=!!document.querySelector('.hnxStaleBtn');
+    const oc=window.confirm,oa=window.alert;window.confirm=()=>true;window.alert=()=>{};
+    const n=window.hnxTripRepriceApproved(false);window.confirm=oc;window.alert=oa;
+    const tl=JSON.parse(localStorage.getItem(LK))[0];
+    const i=r.draft.areas.findIndex(a=>a.id==='alabang');
+    hnxTripRateEdit(i,'special',true);hnxTripRateEdit(i,'dbl',true);
+    const sp=JSON.parse(localStorage.getItem(RK)).draft.areas[i];
+    return {btn,n,paidStale:window.__hnxTripPaidStale,d:tl.pricedD,spDbl:!!sp.dbl};},
+  expect:{btn:true,n:0,paidStale:1,d:1000,spDbl:false} },
 ];
