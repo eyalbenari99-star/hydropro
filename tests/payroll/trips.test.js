@@ -121,4 +121,16 @@ module.exports=[
             newZoneAfter:after.some(x=>/BULACAN RUN/.test(x)),
             numbered:before.filter(x=>/trip$/.test(x)).length>=4};},
   expect:{hasOtherBefore:true,newZoneBefore:false,newZoneAfter:true,numbered:true} },
+{ name:'🚚 Rate Table: Clark typed 500/200 with ×2 shows "pays D ₱1,000 / H ₱400" on the row, and 2 "_prior" earlier-run legs do NOT raise the "paid ₱0 — not in the APPROVED table" banner (v20.95)',
+  run:async()=>{const RK='hydroPro_trip_rates_v1',LK='hydroPro_trip_log_v1';
+    switchView('pay_trips');await sleep(2200);
+    const r=JSON.parse(localStorage.getItem(RK)||'{}');
+    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=500;a.h2=200;a.dbl=true;}});
+    r.live=JSON.parse(JSON.stringify(r.draft));r.draftDirty=false;localStorage.setItem(RK,JSON.stringify(r));
+    localStorage.setItem(LK,JSON.stringify([{id:'c1',date:today,driverId:'D1',helperId:'H1',truck:'V1',trips:['_prior','_prior','clark'],status:'approved'}]));
+    hnxTripTab('rates');await sleep(800);
+    const html=document.getElementById('view-pay_trips').innerHTML;
+    const row=[...document.querySelectorAll('.hnxRatePays')].map(x=>x.textContent).join(' | ');
+    return {hintShown:/D ₱1,000 \/ H ₱400/.test(row),priorBanner:/_prior/.test(html),zeroBanner:/paid ₱0\./.test(html)};},
+  expect:{hintShown:true,priorBanner:false,zeroBanner:false} },
 ];
