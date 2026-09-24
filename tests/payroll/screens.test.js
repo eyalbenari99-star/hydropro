@@ -501,4 +501,14 @@ module.exports=[
     return {closedHasCheck:/✓ /.test(closedHtml),closedHasCountdown:/\d+d → /.test(closedHtml),
       openHasCountdown:/\d+d → /.test(openHtml),openHasCheck:/✓ /.test(openHtml)};},
   expect:{closedHasCheck:true,closedHasCountdown:false,openHasCountdown:true,openHasCheck:false} },
+{ name:'📒 QB journal counts APPROVED runs only: approved line gross ₱3,200 + a DRAFT run gross ₱10,000 in the same month → journal totals ₱3,512.50 debit = credit, the draft is not added (v20.97)',
+  seed:()=>{localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([
+    {id:'ops_2026-09-10_2026-09-16',type:'weekly',periodStart:'2026-09-10',periodEnd:'2026-09-16',status:'approved',approvedAt:1,approvedBy:'eyal',totals:{},
+     lines:[{empId:'F1',name:'FLOORED, ONE',dailyRate:658,daysWorked:5,basicPay:3200,grossPay:3200,grossEarnings:3200,sss:900,phic:800,hdmf:800,totalGovDed:2500,withholdingTax:1012.5,taxCompanyPaid:false,netPay:0,netShortfall:312.50,memoAdd:0,memoDed:0}]},
+    {id:'ops_2026-09-17_2026-09-23',type:'weekly',periodStart:'2026-09-17',periodEnd:'2026-09-23',status:'draft',totals:{},
+     lines:[{empId:'D9',name:'DRAFT, ONLY',dailyRate:2000,daysWorked:5,basicPay:10000,grossPay:10000,grossEarnings:10000,sss:0,phic:0,hdmf:0,totalGovDed:0,withholdingTax:0,netPay:10000,memoAdd:0,memoDed:0}]}]));},
+  run:async()=>{const html=window._hnxPayJeHtml('2026-09');
+    const nums=(html.match(/₱[\d,]+\.\d{2}/g)||[]).map(s=>parseFloat(s.replace(/[₱,]/g,'')));
+    const tot=nums.slice(-2);return {td:tot[0],tc:tot[1],draftNamed:/DRAFT, ONLY/.test(html)};},
+  expect:{td:3512.5,tc:3512.5,draftNamed:false} },
 ];
