@@ -142,4 +142,20 @@ module.exports=[
     const after=window.hnxArNewAssetPlan(a.ref,'2026-09-24').no;
     return {before,after};},
   expect:{before:'1025-003-002-007',after:'1025-003-002-008'} },
+{ name:'six-day office card ₱16,000, 11–25 Aug 2026: an unworked REGULAR holiday on Sat 15 Aug adds 0 allowance days (Mon–Fri divisor) — the portion is the same with or without it (was +1 day, over by 1/11) (v21.00)',
+  run:async()=>{
+    const o=office('O6','SIX DAY',{monthlyBasic:16000,sixDayWeek:true});setE([o]);
+    setA({'2026-08-17':{O6:rec('absent','','','manual',{editedBy:'jinky'})}});
+    const H=JSON.parse(localStorage.getItem('hydroPro_ph_holidays')||'{}');delete H['2026-08-15'];localStorage.setItem('hydroPro_ph_holidays',JSON.stringify(H));
+    const a=calcEmployeePayroll(o,'2026-08-11','2026-08-25','semi_monthly');
+    H['2026-08-15']={name:'Test Holiday',kind:'regular'};localStorage.setItem('hydroPro_ph_holidays',JSON.stringify(H));
+    const b=calcEmployeePayroll(o,'2026-08-11','2026-08-25','semi_monthly');
+    return {same:a.regDaysPaid===b.regDaysPaid,below:b.regDaysPaid<b.regDaysTotal};},
+  expect:{same:true,below:true} },
+{ name:'QB payroll reconciliation counts APPROVED runs only: approved ₱3,200 + a DRAFT ₱10,000 in September → monthRuns9 sees 1 run (v21.00)',
+  seed:()=>{localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([
+    {id:'ops_2026-09-10_2026-09-16',type:'weekly',periodStart:'2026-09-10',periodEnd:'2026-09-16',status:'approved',approvedAt:1,lines:[{empId:'A',grossPay:3200,netPay:3200}]},
+    {id:'ops_2026-09-17_2026-09-23',type:'weekly',periodStart:'2026-09-17',periodEnd:'2026-09-23',status:'draft',lines:[{empId:'B',grossPay:10000,netPay:10000}]}]));},
+  run:async()=>{const i=document.documentElement.innerHTML.length;return {src:/monthRuns9\(\)\{return runs\(\)\.filter\(function\(r\)\{return r&&r\.lines&&[^}]*r\.status==='approved'/.test([...document.scripts].map(s=>s.text).join('\n'))};},
+  expect:{src:true} },
 ];
