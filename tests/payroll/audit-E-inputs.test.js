@@ -217,7 +217,7 @@ module.exports=[
     return {clarkBig:clark.some(x=>/CLARK/i.test(x)&&/₱500 → ₱1000/.test(x)&&/₱200 → ₱400/.test(x)),alabBig:alab.some(x=>/ALABANG/i.test(x)&&/1st trip: driver ₱0 → ₱1700/.test(x)),alabOnly:alab.length};},
   expect:{clarkBig:true,alabBig:true,alabOnly:1} },
 
-{ name:'🚚 trip re-price: a Clark day on Thu 10 Sep inside the APPROVED office cut-off 26 Aug–10 Sep but in the DRAFT labour week re-prices D ₱1,000 → ₱500; the same day inside an approved WEEKLY run that holds the driver stays ₱1,000 (rates-master-other-11)',
+{ name:'🚚 trip re-price: a Clark day on Thu 10 Sep inside the APPROVED office cut-off 26 Aug–10 Sep but in the DRAFT labour week re-prices D ₱1,000 → ₱500; the same day inside an approved WEEKLY run that holds only the driver: driver stays ₱1,000, the helper (not on that run) still re-prices ₱400 → ₱200 (rates-master-other-11 · v20.97 per-role)',
   seed:()=>{localStorage.setItem('hydroPro_fleet_drivers',JSON.stringify([{id:'D1',name:'Dante',active:true}]));localStorage.setItem('hydroPro_fleet_helpers',JSON.stringify([{id:'H1',name:'Nico',active:true}]));},
   run:async()=>{const RK='hydroPro_trip_rates_v1',LK='hydroPro_trip_log_v1';
     switchView('pay_trips');await sleep(2200);
@@ -232,10 +232,10 @@ module.exports=[
     const drv=(window.hnxTripEmp&&window.hnxTripEmp('D1'))||{id:'D1'};
     localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:'ops_2026-09-10_2026-09-16',type:'weekly',status:'approved',periodStart:'2026-09-10',periodEnd:'2026-09-16',lines:[{empId:drv.id||'D1'}]}]));
     localStorage.setItem(LK,JSON.stringify(day()));
-    const nWeekly=hnxTripRepriceApproved(false);const dWeekly=JSON.parse(localStorage.getItem(LK))[0].pricedD;
+    const nWeekly=hnxTripRepriceApproved(false);const _w=JSON.parse(localStorage.getItem(LK))[0];const dWeekly=_w.pricedD,hWeekly=_w.pricedH;
     window.confirm=oc;window.alert=oa;
-    return {nOffice,dOffice,nWeekly,dWeekly,paidStale:window.__hnxTripPaidStale};},
-  expect:{nOffice:1,dOffice:500,nWeekly:0,dWeekly:1000,paidStale:1} },
+    return {nOffice,dOffice,nWeekly,dWeekly,hWeekly,paidStale:window.__hnxTripPaidStale};},
+  expect:{nOffice:1,dOffice:500,nWeekly:1,dWeekly:1000,hWeekly:200,paidStale:1} },
 
 { name:'🚚 the trip log row and the Trip doctor show the ₱1,000.00 an approved Clark day is actually paid (frozen), with "table now ₱500.00" (rates-master-other-16)',
   seed:()=>{localStorage.setItem('hydroPro_fleet_drivers',JSON.stringify([{id:'D1',name:'Dante',active:true}]));localStorage.setItem('hydroPro_fleet_helpers',JSON.stringify([{id:'H1',name:'Nico',active:true}]));},
