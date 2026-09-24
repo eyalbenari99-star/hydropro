@@ -210,4 +210,87 @@ module.exports=[
     const row=nm=>{const m=new RegExp(nm+'[^<]*(?:<small>[^<]*</small>)?</td><td>([^<]*)</td><td>([^<]*)</td>').exec(html);return m?[m[1],m[2]].map(x=>+String(x).replace(/[^0-9.]/g,'')):null;};
     return {contractual:row('CONTRACTUAL, JO'),regular:row('REGULAR, BEN'),consultant:row('CONSULTANT, ED'),manager:row('MANAGER, AMY'),note:/Includes 1 Contractual/.test(html)};},
   expect:{contractual:[3948,329],regular:[3948,329],consultant:null,manager:null,note:true} },
+/* ---- round 2 (review) ---- */
+{ name:"round 2: Date Hired blank, NGTeco absent-fill rows 12-14 Aug (before the cut-off) + 27-28 Aug, first scan Thu 3 Sep: already on the roster — office ₱16,000/month pays 11 days ₱8,000.00 (was implied start 3 Sep, 6 days ₱4,363.64); management keeps the whole cut-off, 12 Mon-Fri days ₱8,000.00; with absent-fill ONLY inside the cut-off the scan is still the start (6 days ₱4,363.64)",
+  seed:()=>{localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({'2026-08-31':{name:'National Heroes Day',kind:'regular'}}));},
+  run:async()=>{const o=office('AF','ABSENT FILL',{monthlyBasic:16000,dailyRate:undefined,dateHired:'',hireDate:''});
+    const m=office('MG','MANAGER FILL',{salaryCategory:'management',dept:'OPERATIONS',monthlyBasic:16000,dailyRate:undefined,dateHired:'',hireDate:''});setE([o,m]);
+    const fill=()=>({status:'absent',timeIn:'',timeOut:'',lateMinutes:0,source:'timecard-bridge'});
+    const A={};['2026-08-12','2026-08-13','2026-08-14','2026-08-27','2026-08-28'].forEach(d=>{A[d]={AF:fill(),MG:fill()};});
+    A['2026-09-03']={AF:rec('present','07:00','17:30'),MG:rec('present','07:00','17:30')};setA(A);
+    const lo=calcEmployeePayroll(o,'2026-08-26','2026-09-10','semi_monthly'),lm=calcEmployeePayroll(m,'2026-08-26','2026-09-10','semi_monthly');
+    delete A['2026-08-12'];delete A['2026-08-13'];delete A['2026-08-14'];setA(A);
+    const inside=calcEmployeePayroll(o,'2026-08-26','2026-09-10','semi_monthly');
+    return {oImplied:lo.impliedStart,oDays:lo.daysWorked,oBasic:lo.basicPay,mImplied:lm.impliedStart,mDays:lm.daysWorked,mBasic:lm.basicPay,
+      inImplied:inside.impliedStart,inDays:inside.daysWorked,inBasic:inside.basicPay};},
+  expect:{oImplied:'',oDays:11,oBasic:8000,mImplied:'',mDays:12,mBasic:8000,inImplied:'2026-09-03',inDays:6,inBasic:4363.64} },
+
+{ name:"round 2: Reconcile ✓ Accept All never re-decides a signed late — signed deduct 300 min, Time In corrected to 07:30: stays 'deduct', tardy ₱41.13 (was turned into an excuse, ₱0.00); an undecided late the same day is excused (₱0.00)",
+  seed:()=>{localStorage.setItem('hydroPro_employees',JSON.stringify([
+      {id:'T1',name:'TEST LATE',status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',employmentType:'Regular',dailyRate:658,dateHired:'2025-01-01'},
+      {id:'U1',name:'UNDECIDED LATE',status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',employmentType:'Regular',dailyRate:658,dateHired:'2025-01-01'}]));
+    const a={};a['2026-09-15']={T1:{status:'late',timeIn:'07:30',timeOut:'17:00',lateMinutes:30,source:'fingerprint',editedBy:'hr'},
+                                 U1:{status:'late',timeIn:'08:00',timeOut:'17:00',lateMinutes:60,source:'fingerprint'}};
+    localStorage.setItem('hydroPro_attendance',JSON.stringify(a));},
+  run:async()=>{localStorage.setItem('hydroPro_late_approvals_v1',JSON.stringify({'2026-09-15|T1':{date:'2026-09-15',empId:'T1',decision:'deduct',lateMinutes:300,by:'Eyal',at:Date.now()}}));
+    try{loadEmployees();}catch(e){}
+    const E=JSON.parse(localStorage.getItem('hydroPro_employees'));
+    const direct=window.hnxLateDecideDirect('2026-09-15','T1','excuse','Reconcile: test');
+    recCurrentDate='2026-09-15';recApproveAll();await sleep(400);
+    const st=JSON.parse(localStorage.getItem('hydroPro_late_approvals_v1')||'{}');
+    const t=calcEmployeePayroll(E[0],'2026-09-15','2026-09-15','weekly'),u=calcEmployeePayroll(E[1],'2026-09-15','2026-09-15','weekly');
+    return {direct,t1:(st['2026-09-15|T1']||{}).decision,t1Mins:(st['2026-09-15|T1']||{}).lateMinutes,u1:(st['2026-09-15|U1']||{}).decision,tardyT:t.tardyDeduction,reDecide:t.lateReDecide,tardyU:u.tardyDeduction};},
+  expect:{direct:'redecide',t1:'deduct',t1Mins:300,u1:'excuse',tardyT:41.13,reDecide:1,tardyU:0} },
+
+{ name:"round 2: ½ Half day, Time Out set to 17:00, then the Lunch Shift button rebuilds the editor — the box stays unticked and Save pays the full day: 6 days ₱3,948 (was re-ticked, 5.5 days ₱3,619); a re-ticked box with Time Out 17:00 still pays in full; box kept ticked with Time Out 12:00 stays ½ (₱3,619)",
+  run:async()=>{const e=labour('HD','HALF DAY');setE([e]);const a={};
+    a['2026-09-08']={HD:rec('present','07:00','17:00')};
+    ['2026-09-10','2026-09-11','2026-09-12','2026-09-14','2026-09-16'].forEach(d=>{a[d]={HD:rec('present','07:00','17:00')};});
+    const half=()=>rec('present','07:00','12:00','fingerprint',{dayFraction:0.5,reason:' [Half day — no afternoon scan]'});
+    a['2026-09-15']={HD:half()};setA(a);
+    try{if(typeof loadEmployees==='function')loadEmployees();}catch(x){}
+    const run1=async(fn)=>{attCurrentDate='2026-09-15';openAttDay('HD');await sleep(150);await fn();attSaveDay();await sleep(150);
+      const r=JSON.parse(localStorage.getItem('hydroPro_attendance'))['2026-09-15'].HD;const l=calcEmployeePayroll(e,'2026-09-10','2026-09-16','weekly');
+      return {frac:r.dayFraction===undefined?'gone':r.dayFraction,out:r.timeOut,days:l.daysWorked,basic:l.basicPay};};
+    let boxAfterShift=null;
+    const a1=await run1(async()=>{const to=document.getElementById('attTimeOut');to.value='17:00';to.dispatchEvent(new Event('change'));
+      attSetShift('2nd');await sleep(150);const b=document.getElementById('attHalfDay');boxAfterShift=b?b.checked:null;});
+    a['2026-09-15']={HD:half()};setA(a);
+    const a2=await run1(async()=>{const to=document.getElementById('attTimeOut');to.value='17:00';to.dispatchEvent(new Event('change'));
+      const b=document.getElementById('attHalfDay');if(b)b.checked=true;});
+    a['2026-09-15']={HD:half()};setA(a);
+    const a3=await run1(async()=>{attSetShift('1st');await sleep(150);});
+    return {boxAfterShift,a1,a2,a3};},
+  expect:{boxAfterShift:false,a1:{frac:'gone',out:'17:00',days:6,basic:3948},a2:{frac:'gone',out:'17:00',days:6,basic:3948},a3:{frac:0.5,out:'12:00',days:5.5,basic:3619}} },
+
+{ name:"round 2: biometric sync — a Reconcile ½ Half day (07:00-12:00) receives the 17:02 OUT scan and pays the full day ₱658 (was ₱329); an OUT at 15:00 leaves the half day (₱329)",
+  seed:()=>{localStorage.setItem('hydroPro_bio_cfg_v1',JSON.stringify({url:'http://bio.test',token:'t'}));
+    localStorage.setItem('hydroPro_bio_map_v1',JSON.stringify({'301':'H1','302':'H2'}));
+    localStorage.setItem('hydroPro_employees',JSON.stringify([
+      {id:'H1',name:'HALF, FULL',status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',employmentType:'Regular',dailyRate:658,dateHired:'2025-01-01'},
+      {id:'H2',name:'HALF, EARLY',status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',employmentType:'Regular',dailyRate:658,dateHired:'2025-01-01'}]));},
+  run:async()=>{const d=daysEnding(today,7).slice(0,6).reverse().find(x=>{const w=new Date(x+'T00:00:00').getDay();return w>=1&&w<=5;});
+    const half=()=>({status:'present',timeIn:'07:00',timeOut:'12:00',lateMinutes:0,source:'fingerprint',dayFraction:0.5,reason:' [Half day — no afternoon scan]'});
+    const a={};a[d]={H1:half(),H2:half()};setA(a);
+    const E=JSON.parse(localStorage.getItem('hydroPro_employees'));
+    const before=calcEmployeePayroll(E[0],d,d,'weekly').basicPay;
+    const D=[{date:d,punches:[{userId:'301',time:'07:00'},{userId:'301',time:'12:00'},{userId:'301',time:'17:02'},{userId:'302',time:'07:00'},{userId:'302',time:'12:00'},{userId:'302',time:'15:00'}]}];
+    window.fetch=(u)=>Promise.resolve({json:()=>Promise.resolve(/punches/.test(String(u))?{days:D}:{devices:{}})});
+    window.hnxBioPull();await sleep(2500);const x=JSON.parse(localStorage.getItem('hydroPro_attendance'))[d];
+    return {before,h1Frac:x.H1.dayFraction===undefined?'gone':x.H1.dayFraction,h1Out:x.H1.timeOut,h1Pay:calcEmployeePayroll(E[0],d,d,'weekly').basicPay,
+      h2Frac:x.H2.dayFraction,h2Out:x.H2.timeOut,h2Pay:calcEmployeePayroll(E[1],d,d,'weekly').basicPay};},
+  expect:{before:329,h1Frac:'gone',h1Out:'17:02',h1Pay:658,h2Frac:0.5,h2Out:'12:00',h2Pay:329} },
+
+{ name:"round 2: Approve & Lock — an inferred start on the WEEKLY run is a note with no peso figure (labour days with no record are unpaid anyway); Thu 10 - Sat 12 = 3 working days, no ₱; the office run still says 2 working days ≈ ₱1,454.54; an Active office card with NO pay basis is named as such, not as a half-month owed",
+  seed:()=>{localStorage.setItem('hydroPro_employees',JSON.stringify([
+      {id:'NOPAY',name:'NO PAY, BASIS',status:'Active',salaryCategory:'management',dept:'OPERATIONS',payType:'semi',employmentType:'Regular',dateHired:'2025-01-01'}]));},
+  run:async()=>{const f=window.hnxPayAnomalies;
+    const wk=f({id:'ops_2026-09-10_2026-09-16',type:'weekly',status:'draft',periodStart:'2026-09-10',periodEnd:'2026-09-16',
+      lines:[{empId:'NEWL',name:'NEW, LABOURER',impliedStart:'2026-09-14',dailyRate:658,daysWorked:3,basicPay:1974,netPay:1974}]}).join('\n');
+    const of=f({id:'office_2026-07-26_2026-08-10',type:'semi_monthly',status:'draft',periodStart:'2026-07-26',periodEnd:'2026-08-10',
+      lines:[{empId:'IMP',name:'IMPLIED, START',impliedStart:'2026-07-29',dailyRate:727.27,daysWorked:8,basicPay:5818.16,netPay:5818.16}]}).join('\n');
+    return {wkNote:/NEW, LABOURER: Date Hired is BLANK.*3 working day\(s\) before it are not counted as absences/.test(wk),wkPeso:/NEW, LABOURER[^\n]*NOT paid \(about/.test(wk),
+      office:/IMPLIED, START: Date Hired is BLANK.*2 working day\(s\) before it are NOT paid \(about ₱1,?454\.54\)/.test(of),
+      noPay:/NO PAY, BASIS: Active OFFICE card NOT in this run, and it has NO pay basis/.test(of),noPayOwed:/NO PAY, BASIS[^\n]*left unpaid/.test(of),wk};},
+  expect:{wkNote:true,wkPeso:false,office:true,noPay:true,noPayOwed:false} },
 ];
