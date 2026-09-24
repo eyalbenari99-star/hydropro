@@ -511,4 +511,26 @@ module.exports=[
     const nums=(html.match(/₱[\d,]+\.\d{2}/g)||[]).map(s=>parseFloat(s.replace(/[₱,]/g,'')));
     const tot=nums.slice(-2);return {td:tot[0],tc:tot[1],draftNamed:/DRAFT, ONLY/.test(html)};},
   expect:{td:3512.5,tc:3512.5,draftNamed:false} },
+{ name:'🏗 New-asset JE package (v20.98): Epson printer ₱22,361.33 · 5y · bought 2026-01-19, booked in 1025-003-005 → numbered under the lapsing file mother 1025-003-002 (not the Agri default), accounts N, N-1, N-2 to open; JE 1 reclass ₱22,361.33 from 1025-003-005; JE 2 catch-up 7 months (2026-02→2026-08) ₱2,608.83; recurring ₱372.69 from 2026-09 × 53, final month ₱372.62 (to 2031-01). A 2025 asset ₱12,000 · 1y splits the catch-up ₱6,000 prior years / ₱6,000 this year and needs no recurring JE',
+  seed:()=>{localStorage.removeItem('hydroPro_asset_recon_v1');},
+  run:async()=>{
+    const H=['MOTHER ACCOUNT','CATEGORY','DEPARTMENT','Equipment Per Lapsing','QUANTITY','ESTIMATED YEARS','Acquisition Date','END DATE','Recorded in Quickbook','VENDOR','COST','MONTHLY AMORTIZATION'];
+    window.hnxArImportLapsingRows([H,
+      ['1025-003-002 Furniture & Fixtures - Office Machine and Equipment','Machinery and Equipment','Corporate','Epson Ecotank L6460 Ink Tank Printer','1','5','2026-01-19','2031-01-19','1025-003-005 FURNITURE & FIXTURES:Office Machine and Equipment','LAZADA.COM.PH','22361.33','372.69'],
+      ['1025-003-002 Furniture & Fixtures - Office Machine and Equipment','Machinery and Equipment','Corporate','Old Label Printer','1','1','2025-06-10','2026-06-10','','Shop','12000','1000']]);
+    const s=JSON.parse(localStorage.getItem('hydroPro_asset_recon_v1'));
+    const ep=s.newAssets.filter(n=>/Epson/.test(n.desc))[0],old=s.newAssets.filter(n=>/Old Label/.test(n.desc))[0];
+    const p=window.hnxArNewAssetPlan(ep.ref,'2026-09-24'),q=window.hnxArNewAssetPlan(old.ref,'2026-09-24');
+    const nos=p.accounts.map(a=>a.no);
+    switchView('acct_assets');await sleep(1500);hnxArTab('new');await sleep(900);
+    const vNew=document.getElementById('view-acct_assets').innerHTML;
+    hnxArTab('je');await sleep(900);
+    const vJe=document.getElementById('view-acct_assets').innerHTML;
+    const screen={newTab:/① Accounts to open/.test(vNew)&&/RECURRING MONTHLY JE/.test(vNew)&&vNew.indexOf(p.no+'-2')>=0,jeTab:/② JE 1 — reclassify the purchase already booked in 1025-003-005/.test(vJe)};
+    return {screen,mom:p.mom,noUnderMom:p.no.indexOf('1025-003-002-')===0,qbFrom:ep.qbFrom,credit:p.je1.rows[1].acct,je1:p.je1.rows[0].dr,hasN:nos.indexOf(p.no)>=0,hasCost:nos.indexOf(p.no+'-1')>=0,hasDep:nos.indexOf(p.no+'-2')>=0,
+      mon:p.mon,done:p.done,catchAmt:p.catchAmt,left:p.left,first:p.firstRec,finalAmt:p.finalAmt,ends:p.ends,
+      oldDone:q.done,oldPrior:q.priorAmt,oldCur:q.curAmt,oldRec:q.rec===null,oldCredit:q.je1.rows[1].acct.slice(0,4)};},
+  expect:{'screen.newTab':true,'screen.jeTab':true,mom:'1025-003-002',noUnderMom:true,qbFrom:'1025-003-005 FURNITURE & FIXTURES:Office Machine and Equipment',credit:'1025-003-005 FURNITURE & FIXTURES:Office Machine and Equipment',je1:22361.33,hasN:true,hasCost:true,hasDep:true,
+    mon:372.69,done:7,catchAmt:2608.83,left:53,first:'2026-09-01',finalAmt:372.62,ends:'2031-01',
+    oldDone:12,oldPrior:6000,oldCur:6000,oldRec:true,oldCredit:'(the'} },
 ];
