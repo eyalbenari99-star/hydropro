@@ -106,7 +106,7 @@ module.exports=[
     return {firstStatus:st1,blockedNamesRun:al1.indexOf('NOT APPROVED')>=0&&al1.indexOf(aid)>=0,finalStatus:r.status,days:l.daysWorked,basic:l.basicPay,paidElsewhere:(l.paidElsewhere||[]).length,approvedA:(getPayrollRun(aid)||{}).status};},
   expect:{firstStatus:'draft',blockedNamesRun:true,finalStatus:'approved',days:3,basic:1830,paidElsewhere:4,approvedA:'approved'} },
 
-{ name:'labour → office move: the office cut-off pays only the 5 weekdays no approved weekly run paid (5 × ₱600 = ₱3,000, not ₱6,000), the ₱300 memo once (₱0 here), statutory 5/12 of the ₱590 half-month share (₱135.42 + ₱68.75 + ₱41.67); the approve check names the move and the paid days (v20.97)',
+{ name:'labour → office move: the office cut-off pays only the 5 weekdays no approved weekly run paid (5 × ₱600 = ₱3,000, not ₱6,000), the ₱300 memo once (₱0 here), statutory 5/12 of the ₱590 half-month share (₱135.42 + ₱68.75 + ₱41.67); a STALE office draft (10 days, ₱6,000, drafted before the weekly run was approved) goes through the anomaly check (🔀 MOVED) and I-checked, is REFUSED by Approve & Lock naming the approved ops_ run and stays draft; after the screen recalculates it locks at 5 days / ₱3,000 with 🔁 7 day(s) listed (v20.97, round 2)',
   run:async()=>{
     const t=new Date(today+'T12:00:00');t.setDate(t.getDate()-21);while(t.getDay()!==1)t.setDate(t.getDate()-1);
     const S=ymd(t),D=n=>{const x=new Date(S+'T12:00:00');x.setDate(x.getDate()+n);return ymd(x);};
@@ -117,21 +117,35 @@ module.exports=[
     localStorage.setItem('hydroPro_memos',JSON.stringify([{id:'M2',category:'hr',type:'good',empId:'JUAN',date:D(2),status:'signed',totalAmount:300,reasonLabel:'bonus'}]));
     localStorage.setItem('hydroPro_payroll_runs','[]');
     const wl=calcEmployeePayroll(juan,D(0),D(6),'weekly');
-    localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:'ops_'+D(0)+'_'+D(6),type:'weekly',periodStart:D(0),periodEnd:D(6),status:'approved',lines:[wl],totals:{netPay:wl.netPay}}]));
-    /* HR moves him to an office group */
+    /* HR moves him to an office group; the office draft is made BEFORE the weekly run is approved (stale: no paidElsewhere) */
     const moved=Object.assign({},juan,{salaryCategory:'logistic',dept:'APAC_LOGISTIC'});setE([moved]);if(typeof loadEmployees==='function')loadEmployees();
+    const stale=calcEmployeePayroll(moved,D(0),D(11),'semi_monthly');
+    const wid='ops_'+D(0)+'_'+D(6);
+    localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:wid,type:'weekly',periodStart:D(0),periodEnd:D(6),status:'approved',lines:[wl],totals:{netPay:wl.netPay}}]));
     await sleep(20);
     const o=calcEmployeePayroll(moved,D(0),D(11),'semi_monthly');
-    /* the approve check */
+    /* the approve path, all the way through the anomaly check */
     const per={start:D(0),end:D(11),label:D(0)+' — '+D(11)};window._payOfficeCurrentPeriod=per;
     const rid=payOfficeRunId(per);
-    const runs=JSON.parse(localStorage.getItem('hydroPro_payroll_runs'));runs.push({id:rid,type:'semi_monthly',periodStart:D(0),periodEnd:D(11),status:'draft',lines:[o],totals:{netPay:o.netPay}});
+    const runs=JSON.parse(localStorage.getItem('hydroPro_payroll_runs'));runs.push({id:rid,type:'semi_monthly',periodStart:D(0),periodEnd:D(11),status:'draft',lines:[stale],totals:{netPay:stale.netPay}});
     localStorage.setItem('hydroPro_payroll_runs',JSON.stringify(runs));
-    payOfficeApprove();await sleep(300);
-    const ov=document.getElementById('hnxAnomOv');const txt=ov?ov.innerText:'';if(ov)ov.remove();
+    const alerts=[];const _al=window.alert;window.alert=m=>{alerts.push(String(m));};
+    const approve=async()=>{window._payOfficeCurrentPeriod=per;payOfficeApprove();await sleep(300);const ov=document.getElementById('hnxAnomOv');const txt=ov?ov.innerText:'';
+      if(ov){ov.remove();if(window.__hnxAnomGo)window.__hnxAnomGo();}await sleep(400);return txt;};
+    const txt1=await approve();
+    const st1=(getPayrollRun(rid)||{}).status,al1=alerts.join('|');
+    window._payOfficeCurrentPeriod=per;renderPayrollOffice();await sleep(400);   /* the screen recalculates the draft */
+    const txt2=await approve();
+    window.alert=_al;
+    const r=getPayrollRun(rid)||{},l=(r.lines||[]).filter(x=>x.empId==='JUAN')[0]||{};
     return {wDays:wl.daysWorked,wMemo:wl.memoAdd,days:o.daysWorked,basic:o.basicPay,memo:o.memoAdd,paidElsewhere:(o.paidElsewhere||[]).length,sss:o.sss,phic:o.phic,hdmf:o.hdmf,gap:o.daysGap,
-      saysMoved:/🔀 JUAN: MOVED from the weekly labour payroll/.test(txt),saysPaid:/🔁 JUAN: 7 day\(s\)/.test(txt),status:(getPayrollRun(rid)||{}).status};},
-  expect:{wDays:6,wMemo:300,days:5,basic:3000,memo:0,paidElsewhere:7,sss:135.42,phic:68.75,hdmf:41.67,gap:0,saysMoved:true,saysPaid:true,status:'draft'} },
+      staleDays:stale.daysWorked,staleBasic:stale.basicPay,
+      saysMoved:/🔀 JUAN: MOVED from the weekly labour payroll/.test(txt1),reachedApprove:alerts.length>0,
+      firstStatus:st1,refusedNamesRun:al1.indexOf('NOT APPROVED')>=0&&al1.indexOf(wid)>=0&&al1.indexOf('JUAN')>=0,
+      saysPaid:/🔁 JUAN: 7 day\(s\)/.test(txt2),finalStatus:r.status,finalDays:l.daysWorked,finalBasic:l.basicPay,finalElsewhere:(l.paidElsewhere||[]).length,alerts:alerts.length};},
+  expect:{wDays:6,wMemo:300,days:5,basic:3000,memo:0,paidElsewhere:7,sss:135.42,phic:68.75,hdmf:41.67,gap:0,
+    staleDays:10,staleBasic:6000,saysMoved:true,reachedApprove:true,firstStatus:'draft',refusedNamesRun:true,
+    saysPaid:true,finalStatus:'approved',finalDays:5,finalBasic:3000,finalElsewhere:7,alerts:1} },
 
 { name:'a ZERO line settles nothing: an office person wrongly left on an approved weekly run (absent all week, ₱0) is still paid those weekdays by the office cut-off (10 × ₱600 = ₱6,000, paidElsewhere 0) (v20.97)',
   run:async()=>{
@@ -197,4 +211,93 @@ module.exports=[
     const q=asked[0]||'';
     return {noPerm,declined,cat:after.salaryCategory,type:after.type,namesMove:/MOVES them from the WEEKLY labour payroll to the OFFICE \(semi-monthly\) payroll/.test(q),namesStat:/SSS \/ PhilHealth \/ Pag-IBIG \(about ₱1,180\.00 a month/.test(q)};},
   expect:{noPerm:'production_regular',declined:'production_regular',cat:'admin',type:'Regular',namesMove:true,namesStat:true} },
+{ name:'weekly gov refresher (runs 4 s after load and every 60 s) leaves engine statutory alone: a 3-day bridging-week draft Thu 10–Sat 12 Sep 2026 at ₱610/day keeps ₱121.05 (3/30 of ₱1,210.50, net ₱1,708.95), a Sun 6–Sat 12 Sep draft whose 4 days are paid in the approved 3–9 Sep week keeps ₱121.05 (not the 7-day ₱282.45); only a legacy zero-gov line is fixed (₱0 → ₱275.94); hnxGovRefresh() returns 1, then 0 (round 2)',
+  run:async()=>{
+    const done={};[2026].forEach(y=>Object.keys(hnxPhHolidayRules(y)).forEach(k=>done[k]=1));
+    localStorage.setItem('hydroPro_ph_holidays_seeded_v2',JSON.stringify(done));localStorage.setItem('hydroPro_ph_holidays','{}');
+    const e=labour('L1','DOE, JO',{dailyRate:610}),e2=labour('L2','ROE, AL',{dailyRate:610});setE([e,e2]);if(typeof loadEmployees==='function')loadEmployees();
+    const a={};['2026-08-27','2026-08-28','2026-08-29','2026-08-31','2026-09-01','2026-09-02','2026-09-03','2026-09-04','2026-09-05','2026-09-07','2026-09-08','2026-09-09','2026-09-10','2026-09-11','2026-09-12']
+      .forEach(d=>{a[d]={L1:rec('present','07:00','17:00'),L2:rec('present','07:00','17:00')};});setA(a);
+    localStorage.setItem('hydroPro_payroll_runs','[]');
+    const A=calcEmployeePayroll(e,'2026-09-03','2026-09-09','weekly');
+    localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:'ops_2026-09-03_2026-09-09',type:'weekly',periodStart:'2026-09-03',periodEnd:'2026-09-09',status:'approved',lines:[A],totals:{netPay:A.netPay}}]));
+    await sleep(20);
+    const B=calcEmployeePayroll(e,'2026-09-06','2026-09-12','weekly');   /* a week laid over the approved one: 4 days paid elsewhere */
+    const C=calcEmployeePayroll(e,'2026-09-10','2026-09-12','weekly');   /* the 3-day bridging week */
+    const Dl=calcEmployeePayroll(e2,'2026-08-27','2026-09-02','weekly');
+    const g=l=>Math.round(((+l.sss||0)+(+l.phic||0)+(+l.hdmf||0))*100)/100;
+    const dEngine=g(Dl);Dl.sss=0;Dl.phic=0;Dl.hdmf=0;                  /* a draft stored under the old "weeks 2 & 4" rule */
+    const runs=JSON.parse(localStorage.getItem('hydroPro_payroll_runs'));
+    runs.push({id:'ops_2026-09-06_2026-09-12',type:'weekly',periodStart:'2026-09-06',periodEnd:'2026-09-12',status:'draft',lines:[B],totals:{netPay:B.netPay}});
+    runs.push({id:'ops_2026-09-10_2026-09-12',type:'weekly',periodStart:'2026-09-10',periodEnd:'2026-09-12',status:'draft',lines:[C],totals:{netPay:C.netPay}});
+    runs.push({id:'ops_2026-08-27_2026-09-02',type:'weekly',periodStart:'2026-08-27',periodEnd:'2026-09-02',status:'draft',lines:[Dl],totals:{netPay:Dl.netPay}});
+    localStorage.setItem('hydroPro_payroll_runs',JSON.stringify(runs));
+    const n1=hnxGovRefresh(),n2=hnxGovRefresh();
+    const R=id=>((getPayrollRun(id)||{}).lines||[])[0]||{};
+    const b2=R('ops_2026-09-06_2026-09-12'),c2=R('ops_2026-09-10_2026-09-12'),d2=R('ops_2026-08-27_2026-09-02');
+    return {weekGov:g(A),bGov:g(B),cGov:g(C),bElse:(B.paidElsewhere||[]).length,cNet:C.netPay,n1,n2,
+      bAfter:g(b2),cAfter:g(c2),bNetSame:b2.netPay===B.netPay,cNetAfter:c2.netPay,dEngine,dAfter:g(d2)};},
+  expect:{weekGov:282.45,bGov:121.05,cGov:121.05,bElse:4,cNet:1708.95,n1:1,n2:0,bAfter:121.05,cAfter:121.05,bNetSame:true,cNetAfter:1708.95,dEngine:275.94,dAfter:275.94} },
+
+{ name:'a labour week that overlaps an APPROVED weekly run (Sun–Sat over the Thu–Wed grid) is NOT auto-drafted and the payday card says "overlaps APPROVED run <id>", not "has NO run yet"; with no overlap the same week IS auto-drafted (round 2)',
+  run:async()=>{
+    const e=labour('L1','DOE, JO',{dailyRate:610});setE([e]);if(typeof loadEmployees==='function')loadEmployees();setA({});
+    const wk=getWeekPeriod(today),wid='ops_'+wk.start+'_'+wk.end;
+    const sh=(d,n)=>{const x=new Date(d+'T12:00:00');x.setDate(x.getDate()+n);return ymd(x);};
+    const ov={id:'ops_'+sh(wk.start,-3)+'_'+sh(wk.end,-3),type:'weekly',periodStart:sh(wk.start,-3),periodEnd:sh(wk.end,-3),status:'approved',
+      lines:[{empId:'L1',name:'DOE, JO',daysWorked:5,basicPay:3050,netPay:3050}],totals:{netPay:3050}};
+    localStorage.setItem('hydroPro_payroll_runs','[]');
+    const r0=hnxPayAiReadiness().join('|');
+    localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([ov]));
+    const r1=hnxPayAiReadiness().join('|');
+    localStorage.removeItem('hydroPro_pay_autodraft_v1');hnxPayAiAutoDraft();
+    const d1=getPayrollRun(wid);
+    localStorage.setItem('hydroPro_payroll_runs','[]');
+    localStorage.removeItem('hydroPro_pay_autodraft_v1');hnxPayAiAutoDraft();
+    const d2=getPayrollRun(wid);
+    return {closed:wk.end<today,noRunText:/has NO run yet/.test(r0),overlapText:r1.indexOf('overlaps APPROVED run '+ov.id)>=0,overlapNotNoRun:!/has NO run yet/.test(r1),
+      draftedOverOverlap:d1?d1.status:null,draftedWithout:d2?d2.status:null};},
+  expect:{closed:true,noRunText:true,overlapText:true,overlapNotNoRun:true,draftedOverOverlap:null,draftedWithout:'draft'} },
+
+{ name:'an HR user WITHOUT payroll permission cannot move anyone between the weekly and office payrolls from the HR card: category "By department" → Admin reverted (stays weekly), explicit Packaging → Admin reverted, department PACKAGING → APAC_ADMIN on a "By department" card NOT saved (stays PACKAGING, weekly, no question asked), the same change on an explicit Packaging card keeps the new department and the Packaging category (weekly); Align is refused (round 2)',
+  run:async()=>{
+    const mk=(id,name,dept,sc)=>({id,name,status:'Active',dept,salaryCategory:sc,type:'Regular',employmentType:'Regular',role:'Worker',title:'Packer',dailyRate:600,dateHired:'2025-01-01',hireDate:'2025-01-01'});
+    setE([mk('E1','ONE, EMP','PACKAGING',''),mk('E2','TWO, EMP','PACKAGING','packaging'),mk('E3','THREE, EMP','PACKAGING',''),mk('E4','FOUR, EMP','PACKAGING','packaging')]);
+    if(typeof loadEmployees==='function')loadEmployees();
+    /* sign in as an HR supervisor: manageHR yes, managePayroll no */
+    const U=JSON.parse(localStorage.getItem('hydroPro_users'));U[0].role='supervisor';U[0].allDepts=false;U[0].department='hr';U[0].departments=['hr'];localStorage.setItem('hydroPro_users',JSON.stringify(U));
+    const perms={hr:can('manageHR'),pay:can('managePayroll')};
+    const get=id=>(JSON.parse(localStorage.getItem('hydroPro_employees'))||[]).filter(x=>x.id===id)[0]||{};
+    const asked=[];const _c=window.confirm;window.confirm=m=>{asked.push(String(m).slice(0,160));return true;};
+    const edit=async(id,f)=>{openEmployeeModal(id);await sleep(400);f();saveEmployee();await sleep(400);try{document.getElementById('empModal').classList.remove('open');}catch(e){}};
+    await edit('E1',()=>{document.getElementById('empSalaryCategory').value='admin';});
+    await edit('E2',()=>{document.getElementById('empSalaryCategory').value='admin';});
+    await edit('E3',()=>{document.getElementById('empDept').value='APAC_ADMIN';});
+    await edit('E4',()=>{document.getElementById('empDept').value='APAC_ADMIN';});
+    const moveAsked=asked.filter(q=>/MOVES them/.test(q)).length;
+    hnxPayAlignOne('E4');
+    window.confirm=_c;
+    const S=id=>{const e=get(id);return [e.dept,e.salaryCategory||'',hnxIsOfficeEmployee(e)?'office':'weekly'];};
+    return {perms,E1:S('E1'),E2:S('E2'),E3:S('E3'),E4:S('E4'),moveAsked,alignE4:get('E4').salaryCategory};},
+  expect:{perms:{hr:true,pay:false},E1:['PACKAGING','','weekly'],E2:['PACKAGING','packaging','weekly'],E3:['PACKAGING','','weekly'],E4:['APAC_ADMIN','packaging','weekly'],moveAsked:0,alignE4:'packaging'} },
+
+{ name:'a payroll user changing the department of a "By department" card: PACKAGING → APAC_ADMIN asks first, naming the move WEEKLY → OFFICE; Cancel keeps PACKAGING (weekly), OK moves them (APAC_ADMIN, category Admin, office); PACKAGING → APAC_PACKAGING stays weekly (category Packaging) and asks nothing (round 2)',
+  run:async()=>{
+    const mk=(id,name,dept,sc)=>({id,name,status:'Active',dept,salaryCategory:sc,type:'Regular',employmentType:'Regular',role:'Worker',title:'Packer',dailyRate:600,dateHired:'2025-01-01',hireDate:'2025-01-01'});
+    setE([mk('G1','ONE, GRP','PACKAGING',''),mk('G2','TWO, GRP','PACKAGING',''),mk('G3','THREE, GRP','PACKAGING','')]);
+    if(typeof loadEmployees==='function')loadEmployees();
+    const get=id=>(JSON.parse(localStorage.getItem('hydroPro_employees'))||[]).filter(x=>x.id===id)[0]||{};
+    const asked=[];let answer=true;const _c=window.confirm;window.confirm=m=>{m=String(m);if(/^Department changed/.test(m)){asked.push(m);return answer;}return true;};
+    const edit=async(id,f)=>{openEmployeeModal(id);await sleep(400);f();saveEmployee();await sleep(400);try{document.getElementById('empModal').classList.remove('open');}catch(e){}};
+    answer=false;await edit('G1',()=>{document.getElementById('empDept').value='APAC_ADMIN';});
+    const nCancel=asked.length,q=asked[0]||'';
+    answer=true;await edit('G2',()=>{document.getElementById('empDept').value='APAC_ADMIN';});
+    const nOk=asked.length-nCancel;
+    await edit('G3',()=>{document.getElementById('empDept').value='APAC_PACKAGING';});
+    const nSame=asked.length-nCancel-nOk;
+    window.confirm=_c;
+    const S=id=>{const e=get(id);return [e.dept,e.salaryCategory||'',hnxIsOfficeEmployee(e)?'office':'weekly'];};
+    return {nCancel,nOk,nSame,namesMove:/By department/.test(q)&&/MOVES them from the WEEKLY labour payroll to the OFFICE \(semi-monthly\) payroll/.test(q),
+      G1:S('G1'),G2:S('G2'),G3:S('G3')};},
+  expect:{nCancel:1,nOk:1,nSame:0,namesMove:true,G1:['PACKAGING','','weekly'],G2:['APAC_ADMIN','admin','office'],G3:['APAC_PACKAGING','packaging','weekly']} },
 ];
