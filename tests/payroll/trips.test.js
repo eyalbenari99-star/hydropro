@@ -1,6 +1,6 @@
 /* Trip incentives: the 1st-trip rule, x2, and the flat Other-trip category. */
 module.exports=[
-{ name:'trips: EVIA pays 100 flat first or later, EVIA+HOUSING+RV = 300, Clark x2 = 500 (v20.52)',
+{ name:'trips: EVIA pays 100 flat first or later, EVIA+HOUSING+RV = 300, Clark (typed 500, no ×2) = 500 (v20.52 · v20.99)',
   seed:()=>{localStorage.setItem('hydroPro_fleet_drivers',JSON.stringify([{id:'D1',name:'Dante',active:true}]));localStorage.setItem('hydroPro_fleet_helpers',JSON.stringify([{id:'H1',name:'Nico',active:true}]));},
   run:async()=>{const RK='hydroPro_trip_rates_v1',LK='hydroPro_trip_log_v1';
     switchView('pay_trips');await sleep(2200);
@@ -121,7 +121,7 @@ module.exports=[
             newZoneAfter:after.some(x=>/BULACAN RUN/.test(x)),
             numbered:before.filter(x=>/trip$/.test(x)).length>=4};},
   expect:{hasOtherBefore:true,newZoneBefore:false,newZoneAfter:true,numbered:true} },
-{ name:'🚚 Rate Table: Clark typed 500/200 with ×2 shows "pays D ₱1,000 / H ₱400" on the row, and 2 "_prior" earlier-run legs do NOT raise the "paid ₱0 — not in the APPROVED table" banner (v20.95)',
+{ name:'🚚 Rate Table (v20.99, ×2 retired): Clark typed 500/200 — even with the old dbl flag still stored — shows "pays D ₱500 / H ₱200" on the row and the ×2 column is gone; 2 "_prior" earlier-run legs do NOT raise the "paid ₱0" banner',
   run:async()=>{const RK='hydroPro_trip_rates_v1',LK='hydroPro_trip_log_v1';
     switchView('pay_trips');await sleep(2200);
     const r=JSON.parse(localStorage.getItem(RK)||'{}');
@@ -131,13 +131,13 @@ module.exports=[
     hnxTripTab('rates');await sleep(800);
     const html=document.getElementById('view-pay_trips').innerHTML;
     const row=[...document.querySelectorAll('.hnxRatePays')].map(x=>x.textContent).join(' | ');
-    return {hintShown:/D ₱1,000 \/ H ₱400/.test(row),priorBanner:/_prior/.test(html),zeroBanner:/paid ₱0\./.test(html)};},
-  expect:{hintShown:true,priorBanner:false,zeroBanner:false} },
-{ name:'🚚 Re-price: a Clark day approved at the old 500/200 ×2 table (D ₱1,000 / H ₱400) re-prices to D ₱500 / H ₱200 after the table is corrected to 250/100 ×2 (v20.96)',
+    return {hintShown:/D ₱500 \/ H ₱200/.test(row),noDouble:!/₱1,000/.test(row),x2ColGone:!/×2 \(Clark\)/.test(html),priorBanner:/_prior/.test(html),zeroBanner:/paid ₱0\./.test(html)};},
+  expect:{hintShown:true,noDouble:true,x2ColGone:true,priorBanner:false,zeroBanner:false} },
+{ name:'🚚 Re-price (v20.99): a Clark day frozen under the old ×2 rule at D ₱1,000 / H ₱400 re-prices to the typed D ₱500 / H ₱200 — the table row itself is NOT changed (500/200 stays 500/200)',
   run:async()=>{const RK='hydroPro_trip_rates_v1',LK='hydroPro_trip_log_v1';
     switchView('pay_trips');await sleep(2200);
     const r=JSON.parse(localStorage.getItem(RK)||'{}');
-    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=250;a.h2=100;a.dbl=true;}});
+    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=500;a.h2=200;a.dbl=true;}});
     r.live=JSON.parse(JSON.stringify(r.draft));r.draftDirty=false;localStorage.setItem(RK,JSON.stringify(r));
     localStorage.setItem(LK,JSON.stringify([{id:'c2',date:today,driverId:'D1',helperId:'H1',truck:'V1',trips:['alabang','clark'],status:'approved',pricedD:1000,pricedH:400}]));
     const oc=window.confirm;window.confirm=()=>true;
@@ -145,11 +145,11 @@ module.exports=[
     const tl=JSON.parse(localStorage.getItem(LK))[0];
     return {n,d:tl.pricedD,h:tl.pricedH};},
   expect:{n:1,d:500,h:200} },
-{ name:'🚚 Re-price skips a day inside an APPROVED payroll run (stays D ₱1,000), the orange "priced at an OLD rate" button shows, and a ⭐ special row cannot be ticked ×2 (v20.96)',
+{ name:'🚚 Re-price skips a day inside an APPROVED payroll run (stays D ₱1,000), the orange "priced at an OLD rate" button shows, and a ⭐ special row never carries a dbl flag (v20.96 · v20.99 typed = paid)',
   run:async()=>{const RK='hydroPro_trip_rates_v1',LK='hydroPro_trip_log_v1';
     switchView('pay_trips');await sleep(2200);
     const r=JSON.parse(localStorage.getItem(RK)||'{}');
-    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=250;a.h2=100;a.dbl=true;}});
+    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=500;a.h2=200;a.dbl=true;}});
     r.live=JSON.parse(JSON.stringify(r.draft));r.draftDirty=false;localStorage.setItem(RK,JSON.stringify(r));
     localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:'R1',status:'approved',periodStart:today,periodEnd:today}]));
     localStorage.setItem(LK,JSON.stringify([{id:'c3',date:today,driverId:'D1',helperId:'H1',truck:'V1',trips:['alabang','clark'],status:'approved',pricedD:1000,pricedH:400}]));
@@ -163,11 +163,11 @@ module.exports=[
     const sp=JSON.parse(localStorage.getItem(RK)).draft.areas[i];
     return {btn,n,paidStale:window.__hnxTripPaidStale,d:tl.pricedD,spDbl:!!sp.dbl};},
   expect:{btn:true,n:0,paidStale:1,d:1000,spDbl:false} },
-{ name:'🚚 Re-price (v20.97): an approved OFFICE run covering the date does NOT block a labour Clark day — D ₱1,000 / H ₱400 re-price to D ₱500 / H ₱200; with an approved WEEKLY run paying the driver only, the driver keeps ₱1,000 and the helper re-prices to ₱200',
+{ name:'🚚 Re-price (v20.97 · v20.99): an approved OFFICE run covering the date does NOT block a labour Clark day — D ₱1,000 / H ₱400 re-price to the typed D ₱500 / H ₱200; with an approved WEEKLY run paying the driver only, the driver keeps ₱1,000 and the helper re-prices to ₱200',
   run:async()=>{const RK='hydroPro_trip_rates_v1',LK='hydroPro_trip_log_v1',PK='hydroPro_payroll_runs';
     switchView('pay_trips');await sleep(2200);
     const r=JSON.parse(localStorage.getItem(RK)||'{}');
-    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=250;a.h2=100;a.dbl=true;}});
+    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=500;a.h2=200;a.dbl=true;}});
     r.live=JSON.parse(JSON.stringify(r.draft));r.draftDirty=false;localStorage.setItem(RK,JSON.stringify(r));
     const day=()=>[{id:'c4',date:today,driverId:'D1',helperId:'H1',truck:'V1',trips:['alabang','clark'],status:'approved',pricedD:1000,pricedH:400}];
     const oc=window.confirm,oa=window.alert;window.confirm=()=>true;window.alert=()=>{};
