@@ -139,4 +139,119 @@ module.exports=[
     return {byLaw:/computed BY LAW/.test(t),month:/1,210\.50/.test(t),week:/282\.45/.test(t),flatGone:!/Total Weekly Deduction/.test(t),editBtn:/Edit Rates/.test(t),
       unchanged:localStorage.getItem('hydroPro_payroll_rates')===before,told:toasts.some(m=>/Nothing changed/.test(m))};},
   expect:{byLaw:true,month:true,week:true,flatGone:true,editBtn:false,unchanged:true,told:true} },
+/* ---- round 2 (reviewer follow-ups) ---- */
+{ name:'weekly gov refresher re-derives an OLD stored draft (no specialTax field, gov 0): ⭐ annual ₱600,000 at ₱3,000/day, 6 days 10–16 Sep → gov 840.00, tax stays 1,201.92 (was re-bracketed to 2,414.95), net 15,958.08; Regular ₱2,000/day → gross 12,000.00, gov 711.67, tax 1,151.87, net 10,136.46; run totals tax 2,353.79, net 26,094.54 (G r2)',
+  seed:()=>{localStorage.setItem('hydroPro_pay_special_v1',JSON.stringify({SX:{annualBasic:600000}}));},
+  run:async()=>{const S=labour('SX','SPECIAL WEEKLY',{dailyRate:3000}),R=labour('RG','REGULAR WEEKLY',{dailyRate:2000});setE([S,R]);
+    const a={};['2026-09-10','2026-09-11','2026-09-12','2026-09-14','2026-09-15','2026-09-16'].forEach(d=>{a[d]={SX:rec('present','07:00','17:00','manual'),RG:rec('present','07:00','17:00','manual')};});setA(a);
+    try{loadEmployees();}catch(e){}
+    const e1=calcEmployeePayroll(S,'2026-09-10','2026-09-16','weekly'),e2=calcEmployeePayroll(R,'2026-09-10','2026-09-16','weekly');
+    /* a line as a build before 'specialTax' travelled with the line stored it, with the old (zero) gov */
+    const old=l=>{const x=JSON.parse(JSON.stringify(l));delete x.specialTax;delete x.govExempt;x.sss=0;x.phic=0;x.hdmf=0;x.totalGovDed=0;x.taxBase=x.grossPay;x.netPay=Math.round((x.grossEarnings-x.withholdingTax)*100)/100;x.netShortfall=0;return x;};
+    localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:'ops_2026-09-10_2026-09-16',type:'weekly',periodStart:'2026-09-10',periodEnd:'2026-09-16',status:'draft',lines:[old(e1),old(e2)],totals:{sss:0,phic:0,hdmf:0,totalGovDed:0,withholdingTax:0,netPay:0}}]));
+    const n=window.hnxGovRefresh();const run=getPayrollRun('ops_2026-09-10_2026-09-16');const s1=run.lines[0],s2=run.lines[1];
+    const pick=l=>({gov:l.totalGovDed,tax:l.withholdingTax,taxBase:l.taxBase,net:l.netPay,short:l.netShortfall});
+    return {fixed:n,engine:{sx:pick(e1),rg:Object.assign(pick(e2),{gross:e2.grossPay})},stored:{sx:pick(s1),rg:Object.assign(pick(s2),{gross:s2.grossPay})},
+      totals:{tax:run.totals.withholdingTax,net:run.totals.netPay,gov:run.totals.totalGovDed}};},
+  expect:{fixed:2,'engine.sx':{gov:840,tax:1201.92,taxBase:17160,net:15958.08,short:0},'stored.sx':{gov:840,tax:1201.92,taxBase:17160,net:15958.08,short:0},
+    'engine.rg':{gov:711.67,tax:1151.87,taxBase:11288.33,net:10136.46,short:0,gross:12000},'stored.rg':{gov:711.67,tax:1151.87,taxBase:11288.33,net:10136.46,short:0,gross:12000},
+    totals:{tax:2353.79,net:26094.54,gov:1551.67}} },
+{ name:'month-rule note: the change-over is stamped when this build LOADS (not at the first pack open) — a 26 Aug–10 Sep run approved under this build is NOT flagged "leave it out" (it was), one first approved before and re-approved now IS; QB journal Sep carries SSS payable (EE+ER) 1,200.00 for the moved office run, Aug has no approved run (G r2, deductions-loans-05)',
+  run:async()=>{
+    const stampedAtLoad=+(localStorage.getItem('hnx_pay_endmonth_since')||0)>0;
+    const now=Date.now();
+    localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([
+      {id:'office_2026-08-26_2026-09-10',type:'semi_monthly',periodStart:'2026-08-26',periodEnd:'2026-09-10',status:'approved',approvedAt:now-5000,totals:{},
+        lines:[{empId:'O1',name:'OFFICE, ANN',sss:400,phic:200,hdmf:100,totalGovDed:700,withholdingTax:0,grossPay:8000,grossEarnings:8000,netPay:7300,statutory:{sssER:800,phicER:200,hdmfER:100,msc:16000}}]},
+      {id:'ops_2026-08-27_2026-09-02',type:'weekly',periodStart:'2026-08-27',periodEnd:'2026-09-02',status:'approved',approvedAt:now-5000,
+        approvalHistory:[{approvedAt:1,approvedBy:'old',reopenedAt:2,reopenedBy:'x',reason:'reopened'}],totals:{},
+        lines:[{empId:'L1',name:'LABOUR, JO',sss:151.67,phic:77,hdmf:46.67,totalGovDed:275.34,withholdingTax:0,grossPay:3948,grossEarnings:3948,netPay:3672.66,statutory:{sssER:303.33,phicER:77,hdmfER:46.67,msc:13000}}]}]));
+    const toasts=[];const _st=window.showToast;window.showToast=m=>{toasts.push(String(m));};
+    let html='';const _o=window.open;window.open=()=>({document:{write:h=>{html+=h;},close:()=>{}},print:()=>{}});
+    hnxRemitPack('2026-09');const pack=html;window.open=_o;
+    const je=window._hnxPayJeHtml('2026-09');const jeAug=window._hnxPayJeHtml('2026-08');
+    window.showToast=_st;
+    const note=s=>{const m=s.match(/Month rule changed:[\s\S]*?<\/div>/);return m?m[0]:'';};
+    const tr=[...new DOMParser().parseFromString('<table>'+je+'</table>','text/html').querySelectorAll('tr')].map(t=>[...t.querySelectorAll('td')].map(x=>(x.textContent||'').trim()));
+    const sssAnn=(tr.find(r=>r[0]==='OFFICE, ANN'&&/^SSS payable/.test(r[1]||''))||[])[3]||'';
+    return {stampedAtLoad,pack:{freshFlagged:/2026-08-26 → 2026-09-10/.test(note(pack)),reapprovedFlagged:/2026-08-27 → 2026-09-02/.test(note(pack))},
+      je:{freshFlagged:/2026-08-26 → 2026-09-10/.test(note(je)),reapprovedFlagged:/2026-08-27 → 2026-09-02/.test(note(je)),sssAnn},
+      jeAug:jeAug===''&&toasts.some(t=>/No APPROVED payroll runs in 2026-08/.test(t))};},
+  expect:{stampedAtLoad:true,pack:{freshFlagged:false,reapprovedFlagged:true},je:{freshFlagged:false,reapprovedFlagged:true,sssAnn:'₱1,200.00'},jeAug:true} },
+{ name:'month-rule note on a device first opened AFTER the change (stamp 1 Jan 2027): capped at the 1 Oct 2026 cut-over, so a 26 Nov–10 Dec 2026 run approved 1 Dec 2026 is NOT flagged (it was, forever); a run approved 1 Sep 2026 still is (G r2)',
+  seed:()=>{localStorage.setItem('hnx_pay_endmonth_since',String(Date.parse('2027-01-01T00:00:00+08:00')));},
+  run:async()=>{
+    const ln={empId:'O1',name:'OFFICE, ANN',sss:400,phic:200,hdmf:100,totalGovDed:700,withholdingTax:0,grossPay:8000,grossEarnings:8000,netPay:7300,statutory:{sssER:800,phicER:200,hdmfER:100,msc:16000}};
+    localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([
+      {id:'office_2026-11-26_2026-12-10',type:'semi_monthly',periodStart:'2026-11-26',periodEnd:'2026-12-10',status:'approved',approvedAt:Date.parse('2026-12-01T10:00:00+08:00'),totals:{},lines:[ln]},
+      {id:'office_2026-08-26_2026-09-10',type:'semi_monthly',periodStart:'2026-08-26',periodEnd:'2026-09-10',status:'approved',approvedAt:Date.parse('2026-09-01T10:00:00+08:00'),totals:{},lines:[ln]}]));
+    const note=s=>{const m=s.match(/Month rule changed:[\s\S]*?<\/div>/);return m?m[0]:'';};
+    return {dec:/2026-11-26 → 2026-12-10/.test(note(window._hnxPayJeHtml('2026-12'))),sep:/2026-08-26 → 2026-09-10/.test(note(window._hnxPayJeHtml('2026-09')))};},
+  expect:{dec:false,sep:true} },
+{ name:'Accounting → Reports → BIR Alphalist (live): ₱1,000 HR + ₱500 period de minimis shows Non-taxable 1,500.00 (was 500.00) and a Taxable column 7,300.00; stale-taxBase House Rental 12,300.00; total taxable 19,600.00 = BIR Center = 1601-C; the draft is left out (G r2, allowances-07)',
+  seed:()=>{localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'E1',name:'ONE, EMP',status:'Active',salaryCategory:'accounting',dept:'Accounting',payType:'semi',employmentType:'Regular',monthlyBasic:16000,tin:'123456789',dateHired:'2025-01-01'},{id:'E2',name:'TWO, EMP',status:'Active',salaryCategory:'accounting',dept:'Accounting',payType:'semi',employmentType:'Regular',monthlyBasic:16000,tin:'223456789',dateHired:'2025-01-01'}]));},
+  run:async()=>{
+    const L1={empId:'E1',name:'ONE, EMP',employmentType:'Regular',grossPay:8000,grossEarnings:9500,allowanceNonTaxAmt:1000,recurringAllowance:1000,allowanceNonTaxable:500,allowanceTaxable:0,allowanceTotal:500,sss:400,phic:200,hdmf:100,totalGovDed:700,taxBase:7300,withholdingTax:0,netPay:8800};
+    const L2={empId:'E2',name:'TWO, EMP',employmentType:'Regular',grossPay:13000,grossEarnings:13000,allowanceNonTaxAmt:0,allowanceTaxable:5000,allowanceNonTaxable:0,allowanceTotal:5000,sss:400,phic:200,hdmf:100,totalGovDed:700,taxBase:7300,withholdingTax:282.45,netPay:12017.55};
+    const Y=new Date().getFullYear(); /* the live table shows the statement year (this year) */
+    localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([
+      {id:'office_'+Y+'-08-11_'+Y+'-08-25',type:'semi_monthly',periodStart:Y+'-08-11',periodEnd:Y+'-08-25',status:'approved',approvedAt:1,lines:[L1,L2],totals:{}},
+      {id:'office_'+Y+'-08-26_'+Y+'-09-10',type:'semi_monthly',periodStart:Y+'-08-26',periodEnd:Y+'-09-10',status:'draft',lines:[L1],totals:{}}]));
+    window.__hnxACC.open();await sleep(500);window.__hnxACC.navLeaf('reports','rep','alpha');await sleep(800);
+    const tbl=[...document.querySelectorAll('#hnxaccOverlay table')].find(t=>/Non-taxable/.test((t.querySelector('thead')||t).textContent||''));
+    const H=tbl?[...tbl.querySelectorAll('thead th')].map(x=>x.textContent.trim()):[];
+    const rows=tbl?[...tbl.querySelectorAll('tbody tr')].map(tr=>[...tr.querySelectorAll('td')].map(x=>x.textContent.trim())):[];
+    window.__hnxACC.close();
+    const c=n=>H.indexOf(n),r=nm=>rows.find(x=>x[0]===nm)||[],tot=rows.find(x=>/^TOTAL/.test(x[0]))||[];
+    const M=window.__hnxACC.payroll1601(Y);let t1601=0;for(let i=1;i<=12;i++)t1601+=(M&&M[i]&&M[i].taxable)||0;
+    return {e1:{gross:r('ONE, EMP')[c('Gross comp')],nonTax:r('ONE, EMP')[c('Non-taxable')],taxable:c('Taxable')<0?'no column':r('ONE, EMP')[c('Taxable')]},
+      e2taxable:c('Taxable')<0?'no column':r('TWO, EMP')[c('Taxable')],totalTaxable:c('Taxable')<0?'no column':tot[c('Taxable')],t1601:'₱'+t1601.toLocaleString('en-PH',{minimumFractionDigits:2})};},
+  expect:{e1:{gross:'₱9,500.00',nonTax:'₱1,500.00',taxable:'₱7,300.00'},e2taxable:'₱12,300.00',totalTaxable:'₱19,600.00',t1601:'₱19,600.00'} },
+{ name:'Contributions per employee (approved runs): office 26 Aug–10 Sep SSS EE 400.00 / ER+EC 830.00 counts, the weekly DRAFT (SSS 151.67) does not — and is now NAMED on screen and on the sheet ("⏳ 1 draft run … ops_2026-09-10_2026-09-16"), sheet header says APPROVED (was "approved/saved") (G r2, deductions-loans-05)',
+  run:async()=>{
+    localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'O1',name:'OFFICE, ANN',status:'Active',salaryCategory:'accounting',dept:'Accounting',payType:'semi',employmentType:'Regular',monthlyBasic:16000},{id:'L1',name:'LABOUR, JO',status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',employmentType:'Regular',dailyRate:500}]));
+    localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([
+      {id:'office_2026-08-26_2026-09-10',type:'semi_monthly',periodStart:'2026-08-26',periodEnd:'2026-09-10',status:'approved',approvedAt:1,totals:{},
+        lines:[{empId:'O1',name:'OFFICE, ANN',sss:400,phic:200,hdmf:100,totalGovDed:700,withholdingTax:0,grossPay:8000,grossEarnings:8000,netPay:7300,statutory:{sssER:800,phicER:200,hdmfER:100,msc:16000}}]},
+      {id:'ops_2026-09-10_2026-09-16',type:'weekly',periodStart:'2026-09-10',periodEnd:'2026-09-16',status:'draft',totals:{},
+        lines:[{empId:'L1',name:'LABOUR, JO',sss:151.67,phic:77,hdmf:46.67,totalGovDed:275.34,withholdingTax:0,grossPay:0,grossEarnings:0,netPay:0,statutory:{sssER:303.33,phicER:77,hdmfER:46.67,msc:13000}}]}]));
+    hnxGovYtd();await sleep(300);
+    const set=(id,v)=>{const el=document.getElementById(id);el.value=v;el.onchange&&el.onchange();};
+    set('gyFrom','2026-08-01');set('gyTo','2026-09-30');set('gySrc','runs');await sleep(200);
+    const body=document.getElementById('gyBody');const txt=(body.textContent||'').replace(/\s+/g,' ');
+    const rows=[...body.querySelectorAll('tr')].map(t=>[...t.querySelectorAll('td')].map(x=>(x.textContent||'').trim()));
+    const ann=rows.find(r=>r[0]==='OFFICE, ANN')||[];const jo=rows.find(r=>r[0]==='LABOUR, JO');
+    const texts=[];const _c=URL.createObjectURL;URL.createObjectURL=()=>'blob:x';const _B=window.Blob;window.Blob=function(parts,o){texts.push(parts.join(''));return new _B(parts,o);};
+    const _st=window.showToast;window.showToast=()=>{};
+    try{window.hnxGovYtdExport('2026-08-01','2026-09-30',null,'runs');}finally{window.Blob=_B;URL.createObjectURL=_c;window.showToast=_st;}
+    document.getElementById('hnxGovYtdOverlay')&&document.getElementById('hnxGovYtdOverlay').remove();
+    const sheet=(texts[0]||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');
+    return {annSss:ann[1]||'',joListed:!!jo,screenNamesDraft:/⏳ 1 draft run .*not included.*ops_2026-09-10_2026-09-16/.test(txt),
+      sheetNamesDraft:/⏳ 1 draft run .*not included.*ops_2026-09-10_2026-09-16/.test(sheet),sheetApproved:/from APPROVED payroll runs/.test(sheet),sheetOld:/approved\/saved/.test(sheet)};},
+  expect:{annSss:'400.00 / 830.00',joListed:false,screenNamesDraft:true,sheetNamesDraft:true,sheetApproved:true,sheetOld:false} },
+{ name:'allowance display: a CARRIED ₱1,000 transport at 6 of 11 paid days — the + Allowance dialog Total reads 545.45 (was 1,000.00, the run pays 545.45), the Doctor column says "pays ₱545.45"; an entry DELETED in this cut-off is no longer told "carries it in automatically"; a gov override typed on a ⭐ gov-exempt special is refused (was stored with "✓ SSS updated" and ignored) (G r2)',
+  seed:()=>{localStorage.setItem('hydroPro_pay_filter_v1',JSON.stringify({mode:'active',att:'all'}));localStorage.setItem('hydroPro_pay_special_v1',JSON.stringify({SPC:{annualBasic:300000,govExempt:true}}));},
+  run:async()=>{const B=office('BBB','BBB OFFICE',{monthlyBasic:16000}),C=office('CCC','CCC OFFICE',{monthlyBasic:16000}),S=office('SPC','SPECIAL EXEC',{monthlyBasic:80000});setE([B,C,S]);try{loadEmployees();}catch(e){}
+    localStorage.setItem('hydroPro_employee_allowances_v1',JSON.stringify({'office_2026-07-11_2026-07-25':{BBB:[{id:'SB',catId:'transportation',amount:1000,note:''}],CCC:[{id:'SC',catId:'transportation',amount:1000,note:''}]}}));
+    const wd=[];for(let d=new Date('2026-07-26T00:00:00');d<=new Date('2026-08-10T00:00:00');d.setDate(d.getDate()+1)){const w=d.getDay();if(w>=1&&w<=5)wd.push(ymd(d));}
+    const abs={status:'absent',timeIn:'',timeOut:'',lateMinutes:0,source:'manual',editedBy:'jinky',reason:'absent'};
+    const a={};wd.forEach((d,i)=>{if(i<5)a[d]={BBB:abs};});setA(a);
+    const pk='office_2026-07-26_2026-08-10';
+    switchView('payroll_office');await sleep(3000);
+    window._payOfficeCurrentPeriod={start:'2026-07-26',end:'2026-08-10',half:2,label:'26 Jul – 10 Aug'};renderPayrollOffice();await sleep(800);
+    setEmpAllowancesForPeriod(pk,'CCC',[]);renderPayrollOffice();await sleep(800);
+    const lb=getPayrollRun(pk).lines.find(x=>x.empId==='BBB');
+    payOfficeManageAllowancesDialog('BBB');const ov=document.getElementById('payAllowOverlay');
+    const tiles=ov?[...ov.querySelectorAll('div')].filter(d=>/^(Total|Taxable|Non-taxable)$/i.test((d.textContent||'').trim())).map(d=>((d.nextElementSibling||{}).textContent||'').trim()):[];
+    const rowNote=ov?((ov.querySelector('tbody')||{}).textContent||'').replace(/\s+/g,' '):'';ov&&ov.remove();
+    hnxAllowDoctor();const doc=document.getElementById('hnxAllowDoc');
+    const drow=nm=>{const tr=doc?[...doc.querySelectorAll('tr')].find(t=>(t.textContent||'').indexOf(nm)>=0):null;return tr?[...tr.querySelectorAll('td')].map(x=>(x.textContent||'').replace(/\s+/g,' ').trim()):[];};
+    const b=drow('BBB OFFICE'),c=drow('CCC OFFICE');doc&&doc.remove();
+    const toasts=[];const _st=window.showToast;window.showToast=m=>{toasts.push(String(m));};
+    payOfficeEditGovDed(pk,'SPC','sss','900',0);window.showToast=_st;
+    const ovr=JSON.parse(localStorage.getItem('hydroPro_office_gov_overrides')||'{}');
+    return {runPays:lb.allowanceTotal,tiles,rowSaysPays:/pays ₱545\.45/.test(rowNote),docB:/pays ₱545\.45/.test(b[2]||''),
+      docCOld:/carries it in automatically/.test(c[5]||''),docCNew:/NOT in this one/.test(c[5]||''),
+      exempt:{stored:!!(ovr.SPC&&ovr.SPC.sss),refused:toasts.some(t=>/EXEMPT/.test(t)),saidUpdated:toasts.some(t=>/SSS updated/.test(t))}};},
+  expect:{runPays:545.45,tiles:['₱545.45','₱0.00','₱545.45'],rowSaysPays:true,docB:true,docCOld:false,docCNew:true,exempt:{stored:false,refused:true,saidUpdated:false}} },
 ];
