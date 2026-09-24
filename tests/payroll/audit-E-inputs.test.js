@@ -198,7 +198,7 @@ module.exports=[
     return {afterType,note,afterCancel,asked:/Daily rate ₱658\.00 → ₱6,580\.00/.test(asked)&&/₱3,948\.00 → ₱39,480\.00/.test(asked)};},
   expect:{afterType:658,note:true,afterCancel:658,asked:true} },
 
-{ name:'🚚 trip rate guard: Clark 250 ×2 → 500 ×2 (₱500 → ₱1,000 per extra trip, exactly 2×) raises BIG JUMP, and a 1st-trip-only change (ALABANG driver 1st trip ₱0 → ₱1,700) is listed and flagged (rates-master-other-10)',
+{ name:'🚚 trip rate guard: Clark ₱500 → ₱1,000 per extra trip (exactly 2×; stored as 250 ×2 → 500 ×2 on v20.98, converted once by v20.99) raises BIG JUMP, and a 1st-trip-only change (ALABANG driver 1st trip ₱0 → ₱1,700) is listed and flagged (rates-master-other-10)',
   seed:()=>{localStorage.setItem('hydroPro_fleet_drivers',JSON.stringify([{id:'D1',name:'Dante',active:true}]));},
   run:async()=>{const RK='hydroPro_trip_rates_v1';
     switchView('pay_trips');await sleep(2200);
