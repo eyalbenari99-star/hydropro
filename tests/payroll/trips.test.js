@@ -121,23 +121,24 @@ module.exports=[
             newZoneAfter:after.some(x=>/BULACAN RUN/.test(x)),
             numbered:before.filter(x=>/trip$/.test(x)).length>=4};},
   expect:{hasOtherBefore:true,newZoneBefore:false,newZoneAfter:true,numbered:true} },
-{ name:'🚚 Rate Table (v20.99, ×2 retired): Clark typed 500/200 — even with the old dbl flag still stored — shows "pays D ₱500 / H ₱200" on the row and the ×2 column is gone; 2 "_prior" earlier-run legs do NOT raise the "paid ₱0" banner',
+{ name:'🚚 Rate Table (v20.99, ×2 retired): Clark saved as 250/100 ×2 on v20.98 is converted once to 500/200 (same pay), shows "pays D ₱500 / H ₱200" on the row and the ×2 column is gone; 2 "_prior" earlier-run legs do NOT raise the "paid ₱0" banner',
   run:async()=>{const RK='hydroPro_trip_rates_v1',LK='hydroPro_trip_log_v1';
     switchView('pay_trips');await sleep(2200);
     const r=JSON.parse(localStorage.getItem(RK)||'{}');
-    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=500;a.h2=200;a.dbl=true;}});
+    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=250;a.h2=100;a.dbl=true;}}); /* the real table as Jinky left it on v20.98: 250/100 ×2 → v20.99 converts it once to 500/200 */
     r.live=JSON.parse(JSON.stringify(r.draft));r.draftDirty=false;localStorage.setItem(RK,JSON.stringify(r));
     localStorage.setItem(LK,JSON.stringify([{id:'c1',date:today,driverId:'D1',helperId:'H1',truck:'V1',trips:['_prior','_prior','clark'],status:'approved'}]));
     hnxTripTab('rates');await sleep(800);
     const html=document.getElementById('view-pay_trips').innerHTML;
     const row=[...document.querySelectorAll('.hnxRatePays')].map(x=>x.textContent).join(' | ');
-    return {hintShown:/D ₱500 \/ H ₱200/.test(row),noDouble:!/₱1,000/.test(row),x2ColGone:!/×2 \(Clark\)/.test(html),priorBanner:/_prior/.test(html),zeroBanner:/paid ₱0\./.test(html)};},
-  expect:{hintShown:true,noDouble:true,x2ColGone:true,priorBanner:false,zeroBanner:false} },
+    const cl=JSON.parse(localStorage.getItem(RK)).live.areas.find(a=>a.id==='clark');
+    return {hintShown:/D ₱500 \/ H ₱200/.test(row),noDouble:!/₱1,000/.test(row),x2ColGone:!/×2 \(Clark\)/.test(html),converted:[cl.d2,cl.h2,'dbl' in cl],priorBanner:/_prior/.test(html),zeroBanner:/paid ₱0\./.test(html)};},
+  expect:{hintShown:true,noDouble:true,x2ColGone:true,converted:[500,200,false],priorBanner:false,zeroBanner:false} },
 { name:'🚚 Re-price (v20.99): a Clark day frozen under the old ×2 rule at D ₱1,000 / H ₱400 re-prices to the typed D ₱500 / H ₱200 — the table row itself is NOT changed (500/200 stays 500/200)',
   run:async()=>{const RK='hydroPro_trip_rates_v1',LK='hydroPro_trip_log_v1';
     switchView('pay_trips');await sleep(2200);
     const r=JSON.parse(localStorage.getItem(RK)||'{}');
-    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=500;a.h2=200;a.dbl=true;}});
+    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=250;a.h2=100;a.dbl=true;}}); /* the real table as Jinky left it on v20.98: 250/100 ×2 → v20.99 converts it once to 500/200 */
     r.live=JSON.parse(JSON.stringify(r.draft));r.draftDirty=false;localStorage.setItem(RK,JSON.stringify(r));
     localStorage.setItem(LK,JSON.stringify([{id:'c2',date:today,driverId:'D1',helperId:'H1',truck:'V1',trips:['alabang','clark'],status:'approved',pricedD:1000,pricedH:400}]));
     const oc=window.confirm;window.confirm=()=>true;
@@ -149,7 +150,7 @@ module.exports=[
   run:async()=>{const RK='hydroPro_trip_rates_v1',LK='hydroPro_trip_log_v1';
     switchView('pay_trips');await sleep(2200);
     const r=JSON.parse(localStorage.getItem(RK)||'{}');
-    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=500;a.h2=200;a.dbl=true;}});
+    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=250;a.h2=100;a.dbl=true;}}); /* the real table as Jinky left it on v20.98: 250/100 ×2 → v20.99 converts it once to 500/200 */
     r.live=JSON.parse(JSON.stringify(r.draft));r.draftDirty=false;localStorage.setItem(RK,JSON.stringify(r));
     localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:'R1',status:'approved',periodStart:today,periodEnd:today}]));
     localStorage.setItem(LK,JSON.stringify([{id:'c3',date:today,driverId:'D1',helperId:'H1',truck:'V1',trips:['alabang','clark'],status:'approved',pricedD:1000,pricedH:400}]));
@@ -167,7 +168,7 @@ module.exports=[
   run:async()=>{const RK='hydroPro_trip_rates_v1',LK='hydroPro_trip_log_v1',PK='hydroPro_payroll_runs';
     switchView('pay_trips');await sleep(2200);
     const r=JSON.parse(localStorage.getItem(RK)||'{}');
-    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=500;a.h2=200;a.dbl=true;}});
+    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=250;a.h2=100;a.dbl=true;}}); /* the real table as Jinky left it on v20.98: 250/100 ×2 → v20.99 converts it once to 500/200 */
     r.live=JSON.parse(JSON.stringify(r.draft));r.draftDirty=false;localStorage.setItem(RK,JSON.stringify(r));
     const day=()=>[{id:'c4',date:today,driverId:'D1',helperId:'H1',truck:'V1',trips:['alabang','clark'],status:'approved',pricedD:1000,pricedH:400}];
     const oc=window.confirm,oa=window.alert;window.confirm=()=>true;window.alert=()=>{};
