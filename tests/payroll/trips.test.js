@@ -163,4 +163,21 @@ module.exports=[
     const sp=JSON.parse(localStorage.getItem(RK)).draft.areas[i];
     return {btn,n,paidStale:window.__hnxTripPaidStale,d:tl.pricedD,spDbl:!!sp.dbl};},
   expect:{btn:true,n:0,paidStale:1,d:1000,spDbl:false} },
+{ name:'🚚 Re-price (v20.97): an approved OFFICE run covering the date does NOT block a labour Clark day — D ₱1,000 / H ₱400 re-price to D ₱500 / H ₱200; with an approved WEEKLY run paying the driver only, the driver keeps ₱1,000 and the helper re-prices to ₱200',
+  run:async()=>{const RK='hydroPro_trip_rates_v1',LK='hydroPro_trip_log_v1',PK='hydroPro_payroll_runs';
+    switchView('pay_trips');await sleep(2200);
+    const r=JSON.parse(localStorage.getItem(RK)||'{}');
+    r.draft.areas.forEach(a=>{if(a.id==='clark'){a.d2=250;a.h2=100;a.dbl=true;}});
+    r.live=JSON.parse(JSON.stringify(r.draft));r.draftDirty=false;localStorage.setItem(RK,JSON.stringify(r));
+    const day=()=>[{id:'c4',date:today,driverId:'D1',helperId:'H1',truck:'V1',trips:['alabang','clark'],status:'approved',pricedD:1000,pricedH:400}];
+    const oc=window.confirm,oa=window.alert;window.confirm=()=>true;window.alert=()=>{};
+    localStorage.setItem(PK,JSON.stringify([{id:'OFF1',status:'approved',periodStart:today,periodEnd:today,lines:[{empId:'OFFICE9'}]}]));
+    localStorage.setItem(LK,JSON.stringify(day()));
+    const n1=window.hnxTripRepriceApproved(false);const a=JSON.parse(localStorage.getItem(LK))[0];
+    localStorage.setItem(PK,JSON.stringify([{id:'W1',status:'approved',periodStart:today,periodEnd:today,lines:[{empId:'D1'}]}]));
+    localStorage.setItem(LK,JSON.stringify(day()));
+    const n2=window.hnxTripRepriceApproved(false);const b=JSON.parse(localStorage.getItem(LK))[0];
+    window.confirm=oc;window.alert=oa;
+    return {n1,d1:a.pricedD,h1:a.pricedH,n2,d2:b.pricedD,h2:b.pricedH};},
+  expect:{n1:1,d1:500,h1:200,n2:1,d2:1000,h2:200} },
 ];
