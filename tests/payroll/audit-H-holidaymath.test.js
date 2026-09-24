@@ -4,7 +4,7 @@
    engine never counts a day after today), so the cases hold on any day the suite runs. */
 module.exports=[
 /* ---------- ot-holiday-06: a holiday on an OFFICE REST DAY ---------- */
-{ name:'office ₱16,000/month, 11–25 Aug 2026 (₱727.27/day): a REGULAR holiday on Sat 15 Aug, worked + signed = Sun OT ₱945.45 + holiday ₱945.45 (260% in all), basic stays ₱8,000.00, gross ₱9,890.90; unsigned it pays ₱0 and waits as ₱1,890.91 (audit ot-holiday-06)',
+{ name:'office ₱16,000/month, 11–25 Aug 2026 (₱727.27/day): a REGULAR holiday on Sat 15 Aug, worked + signed = Sun OT ₱945.45 + holiday ₱945.45 (260% in all), basic stays ₱8,000.00, gross ₱9,890.90; unsigned it pays ₱0 and waits as ₱945.45 + ₱945.45 = ₱1,890.90, the sum signing pays (was forecast ₱1,890.91) (audit ot-holiday-06, H round 2)',
   run:async()=>{
     const W=o=>{let c={};try{c=JSON.parse(localStorage.getItem('hydroPro_weekend_approvals_v1')||'{}')||{};}catch(e){}const k={};Object.keys(c).forEach(x=>{if(x.charAt(0)==='_')k[x]=c[x];});localStorage.setItem('hydroPro_weekend_approvals_v1',JSON.stringify(Object.assign(k,o)));}; /* keeps the store's one-time amnesty flags, so the 4-second amnesty pass never re-runs over the fixture */
     localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({'2026-08-15':{name:'Test Regular Holiday',kind:'regular'}}));
@@ -18,7 +18,7 @@ module.exports=[
     const r2=x=>Math.round(x*100)/100;
     return {rate:r2(l.dailyRate),basicWk:r2(l.basicPay-l.sundayPremium),sun:l.sundayPremium,hol:l.holidayPay,holWorked:l.holidaysWorked,gross:l.grossPay,gap:l.daysGap,
       unsigned:{sun:u.sundayPremium,hol:u.holidayPay,pend:u.pending.sun.n,pendAmt:u.pending.sun.amt}};},
-  expect:{rate:727.27,basicWk:8000,sun:945.45,hol:945.45,holWorked:1,gross:9890.9,gap:0,'unsigned.sun':0,'unsigned.hol':0,'unsigned.pend':1,'unsigned.pendAmt':1890.91} },
+  expect:{rate:727.27,basicWk:8000,sun:945.45,hol:945.45,holWorked:1,gross:9890.9,gap:0,'unsigned.sun':0,'unsigned.hol':0,'unsigned.pend':1,'unsigned.pendAmt':1890.9} },
 
 { name:'office ₱16,000/month, 11–25 Aug 2026: a SPECIAL holiday on Sun 16 Aug, worked + signed = Sun OT ₱945.45 + holiday ₱145.45 (150% in all, DOLE); a special WORKING day on a rest day stays 130% (holiday ₱0.00) (audit ot-holiday-06)',
   run:async()=>{
@@ -51,24 +51,76 @@ module.exports=[
     return {six:{rate:Math.round(six.dailyRate*100)/100,basic:six.basicPay,sun:six.sundayPremium,hol:six.holidayPay},mg:{basic:mg.basicPay,hol:mg.holidayPay,sun:mg.sundayPremium},wk:{basic:wk.basicPay,hol:wk.holidayPay}};},
   expect:{'six.rate':666.67,'six.basic':8000,'six.sun':0,'six.hol':666.67,'mg.basic':15000,'mg.hol':0,'mg.sun':0,'wk.basic':500,'wk.hol':500} },
 
-{ name:'final pay mirrors it: an office leaver\'s worked Sun 16 Aug 2026 that is a REGULAR holiday = unpaid salary ₱1,890.91 ±1 centavo (130% + 130%, was ₱945.45) (audit ot-holiday-06)',
+{ name:'final pay (priced by the payroll engine): an office leaver\'s worked Sun 16 Aug 2026 that is a REGULAR holiday, SIGNED in Weekend Approvals = unpaid salary ₱1,890.90 (Sun OT ₱945.45 + holiday ₱945.45, 260%; was ₱945.45); UNSIGNED = unpaid ₱0.00 and 1 weekend day waiting "up to ₱1,890.90" (audit ot-holiday-06, H round 2)',
   run:async()=>{
+    const W=o=>{let c={};try{c=JSON.parse(localStorage.getItem('hydroPro_weekend_approvals_v1')||'{}')||{};}catch(e){}const k={};Object.keys(c).forEach(x=>{if(x.charAt(0)==='_')k[x]=c[x];});localStorage.setItem('hydroPro_weekend_approvals_v1',JSON.stringify(Object.assign(k,o)));}; /* keeps the store's one-time amnesty flags, so the 4-second amnesty pass never re-runs over the fixture */
     localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({'2026-08-16':{name:'Test Regular Holiday',kind:'regular'}}));
     localStorage.removeItem('hydroPro_pay_holiday_policy_v1');
     const ann=office('ANN','ANN',{monthlyBasic:16000});setE([ann]);
     setA({'2026-08-16':{ANN:rec('present','07:00','17:30')}});
     localStorage.setItem('hydroPro_payroll_runs','[]');
-    const old=document.getElementById('hnxFinalPayOverlay');if(old)old.remove();
-    hnxFinalPay('ANN');await sleep(200);
     const ov=()=>document.getElementById('hnxFinalPayOverlay');
-    const set=(id,v)=>{const el=ov().querySelector('#'+id);el.value=v;el.onchange.call(el);};
-    set('fpLast','2026-08-16');await sleep(100);set('fpFrom','2026-08-16');await sleep(100);
-    const t=(ov().innerText||'').replace(/\s+/g,' ');
-    const i=t.indexOf('Unpaid salary');const seg=t.slice(i,i+160);
-    const mm=seg.match(/₱([\d,]+\.\d{2})/);const amt=mm?+mm[1].replace(/,/g,''):null;
-    ov().remove();
-    return {sundayNote:/1 Sunday/.test(seg),within1c:amt!=null&&Math.abs(amt-1890.91)<=0.011,amt};},
-  expect:{sundayNote:true,within1c:true} },
+    const screen=async()=>{
+      const old=ov();if(old)old.remove();
+      hnxFinalPay('ANN');await sleep(200);
+      const set=(id,v)=>{const el=ov().querySelector('#'+id);el.value=v;el.onchange.call(el);};
+      set('fpLast','2026-08-16');await sleep(100);set('fpFrom','2026-08-16');await sleep(100);
+      const t=(ov().innerText||'').replace(/\s+/g,' ');ov().remove();return t;};
+    const opts={lastDay:'2026-08-16',unpaidFrom:'2026-08-16'};
+    W({});
+    const u=hnxFinalPayCompute('ANN',opts);const ut=await screen();
+    W({'ANN|2026-08-16':{acct:'ok',acctBy:'jinky',acctAt:1,final:'ok',finalBy:'eyal',finalAt:1}});
+    const s=hnxFinalPayCompute('ANN',opts);const st=await screen();
+    const seg=st.slice(st.indexOf('Unpaid salary'),st.indexOf('Unpaid salary')+220);
+    return {signed:{unpaid:s.unpaidSalary,sun:s.sunPay,hol:s.holidayPay,sundays:s.sundays,pendSun:s.pending.sun,
+                    row:/1 signed weekend day\(s\) @130%/.test(seg)&&/holiday pay ₱945\.45/.test(seg)&&/₱1,890\.90/.test(seg)},
+            unsigned:{unpaid:u.unpaidSalary,sun:u.sunPay,hol:u.holidayPay,pendSun:u.pending.sun,pendAmt:u.pending.amt,
+                    note:/NOT in this final pay: 1 weekend day\(s\) \(up to ₱1,890\.90\)/.test(ut)}};},
+  expect:{'signed.unpaid':1890.9,'signed.sun':945.45,'signed.hol':945.45,'signed.sundays':1,'signed.pendSun':0,'signed.row':true,
+          'unsigned.unpaid':0,'unsigned.sun':0,'unsigned.hol':0,'unsigned.pendSun':1,'unsigned.pendAmt':1890.9,'unsigned.note':true} },
+
+{ name:'office ₱16,000/month, 11–25 Aug 2026: a HALF day on Sun 16 Aug that is a REGULAR holiday waits as ₱472.73 + ₱472.73 = ₱945.46 (was forecast ₱1,890.91) and signing pays exactly that - Sun OT ₱472.73 + holiday ₱472.73; the day audit has no gap either way (audit ot-holiday-06/07, H round 2)',
+  run:async()=>{
+    const W=o=>{let c={};try{c=JSON.parse(localStorage.getItem('hydroPro_weekend_approvals_v1')||'{}')||{};}catch(e){}const k={};Object.keys(c).forEach(x=>{if(x.charAt(0)==='_')k[x]=c[x];});localStorage.setItem('hydroPro_weekend_approvals_v1',JSON.stringify(Object.assign(k,o)));};
+    localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({'2026-08-16':{name:'Test Regular Holiday',kind:'regular'}}));
+    localStorage.removeItem('hydroPro_pay_holiday_policy_v1');
+    const ann=office('ANN','ANN',{monthlyBasic:16000});setE([ann]);
+    setA({'2026-08-16':{ANN:rec('present','07:00','12:00','manual',{dayFraction:0.5,editedBy:'jinky'})}});
+    W({});
+    const u=calcEmployeePayroll(ann,'2026-08-11','2026-08-25','semi_monthly');
+    W({'ANN|2026-08-16':{acct:'ok',acctBy:'jinky',acctAt:1,final:'ok',finalBy:'eyal',finalAt:1}});
+    const l=calcEmployeePayroll(ann,'2026-08-11','2026-08-25','semi_monthly');
+    return {unsigned:{n:u.pending.sun.n,amt:u.pending.sun.amt,sun:u.sundayPremium,hol:u.holidayPay,gap:u.daysGap},
+            signed:{sun:l.sundayPremium,hol:l.holidayPay,paid:Math.round((l.sundayPremium+l.holidayPay)*100)/100,pend:l.pending.sun.n,gap:l.daysGap,gross:l.grossPay}};},
+  expect:{'unsigned.n':1,'unsigned.amt':945.46,'unsigned.sun':0,'unsigned.hol':0,'unsigned.gap':0,
+          'signed.sun':472.73,'signed.hol':472.73,'signed.paid':945.46,'signed.pend':0,'signed.gap':0,'signed.gross':8945.46} },
+
+{ name:'HR ▸ Weekend Approvals quotes a rest-day holiday at what signing pays: office ₱16,000/month Sun 16 Aug 2026 (₱727.27/day) REGULAR holiday ₱1,890.90 (260%, was quoted ₱945.45) and a half day of it ₱472.73 + ₱472.73 = ₱945.46, SPECIAL ₱1,090.90 (150%), special working day / no holiday ₱945.45 (130%); the list row names the holiday (audit ot-holiday-06, H round 2)',
+  run:async()=>{
+    localStorage.removeItem('hydroPro_pay_holiday_policy_v1');
+    const ann=office('ANN','ANN',{monthlyBasic:16000});setE([ann]);
+    const H=o=>localStorage.setItem('hydroPro_ph_holidays',JSON.stringify(o));
+    const price=d=>(typeof window.hnxWkPriceFor==='function')?window.hnxWkPriceFor(ann,d):{}; /* guarded, so the list check below still runs on a build without it */
+    H({'2026-08-16':{name:'Test Regular Holiday',kind:'regular'}});const rg=price('2026-08-16');
+    const half=(typeof window.hnxWkPriceFor==='function')?window.hnxWkPriceFor(ann,'2026-08-16',0.5):{};
+    H({'2026-08-16':{name:'Test Special Holiday',kind:'special'}});const sp=price('2026-08-16');
+    H({'2026-08-16':{name:'Test Special Working Day',kind:'special_working'}});const sw=price('2026-08-16');
+    H({});const no=price('2026-08-16');
+    /* the list itself only shows the last 10 weeks, so its row is checked on a Sunday about three weeks back,
+       made a regular holiday, against what the signed engine line pays for it */
+    const base=new Date(today+'T00:00:00');base.setDate(base.getDate()-21);while(base.getDay()!==0)base.setDate(base.getDate()-1);
+    const sun=ymd(base);H({[sun]:{name:'Test Regular Holiday',kind:'regular'}});
+    const a={};a[sun]={ANN:rec('present','07:00','17:00')};setA(a);localStorage.setItem('hydroPro_payroll_runs','[]');
+    localStorage.setItem('hydroPro_weekend_approvals_v1',JSON.stringify({['ANN|'+sun]:{acct:'ok',acctBy:'jinky',acctAt:1,final:'ok',finalBy:'eyal',finalAt:1}}));
+    const p=getSemiMonthPeriod(sun);const l=calcEmployeePayroll(ann,p.start,p.end,'semi_monthly');
+    const signedPays=Math.round((l.sundayPremium+l.holidayPay)*100)/100;
+    let host=document.getElementById('hrWeekendBody');if(!host){host=document.createElement('div');host.id='hrWeekendBody';document.body.appendChild(host);}
+    window._hnxWkRender();
+    const txt=(host.textContent||'').replace(/\s+/g,' ');host.remove();
+    const fmt='₱'+signedPays.toLocaleString('en-PH',{minimumFractionDigits:2});
+    return {rg:rg.pay,rgPct:rg.hol&&rg.hol.totalPct,half:half.pay,sp:sp.pay,spPct:sp.hol&&sp.hol.totalPct,sw:sw.pay,swHol:sw.hol,no:no.pay,
+            list:{names:/Test Regular Holiday \(regular holiday\) = 260%/.test(txt),sameAsPaid:txt.indexOf(fmt)>=0,notJust130:signedPays>+(l.dailyRate*1.3).toFixed(2)}};},
+  expect:{rg:1890.9,rgPct:260,half:945.46,sp:1090.9,spPct:150,sw:945.45,swHol:null,no:945.45,'list.names':true,'list.sameAsPaid':true,'list.notJust130':true} },
 
 /* ---------- ot-holiday-07: a HALF DAY on a holiday ---------- */
 { name:'office ₱16,000/month, 11–25 Aug 2026: SPECIAL 21 Aug worked as a half day = basic ₱8,000.00 + premium ₱109.09 = ₱8,109.09 (was ₱7,854.55; staying home ₱8,000.00, whole day ₱8,218.18), days 11, no day gap (audit ot-holiday-07)',
