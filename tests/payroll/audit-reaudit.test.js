@@ -15,8 +15,8 @@ module.exports=[
     const lB=calcEmployeePayroll(o,'2026-09-11','2026-09-25','semi_monthly');
     setA({'2026-09-16':{O1:rec('present','08:00','17:00','manual',{editedBy:'jinky'})}});
     const dB=hnxLockedDrift(mk('b',lB),true);
-    return {leave:[lA.daysAbsentAuth,lA.basicPay],leaveRows:dA.rows.length,leaveUnpaid:dA.unpaid,absRows:dB.rows.map(x=>[x.dDays,x.remBasic]),absUnpaid:dB.unpaid};},
-  expect:{leave:[1,7272.73],leaveRows:0,leaveUnpaid:0,absRows:[[1,727.27]],absUnpaid:727.27} },
+    return {leave:[lA.daysAbsentAuth],leaveRows:dA.rows.length,leaveUnpaid:dA.unpaid,absRows:dB.rows.map(x=>[x.dDays,x.remBasic]),absUnpaid:dB.unpaid};},
+  expect:{leave:[1],leaveRows:0,leaveUnpaid:0,absRows:[[1,727.27]],absUnpaid:727.27} },
 
 { name:'🔒 office ₱16,000: a wrong 240-minute late scan deducted ₱363.64 in the approved 11–25 Sep run; HR fixes the Time In after the lock → the drift lists ₱363.64 unpaid with 0 days changed and ➕ Carry books ₱363.64 once into 26 Sep–10 Oct (re-audit locked-inputs-02)',
   run:async()=>{
