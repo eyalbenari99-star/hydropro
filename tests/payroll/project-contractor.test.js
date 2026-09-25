@@ -66,4 +66,14 @@ module.exports=[
     const before=asked;openEmployeeModal('L1');await sleep(1500);document.querySelector('#empModal .modal-close').click();await sleep(500);
     return {save:a,discard:b,askedSave:aq>=1,askedDiscard:bq,noChangeAsked:asked-before,noChangeOpen:isOpen()};},
   expect:{save:['project_contractor',false],discard:['production_regular',false],askedSave:true,askedDiscard:1,noChangeAsked:0,noChangeOpen:false} },
+
+{ name:'⏰ GH15/16 project contractor ₱600/day, 08:00–17:00: in at 08:30 Thu, 07:55 Fri, 09:00 Sat (clock marked 90/0/120 min against 07:00) → 30 + 60 = 90 min after 08:00 → ₱37.50 + ₱75.00 = ₱112.50 deducted automatically, nothing pending; net 3 × 600 − 112.50 = ₱1,687.50 (v21.03)',
+  run:async()=>{
+    const e=labour('P3','CARL PROJECT',{salaryCategory:'project_contractor',employmentType:'Regular',dailyRate:600});setE([e]);
+    const r=(tin,lm)=>Object.assign(rec(lm?'late':'present',tin,'17:00','fingerprint'),{lateMinutes:lm});
+    setA({'2026-09-10':{P3:r('08:30',90)},'2026-09-11':{P3:r('07:55',0)},'2026-09-12':{P3:r('09:00',120)}});
+    const c=calcEmployeePayroll(e,'2026-09-10','2026-09-16','weekly');
+    const q=(window.hnxLate&&hnxLate.scan)?hnxLate.scan('2026-09-10','2026-09-16','P3').length:0;
+    return {tardy:c.tardyDeduction,mins:c.lateDecidedMins,pending:c.latePending,net:c.netPay,queue:q};},
+  expect:{tardy:112.5,mins:90,pending:0,net:1687.5,queue:0} },
 ];
