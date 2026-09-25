@@ -533,4 +533,13 @@ module.exports=[
   expect:{'screen.newTab':true,'screen.jeTab':true,mom:'1025-003-002',noUnderMom:true,qbFrom:'1025-003-005 FURNITURE & FIXTURES:Office Machine and Equipment',credit:'1025-003-005 FURNITURE & FIXTURES:Office Machine and Equipment',je1:22361.33,hasN:true,hasCost:true,hasDep:true,
     mon:372.69,done:7,catchAmt:2608.83,left:53,first:'2026-09-01',finalAmt:372.62,ends:'2031-01',
     oldDone:12,oldPrior:6000,oldCur:6000,oldRec:true,oldCredit:'(the'} },
+{ name:'🚑 storage (v21.02): 1.6 M characters stored (≈31% of the 5.2 M browser limit) shows NO "STORAGE FULL" and no button on the trips screen; the usage API says 31% and saving works',
+  run:async()=>{
+    for(let i=0;i<4;i++)localStorage.setItem('hnx_test_fill_'+i,'x'.repeat(400000));
+    switchView('pay_trips');await sleep(3500);
+    const u=window.hnxStorageUsage();
+    const btn=document.getElementById('hnxSpaceBtn');
+    for(let i=0;i<4;i++)localStorage.removeItem('hnx_test_fill_'+i);
+    return {full:!!(btn&&/STORAGE FULL/.test(btn.textContent)),canSave:u.canSave,under70:u.pct<70};},
+  expect:{full:false,canSave:true,under70:true} },
 ];
