@@ -7,7 +7,7 @@ module.exports=[
   seed:SEED,
   run:async()=>{
     const mk=(cat)=>{const e=labour('P1','PEDRO PROJECT',{salaryCategory:cat,employmentType:'Regular',dailyRate:600,contractorProject:'15',allowances:[{type:'rice',monthly:2600,taxable:false}]});setE([e]);
-      const w=(x)=>rec(x,'07:00','16:00','fingerprint');
+      const w=(x)=>rec(x,'08:00','17:00','fingerprint');
       setA({'2026-09-10':{P1:w('present')},'2026-09-11':{P1:w('present')},'2026-09-12':{P1:w('present')},'2026-09-15':{P1:w('present')},'2026-09-16':{P1:rec('authorized','','','manual',{editedBy:'jinky'})}});return e;};
     const reg=calcEmployeePayroll(mk('production_regular'),'2026-09-10','2026-09-16','weekly');
     const c=calcEmployeePayroll(mk('project_contractor'),'2026-09-10','2026-09-16','weekly');
@@ -20,7 +20,7 @@ module.exports=[
   seed:SEED,
   run:async()=>{
     const mk=(cat)=>{const e=labour('P1','PEDRO PROJECT',{salaryCategory:cat,employmentType:'Regular',dailyRate:600,contractorProject:'15',allowances:[{type:'rice',monthly:2600,taxable:false}]});setE([e]);
-      const w=(x)=>rec(x,'07:00','16:00','fingerprint');
+      const w=(x)=>rec(x,'08:00','17:00','fingerprint');
       setA({'2026-09-10':{P1:w('present')},'2026-09-11':{P1:w('present')},'2026-09-12':{P1:w('present')},'2026-09-15':{P1:w('present')},'2026-09-16':{P1:rec('authorized','','','manual',{editedBy:'jinky'})}});return e;};
     const e=mk('project_contractor');
     localStorage.setItem('hydroPro_contr_adjust_v1',JSON.stringify([{id:'a1',empId:'P1',date:'2026-09-11',kind:'bonus',amount:500,reason:'step'}]));
@@ -77,4 +77,13 @@ module.exports=[
     const q=(window.hnxLate&&hnxLate.scan)?hnxLate.scan('2026-09-10','2026-09-16','P3').length:0;
     return {per:c.lateList.map(x=>[x.date,x.mins,x.amount]),tardy:c.tardyDeduction,pending:c.latePending,basic:c.basicPay,net:c.netPay,queue:q};},
   expect:{per:[['2026-09-10',30,37.5],['2026-09-12',60,75],['2026-09-14',240,300],['2026-09-15',60,75]],tardy:487.5,pending:0,basic:3000,net:2512.5,queue:0} },
+
+{ name:'🗂 GH15 and GH16 contractors are two separate payroll groups: keys project_contractor_15 / _16, labels "19. GH15 Project Contractor Labor" / "19. GH16 Project Contractor Labor", sorted after 18 and before anything unknown; no project set stays "19. GH15 & GH16 Project Contractor Labor" (v21.03)',
+  run:async()=>{
+    const k15=hnxPrjCatKey('project_contractor',{contractorProject:'15'}),k16=hnxPrjCatKey('project_contractor',null,{contrProject:'16'}),k0=hnxPrjCatKey('project_contractor',{});
+    const order=['project_contractor_16','maintenance_trainee','project_contractor_15','drivers'].sort((a,b)=>salCatSort(a)-salCatSort(b));
+    return {keys:[k15,k16,k0,hnxPrjCatKey('drivers',{contractorProject:'15'})],labels:[salCatLabel(k15),salCatLabel(k16),salCatLabel(k0)],order};},
+  expect:{keys:['project_contractor_15','project_contractor_16','project_contractor','drivers'],
+    labels:['19. GH15 Project Contractor Labor','19. GH16 Project Contractor Labor','19. GH15 & GH16 Project Contractor Labor'],
+    order:['drivers','maintenance_trainee','project_contractor_15','project_contractor_16']} },
 ];
