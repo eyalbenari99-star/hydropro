@@ -68,8 +68,23 @@ export default {
     const auth = req.headers.get('Authorization') || '';
     if (!env.BIO_TOKEN || auth !== 'Bearer ' + env.BIO_TOKEN) return json({ error: 'unauthorized' }, 401);
     if (p === '/bio/punches') {
-      const days = Math.min(14, Math.max(1, Number(url.searchParams.get('days')) || 2));
+      /* v21.06: ?from=YYYY-MM-DD&to=YYYY-MM-DD reads any stored range (every day is kept in R2 for
+         good) - up to 400 days per call - for the owners' Attendance Integrity history. Without them
+         it is the rolling window it always was (?days=, max 14). */
+      const from = String(url.searchParams.get('from') || ''), to = String(url.searchParams.get('to') || '');
       const out = [];
+      if (/^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to) && from <= to) {
+        let d = new Date(to + 'T00:00:00Z'), n = 0;
+        const stop = new Date(from + 'T00:00:00Z');
+        while (d >= stop && n < 400) {
+          const k = d.toISOString().slice(0, 10);
+          const obj = await env.R2.get('bio/punches/' + k + '.json');
+          if (obj) { try { out.push({ date: k, punches: await obj.json() }); } catch {} }
+          d = new Date(d.getTime() - 86400e3); n++;
+        }
+        return json({ ok: true, range: { from, to }, days: out });
+      }
+      const days = Math.min(14, Math.max(1, Number(url.searchParams.get('days')) || 2));
       for (let i = 0; i < days; i++) {
         const d = phDate(-i);
         const obj = await env.R2.get('bio/punches/' + d + '.json');
