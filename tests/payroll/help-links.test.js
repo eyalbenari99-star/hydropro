@@ -1,6 +1,6 @@
 /* v21.04: Help guides link to the screens they explain, with Contents and a way back. */
 module.exports=[
-{ name:'🆘 Help: the Payroll guide lists its screens (Labor Payroll among them) and a Contents list; ↗ opens 👷 Labor Payroll (Weekly), closes Help and leaves a 📖 Back button; Back reopens the same guide at the same section (v21.04)',
+{ name:'🆘 Help: the Payroll guide lists its screens (Labor Payroll among them) and a Contents list; ↗ opens 👷 Labor Payroll (Weekly), closes Help and leaves a 📖 Back button; Back reopens the same guide at the same section (v21.05)',
   run:async()=>{
     HNX_HELP.open('m_payroll');await sleep(400);
     const ov=document.getElementById('hnxhOv');
@@ -15,7 +15,7 @@ module.exports=[
     HNX_HELP.close();
     return {toc,tocAll:tocN===secN,manyLinks:goN>5,hasOps:screens.indexOf('payroll_ops')>=0,tripsRates:trips.indexOf('payroll_rates')>=0,closed,chip,view,reopened,chipGone};},
   expect:{toc:true,tocAll:true,manyLinks:true,hasOps:true,tripsRates:true,closed:true,chip:true,view:'payroll_ops',reopened:true,chipGone:true} },
-{ name:'🆘 Help: every guide renders with its links and no page error; almost every guide links at least one screen (v21.04)',
+{ name:'🆘 Help: every guide renders with its links and no page error; almost every guide links at least one screen (v21.05)',
   run:async()=>{
     let none=[],bad=[];
     for(const g of HNX_HELP_GUIDES){ try{ HNX_HELP.open(g.id); const n=document.querySelectorAll('#hnxhOv .hnxh-go').length; if(!n)none.push(g.id);}catch(e){bad.push(g.id+':'+e.message);} }
