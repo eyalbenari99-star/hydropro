@@ -32,4 +32,20 @@ module.exports=[
     const txt=(document.getElementById('view-hr_integrity')||{}).textContent||'';
     return {hidden:!!(v&&v.hidden),refused:/only/.test(txt)&&!/CRITICAL/.test(txt)};},
   expect:{hidden:true,refused:true} },
+
+{ name:'🕵 📚 Load history reads a 90-day range from the clock store: an August day where PROD033 scanned 07:00 + 07:45 is flagged, and an old worker (no range support) is reported as needing a redeploy (v21.07)',
+  seed:()=>{localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'MG',name:'OCIER, MARY GRACE',status:'Active'}]));
+    localStorage.setItem('hydroPro_bio_map_v1',JSON.stringify({PROD033:'MG'}));
+    localStorage.setItem('hydroPro_bio_cfg_v1',JSON.stringify({url:'https://bio.test',token:'t'}));},
+  run:async()=>{
+    let asked='';
+    window.fetch=async(u)=>{asked=String(u);return {json:async()=>({ok:true,range:{from:'2026-06-27',to:'2026-09-25'},days:[{date:'2026-08-10',punches:[{userId:'PROD033',time:'07:00'},{userId:'PROD033',time:'07:45'}]}]})};};
+    switchView('hr_integrity');await sleep(1500);
+    await hnxIntegrityLoad('2026-06-27','2026-09-25');
+    const F=hnxIntegrityScan().map(f=>f.kind+'@'+f.date);
+    window.fetch=async()=>({json:async()=>({ok:true,days:[]})});
+    await hnxIntegrityLoad('2026-06-27','2026-09-25');
+    const txt=document.getElementById('view-hr_integrity').textContent;
+    return {range:/from=2026-06-27&to=2026-09-25/.test(asked),F,old:/older version/.test(txt)};},
+  expect:{range:true,F:['two-people@2026-08-10'],old:true} },
 ];
