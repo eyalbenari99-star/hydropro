@@ -108,7 +108,7 @@ function runRenewalScan(data) {
   const findings = [];
   const openCaseByRegister = {}; // regItemId -> caseId, for any case not yet APPROVED/REJECTED/CLOSED
   cases.forEach(function (c) {
-    if (c && c.extra && c.extra.regItemId && c.status && !/^(APPROVED|REJECTED|CLOSED)$/i.test(c.status)) {
+    if (c && c.extra && c.extra.regItemId && c.status && !/^(APPROVED|RELEASED|REJECTED|CLOSED|CANCELLED|NOT_APPLICABLE|EXPIRED)$/i.test(c.status)) {
       openCaseByRegister[c.extra.regItemId] = c.id;
     }
   });
@@ -118,18 +118,18 @@ function runRenewalScan(data) {
     const windowDays = (+item.leadDays > 0) ? +item.leadDays : DEFAULT_WINDOW_DAYS;
     if (daysLeft > windowDays) return;
     if (openCaseByRegister[item.id]) {
-      findings.push({ rule: 'renewal_window', severity: 'info', entity: item.id, name: item.name || item.id, detail: `Within ${windowDays}d renewal window, already in progress (case ${openCaseByRegister[item.id]})`, daysLeft, link: 'cea_register' });
+      findings.push({ rule: 'renewal_window', severity: 'info', entity: item.id, name: item.name || item.id, detail: `Within ${windowDays}d renewal window, already in progress (case ${openCaseByRegister[item.id]})`, daysLeft, link: 'cea_regulatory' });
     } else {
-      findings.push({ rule: 'renewal_window', severity: daysLeft <= 0 ? 'danger' : (daysLeft <= Math.floor(windowDays / 3) ? 'danger' : 'warn'), entity: item.id, name: item.name || item.id, detail: `Expires in ${daysLeft}d, no renewal case open yet (window ${windowDays}d)`, daysLeft, link: 'cea_register' });
+      findings.push({ rule: 'renewal_window', severity: daysLeft <= 0 ? 'danger' : (daysLeft <= Math.floor(windowDays / 3) ? 'danger' : 'warn'), entity: item.id, name: item.name || item.id, detail: `Expires in ${daysLeft}d, no renewal case open yet (window ${windowDays}d)`, daysLeft, link: 'cea_regulatory' });
     }
   });
   cases.forEach(function (c) {
-    if (!c || !c.status || /^(APPROVED|REJECTED|CLOSED)$/i.test(c.status)) return;
+    if (!c || !c.status || /^(APPROVED|RELEASED|REJECTED|CLOSED|CANCELLED|NOT_APPLICABLE|EXPIRED)$/i.test(c.status)) return;
     const changedAt = c.updatedAt;
     if (!changedAt) return;
     const stuckDays = daysBetween(new Date(+changedAt || changedAt).toISOString(), now);
     if (stuckDays >= STUCK_DAYS) {
-      findings.push({ rule: 'case_stuck', severity: 'warn', entity: c.id, name: c.title || c.id, detail: `Status "${c.status}" unchanged for ${stuckDays} days`, stuckDays, link: 'cea_case' });
+      findings.push({ rule: 'case_stuck', severity: 'warn', entity: c.id, name: c.title || c.id, detail: `Status "${c.status}" unchanged for ${stuckDays} days`, stuckDays, link: 'cea_tasks' });
     }
   });
   return { generatedAt: new Date().toISOString(), findings };
