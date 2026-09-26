@@ -178,7 +178,18 @@ function runAgent(data) {
     renewalsCrit: items.filter(o => o.type === 'Renewal' && o.days != null && o.days <= 14).length,
     blocking: items.filter(o => o.blocking).length,
   };
-  return { ok: true, generatedAt: new Date().toISOString(), manilaDate: today, checked: { cases: cases.length, tasks: tasks.length, register: reg.length, requests: reqs.length }, owners: Object.keys(digest).length, supervisor, digest, sent: 0, note: 'In-app digest only — nothing is e-mailed or messaged.' };
+  /* v21.10: e-mail addresses for the digest mailer (nexi@ Apps Script) — only for people who have a digest,
+     from their Nexi user record, then their employee card; nobody is guessed from a name. */
+  const emails = {};
+  const users = arr(data && data.hydroPro_users), emps = arr(data && data.hydroPro_employees);
+  Object.keys(digest).forEach(k => {
+    const u = users.find(x => x && String(x.username || '').toLowerCase() === k && x.active !== false);
+    const e = emps.find(x => x && String(x.username || x.user || '').toLowerCase() === k);
+    const m = String((u && u.email) || (e && e.email) || '').trim();
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m)) emails[k] = m;
+  });
+  const sup = users.find(x => x && /^edelyn/i.test(String(x.username || '')) && x.active !== false);
+  return { ok: true, generatedAt: new Date().toISOString(), manilaDate: today, emails, supervisorEmail: (sup && sup.email) || '', checked: { cases: cases.length, tasks: tasks.length, register: reg.length, requests: reqs.length }, owners: Object.keys(digest).length, supervisor, digest, sent: 0, note: 'In-app digest only — nothing is e-mailed or messaged.' };
 }
 async function runAgentAndStore(env) {
   const data = await pullSyncedData(env);
