@@ -42,6 +42,14 @@
  * (for /gov/check) — /gov/renewals needs no separate URL field, same worker URL serves both.
  */
 const HNX_SYNC_BASE = 'https://hnx-sync.eyalbenari99.workers.dev';
+/* v21.12: a Worker cannot fetch another Worker on the same account through its workers.dev URL
+   (Cloudflare answers 404 / error 1042). Add a Service binding HNX_SYNC -> hnx-sync and calls go
+   through it; without the binding it falls back to the public URL. */
+function syncFetch(env, path, init) {
+  return env.HNX_SYNC && typeof env.HNX_SYNC.fetch === 'function'
+    ? env.HNX_SYNC.fetch(new Request(HNX_SYNC_BASE + path, init))
+    : fetch(HNX_SYNC_BASE + path, init);
+}
 const RENEWALS_KV_PREFIX = 'renewals:';
 const DEFAULT_WINDOW_DAYS = 60; // used only when a register item has no leadDays of its own
 const STUCK_DAYS = 14;
@@ -80,7 +88,7 @@ function visibleText(html) {
 
 /* ── Compliance Watchdog (v20.91) ── */
 async function hnxSyncToken(env) {
-  const r = await fetch(HNX_SYNC_BASE + '/auth/app-login', {
+  const r = await syncFetch(env, '/auth/app-login', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: String(env.HNX_SYNC_USER || '').toLowerCase(), hash: env.HNX_SYNC_PASS_HASH })
   });
@@ -91,7 +99,7 @@ async function hnxSyncToken(env) {
 }
 async function pullSyncedData(env) {
   const token = await hnxSyncToken(env);
-  const r = await fetch(HNX_SYNC_BASE + '/sync/pull', { headers: { Authorization: 'Bearer ' + token } });
+  const r = await syncFetch(env, '/sync/pull', { headers: { Authorization: 'Bearer ' + token } });
   if (!r.ok) throw new Error('hnx-sync pull failed: ' + r.status);
   return r.json();
 }
