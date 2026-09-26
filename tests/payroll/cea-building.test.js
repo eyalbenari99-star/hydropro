@@ -69,7 +69,7 @@ module.exports=[
     window.prompt=()=>'2';CEAFU.reassign('TSK-1');
     const t=JSON.parse(localStorage.getItem('hydroPro_cea_tasks_v1'))[0];const R=JSON.parse(localStorage.getItem('hydroPro_cea_reminders_v1'))['task:TSK-1'];
     const txt=document.getElementById('body-cea_followup').textContent;
-    return {inToday,status:t.status,due:t.due===today,owner:t.owner,ack:!!R.ack,follow:R.follow,notDeployed:/not deployed/.test(txt)};},
+    return {inToday,status:t.status,due:t.due===today,owner:t.owner,ack:!!R.ack,follow:R.follow,notDeployed:/not connected on this device/.test(txt)};},
   expect:{inToday:1,status:'open',due:true,owner:'edelyn',ack:true,follow:'2099-01-01',notDeployed:true} },
 
 { name:'📦 Dropbox file service: put() uploads to /CEA/<company>/<case>/<category>/<file> with a SHA-256 and keeps only the reference; a failure returns an error (nothing claimed); a document with a Dropbox reference opens through the file service (v21.08)',
@@ -99,4 +99,31 @@ module.exports=[
     const g=HNX_HELP_GUIDES.map(x=>x.id);
     return {to,menu:menus.some(m=>/New|Actions/.test(m)),inside:inside.length>=2,clickWorks:opened,guides:['cea_building','cea_followup'].every(x=>g.includes(x))};},
   expect:{to:{lic_registry:'cea_regulatory',lic_expiring:'cea_regulatory',lic_dash:'cea_command',lic_compliance:'cea_command'},menu:true,inside:true,clickWorks:true,guides:true} },
+
+{ name:'🤖 Daily agent card: with the gov-watch link set, the desk reads GET /gov/agent/latest and shows "Your digest: due today 2", the supervisor line, and a MISSING warning when today\'s 08:00 run did not happen (v21.09)',
+  run:async()=>{
+    await sleep(2500);
+    localStorage.setItem('hydroPro_dw_govwatch_v1',JSON.stringify({workerUrl:'https://gw.test',token:'t'}));
+    let asked='',auth='';window.fetch=async(u,o)=>{asked=String(u);auth=((o||{}).headers||{}).Authorization||'';return {ok:true,json:async()=>({ok:true,generatedAt:'2026-09-26T00:00:03Z',stale:true,missed:true,checked:{cases:4,tasks:9,register:3},
+      digest:{tester:{today:[{},{}],next7:[{}],renewals:[],waiting:[],blocked:[]}},supervisor:{noOwner:1,overdue2:2,stalled:0,noNextAction:0,renewalsCrit:0,blocking:1}})};};
+    switchView('cea_followup');await sleep(1500);CEAFU.render();await sleep(300);
+    const t=document.getElementById('body-cea_followup').textContent.replace(/\s+/g,' ');
+    return {url:asked,auth,mine:/Your digest: due today 2 · next 7 days 1/.test(t),sup:/no owner 1 · 2\+ days overdue 2/.test(t),missed:/08:00 run is MISSING/.test(t)};},
+  expect:{url:'https://gw.test/gov/agent/latest',auth:'Bearer t',mine:true,sup:true,missed:true} },
+{ name:'📅 Compliance on the shared calendar: a dated CEA task appears in 📅 Calendar events as a Compliance item with a stable id; saving other calendar events never stores the projection (no duplicates) (v21.09)',
+  run:async()=>{
+    await sleep(2500);
+    localStorage.setItem('hydroPro_cea_tasks_v1',JSON.stringify([{id:'TSK-7',caseId:'',title:'Renew FPA licence',owner:'tester',due:'2026-10-05',priority:'high',status:'open'}]));
+    const ev=loadCalEvents().filter(e=>e.module==='compliance');
+    addCalEvent({title:'Team lunch',date:'2026-10-06',module:'general'});
+    const stored=JSON.parse(localStorage.getItem(CAL_EVENTS_KEY)||'[]');
+    const again=loadCalEvents().filter(e=>e.module==='compliance').length;
+    return {n:ev.length,id:ev[0]&&ev[0].id,date:ev[0]&&ev[0].date,storedProj:stored.filter(e=>e._proj||e.module==='compliance').length,lunch:stored.some(e=>e.title==='Team lunch'),again};},
+  expect:{n:1,id:'CEA_task:TSK-7_2026-10-05',date:'2026-10-05',storedProj:0,lunch:true,again:1} },
+
+{ name:'🤖 Ask Nexi on a fresh PRJ12 case: held at the Definition gate, lists the first missing items with BP screen links, and says an internal sign-off is not evidence only when construction/use is the blocker (v21.09)',
+  run:async()=>{await sleep(2500);CEABLD.seed();await sleep(300);const c=CEABLD.cases().find(x=>x.extra.bld.structureType==='PRJ12_PRODUCTION');
+    const r=CEABLD.explain(c.id);await sleep(200);const d=document.getElementById('ceaDrawer');const t=d?d.textContent:'';
+    return {hold:r.hold,items:r.first.length>0&&r.first.every(m=>/^BP\d\d/.test(m)),links:d?d.querySelectorAll('a').length>0:false,noVerifyNote:!/Only a government check/.test(t)};},
+  expect:{hold:'definition',items:true,links:true,noVerifyNote:true} },
 ];

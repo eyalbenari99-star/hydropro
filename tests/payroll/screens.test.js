@@ -245,6 +245,9 @@ module.exports=[
 { name:'📍 Per-Greenhouse Schedule: a greenhouse outside today\'s rotation is a tappable dashed cell, not a dead one — marking it works and shows done, whatever weekday the suite runs on (v20.81)',
   run:async()=>{
     switchView('prod_recurring');await sleep(1500);
+    /* rows not due today are folded behind "show"; on a day when no greenhouse task is due (a Saturday)
+       every GH row is folded, so unfold them the way the user's tap does */
+    window._hnxGhmShowOff=true;if(typeof renderRecurringHub==='function')renderRecurringHub();await sleep(600);
     const v=document.getElementById('view-prod_recurring');
     /* find any live "na" cell — not scheduled today for that GH, but now clickable — and read
        its taskId/gh straight out of the onclick it renders, so the test needs no assumption
