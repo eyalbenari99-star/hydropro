@@ -101,7 +101,17 @@ async function pullSyncedData(env) {
   const token = await hnxSyncToken(env);
   const r = await syncFetch(env, '/sync/pull', { headers: { Authorization: 'Bearer ' + token } });
   if (!r.ok) throw new Error('hnx-sync pull failed: ' + r.status);
-  return r.json();
+  /* v21.12: /sync/pull answers { data: { key: "<JSON string>" } } — unwrap and parse, or every
+     lookup below reads undefined and the agent reports 0 cases / 0 tasks / 0 permits. */
+  const j = await r.json();
+  const raw = (j && j.data && typeof j.data === 'object') ? j.data : (j || {});
+  const out = {};
+  for (const k of Object.keys(raw)) {
+    const v = raw[k];
+    if (typeof v === 'string') { try { out[k] = JSON.parse(v); } catch (e) { out[k] = v; } }
+    else out[k] = v;
+  }
+  return out;
 }
 function daysBetween(a, b) { return Math.round((new Date(b) - new Date(a)) / 86400000); }
 /* Real schema (matches tests/payroll's v20.82/v20.83 CEA fixtures exactly):
