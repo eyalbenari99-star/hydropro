@@ -17,6 +17,10 @@
           GOV_TOKEN       (the worker's GOV_TOKEN, if it has one)
           SUPERVISOR_CC   eyalbenari99@gmail.com        (optional)
           APP_URL         https://aba-pardes-monitoring.netlify.app
+          WA_ENABLED      true        (optional — WhatsApp for URGENT items; needs the nexi_alert template approved in Meta)
+          WA_URL          https://nexi-wa.<account>.workers.dev
+          WA_TOKEN        (the nexi-wa worker's WA_TOKEN)
+          WA_TEST_TO      +63…        (with DRY_RUN=true, WhatsApp goes only to this number)
      3. Run sendDigests once → authorise (Gmail + external requests).
      4. Triggers → Add → sendDigests · Time-driven · Day timer · 8am to 9am (Asia/Manila project timezone).
    To test without e-mailing staff: set DRY_RUN = true → everything goes to SUPERVISOR_CC only.
@@ -82,6 +86,25 @@ function sendDigests() {
       htmlBody: personHtml_(owner, D, app), name: 'Nexi' });
     p.setProperty(key, '1'); sent++;
   });
+  /* v21.11 WhatsApp — URGENT items only (due today / overdue, blocked, renewals within 14 days), one message per
+     person per day, through the nexi-wa worker and Nexi's number +63 977 857 2214. Uses the Meta-approved UTILITY
+     template "nexi_alert" ("NEXI alert: {{1}}"), so it reaches people who never messaged Nexi. OFF until the script
+     properties WA_ENABLED=true, WA_URL and WA_TOKEN are set. Nobody without a phone on their employee card is messaged. */
+  var waOn = String(p.getProperty('WA_ENABLED') || '').toLowerCase() === 'true', waUrl = String(p.getProperty('WA_URL') || '').replace(/\/+$/, ''), waTok = p.getProperty('WA_TOKEN') || '';
+  var waSent = 0, waNoPhone = [];
+  if (waOn && waUrl && waTok) Object.keys(A.digest || {}).forEach(function (owner) {
+    var D = A.digest[owner] || {};
+    var urgent = (D.today || []).concat(D.blocked || [], (D.renewals || []).filter(function (i) { return i.days != null && i.days <= 14; }));
+    if (!urgent.length) return;
+    var ph = (A.phones || {})[owner];
+    if (!ph) { waNoPhone.push(owner); return; }
+    var key = 'wa:' + day + ':' + owner;
+    if (p.getProperty(key)) return;
+    var first = urgent[0], msg = urgent.length + ' compliance item' + (urgent.length > 1 ? 's need' : ' needs') + ' you today — first: ' + String(first.title).slice(0, 90) + (first.due ? ' (' + first.due + ')' : '') + '. Details in your e-mail / Nexi Follow-up Desk.';
+    var r = UrlFetchApp.fetch(waUrl + '/wa/template', { method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + waTok },
+      payload: JSON.stringify({ to: DRY ? (p.getProperty('WA_TEST_TO') || '') : ph, template: 'nexi_alert', lang: 'en', params: [msg] }) });
+    if (r.getResponseCode() === 200) { p.setProperty(key, '1'); waSent++; }
+  });
   var S = A.supervisor || {};
   var line = 'No owner: ' + (S.noOwner || 0) + ' · 2+ days overdue: ' + (S.overdue2 || 0) + ' · stalled 14+ days: ' + (S.stalled || 0) + ' · no next action: ' + (S.noNextAction || 0)
     + ' · renewals ≤ 14 days: ' + (S.renewalsCrit || 0) + ' · blocking requests: ' + (S.blocking || 0);
@@ -89,7 +112,8 @@ function sendDigests() {
   if (supTo && !p.getProperty('sent:' + day + ':__supervisor')) {
     MailApp.sendEmail({ to: supTo, cc: DRY ? '' : cc, subject: '🧭 Compliance portfolio — ' + day, name: 'Nexi',
       htmlBody: '<div style="font-family:Arial,sans-serif;font-size:14px"><p><b>' + esc_(line) + '</b></p><p>' + sent + ' personal digest(s) sent.'
-        + (skipped.length ? ' <b>No e-mail on file for:</b> ' + esc_(skipped.join(', ')) + ' — add it to their Nexi user record.' : '') + '</p>'
+        + (skipped.length ? ' <b>No e-mail on file for:</b> ' + esc_(skipped.join(', ')) + ' — add it to their Nexi user record.' : '')
+        + (waOn ? ' WhatsApp alerts sent: ' + waSent + (waNoPhone.length ? ' · <b>no phone on file for:</b> ' + esc_(waNoPhone.join(', ')) : '') + '.' : '') + '</p>'
         + '<p><a href="' + esc_(app) + '">Open Nexi → 🏛 CEA → 📅 Follow-up Desk</a></p></div>' });
     p.setProperty('sent:' + day + ':__supervisor', '1');
   }
