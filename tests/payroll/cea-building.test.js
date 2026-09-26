@@ -126,4 +126,18 @@ module.exports=[
     const r=CEABLD.explain(c.id);await sleep(200);const d=document.getElementById('ceaDrawer');const t=d?d.textContent:'';
     return {hold:r.hold,items:r.first.length>0&&r.first.every(m=>/^BP\d\d/.test(m)),links:d?d.querySelectorAll('a').length>0:false,noVerifyNote:!/Only a government check/.test(t)};},
   expect:{hold:'definition',items:true,links:true,noVerifyNote:true} },
+
+{ name:'🧠 AI review: the case summary goes to /ai/analyze in mode cea; the review shows with "Suggestions only"; ✅ creates the proposed task once (a second press adds none); an outage shows a message and changes nothing (v21.10)',
+  run:async()=>{
+    await sleep(2500);CEABLD.seed();await sleep(300);const c=CEABLD.cases()[0];
+    let sent=null;window.__hnxApi=async(p,o)=>{sent={p,ctx:JSON.parse(o.body).context};return {mode:'cea',model:'m',analysis:{summary:'Held at Definition.',observations:['No legal applicant'],evidence:[],missingInputs:['Lot/TCT'],uncertainty:'',proposedTasks:[{title:'Get the TCT copy from the owner',reason:'BP02 needs it',dueInDays:5}]}};};
+    CEABLD.ai(c.id,false);await sleep(500);
+    const t1=document.getElementById('ceaDrawer').textContent;
+    CEABLD.aiAccept(c.id,0);CEABLD.aiAccept(c.id,0);await sleep(200);
+    const tasks=JSON.parse(localStorage.getItem('hydroPro_cea_tasks_v1')||'[]').filter(t=>t.caseId===c.id&&/TCT copy/.test(t.title)).length;
+    const statusBefore=CEABLD.cases()[0].status;
+    window.__hnxApi=async()=>{throw new Error('offline');};CEABLD.ai(c.id,false);await sleep(400);
+    const t2=document.getElementById('ceaDrawer').textContent;
+    return {path:sent.p,mode:sent.ctx.mode,hasGates:Array.isArray(sent.ctx.summary.gates),shown:/Suggestions only/.test(t1)&&/Held at Definition/.test(t1),tasks,outage:/Could not reach the AI service/.test(t2)&&/Manual work is unaffected/.test(t2),status:CEABLD.cases()[0].status===statusBefore};},
+  expect:{path:'/ai/analyze',mode:'cea',hasGates:true,shown:true,tasks:1,outage:true,status:true} },
 ];
