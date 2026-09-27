@@ -37,7 +37,7 @@ const DESTRUCTIVE=/delete|remove|clear|reset|wipe|purge|erase|sign out|logout|dr
         const a=document.querySelector('.view.active'),el=document.getElementById('view-'+id);
         const html=el?el.innerHTML:'';const txt=el?el.innerText.replace(/\s+/g,' ').trim():'';
         const btns=el?Array.from(el.querySelectorAll('button,a[href="#"],a[onclick],[onclick]')).filter(x=>x.offsetParent!==null).map((x,i)=>({i,tag:x.tagName,text:(x.innerText||x.value||x.title||'').replace(/\s+/g,' ').trim().slice(0,50),oc:(x.getAttribute('onclick')||'').slice(0,90)})):[];
-        return {active:a&&a.id,htmlLen:html.length,textLen:txt.length,sample:txt.slice(0,220),btns,toasts:window.__probe.toasts.slice(),loading:/Loading…|Render error|failed to load/i.test(txt),tabs:Array.from(el?el.querySelectorAll('.tab,.subtab,[data-tab]'):[]).length};
+        const snagEl=el&&el.querySelector('[style*="word-break"]');return {active:a&&a.id,htmlLen:html.length,textLen:txt.length,sample:txt.slice(0,220),snagErr:snagEl?snagEl.innerText.slice(0,300):'',btns,toasts:window.__probe.toasts.slice(),loading:/Loading…|Render error|failed to load|hit a snag/i.test(txt),tabs:Array.from(el?el.querySelectorAll('.tab,.subtab,[data-tab]'):[]).length};
       },v.id);
     }catch(e){r={evalError:String(e.message).slice(0,200),btns:[]};}
     const clicks=[];
