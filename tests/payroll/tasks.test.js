@@ -131,3 +131,37 @@ module.exports.forEach(function(t){
   if(/__N__/.test(JSON.stringify(t.expect))){t.run=new Function('return ('+runSrc+')().then(function(r){return Object.assign(r,{okN:r.n1===r.expected&&r.n2===r.expected,okShift:r.shiftedDue===r.tuesday&&r.shiftedNominal!==r.shiftedDue,okOld:r.oldKept.length===3&&r.firstNew>r.oldKept[2]});});');
     t.expect={oneMonday:1,newTitle:'10:30 — reconcile supply (new format)',dupes:true,okN:true,okShift:true,okOld:true};}
 });
+/* v21.17 r2 (review round) */
+module.exports.push(
+{ name:'🔍 r2: the reviewer can open and approve a PERSONAL reviewed task (reviewer is part of its visibility); the owner cannot strip the approval rule off work her head assigned (rule locked, Done refused); switching a “Selected users” task to Personal drops the selected users; an admin owner still cannot approve their own task (v21.17)',
+  seed:SEED,
+  run:new Function(`return (async()=>{${AS}
+    await sleep(6000);const w=HNXTASKS;as('maria');
+    const p=w.create({title:'Private quote check',due:today,rule:'review',reviewer:'ben',visibility:'personal'});w.setStatus(p.id,'review');
+    as('ben');const benSees=w.canSee(w.load().find(x=>x.id===p.id),'ben');w.drawer(p.id);await sleep(100);const opened=!!document.getElementById('hnxTaskF')&&/Approve/.test(document.getElementById('hnxTaskF').innerHTML);document.getElementById('hnxTaskF')&&document.getElementById('hnxTaskF').remove();
+    const approved=w.setStatus(p.id,'done');
+    as('jinky');const a=w.create({title:'Prepare approved quote (assigned)',owner:'maria',due:today,rule:'review',reviewer:'jinky'});
+    as('maria');const strip=w.update(a.id,{rule:'simple',reviewer:''});const A=w.load().find(x=>x.id===a.id);const doneAfter=w.setStatus(a.id,'done');
+    w.drawer(a.id);await sleep(100);const locked=document.getElementById('tkR').disabled;document.getElementById('hnxTaskF').remove();
+    const s=w.create({title:'Shared with Ben',due:today,visibility:'users',sharedWith:['ben']});w.update(s.id,{visibility:'personal',sharedWith:['ben']});const S=w.load().find(x=>x.id===s.id);
+    as('tester');const adm=w.create({title:'Admin own review',due:today,rule:'review',reviewer:'jinky',visibility:'team'});w.setStatus(adm.id,'review');const selfAdmin=w.setStatus(adm.id,'done');
+    return {benSees,opened,approved,rule:A.rule,reviewer:A.reviewer,doneAfter,locked,shared:S.sharedWith,benStill:w.canSee(S,'ben'),selfAdmin};})()`),
+  expect:{benSees:true,opened:true,approved:true,rule:'review',reviewer:'jinky',doneAfter:false,locked:true,shared:[],benStill:false,selfAdmin:false} },
+
+{ name:'🔁 r2: a DAILY working-days rule never puts two tasks on a Monday (Sunday is skipped, not shifted); “last day of the month” lands on the last WORKING day of that month; a deleted occurrence is not generated again; stopping a series keeps an ended marker and removes only untouched future tasks; a department head is reminded of a blocked task the next day (v21.17)',
+  seed:SEED,
+  run:new Function(`return (async()=>{${AS}
+    await sleep(6000);const w=HNXTASKS;as('jinky');
+    const d=w.seriesSaveRaw({title:'Daily check',owner:'jinky',module:'crm',rule:{freq:'daily',workdays:true,holiday:'later'},start:today,visibility:'team',taskRule:'simple'},'all');
+    const occ=w.load().filter(t=>t.seriesId===d.id);const dates=occ.map(t=>t.due);const dupes=dates.length!==new Set(dates).size;const sundays=dates.filter(x=>new Date(x+'T00:00:00').getDay()===0).length;
+    const m=w.seriesSaveRaw({title:'Month-end reconcile',owner:'jinky',module:'crm',rule:{freq:'monthly',dom:'last',workdays:true,holiday:'later'},start:today,visibility:'team',taskRule:'simple'},'all');
+    const mo=w.load().filter(t=>t.seriesId===m.id);const sameMonth=mo.every(t=>t.due.slice(0,7)===t.nominal.slice(0,7));const wd=mo.every(t=>new Date(t.due+'T00:00:00').getDay()!==0);
+    const victim=occ[1];window.confirm=()=>true;w.remove(victim.id);w.generate();const back=w.load().some(t=>t.id===victim.id);
+    w.scheduleBlock(occ[2].id,occ[2].due,'09:00','10:00');w.seriesRemove(d.id);await sleep(50);
+    const S=w.loadSeries().find(x=>x.id===d.id);const leftover=w.load().filter(t=>t.seriesId===d.id).length;
+    as('maria');const b=w.create({title:'Get LTO clearance',due:ymd(new Date(Date.now()+10*86400000)),visibility:'team'});w.setStatus(b.id,'blocked',{reason:'waiting for LTO',next:ymd(new Date(Date.now()+2*86400000))});
+    const B=w.load().find(x=>x.id===b.id);B.blocked.at=Date.now()-86400000*1.5;localStorage.setItem('hydroPro_tasks_v1',JSON.stringify(w.load().map(x=>x.id===b.id?B:x)));
+    const headWhy=w.dueFor('jinky',today).filter(x=>x.t.id===b.id).map(x=>x.why);
+    return {n:occ.length>50,dupes,sundays,months:mo.length>=2,sameMonth,wd,back,ended:!!(S&&S.ended),leftover,headWhy};})()`),
+  expect:{n:true,dupes:false,sundays:0,months:true,sameMonth:true,wd:true,back:false,ended:true,leftover:1,headWhy:['blocked: waiting for LTO · Maria Santos']} }
+);
