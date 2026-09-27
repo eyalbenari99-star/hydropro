@@ -68,6 +68,13 @@
  *                                             accounting_method, summarize_column_by…)
  *   /qb/query?realm=&q=SELECT+...           → {entities:[…]}  SELECT statements only
  *   /qb/entity?realm=&type=Bill&id=123      → the full record, every field
+ *   /qb/sales?realm=&month=YYYY-MM[&refresh=1] → v21.13 sales-line history for Customer
+ *                                             Analytics: every Invoice, SalesReceipt, CreditMemo and
+ *                                             RefundReceipt line of the month, normalised (see salesLines),
+ *                                             cached in R2 per company+month. Closed months are pulled once;
+ *                                             the current and previous month refresh nightly at 02:00 Manila.
+ *   /qb/customers?realm=                    → every customer incl. inactive, with parent (sub-customer)
+ *                                             and QuickBooks customer type
  */
 
 const CORS = {
@@ -203,7 +210,7 @@ export default {
       return json({ ok: snap.ok, at: snap.at, error: snap.error || '', keys: Object.keys(snap.data || {}) });
     }
 
-    const DATA = ['/qb/accounts', '/qb/gl', '/qb/company', '/qb/report', '/qb/query', '/qb/entity'];
+    const DATA = ['/qb/accounts', '/qb/gl', '/qb/company', '/qb/report', '/qb/query', '/qb/entity', '/qb/sales', '/qb/customers'];
     if (DATA.indexOf(p) >= 0) {
       if (!realm) return json({ error: 'need realm' }, 400);
       const access = await accessToken(env, realm);
@@ -255,6 +262,26 @@ export default {
         const r = await qbo(access, realm, '/' + type + '/' + id + '?minorversion=75');
         if (r.error) return json(r, 502);
         return json({ ok: true, type, id, record: r });
+      }
+
+      /* v21.13 sales-line history, one month at a time, cached */
+      if (p === '/qb/sales') {
+        const month = url.searchParams.get('month') || '';
+        if (!/^\d{4}-\d{2}$/.test(month)) return json({ error: 'need month=YYYY-MM' }, 400);
+        const out = await salesMonth(env, access, realm, month, url.searchParams.get('refresh') === '1');
+        if (out.error) return json(out, 502);
+        return json(out);
+      }
+      if (p === '/qb/customers') {
+        const r = await qbAll(access, realm, 'Customer', 'Active in (true,false)');
+        if (r.error) return json(r, 502);
+        return json({ ok: true, customers: r.rows.map((c) => ({
+          id: c.Id, name: c.DisplayName || c.FullyQualifiedName || '', fullName: c.FullyQualifiedName || '',
+          parentId: (c.ParentRef && c.ParentRef.value) || '', isJob: !!c.Job, level: c.Level || 0,
+          type: (c.CustomerTypeRef && (c.CustomerTypeRef.name || c.CustomerTypeRef.value)) || '',
+          active: c.Active !== false, currency: (c.CurrencyRef && c.CurrencyRef.value) || '',
+          balance: typeof c.Balance === 'number' ? c.Balance : null,
+        })) });
       }
 
       if (p === '/qb/accounts') {
@@ -311,6 +338,19 @@ export default {
     const toks = await loadTokens(env);
     for (const realm of Object.keys(toks)) {
       ctx.waitUntil(syncRealm(env, realm));
+    }
+    /* v21.13: 02:00-02:04 Manila (18:00 UTC) - refresh this month and last month of sales lines */
+    const now = new Date(event && event.scheduledTime ? event.scheduledTime : Date.now());
+    if (now.getUTCHours() === 18 && now.getUTCMinutes() < 5) {
+      const m0 = now.toISOString().slice(0, 7);
+      const d1 = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+      for (const realm of Object.keys(toks)) {
+        ctx.waitUntil((async () => {
+          const access = await accessToken(env, realm);
+          if (!access) return;
+          for (const m of [d1, m0]) await salesMonth(env, access, realm, m, true);
+        })());
+      }
     }
   },
 };
@@ -449,6 +489,111 @@ function flatten(r) {
   })(r, 0);
   return out;
 }
+/* ---------- v21.13 SALES LINES (Customer Analytics) ----------
+ * One normalised row per sold line. Money is carried in integer centavos so
+ * sums never drift; the app divides by 100 for display.
+ *   sign   +1 Invoice / SalesReceipt, -1 CreditMemo / RefundReceipt
+ *   net    line amount after its share of document discounts, excluding tax
+ *          (QuickBooks puts tax in TxnTaxDetail, not in the line Amount)
+ *   qty    signed quantity; financial-only credit lines keep qty 0
+ * Subtotal and description-only lines are skipped; bundle (group) lines are
+ * read through their children so the value is never counted twice. */
+const SALES_TYPES = [['Invoice', 1], ['SalesReceipt', 1], ['CreditMemo', -1], ['RefundReceipt', -1]];
+const SALES_KEY = (realm, month) => 'qb/sales/' + realm + '/' + month + '.json';
+function cents(x) { const n = Number(x); return isFinite(n) ? Math.round(n * 100) : 0; }
+export function salesLines(doc, type, sign) {
+  const items = [];
+  let discount = 0;
+  (function walk(lines) {
+    for (const l of lines || []) {
+      const t = l.DetailType;
+      if (t === 'SalesItemLineDetail') {
+        const d = l.SalesItemLineDetail || {};
+        items.push({
+          itemId: (d.ItemRef && d.ItemRef.value) || '', item: (d.ItemRef && d.ItemRef.name) || '',
+          qty: typeof d.Qty === 'number' ? d.Qty : 0, unitPrice: typeof d.UnitPrice === 'number' ? d.UnitPrice : null,
+          gross: cents(l.Amount), desc: l.Description || '',
+          classId: (d.ClassRef && d.ClassRef.value) || '', serviceDate: d.ServiceDate || '',
+        });
+      } else if (t === 'GroupLineDetail') {
+        walk((l.GroupLineDetail || {}).Line);
+      } else if (t === 'DiscountLineDetail') {
+        discount += cents(l.Amount);
+      }
+    }
+  })(doc.Line);
+  /* spread the document discount over the item lines by value; the rounding
+     residual goes to the largest line so the document still adds up to the cent */
+  const base = items.reduce((a, i) => a + i.gross, 0);
+  let given = 0, big = -1;
+  items.forEach((i, k) => {
+    i.disc = base > 0 && discount ? Math.floor(discount * i.gross / base) : 0;
+    given += i.disc;
+    if (big < 0 || i.gross > items[big].gross) big = k;
+  });
+  if (big >= 0) items[big].disc += discount - given;
+  const cur = (doc.CurrencyRef && doc.CurrencyRef.value) || 'PHP';
+  const rate = typeof doc.ExchangeRate === 'number' && doc.ExchangeRate > 0 ? doc.ExchangeRate : 1;
+  return items.map((i, k) => {
+    const net = i.gross - i.disc;
+    return {
+      date: doc.TxnDate || '', type, docId: doc.Id, docNum: doc.DocNumber || '', line: k + 1,
+      customerId: (doc.CustomerRef && doc.CustomerRef.value) || '', customer: (doc.CustomerRef && doc.CustomerRef.name) || '',
+      itemId: i.itemId, item: i.item, desc: i.desc, classId: i.classId,
+      qty: sign * i.qty, unitPrice: i.unitPrice,
+      net: sign * net, disc: sign * i.disc, currency: cur, rate,
+      baseNet: sign * Math.round(net * rate),
+      taxMode: doc.GlobalTaxCalculation || '',
+    };
+  });
+}
+async function qbAll(access, realm, entity, where) {
+  const rows = [];
+  let start = 1;
+  for (let page = 0; page < 50; page++) {
+    const q = 'select * from ' + entity + (where ? ' where ' + where : '') + ' startposition ' + start + ' maxresults 1000';
+    const r = await qbo(access, realm, '/query?minorversion=75&query=' + encodeURIComponent(q));
+    if (r.error) return r;
+    const got = ((r.QueryResponse || {})[entity]) || [];
+    for (const x of got) rows.push(x);
+    if (got.length < 1000) break;
+    start += 1000;
+  }
+  return { rows };
+}
+function monthRange(month) {
+  const [y, m] = month.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return [month + '-01', month + '-' + String(last).padStart(2, '0')];
+}
+async function salesMonth(env, access, realm, month, refresh) {
+  const key = SALES_KEY(realm, month);
+  let cached = null;
+  try { const o = await env.R2.get(key); cached = o ? await o.json() : null; } catch { cached = null; }
+  const [from, to] = monthRange(month);
+  /* a month that ended more than 35 days ago is closed: pull once, keep */
+  const closed = Date.parse(to + 'T23:59:59+08:00') < Date.now() - 35 * 86400000;
+  const fresh = cached && (closed || Date.now() - cached.at < 6 * 3600000);
+  if (cached && fresh && !refresh) return { ...cached, cached: true };
+  const lines = [];
+  let docs = 0;
+  for (const [type, sign] of SALES_TYPES) {
+    const r = await qbAll(access, realm, type, "TxnDate >= '" + from + "' and TxnDate <= '" + to + "'");
+    if (r.error) {
+      /* keep the last complete copy; say it is stale instead of returning half a month */
+      if (cached) return { ...cached, cached: true, stale: true, error: '', staleReason: type + ': ' + r.error };
+      return { error: type + ': ' + r.error, detail: r.detail };
+    }
+    docs += r.rows.length;
+    for (const d of r.rows) for (const l of salesLines(d, type, sign)) lines.push(l);
+  }
+  const totals = { net: 0, byType: {} };
+  for (const l of lines) { totals.net += l.baseNet; totals.byType[l.type] = (totals.byType[l.type] || 0) + l.baseNet; }
+  const out = { ok: true, realm, month, from, to, at: Date.now(), closed, docs, count: lines.length, totals, lines, units: 'centavos' };
+  await env.R2.put(key, JSON.stringify(out));
+  return out;
+}
+
 function colNames(r) {
   return (((r.Columns || {}).Column) || []).map((c) => (c && c.ColTitle) || '');
 }
