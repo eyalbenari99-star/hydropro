@@ -64,3 +64,22 @@ module.exports=[
     return {status:hnxAttDev.list()[0].status};},
   expect:{status:'open'} },
 ];
+module.exports.push(
+{ name:'⚠ Jinky (Accounting, not admin) can ✅ Approve or ⚠ Send to admin but not “Not accepted”; once sent to admin she cannot decide it, the cell turns ⚠ ADMIN and an admin decides (v21.14)',
+  seed:new Function('('+SEED.toString()+')();localStorage.setItem(\'hydroPro_users\',JSON.stringify([{username:\'jinky\',fullname:\'Jinky Pagtama\',passwordHash:\'x\',role:\'staff\',department:\'Accounting\',active:true},{username:\'tester\',fullname:\'Tester\',passwordHash:\'x\',role:\'admin\',active:true}]));sessionStorage.setItem(\'hydroPro_session\',JSON.stringify({username:\'jinky\',loginAt:Date.now()}));'),
+  run:async()=>{
+    await sleep(2500);hnxAttDev.tick();await sleep(800);
+    const id=hnxAttDev.list()[0].id;
+    window.prompt=()=>'no idea';hnxAttDev.decide(id,'rejected');await sleep(200);
+    const afterReject=hnxAttDev.list()[0].status;
+    window.prompt=()=>'two people on one ID?';hnxAttDev.decide(id,'escalated');await sleep(200);
+    const esc=hnxAttDev.list()[0];
+    hnxAttDev.decide(id,'approved');await sleep(200);
+    const stillEsc=hnxAttDev.list()[0].status;
+    const cell=hnxAttDev.cell('E1',__devDay).badge;
+    sessionStorage.setItem('hydroPro_session',JSON.stringify({username:'tester',loginAt:Date.now()}));
+    window.prompt=()=>'confirmed: colleague scanned for him';hnxAttDev.decide(id,'rejected');await sleep(200);
+    const fin=hnxAttDev.list()[0];
+    return {afterReject,esc:esc.status,escBy:esc.escalatedBy,stillEsc,admin:/⚠ ADMIN/.test(cell),final:fin.status,note:fin.note};},
+  expect:{afterReject:'open',esc:'escalated',escBy:'Jinky Pagtama',stillEsc:'escalated',admin:true,final:'rejected',note:'confirmed: colleague scanned for him'} }
+);
