@@ -74,3 +74,65 @@ module.exports=[
       ups:__ups.filter(k=>k.indexOf('hydroPro_'+__old)>=0).length,todayUploaded:__ups.some(k=>k.indexOf('hydroPro_'+__today)>=0)};},
   expect:{todayKept:true,oldGone:true,ups:1,todayUploaded:false} },
 ];
+/* v21.16 r2 (second review round) */
+module.exports.push(
+{ name:'📦 r2: a REAL write made in the first seconds, before the device database answered, is held and merged in once the vault is ready — the early upload and the stored document are both there; an empty default written early is dropped for good (v21.16)',
+  seed:function(){
+    localStorage.setItem('hydroPro_cea_docs_v1','\u0001VAULT\u0001');
+    localStorage.setItem('hydroPro_crm_master_docs','\u0001VAULT\u0001');
+    const big='data:application/pdf;base64,'+'QUJDRA'.repeat(50000);
+    const v=JSON.stringify([{id:'D9',caseId:'DW-9',name:'Old permit.pdf',data:big,addedAt:'2026-08-01T01:00:00Z'}]);
+    /* slow device database: no read answers before 14 s after page start (the app itself parses for several seconds), so the early writes below land before hydration */
+    const T0=performance.now()+14000,og=IDBObjectStore.prototype.get;
+    IDBObjectStore.prototype.get=function(){const rq=og.apply(this,arguments);let succ=null;
+      Object.defineProperty(rq,'onsuccess',{set(f){succ=f;},get(){return succ;}});
+      rq.addEventListener('success',e=>{if(succ)setTimeout(()=>succ(e),Math.max(0,T0-performance.now()));});return rq;};
+    const r=indexedDB.open('hnx_backups',1);
+    r.onupgradeneeded=e=>{const db=e.target.result;if(!db.objectStoreNames.contains('b'))db.createObjectStore('b');};
+    r.onsuccess=e=>{const db=e.target.result;db.transaction('b','readwrite').objectStore('b').put(v,'vault:hydroPro_cea_docs_v1');};
+    document.addEventListener('DOMContentLoaded',()=>{setTimeout(()=>{
+      window.__earlyReady=!!(window.__hnxAUTOVAULT&&__hnxAUTOVAULT.ready());window.__earlyAt=Math.round(performance.now());
+      localStorage.setItem('hydroPro_cea_docs_v1',JSON.stringify([{id:'D-early',caseId:'DW-1',name:'Early upload.pdf',data:'data:application/pdf;base64,QUJD',addedAt:'2026-09-27T01:00:00Z'}]));
+      localStorage.setItem('hydroPro_crm_master_docs','[]');
+      window.__earlyHeld=__hnxAUTOVAULT.held().slice();
+    },300);});
+  },
+  run:new Function(`return (async()=>{
+    await sleep(2500);${WAIT}await sleep(1500);
+    const d=JSON.parse(localStorage.getItem('hydroPro_cea_docs_v1')||'[]').map(x=>x.name).sort();
+    return {earlyReady:__earlyReady,earlyAt:__earlyAt,earlyHeld:__earlyHeld,docs:d,heldNow:__hnxAUTOVAULT.held(),masterRaw:__hnxAUTOVAULT.rawGet('hydroPro_crm_master_docs'),master:localStorage.getItem('hydroPro_crm_master_docs'),ready:__hnxAUTOVAULT.ready()};})()`),
+  expect:{earlyReady:false,earlyHeld:['hydroPro_cea_docs_v1'],docs:['Early upload.pdf','Old permit.pdf'],heldNow:[],masterRaw:'\u0001VAULT\u0001',master:null,ready:true} },
+
+{ name:'☁ r2: the cloud holds a document this computer does not have; the vault is still loading when the first download runs — the store is NOT uploaded un-merged (no push ever carries only the local document) and after hydration both documents are on the screen (v21.16)',
+  seed:function(){
+    localStorage.setItem('hnx_cloud_token','t');window.__pushes=[];window.__hnxBoot0=Date.now()-20000; /* the engine stops waiting for the vault after 8 s */
+    const big='data:application/pdf;base64,'+'QUJDRA'.repeat(50000);
+    localStorage.setItem('hydroPro_cea_docs_v1',JSON.stringify([{id:'D1',caseId:'DW-1',name:'Local permit.pdf',data:big,addedAt:'2026-09-20T01:00:00Z'}]));
+    const cloud=JSON.stringify({'hydroPro_cea_docs_v1':JSON.stringify([{id:'D-cloud',caseId:'DW-2',name:'Cloud permit.pdf',data:'data:application/pdf;base64,QUJD',addedAt:'2026-09-25T01:00:00Z'}])});
+    const T0=performance.now()+14000,og=IDBObjectStore.prototype.get;
+    IDBObjectStore.prototype.get=function(){const rq=og.apply(this,arguments);let succ=null;
+      Object.defineProperty(rq,'onsuccess',{set(f){succ=f;},get(){return succ;}});
+      rq.addEventListener('success',e=>{if(succ)setTimeout(()=>succ(e),Math.max(0,T0-performance.now()));});return rq;};
+    const of=window.fetch;window.fetch=function(u,o){u=String(u);
+      if(u.indexOf('/sync/pull')>=0){ if(window.__firstPullBeforeSettled==null) window.__firstPullBeforeSettled=!(window.__hnxAUTOVAULT&&__hnxAUTOVAULT.settled()); return Promise.resolve(new Response('{"ok":true,"data":'+cloud+'}',{status:200})); }
+      if(u.indexOf('/sync/push')>=0){try{window.__pushes.push(JSON.parse(o.body).data);}catch(e){}return Promise.resolve(new Response('{"ok":true}',{status:200}));}
+      if(u.indexOf('hnx-sync')>=0)return Promise.resolve(new Response('{"ok":true,"data":{}}',{status:200}));
+      return of.apply(this,arguments);};
+  },
+  run:new Function(`return (async()=>{
+    await sleep(2500);${WAIT}await sleep(6000);
+    const d=JSON.parse(localStorage.getItem('hydroPro_cea_docs_v1')||'[]').map(x=>x.name).sort();
+    const bad=__pushes.filter(p=>p['hydroPro_cea_docs_v1']&&p['hydroPro_cea_docs_v1'].indexOf('Cloud permit.pdf')<0).length;
+    return {docs:d,pulled:!!window.__hnxPulledOk,firstPullBeforeSettled:window.__firstPullBeforeSettled,unmergedPushes:bad};})()`),
+  expect:{docs:['Cloud permit.pdf','Local permit.pdf'],pulled:true,firstPullBeforeSettled:true,unmergedPushes:0} },
+
+{ name:'📦 r2: with a broken device database a new document written to a store that is still raw in the browser lands raw (readable, not a stub); the same session still reads it back (v21.16)',
+  seed:new Function('('+SEED.toString()+")();Object.defineProperty(window,'indexedDB',{value:{open:function(){throw new Error('broken');}},configurable:true});"),
+  run:async()=>{
+    await sleep(2500);for(let i=0;i<80;i++){ if(__hnxAUTOVAULT.broken()) break; await sleep(250); }await sleep(300);
+    const a=JSON.parse(localStorage.getItem('hydroPro_cea_docs_v1')||'[]');a.push({id:'D2',caseId:'DW-1',name:'Second.pdf',data:'data:application/pdf;base64,QUJD',addedAt:'2026-09-27T01:00:00Z'});
+    localStorage.setItem('hydroPro_cea_docs_v1',JSON.stringify(a));await sleep(200);
+    const back=JSON.parse(localStorage.getItem('hydroPro_cea_docs_v1')||'[]');
+    return {broken:__hnxAUTOVAULT.broken(),settled:__hnxAUTOVAULT.settled(),n:back.length,raw:__hnxAUTOVAULT.rawGet('hydroPro_cea_docs_v1')!==__hnxAUTOVAULT.STUB,names:back.map(x=>x.name)};},
+  expect:{broken:true,settled:true,n:2,raw:true,names:['Well permit.pdf','Second.pdf']} }
+);
