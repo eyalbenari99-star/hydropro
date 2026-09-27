@@ -104,7 +104,7 @@ module.exports=[
   run:async()=>{
     await sleep(2500);
     localStorage.setItem('hydroPro_dw_govwatch_v1',JSON.stringify({workerUrl:'https://gw.test',token:'t'}));
-    let asked='',auth='';window.fetch=async(u,o)=>{asked=String(u);auth=((o||{}).headers||{}).Authorization||'';return {ok:true,json:async()=>({ok:true,generatedAt:'2026-09-26T00:00:03Z',stale:true,missed:true,checked:{cases:4,tasks:9,register:3},
+    let asked='',auth='';window.fetch=async(u,o)=>{if(/\/gov\//.test(String(u))){asked=String(u);auth=((o||{}).headers||{}).Authorization||'';} /* the sync engine's own calls may land after ours */ return {ok:true,json:async()=>({ok:true,generatedAt:'2026-09-26T00:00:03Z',stale:true,missed:true,checked:{cases:4,tasks:9,register:3},
       digest:{tester:{today:[{},{}],next7:[{}],renewals:[],waiting:[],blocked:[]}},supervisor:{noOwner:1,overdue2:2,stalled:0,noNextAction:0,renewalsCrit:0,blocking:1}})};};
     switchView('cea_followup');await sleep(1500);CEAFU.render();await sleep(300);
     const t=document.getElementById('body-cea_followup').textContent.replace(/\s+/g,' ');
