@@ -42,16 +42,18 @@ module.exports=[
     const ord=JSON.parse(localStorage.getItem('hydroPro_crm_orders'))[0];return {open:openKpi&&String(openKpi.v),val:/4,100|4100|4\.1k|4\.1K/.test(js)&&(typeof _o_total==='function'?_o_total(ord)===4100:true),custs:custs.length,names:custs.map(c=>c.name).sort(),invented:/47|284|1\\.4M|89\\.2/.test(stat),checklist:!!ck&&Object.keys(ck).some(k=>ck[k]&&Array.isArray(ck[k].items)&&ck[k].items.length>=5)};})()`),
   expect:{open:'1',val:true,custs:4,names:['Marriott Cebu','Robinsons Supermarket','Seda Ayala','Shangri-La'],invented:false,checklist:true} },
 
-{ name:'📈 Pipeline renders with a numeric createdAt lead (no “hit a snag”); 📢 Marketing is off the CRM menu; the Reminders sub-tab badge targets the real tab element; Leads search keeps focus after typing (v21.18)',
+{ name:'📈 Pipeline, 🏠 Overview and the lead detail render with a numeric createdAt lead (no “hit a snag”); 📢 Marketing is off the CRM menu; the Reminders sub-tab badge targets the real tab element; Leads search keeps focus after typing (v21.18)',
   seed:SEED,
   run:new Function(`return (async()=>{${AS}
     await sleep(6000);
     switchView('crm_pipeline');await sleep(1500);const pipe=document.getElementById('view-crm_pipeline').innerText;
+    switchView('crm_dash');await sleep(1500);const dash=document.getElementById('view-crm_dash').innerText;
+    window._crmSelLead='L1';switchView('crm_marketing');await sleep(1200);const det=document.getElementById('view-crm_marketing').innerText;
     const mk=MODULES.crm.views.find(v=>v.id==='crm_marketing');
     switchView('crm_reminders');await sleep(800);updateReminderBadge();const tab=document.getElementById('modTab-crm_reminders');
     switchView('crm_leads');await sleep(800);const inp=document.querySelector('#view-crm_leads input[type=search],#view-crm_leads input[placeholder*="earch"],#view-crm_leads input');
     let focusKept=null;if(inp){inp.focus();inp.value='Mar';inp.dispatchEvent(new Event('input',{bubbles:true}));await sleep(400);const a=document.activeElement;focusKept=!!(a&&a.tagName==='INPUT'&&document.getElementById('view-crm_leads').contains(a)&&a.value==='Mar');}
-    return {snag:/hit a snag/.test(pipe),hasWon:/Marriott|Seda|Shangri/.test(pipe)||true,marketingHidden:!!(mk&&mk.hidden),badgeTab:!!tab&&/Reminders/.test(tab.textContent),focusKept};})()`),
+    return {snag:/hit a snag/.test(pipe)||/hit a snag/.test(dash)||/hit a snag/.test(det),hasWon:/Marriott|Seda|Shangri/.test(pipe)||true,marketingHidden:!!(mk&&mk.hidden),badgeTab:!!tab&&/Reminders/.test(tab.textContent),focusKept};})()`),
   expect:{snag:false,marketingHidden:true,badgeTab:true,focusKept:true} },
 
 { name:'🎯 Potential Customers → CRM creates a complete lead (createdAt, owner, contact details copied) and 📁 Customer 360° Files lists Customer-Master-only customers too (v21.18)',
