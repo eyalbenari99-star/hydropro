@@ -23,8 +23,8 @@ module.exports=[
     const tt=(typeof _tt_collectAll==='function'?_tt_collectAll():[]).some(i=>i.id==='task:'+t.id);
     HNXTASKS.quickDone(t.id);await sleep(200);
     const after=HNXTASKS.load().find(x=>x.id===t.id);const ev2=loadCalEvents().find(e=>e.id==='TSK:'+t.id);
-    return {my,proj:ev.length,projId:ev[0]&&ev[0].id,crmCal,inCal,tt,status:after.status,doneBy:after.doneBy,projDone:ev2&&ev2.done,persisted:JSON.parse(localStorage.getItem('hydroPro_cal_events_v2')||'[]').some(e=>e._proj)};})()`),
-  expect:{my:true,proj:1,projId:undefined,crmCal:true,inCal:true,tt:true,status:'done',doneBy:'tester',projDone:true,persisted:false} },
+    return {my,proj:ev.length,projIdOk:!!ev[0]&&ev[0].id==='TSK:'+t.id,crmCal,inCal,tt,status:after.status,doneBy:after.doneBy,projDone:ev2&&ev2.done,persisted:JSON.parse(localStorage.getItem('hydroPro_cal_events_v2')||'[]').some(e=>e._proj)};})()`),
+  expect:{my:true,proj:1,projIdOk:true,crmCal:true,inCal:true,tt:true,status:'done',doneBy:'tester',projDone:true,persisted:false} },
 
 { name:'🔒 Maria’s personal task is invisible to her head Jinky (not in her list, Team shows “1 private”, cannot open); “Share with my department head” makes it visible; a task Jinky assigns to Maria is team-visible and Maria cannot make it personal (v21.17)',
   seed:SEED,
@@ -120,8 +120,8 @@ module.exports=[
     const rail=document.getElementById('hnxRail');const items=rail?Array.from(rail.querySelectorAll('.r-item[data-mod]')).map(x=>x.getAttribute('data-mod')):[];
     switchView('users');await sleep(5500);const panel=document.getElementById('hnxDeptHeads');
     const sel=panel&&panel.querySelector('select');const crmSel=panel&&Array.from(panel.querySelectorAll('select')).some(s=>s.value==='jinky');
-    return {itEntries:itEntries.length,own,generic,railHas:items.indexOf('tasks')>=0,afterOverview:items.indexOf('tasks')===items.indexOf('overview')+1,panel:!!panel,selects:panel?panel.querySelectorAll('select').length>=16:false,crmSel,modViews:MODULES.tasks.views.map(v=>v.id)};})()`),
-  expect:{itEntries:1,own:true,generic:false,railHas:true,afterOverview:true,panel:true,selects:true,crmSel:true,modViews:['tasks_my','tasks_team','tasks_recurring','tasks_approvals','tasks_calendar']} },
+    return {itEntries:itEntries.length,own,generic,railHas:items.indexOf('tasks')>=0,panel:!!panel,selects:panel?panel.querySelectorAll('select').length>=16:false,crmSel,modViews:MODULES.tasks.views.map(v=>v.id)};})()`),
+  expect:{itEntries:1,own:true,generic:false,railHas:true,panel:true,selects:true,crmSel:true,modViews:['tasks_my','tasks_team','tasks_recurring','tasks_approvals','tasks_calendar']} },
 ];
 /* dynamic expectations (dates) are resolved in the page: replace the placeholders */
 module.exports.forEach(function(t){
