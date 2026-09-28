@@ -1,14 +1,15 @@
 /* v21.19: HOUSEKEEPER — background work cannot freeze a click, memory is released automatically */
 module.exports=[
-{ name:'⏱ Timer governor: 60+ module-only jobs (R&D panel pollers) are screen-scoped — on the dashboard they never run (skipped, 0 runs); on the R&D screen they do; the stats list every job with its scope (v21.19)',
+{ name:'⏱ Timer governor: 50+ module-only jobs (R&D panel pollers) are screen-scoped, screen-wide banners are not (v21.20) — on the dashboard they never run (skipped, 0 runs); on the R&D screen they do; the stats list every job with its scope (v21.19)',
   run:async()=>{
     await sleep(6000);switchView('dashboard');await sleep(5000);
     const st=window.__hnxGovStats();const sc=st.jobs.filter(j=>j.scoped);
     const ranOnDash=sc.filter(j=>j.runs>0).length,skipped=sc.filter(j=>j.skipped>0).length;
+    const wrong=st.jobs.filter(j=>j.scoped&&/showBackdateBanner|universalIndicator|showIrrigationBanner|headsPanel|sweep\(\)/.test(j.src)).map(j=>j.src.slice(0,30)); /* v21.20: screen-wide banners must never be scoped */
     switchView('rnd_home');await sleep(4500);
     const st2=window.__hnxGovStats();const ranOnRnd=st2.jobs.filter(j=>j.scoped&&j.runs>0).length;
-    return {scoped:sc.length>=60,ranOnDash,skippedMost:skipped>=sc.length*0.8,ranOnRnd:ranOnRnd>=20,activeView:st2.activeView,keys:'skipped' in st.jobs[0]&&'deferred' in st.jobs[0]};},
-  expect:{scoped:true,ranOnDash:0,skippedMost:true,ranOnRnd:true,activeView:'view-rnd_home',keys:true} },
+    return {scoped:sc.length>=50,wrong,ranOnDash,skippedMost:skipped>=sc.length*0.8,ranOnRnd:ranOnRnd>=20,activeView:st2.activeView,keys:'skipped' in st.jobs[0]&&'deferred' in st.jobs[0]};},
+  expect:{scoped:true,wrong:[],ranOnDash:0,skippedMost:true,ranOnRnd:true,activeView:'view-rnd_home',keys:true} },
 
 { name:'⏱ Interaction priority: while pointer events keep arriving, jobs averaging > 8 ms are deferred (deferred counter grows) and none of them runs inside the busy window unless a full period late (v21.19)',
   run:async()=>{
