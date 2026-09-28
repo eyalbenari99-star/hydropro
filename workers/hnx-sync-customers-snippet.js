@@ -27,7 +27,10 @@ if ((url.pathname === '/sos/customers' || url.pathname === '/sos/invoices') && r
   const isCust = url.pathname === '/sos/customers';
   const sosUrl = 'https://api.sosinventory.com/api/v2/' + (isCust ? 'customer' : 'invoice')
     + '?start=' + encodeURIComponent(start) + '&maxresults=' + max
-    + (!isCust && q.get('open') ? '&status=open' : '');
+    + (!isCust && q.get('open') ? '&status=open' : '')
+    /* v21.19: CRM → Sales Analytics asks for a whole MONTH of invoices (paid included): ?from=&to= → SOS fromDate/toDate */
+    + (!isCust && q.get('from') ? '&fromDate=' + encodeURIComponent(q.get('from')) : '')
+    + (!isCust && q.get('to') ? '&toDate=' + encodeURIComponent(q.get('to')) : '');
 
   const r = await fetch(sosUrl, {
     headers: { Authorization: 'Bearer ' + sosToken, Accept: 'application/json' }

@@ -25,7 +25,11 @@ if (url.pathname === '/sos/sales-orders' && request.method === 'GET') {
   // SOS v2 list endpoint; the app filters open lines itself, but asking for
   // open orders keeps the payload small when the account supports it.
   const sosUrl = 'https://api.sosinventory.com/api/v2/salesorder?start=' + encodeURIComponent(start)
-    + '&maxresults=' + max + (q.get('open') ? '&status=open' : '');
+    + '&maxresults=' + max + (q.get('open') ? '&status=open' : '')
+    /* v21.19: CRM → Orders asks for a whole MONTH (closed / shipped included): ?from=YYYY-MM-DD&to=YYYY-MM-DD.
+       Forwarded as SOS's fromDate/toDate; the app filters the month itself too, so an account that ignores them still works. */
+    + (q.get('from') ? '&fromDate=' + encodeURIComponent(q.get('from')) : '')
+    + (q.get('to') ? '&toDate=' + encodeURIComponent(q.get('to')) : '');
 
   const r = await fetch(sosUrl, {
     headers: { Authorization: 'Bearer ' + sosToken, Accept: 'application/json' }

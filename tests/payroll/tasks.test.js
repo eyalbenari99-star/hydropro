@@ -118,7 +118,7 @@ module.exports=[
     switchView('it_calendar');await sleep(1200);const itHtml=document.getElementById('view-it_calendar').innerHTML;
     const own=!!document.getElementById('hnx-it_calendar-body'),generic=/Only this module’s items/.test(itHtml);
     const rail=document.getElementById('hnxRail');const items=rail?Array.from(rail.querySelectorAll('.r-item[data-mod]')).map(x=>x.getAttribute('data-mod')):[];
-    switchView('users');await sleep(5500);const panel=document.getElementById('hnxDeptHeads');
+    switchView('users');let panel=null;for(let i=0;i<40;i++){panel=document.getElementById('hnxDeptHeads');if(panel&&panel.querySelectorAll('select').length>=16)break;await sleep(500);}
     const sel=panel&&panel.querySelector('select');const crmSel=panel&&Array.from(panel.querySelectorAll('select')).some(s=>s.value==='jinky');
     return {itEntries:itEntries.length,own,generic,railHas:items.indexOf('tasks')>=0,panel:!!panel,selects:panel?panel.querySelectorAll('select').length>=16:false,crmSel,modViews:MODULES.tasks.views.map(v=>v.id)};})()`),
   expect:{itEntries:1,own:true,generic:false,railHas:true,panel:true,selects:true,crmSel:true,modViews:['tasks_my','tasks_team','tasks_recurring','tasks_approvals','tasks_calendar']} },
