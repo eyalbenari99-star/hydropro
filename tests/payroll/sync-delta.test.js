@@ -32,15 +32,17 @@ module.exports=[
     return {sizes:__pushes.map(p=>p.length),big:__pushes.slice(1).filter(p=>p.length>8).map(p=>p.slice(0,12)),firstFull:first.length>5,firstHasUsers:first.indexOf('hydroPro_users')>=0,mineSmall:!!mine&&mine.length<=8,pushTimeout:mode.pushTimeoutMs,unsafe:mode.unsafe};},
   expect:{firstFull:true,firstHasUsers:true,mineSmall:true,pushTimeout:240000,unsafe:false} },
 
-{ name:'☁ Safety net: if a pull after a delta upload no longer holds a key the cloud had, Nexi switches to full uploads (hnx_delta_unsafe) (v21.19)',
+{ name:'☁ Safety net: if a pull after a delta upload no longer holds a key the cloud had, the next upload is FULL again; once that full upload succeeds the latch clears by itself and delta uploads resume (v21.19)',
   seed:new Function('('+SEED.toString()+")();"),
   run:async()=>{
     for(let i=0;i<60;i++){if(window.__hnxPulledOk)break;await sleep(500);}
     for(let i=0;i<40;i++){if(__pushes.length)break;await sleep(500);}
+    await sleep(12000);const n0=__pushes.length;
     window.__hnxCloudKeys=(window.__hnxCloudKeys||[]).concat(['hydroPro_ghost_key']);window.__hnxDeltaPushed=true;
     localStorage.setItem('hydroPro_cal_events_v2',JSON.stringify([{id:'EVT_2',module:'hr',title:'x',date:'2026-10-02',updatedAt:Date.now()}]));
-    for(let i=0;i<60;i++){if(localStorage.getItem('hnx_delta_unsafe')==='1')break;await sleep(500);}
+    let latched=false,fullAgain=false;for(let i=0;i<120;i++){if(localStorage.getItem('hnx_delta_unsafe')==='1'||localStorage.getItem('hnxlocal_delta_unsafe_at'))latched=true;if(__pushes.slice(n0).some(p=>p.length>5))fullAgain=true;if(fullAgain)break;await sleep(500);}
+    for(let i=0;i<40;i++){if(!window.__hnxSyncMode().unsafe)break;await sleep(500);}
     const m=window.__hnxSyncMode();
-    return {unsafe:localStorage.getItem('hnx_delta_unsafe'),full:m.full};},
-  expect:{unsafe:'1',full:true} },
+    return {fullAgain,clearedAfterFull:!m.unsafe,backToDelta:!m.full};},
+  expect:{fullAgain:true,clearedAfterFull:true,backToDelta:true} },
 ];
