@@ -74,13 +74,13 @@ module.exports.push(
 { name:'☁ Dirty keys survive a reload (hnxlocal_dirty_v1) and the goodbye flush sends only changed keys in batches under 60 KB — a key too big for a batch stays dirty for the next normal upload (v21.19)',
   seed:function(){localStorage.setItem('hnx_cloud_token','t');window.__pushes=[];const of=window.fetch;window.fetch=function(u,o){u=String(u);
     if(u.indexOf('/sync/pull')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,data:{'hydroPro_memos':'[]'}}),{status:200}));
-    if(u.indexOf('/sync/push')>=0){try{window.__pushes.push({keys:Object.keys(JSON.parse(o.body).data),len:o.body.length,keepalive:!!o.keepalive});}catch(e){}return Promise.resolve(new Response('{"ok":true}',{status:200}));}
+    if(u.indexOf('/sync/push')>=0){try{window.__pushes.push({keys:Object.keys(JSON.parse(o.body).data),len:o.body.length,keepalive:!!o.keepalive});}catch(e){}if(window.__holdPush&&!o.keepalive)return Promise.resolve(new Response('{"error":"held"}',{status:503})); /* the normal upload is held so the dirty keys stay put */return Promise.resolve(new Response('{"ok":true}',{status:200}));}
     if(u.indexOf('hnx-sync')>=0)return Promise.resolve(new Response('{"ok":true,"data":{}}',{status:200}));return of.apply(this,arguments);};},
   run:async()=>{
-    for(let i=0;i<60;i++){if(window.__hnxPulledOk)break;await sleep(500);}await sleep(12000);
+    for(let i=0;i<60;i++){if(window.__hnxPulledOk)break;await sleep(500);}await sleep(12000);window.__holdPush=true;
     localStorage.setItem('hydroPro_cal_events_v2',JSON.stringify([{id:'K1',module:'hr',title:'small',date:'2026-10-01',updatedAt:Date.now()}]));
     localStorage.setItem('hydroPro_hk_huge',JSON.stringify(Array.from({length:9000},function(_,i){return {id:i,t:'row number '+i+' '+Math.random()};})));
-    await sleep(700);const persisted=JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}');
+    await sleep(1200);const persisted=JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}');
     const n0=window.__pushes.length;window.__hnxFlushKeepalive();await sleep(800);
     const flush=window.__pushes.slice(n0).filter(p=>p.keepalive); /* a normal upload may land in the same window */
     return {dirtyPersisted:!!persisted['hydroPro_cal_events_v2'],hugePersisted:!!persisted['hydroPro_hk_huge'],flushed:flush.length>=1,small:flush.every(p=>p.len<=64000&&p.keepalive),hasSmall:flush.some(p=>p.keys.indexOf('hydroPro_cal_events_v2')>=0),hugeKept:flush.every(p=>p.keys.indexOf('hydroPro_hk_huge')<0)};},
