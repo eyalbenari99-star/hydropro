@@ -82,7 +82,7 @@ module.exports.push(
     localStorage.setItem('hydroPro_hk_huge',JSON.stringify(Array.from({length:9000},function(_,i){return {id:i,t:'row number '+i+' '+Math.random()};})));
     await sleep(700);const persisted=JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}');
     const n0=window.__pushes.length;window.__hnxFlushKeepalive();await sleep(800);
-    const flush=window.__pushes.slice(n0);
+    const flush=window.__pushes.slice(n0).filter(p=>p.keepalive); /* a normal upload may land in the same window */
     return {dirtyPersisted:!!persisted['hydroPro_cal_events_v2'],hugePersisted:!!persisted['hydroPro_hk_huge'],flushed:flush.length>=1,small:flush.every(p=>p.len<=64000&&p.keepalive),hasSmall:flush.some(p=>p.keys.indexOf('hydroPro_cal_events_v2')>=0),hugeKept:flush.every(p=>p.keys.indexOf('hydroPro_hk_huge')<0)};},
   expect:{dirtyPersisted:true,hugePersisted:true,flushed:true,small:true,hasSmall:true,hugeKept:true} },
 
