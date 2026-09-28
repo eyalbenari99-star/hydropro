@@ -19,6 +19,7 @@ module.exports=[
 { name:'🧑‍🔧 A replacement helper from the other labourers (Shernan, a greenhouse worker) can be picked as the helper of the day: the picker lists Helpers first, then "Other employees — temporary helper"; picking him stores E3 on the report and the print names him (v21.19)',
   seed:function(){
     localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'E1',name:'GARCIA, ANTONIO',status:'Active',position:'Driver',payType:'weekly',dailyRate:658},{id:'E2',name:'JAMISOLA, ANTONIO',status:'Active',position:'Helper',payType:'weekly',dailyRate:658},{id:'E3',name:'TABIOS, SHERNAN',status:'Active',position:'Greenhouse Worker',dept:'Construction',payType:'weekly',dailyRate:658}]));
+    localStorage.setItem('hydroPro_fleet_helpers',JSON.stringify([{id:'FH1',name:'ANTONIO JAMISOLA',active:true}])); /* the same helper again, name reversed */
     localStorage.setItem('hydroPro_fleet_vehicles',JSON.stringify([{id:'V1',name:'ISUZU TRUCK NEQ 4101',plate:'NEQ-4101',active:true}]));
     const d=new Date();const y=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');window.__gpsDay=y;
     localStorage.setItem('hydroPro_gps_reports',JSON.stringify({[y+'::V1']:{date:y,vehicleId:'V1',driverId:'E1',helperId:'',odoOut:1,odoIn:2,kmMode:'odo',stops:[{location:'APAC',timeOut:'08:04',kind:'base'}]}}));
@@ -31,6 +32,7 @@ module.exports=[
     window._gpsSelVehId='V1';window._gpsSelDate=window.__gpsDay;
     const R=JSON.parse(localStorage.getItem('hydroPro_gps_reports'));R[window.__gpsDay+'::V1'].helperId='E3';localStorage.setItem('hydroPro_gps_reports',JSON.stringify(R));
     printGpsDaily(window.__gpsDay);await sleep(300);
-    return {hasShernan,helperFirst,tempGroup,printed:/Helper:<\/strong> TABIOS, SHERNAN/.test(window.__printed)};},
-  expect:{hasShernan:true,helperFirst:true,tempGroup:true,printed:true} },
+    const jam=(html.match(/JAMISOLA/gi)||[]).length;
+    return {hasShernan,helperFirst,tempGroup,jamOnce:jam===1,printed:/Helper:<\/strong> TABIOS, SHERNAN/.test(window.__printed)};},
+  expect:{hasShernan:true,helperFirst:true,tempGroup:true,jamOnce:true,printed:true} },
 ];
