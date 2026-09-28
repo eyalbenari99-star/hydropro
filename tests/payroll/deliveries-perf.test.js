@@ -8,6 +8,16 @@ const SEED=function(){
   localStorage.setItem('hydroPro_log_deliveries',JSON.stringify(D));
 };
 module.exports=[
+{ name:'🚚 Status pick on a row: the table stays in place, the row keeps its value and the Pending / Delivered counters update in place (v21.19)',
+  seed:SEED,
+  run:async()=>{
+    await sleep(4000);switchView('log_deliveries');await sleep(2500);
+    const v=document.getElementById('view-log_deliveries');const table=v.querySelector('table.fleet-table');
+    const pend0=+document.getElementById('dlvKpiPending').textContent,del0=+document.getElementById('dlvKpiDelivered').textContent;
+    const t0=performance.now();_dlvUpd('DLV5','status','delivered');const ms=performance.now()-t0;await sleep(400);
+    return {fast:ms<300,sameTable:v.querySelector('table.fleet-table')===table,pend:+document.getElementById('dlvKpiPending').textContent===pend0-1,del:+document.getElementById('dlvKpiDelivered').textContent===del0+1,stored:JSON.parse(localStorage.getItem('hydroPro_log_deliveries')).find(x=>x.id==='DLV5').status};},
+  expect:{fast:true,sameTable:true,pend:true,del:true,stored:'delivered'} },
+
 { name:'🚚 Deliveries with 60 rows and 130 employees: changing the Helper on a row saves it (id and name), keeps the table in place (no full repaint) and takes well under half a second; the background enhancer leaves the table alone while a dropdown has focus (v21.19)',
   seed:SEED,
   run:async()=>{
