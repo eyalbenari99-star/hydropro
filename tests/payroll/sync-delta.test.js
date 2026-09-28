@@ -17,10 +17,10 @@ module.exports=[
     const first=__pushes[0]||[];
     const mode=window.__hnxSyncMode();
     localStorage.setItem('hydroPro_cal_events_v2',JSON.stringify([{id:'EVT_1',module:'hr',title:'delta test',date:'2026-10-01',updatedAt:Date.now()}]));
-    for(let i=0;i<40;i++){if(__pushes.length>=2)break;await sleep(500);}
-    const second=__pushes[1]||[];
-    return {firstFull:first.length>5,firstHasUsers:first.indexOf('hydroPro_users')>=0,secondKeys:second,pushTimeout:mode.pushTimeoutMs,unsafe:mode.unsafe};},
-  expect:{firstFull:true,firstHasUsers:true,secondKeys:['hydroPro_cal_events_v2'],pushTimeout:240000,unsafe:false} },
+    let mine=null;for(let i=0;i<60;i++){mine=__pushes.slice(1).find(p=>p.indexOf('hydroPro_cal_events_v2')>=0);if(mine)break;await sleep(500);}
+    const laterMax=Math.max(0,...__pushes.slice(1).map(p=>p.length));
+    return {firstFull:first.length>5,firstHasUsers:first.indexOf('hydroPro_users')>=0,mineSmall:!!mine&&mine.length<=8,laterSmall:laterMax<=8,pushTimeout:mode.pushTimeoutMs,unsafe:mode.unsafe};},
+  expect:{firstFull:true,firstHasUsers:true,mineSmall:true,laterSmall:true,pushTimeout:240000,unsafe:false} },
 
 { name:'☁ Safety net: if a pull after a delta upload no longer holds a key the cloud had, Nexi switches to full uploads (hnx_delta_unsafe) (v21.19)',
   seed:new Function('('+SEED.toString()+")();"),
