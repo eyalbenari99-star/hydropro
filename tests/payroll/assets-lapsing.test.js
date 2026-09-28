@@ -13,6 +13,6 @@ module.exports=[
     const tank=rows.find(n=>/Water Tank/.test(n.desc));const ptank=hnxArNewAssetPlan(tank.ref,'2026-09-29');
     const v=document.getElementById('view-acct_assets');const txt=v.innerText;
     /* make sure the New Asset tab is showing the card */
-    return {added:r1.added,updated:r1.updated,again:r2.added,againUpd:r2.updated,n:rows.length,cost,notqb:notqb.sort(),lenStatus:stat(len),lenPo:len.po,lenCredit:plan.je1.rows[1].acct.slice(0,12),tankStatus:stat(tank),tankOptional:!!ptank.je1.optional,card:/2026 lapsing recon/i.test(txt),fileMon:len.fileMon};},
-  expect:{added:34,updated:0,again:0,againUpd:34,n:34,cost:10117246.22,notqb:['2nd Hand Container DRY','2nd Hand Container WHL'],lenStatus:'inv',lenPo:'2026-21-PO0907-03',lenCredit:'1016-300-014',tankStatus:'fa',tankOptional:true,card:true,fileMon:788.88} },
+    return {added:r1.added,updated:r1.updated,again:r2.added,againUpd:r2.updated,n:rows.length,cost,notqb:notqb.sort(),lenStatus:stat(len),lenPo:len.po,lenCredit:plan.je1.rows[1].acct.slice(0,12),tankStatus:stat(tank),tankOptional:!!ptank.je1.optional,card:/2026 lapsing recon/i.test(txt),fileMon:len.fileMon,rockDep:rows.find(n=>/Rockwool 80/.test(n.desc)).fileDep};},
+  expect:{added:34,updated:0,again:0,againUpd:34,n:34,cost:10117246.22,notqb:['2nd Hand Container DRY','2nd Hand Container WHL'],lenStatus:'inv',lenPo:'2026-21-PO0907-03',lenCredit:'1016-300-014',tankStatus:'fa',tankOptional:true,card:true,fileMon:788.88,rockDep:135190.22} },
 ];
