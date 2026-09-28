@@ -1,0 +1,36 @@
+/* v21.19: delta uploads — a push carries only the keys changed on this computer; the upload has the 4-minute deadline */
+const SEED=function(){
+  localStorage.setItem('hnx_cloud_token','t');window.__pushes=[];window.__pulls=0;
+  const cloud={'hydroPro_crm_leads':'[{"id":"L1","company":"Cloud Co","stage":"new","updatedAt":1}]','hydroPro_memos':'[{"id":"M1","title":"cloud memo","status":"pending","updatedAt":1}]'};
+  const of=window.fetch;window.fetch=function(u,o){u=String(u);
+    if(u.indexOf('/sync/pull')>=0){window.__pulls++;return Promise.resolve(new Response(JSON.stringify({ok:true,data:cloud}),{status:200}));}
+    if(u.indexOf('/sync/push')>=0){try{const d=JSON.parse(o.body).data;window.__pushes.push(Object.keys(d));Object.keys(d).forEach(k=>cloud[k]=d[k]);}catch(e){}return Promise.resolve(new Response('{"ok":true}',{status:200}));}
+    if(u.indexOf('hnx-sync')>=0)return Promise.resolve(new Response('{"ok":true,"data":{}}',{status:200}));
+    return of.apply(this,arguments);};
+};
+module.exports=[
+{ name:'☁ The first upload of a session is FULL (safety net); after it, changing one key uploads ONLY that key (delta) — not the whole 15 MB store; the upload deadline is the 4-minute one, not 25 s (v21.19)',
+  seed:SEED,
+  run:async()=>{
+    for(let i=0;i<60;i++){if(window.__hnxPulledOk)break;await sleep(500);}
+    for(let i=0;i<40;i++){if(__pushes.length)break;await sleep(500);}
+    const first=__pushes[0]||[];
+    const mode=window.__hnxSyncMode();
+    localStorage.setItem('hydroPro_cal_events_v2',JSON.stringify([{id:'EVT_1',module:'hr',title:'delta test',date:'2026-10-01',updatedAt:Date.now()}]));
+    for(let i=0;i<40;i++){if(__pushes.length>=2)break;await sleep(500);}
+    const second=__pushes[1]||[];
+    return {firstFull:first.length>5,firstHasUsers:first.indexOf('hydroPro_users')>=0,secondKeys:second,pushTimeout:mode.pushTimeoutMs,unsafe:mode.unsafe};},
+  expect:{firstFull:true,firstHasUsers:true,secondKeys:['hydroPro_cal_events_v2'],pushTimeout:240000,unsafe:false} },
+
+{ name:'☁ Safety net: if a pull after a delta upload no longer holds a key the cloud had, Nexi switches to full uploads (hnx_delta_unsafe) (v21.19)',
+  seed:new Function('('+SEED.toString()+")();"),
+  run:async()=>{
+    for(let i=0;i<60;i++){if(window.__hnxPulledOk)break;await sleep(500);}
+    for(let i=0;i<40;i++){if(__pushes.length)break;await sleep(500);}
+    window.__hnxCloudKeys=(window.__hnxCloudKeys||[]).concat(['hydroPro_ghost_key']);window.__hnxDeltaPushed=true;
+    localStorage.setItem('hydroPro_cal_events_v2',JSON.stringify([{id:'EVT_2',module:'hr',title:'x',date:'2026-10-02',updatedAt:Date.now()}]));
+    for(let i=0;i<60;i++){if(localStorage.getItem('hnx_delta_unsafe')==='1')break;await sleep(500);}
+    const m=window.__hnxSyncMode();
+    return {unsafe:localStorage.getItem('hnx_delta_unsafe'),full:m.full};},
+  expect:{unsafe:'1',full:true} },
+];
