@@ -36,3 +36,19 @@ module.exports=[
     return {hasShernan,helperFirst,tempGroup,jamOnce:jam===1,printed:/Helper:<\/strong> TABIOS, SHERNAN/.test(window.__printed)};},
   expect:{hasShernan:true,helperFirst:true,tempGroup:true,jamOnce:true,printed:true} },
 ];
+/* v21.23 (Syra): the cloud merge keeps the newer GPS report — another PC's stale copy cannot erase the day's stops */
+module.exports.push(
+{ name:'☁ GPS report merge: a stale cloud copy (older updatedAt, stops without kind/reason) does NOT replace the local report edited later; a newer cloud copy does; a report only the cloud has is added; saving a changed report stamps updatedAt (v21.23)',
+  run:async()=>{
+    await sleep(5000);
+    const local={'2026-09-28::V1':{date:'2026-09-28',vehicleId:'V1',driverId:'E1',updatedAt:2000,stops:[{location:'APAC',timeOut:'06:12',kind:'base'},{location:'EDSA',timeIn:'07:48',kind:'unplanned',reason:'extra drop'}]},
+                 '2026-09-27::V1':{date:'2026-09-27',vehicleId:'V1',updatedAt:1000,stops:[{location:'APAC'}]}};
+    const cloud={'2026-09-28::V1':{date:'2026-09-28',vehicleId:'V1',driverId:'E1',updatedAt:1500,stops:[{location:'APAC',timeOut:'06:12'},{location:'EDSA',timeIn:'07:48'}]},
+                 '2026-09-27::V1':{date:'2026-09-27',vehicleId:'V1',updatedAt:3000,stops:[{location:'APAC'},{location:'NEW STOP'}]},
+                 '2026-09-26::V2':{date:'2026-09-26',vehicleId:'V2',updatedAt:500,stops:[]}};
+    const m=JSON.parse(window.__hnxMergeGeneric('hydroPro_gps_reports',JSON.stringify(local),JSON.stringify(cloud)));
+    localStorage.setItem('hydroPro_gps_reports',JSON.stringify(local));const all=loadGpsReports();all['2026-09-28::V1'].stops[1].reason='changed';saveGpsReports(all);
+    const st=loadGpsReports();
+    return {keptLocal:m['2026-09-28::V1'].stops[1].reason==='extra drop',tookNewerCloud:m['2026-09-27::V1'].stops.length===2,added:!!m['2026-09-26::V2'],stamped:st['2026-09-28::V1'].updatedAt>Date.now()-60000,untouchedKept:st['2026-09-27::V1'].updatedAt===1000,savedAt:!!window.__gpsSavedAt};},
+  expect:{keptLocal:true,tookNewerCloud:true,added:true,stamped:true,untouchedKept:true,savedAt:true} }
+);
