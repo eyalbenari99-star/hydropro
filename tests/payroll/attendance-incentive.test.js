@@ -31,3 +31,22 @@ module.exports=[
     return {warned:C.warn.some(w=>/3 times/.test(w)),asked:/3 times/.test(asked),ok};},
   expect:{warned:true,asked:true,ok:true} },
 ];
+
+/* v21.24 (Jinky: “I didn't do anything po”): identical rows on a card are counted once */
+module.exports.push(
+{ name:'🍚 Duplicates collapse: Meal ₱2,000/month on the card THREE times + incentive ₱2,000 → 1–15 Aug pays ₱1,000 (not ₱3,000), 16–31 Aug pays 1,000 + 2,000 = ₱3,000; the HR card opens it as ONE Meal row (v21.24)',
+  seed:function(){
+    localStorage.setItem('hydroPro_employees',JSON.stringify([
+      {id:'J1',name:'JOMEL, TEST',status:'Active',salaryCategory:'accounting',dept:'Logistics',payType:'semi',employmentType:'Regular',monthlyBasic:22000,dailyRate:1000,dateHired:'2025-01-01',hireDate:'2025-01-01',
+       allowances:[{type:'meal',monthly:2000,taxable:false},{type:'meal',monthly:2000,taxable:false},{type:'meal',monthly:2000,taxable:false},{type:'other',perfectMonth:2000,taxable:false}]}]));
+    localStorage.setItem('hydroPro_attendance',JSON.stringify({}));
+  },
+  run:async()=>{
+    await sleep(6000);try{loadEmployees();}catch(e){}
+    const E=JSON.parse(localStorage.getItem('hydroPro_employees'))[0];
+    const a=calcEmployeePayroll(E,'2026-08-01','2026-08-15','semi');
+    const b=calcEmployeePayroll(E,'2026-08-16','2026-08-31','semi');
+    const d=window.__hnxAllowDedupe(E.allowances,E);
+    return {first:a.recurringAllowance,closing:b.recurringAllowance,rows:d.length,meals:d.filter(x=>x.type==='meal').length,cardStill:E.allowances.length};},
+  expect:{first:1000,closing:3000,rows:2,meals:1,cardStill:4} }
+);
