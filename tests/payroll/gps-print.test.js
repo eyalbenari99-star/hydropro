@@ -36,3 +36,36 @@ module.exports=[
     return {hasShernan,helperFirst,tempGroup,jamOnce:jam===1,printed:/Helper:<\/strong> TABIOS, SHERNAN/.test(window.__printed)};},
   expect:{hasShernan:true,helperFirst:true,tempGroup:true,jamOnce:true,printed:true} },
 ];
+/* v21.23 (Syra): the cloud merge keeps the newer GPS report — another PC's stale copy cannot erase the day's stops */
+module.exports.push(
+{ name:'☁ GPS report merge: a stale cloud copy (older updatedAt, stops without kind/reason) does NOT replace the local report edited later; a newer cloud copy does; a report only the cloud has is added; saving a changed report stamps updatedAt (v21.23)',
+  run:async()=>{
+    await sleep(5000);
+    const local={'2026-09-28::V1':{date:'2026-09-28',vehicleId:'V1',driverId:'E1',updatedAt:2000,stops:[{location:'APAC',timeOut:'06:12',kind:'base'},{location:'EDSA',timeIn:'07:48',kind:'unplanned',reason:'extra drop'}]},
+                 '2026-09-27::V1':{date:'2026-09-27',vehicleId:'V1',updatedAt:1000,stops:[{location:'APAC'}]}};
+    const cloud={'2026-09-28::V1':{date:'2026-09-28',vehicleId:'V1',driverId:'E1',updatedAt:1500,stops:[{location:'APAC',timeOut:'06:12'},{location:'EDSA',timeIn:'07:48'}]},
+                 '2026-09-27::V1':{date:'2026-09-27',vehicleId:'V1',updatedAt:3000,stops:[{location:'APAC'},{location:'NEW STOP'}]},
+                 '2026-09-26::V2':{date:'2026-09-26',vehicleId:'V2',updatedAt:500,stops:[]}};
+    const m=JSON.parse(window.__hnxMergeGeneric('hydroPro_gps_reports',JSON.stringify(local),JSON.stringify(cloud)));
+    localStorage.setItem('hydroPro_gps_reports',JSON.stringify(local));const all=loadGpsReports();all['2026-09-28::V1'].stops[1].reason='changed';saveGpsReports(all);
+    const st=loadGpsReports();
+    return {keptLocal:m['2026-09-28::V1'].stops[1].reason==='extra drop',tookNewerCloud:m['2026-09-27::V1'].stops.length===2,added:!!m['2026-09-26::V2'],stamped:st['2026-09-28::V1'].updatedAt>Date.now()-60000,untouchedKept:st['2026-09-27::V1'].updatedAt===1000,savedAt:!!window.__gpsSavedAt};},
+  expect:{keptLocal:true,tookNewerCloud:true,added:true,stamped:true,untouchedKept:true,savedAt:true} }
+);
+/* v21.23 (Eyal): km per liter on the GPS distance */
+module.exports.push(
+{ name:'⛽ KM / Liter is figured on the GPS total distance: NIF-6891 on 28 Sep (GPS 108.4 km, odometer 86 km, 11.538 L) prints 9.40 km/L (108.4 ÷ 11.538 = 9.395) with the odometer basis 7.45 beside it (v21.23)',
+  seed:function(){
+    localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'E1',name:'GARCIA, ANTONIO JR',status:'Active',position:'Driver',payType:'weekly',dailyRate:658}]));
+    localStorage.setItem('hydroPro_fleet_vehicles',JSON.stringify([{id:'V1',name:'ISUZU TRUCK NIF 6891',plate:'NIF-6891',active:true}]));
+    const d=new Date();const y=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');window.__gpsDay=y;
+    const st=[{location:'APAC',timeOut:'06:12',km:0,kind:'base'},{location:'EDSA SHANG',timeIn:'07:48',timeOut:'08:43',km:38.7,kind:'customer'},{location:'APAC',timeIn:'12:49',timeOut:'16:21',km:102.8,kind:'base'},{location:'APAC',timeIn:'16:58',km:108.4,kind:'base'}];
+    localStorage.setItem('hydroPro_gps_reports',JSON.stringify({[y+'::V1']:{date:y,vehicleId:'V1',driverId:'E1',odoOut:82899,odoIn:82985,fillUpLiters:11.538,perLiter:102.6,kmMode:'odo',stops:st}}));
+    window.__printed='';window.open=function(){return {document:{write:function(h){window.__printed+=h;},close:function(){}}};};
+  },
+  run:async()=>{
+    await sleep(4000);printGpsDaily(window.__gpsDay);await sleep(300);const h=window.__printed;
+    const m=h.match(/KM \/ Liter \(GPS\):<\/strong><\/td><td>([0-9.]+)[^<]*<span[^>]*>\(odometer basis ([0-9.]+)\)/);
+    return {gps:m&&m[1],odo:m&&m[2],totalKm:/Total KM:<\/strong><\/td><td>86\.0/.test(h)};},
+  expect:{gps:'9.40',odo:'7.45',totalKm:true} }
+);
