@@ -181,4 +181,13 @@ module.exports=[
     window.confirm=oc;window.alert=oa;
     return {n1,d1:a.pricedD,h1:a.pricedH,n2,d2:b.pricedD,h2:b.pricedH};},
   expect:{n1:1,d1:500,h1:200,n2:1,d2:1000,h2:200} },
+{ name:'🕰 Stale-computer guard: a table still carrying the old ×2 flag (Clark 500/200 dbl) is converted to 1000/400 WITHOUT a new updatedAt stamp, so the cloud copy still wins the merge; a fresh seed carries stamp 0 (v21.25)',
+  seed:()=>{localStorage.setItem('hydroPro_trip_rates_v1',JSON.stringify({_lww:true,updatedAt:1700000000000,draftDirty:false,airportSeeded:true,draft:{areas:[{id:'clark',name:'CLARK CITY',d1:0,h1:0,d2:500,h2:200,dbl:true}]},live:{areas:[{id:'clark',name:'CLARK CITY',d1:0,h1:0,d2:500,h2:200,dbl:true}]}}));},
+  run:async()=>{await sleep(4000);const RK='hydroPro_trip_rates_v1';
+    const r=hnxTripRatesRead();const s=JSON.parse(localStorage.getItem(RK));
+    const cloud=JSON.stringify(Object.assign({},s,{updatedAt:1700000001000,live:{areas:[{id:'clark',name:'CLARK CITY',d1:0,h1:0,d2:500,h2:200}]}}));
+    const m=window.__hnxMergeGeneric(RK,localStorage.getItem(RK),cloud);
+    localStorage.removeItem(RK);switchView('pay_trips');await sleep(2500);const f=JSON.parse(localStorage.getItem(RK)||'{}');
+    return {d2:r.live.areas[0].d2,h2:r.live.areas[0].h2,stamp:s.updatedAt,cloudWins:!!(m&&/"d2":500/.test(m)),seedStamp:+f.updatedAt||0};},
+  expect:{d2:1000,h2:400,stamp:1700000000000,cloudWins:true,seedStamp:0} },
 ];
