@@ -19,6 +19,18 @@ const CLOUD=function(){
 };
 const withCloud=seed=>new Function('('+CLOUD.toString()+')();'+(seed?'('+seed.toString()+')();':''));
 module.exports=[
+{ name:'🛡 Old screen cannot upload: when the server runs a newer Nexi (v99.1) the push is skipped (0 keys sent) with "upload paused" in the sync error; once reloaded (flag cleared) the push goes out again (v21.33)',
+  seed:withCloud(()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));}),
+  run:async()=>{
+    await sleep(4000);
+    window.__hnxStaleApp='99.1';window.__pushed=null;
+    try{window.__hnxMarkDirtyKey&&window.__hnxMarkDirtyKey('hydroPro_stale_probe_v1');}catch(e){}
+    localStorage.setItem('hydroPro_stale_probe_v1','{"a":1}');
+    const err=await window.__tCloud.push();const blocked=window.__pushed===null;
+    window.__hnxStaleApp=null;window.__pushed=null;
+    const err2=await window.__tCloud.push();
+    return {blocked,paused:/upload paused/.test(err||''),cleared:!/upload paused/.test(err2||'')};},
+  expect:{blocked:true,paused:true,cleared:true} },
 { name:'🛡 Cloud-first boot: a synced key that was EMPTY at boot takes the cloud copy whole on the first download even though this computer wrote a seed to it meanwhile (80 real records win over 20 seeded), and the key is not dirty; a key that was present at boot still merges (v21.28)',
   seed:withCloud(()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));}),
   run:async()=>{
