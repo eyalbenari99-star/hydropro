@@ -235,10 +235,13 @@ export default {
         if (REPORTS.indexOf(name) < 0)
           return json({ error: 'unknown report: ' + name, allowed: REPORTS }, 400);
         const qp = new URLSearchParams();
-        url.searchParams.forEach((v, k) => { if (k !== 'realm' && k !== 'name') qp.set(k, v); });
+        url.searchParams.forEach((v, k) => { if (k !== 'realm' && k !== 'name' && k !== 'raw') qp.set(k, v); });
         if (!qp.has('minorversion')) qp.set('minorversion', '75');
         const r = await qbo(access, realm, '/reports/' + name + '?' + qp.toString());
         if (r.error) return json(r, 502);
+        /* v21.34: raw=1 returns Intuit's report JSON unchanged — the older Accounting screens (written for the
+           retired qb-api/Make bridge) parse that shape; the hnx-qb-legacy-bridge in the app asks for it. */
+        if (url.searchParams.get('raw') === '1') return json(r);
         return json({ ok: true, report: name, rows: flatten(r), header: r.Header || {}, columns: colNames(r) });
       }
 
