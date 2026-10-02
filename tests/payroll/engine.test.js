@@ -22,7 +22,7 @@ module.exports=[
     a['2026-09-12']={L1:rec('present','07:00','','repair-fill')};setA(a);
     return L(calcEmployeePayroll(e,'2026-09-10','2026-09-16','weekly'));},
   expect:{days:6,satNoProof:1,gap:0} },
-{ name:'late gate: pending = full day, approved deduct = minutes/480 x rate, excused = nothing (v20.57)',
+{ name:'late gate (v21.38, Dr Amy memo 2 Oct): pending = the WHOLE day held (tardy 658, still 6 days), approved deduct = minutes/480 x rate (82.25), excused = nothing, NOT PAID = the whole day (658)',
   run:async()=>{const e=labour('T1','TEST LATE');setE([e]);const a={};
     a['2026-09-08']={T1:rec('present','07:00','17:00')}; /* an old hand: the store holds days before this period */
     ['2026-09-10','2026-09-11','2026-09-12','2026-09-14','2026-09-15','2026-09-16'].forEach((d,i)=>{a[d]={T1:i===0?rec('late','08:00','17:00'):rec('present','07:00','17:00')};});setA(a);
@@ -30,8 +30,10 @@ module.exports=[
     const pending=F();
     localStorage.setItem('hydroPro_late_approvals_v1',JSON.stringify({'2026-09-10|T1':{decision:'deduct',lateMinutes:60,by:'Eyal',at:Date.now()}}));const deduct=F();
     localStorage.setItem('hydroPro_late_approvals_v1',JSON.stringify({'2026-09-10|T1':{decision:'excuse',by:'Eyal',at:Date.now()}}));const excused=F();
-    return {pending:{days:pending.days,tardy:pending.tardy,latePending:pending.latePending},deduct:{days:deduct.days,tardy:deduct.tardy},excused:{tardy:excused.tardy}};},
-  expect:{'pending.days':6,'pending.tardy':0,'pending.latePending':1,'deduct.days':6,'deduct.tardy':82.25,'excused.tardy':0} },
+    localStorage.setItem('hydroPro_late_approvals_v1',JSON.stringify({'2026-09-10|T1':{decision:'unpaid',by:'Eyal',at:Date.now()}}));const unpaid=F();
+    const held=calcEmployeePayroll(e,'2026-09-10','2026-09-16','weekly');localStorage.setItem('hydroPro_late_approvals_v1','{}');const h2=calcEmployeePayroll(e,'2026-09-10','2026-09-16','weekly');
+    return {pending:{days:pending.days,tardy:pending.tardy,latePending:pending.latePending},deduct:{days:deduct.days,tardy:deduct.tardy},excused:{tardy:excused.tardy},unpaid:{tardy:unpaid.tardy,days:unpaid.days},heldN:h2.lateHeld,heldAmt:h2.lateHeldAmt,decidedHeld:held.lateHeld};},
+  expect:{'pending.days':6,'pending.tardy':658,'pending.latePending':1,'deduct.days':6,'deduct.tardy':82.25,'excused.tardy':0,'unpaid.tardy':658,'unpaid.days':6,heldN:1,heldAmt:658,decidedHeld:0} },
 { name:'the three pending columns: late, memo, office Sunday - and they empty once approved (v20.61)',
   run:async()=>{const jo=labour('JO','JO');setE([jo]);const a={};
     a['2026-09-08']={JO:rec('present','07:00','17:00')};
