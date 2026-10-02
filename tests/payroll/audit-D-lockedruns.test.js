@@ -397,4 +397,31 @@ module.exports=[
     const nx=calcEmployeePayroll(o,p3.start,p3.end,'semi_monthly'),own=calcEmployeePayroll(o,p2.start,p2.end,'semi_monthly');
     return {p2:p2.start,status:m.status,payDate:m.payDate,first:m.carriedFirstFrom===payOfficeRunId(p1),asked:asked.some(x=>/carry it into the next OPEN cut-off, 2026-10-11/.test(x)),next:nx.memoDed,own:own.memoDed};},
   expect:{p2:'2026-09-26',status:'applied',payDate:'2026-10-11',first:true,asked:true,next:1500,own:0} },
+{ name:'held late (v21.38): a 10–16 Sep run is approved with one undecided late (the day HELD, tardy 658); Eyal signs DEDUCT 60 min afterwards → the locked-run drift shows ₱575.75 unpaid (658 − 82.25) and ↪ carry books it as prior-period pay in 17–23 Sep; NOT PAID instead leaves nothing to carry',
+  run:async()=>{
+    const e=labour('L1','JO SANTOS',{employmentType:'Probationary'});setE([e]);if(typeof loadEmployees==='function')loadEmployees();localStorage.setItem('hydroPro_late_approvals_v1','{}');
+    const a={};a['2026-09-08']={L1:rec('present','07:00','17:00')};
+    ['2026-09-10','2026-09-11','2026-09-12','2026-09-14','2026-09-15','2026-09-16'].forEach((d,i)=>{a[d]={L1:i===0?rec('late','08:00','17:00'):rec('present','07:00','17:00')};});setA(a);
+    localStorage.setItem('hydroPro_payroll_runs','[]');localStorage.setItem('hydroPro_onetime_allow_v1','[]');
+    window._payOpsCurrentPeriod={start:'2026-09-10',end:'2026-09-16',payday:'2026-09-18',label:'10–16 Sep'};
+    renderPayrollOps();await sleep(800);
+    window.confirm=()=>true;window.alert=()=>{};
+    payOpsApprove();await sleep(400);const ov=document.getElementById('hnxAnomOv');if(ov&&window.__hnxAnomGo){ov.remove();window.__hnxAnomGo();}await sleep(600);
+    const RID='ops_2026-09-10_2026-09-16',run=()=>JSON.parse(localStorage.getItem('hydroPro_payroll_runs')).find(x=>x.id===RID);
+    const r0=run();const l0=r0.lines[0];
+    const d0=hnxLockedDrift(run(),true);
+    /* Eyal decides DEDUCT 60 minutes after the lock */
+    localStorage.setItem('hydroPro_late_approvals_v1',JSON.stringify({'2026-09-10|L1':{decision:'deduct',lateMinutes:60,by:'Eyal',at:Date.now()}}));
+    const d1=hnxLockedDrift(run(),true);
+    window._payOpsCurrentPeriod={start:'2026-09-17',end:'2026-09-23',payday:'2026-09-25',label:'17–23 Sep'};renderPayrollOps();await sleep(800);
+    const n=hnxLockedDriftCarry(RID);
+    const ots=JSON.parse(localStorage.getItem('hydroPro_onetime_allow_v1'));
+    const nx=calcEmployeePayroll(e,'2026-09-17','2026-09-23','weekly');
+    /* NOT PAID on a fresh copy: nothing to carry */
+    localStorage.setItem('hydroPro_late_approvals_v1',JSON.stringify({'2026-09-10|L1':{decision:'unpaid',by:'Eyal',at:Date.now()}}));
+    const runs=JSON.parse(localStorage.getItem('hydroPro_payroll_runs'));runs.find(x=>x.id===RID).driftCarried={};localStorage.setItem('hydroPro_payroll_runs',JSON.stringify(runs));
+    const d2=hnxLockedDrift(run(),true);
+    return {held:l0.lateHeld,heldAmt:l0.lateHeldAmt,tardy:l0.tardyDeduction,days:l0.daysWorked,beforeDecision:d0.rows.length,unpaid:d1.unpaid,money:d1.rows[0]&&d1.rows[0].remMoney,carried:n,otAmt:ots.map(o=>o.amount),otDate:ots[0]&&ots[0].date,next:(nx.onetimeList||[]).map(x=>x.amount),unpaidRows:d2.rows.length,unpaidUnpaid:d2.unpaid};},
+  expect:{held:1,heldAmt:658,tardy:658,days:6,beforeDecision:0,unpaid:575.75,money:575.75,carried:1,otAmt:[575.75],otDate:'2026-09-17',next:[575.75],unpaidRows:0,unpaidUnpaid:0} },
+
 ];
