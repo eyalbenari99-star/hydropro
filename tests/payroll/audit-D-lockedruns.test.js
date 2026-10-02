@@ -424,4 +424,25 @@ module.exports=[
     return {held:l0.lateHeld,heldAmt:l0.lateHeldAmt,tardy:l0.tardyDeduction,days:l0.daysWorked,beforeDecision:d0.rows.length,unpaid:d1.unpaid,money:d1.rows[0]&&d1.rows[0].remMoney,carried:n,otAmt:ots.map(o=>o.amount),otDate:ots[0]&&ots[0].date,next:(nx.onetimeList||[]).map(x=>x.amount),unpaidRows:d2.rows.length,unpaidUnpaid:d2.unpaid};},
   expect:{held:1,heldAmt:658,tardy:658,days:6,beforeDecision:0,unpaid:575.75,money:575.75,carried:1,otAmt:[575.75],otDate:'2026-09-17',next:[575.75],unpaidRows:0,unpaidUnpaid:0} },
 
+{ name:'held late release is priced from the FROZEN line (v21.39): after the lock the daily rate on the card rises 658 → 800; with no decision the drift lists nothing; EXCUSE releases exactly the frozen ₱658 (not 800) and the carry tags it as basic for the 13th month',
+  run:async()=>{
+    const e=labour('L1','JO SANTOS',{employmentType:'Probationary'});setE([e]);if(typeof loadEmployees==='function')loadEmployees();localStorage.setItem('hydroPro_late_approvals_v1','{}');
+    const a={};a['2026-09-08']={L1:rec('present','07:00','17:00')};
+    ['2026-09-10','2026-09-11','2026-09-12','2026-09-14','2026-09-15','2026-09-16'].forEach((d,i)=>{a[d]={L1:i===0?rec('late','08:00','17:00'):rec('present','07:00','17:00')};});setA(a);
+    localStorage.setItem('hydroPro_payroll_runs','[]');localStorage.setItem('hydroPro_onetime_allow_v1','[]');
+    window._payOpsCurrentPeriod={start:'2026-09-10',end:'2026-09-16',payday:'2026-09-18',label:'10–16 Sep'};
+    renderPayrollOps();await sleep(800);window.confirm=()=>true;window.alert=()=>{};
+    payOpsApprove();await sleep(400);const ov=document.getElementById('hnxAnomOv');if(ov&&window.__hnxAnomGo){ov.remove();window.__hnxAnomGo();}await sleep(600);
+    const RID='ops_2026-09-10_2026-09-16',run=()=>JSON.parse(localStorage.getItem('hydroPro_payroll_runs')).find(x=>x.id===RID);
+    /* the card changes after the lock */
+    setE([labour('L1','JO SANTOS',{employmentType:'Probationary',dailyRate:800})]);if(typeof loadEmployees==='function')loadEmployees();
+    const d0=hnxLockedDrift(run(),true);
+    localStorage.setItem('hydroPro_late_approvals_v1',JSON.stringify({'2026-09-10|L1':{decision:'excuse',by:'Dr Amy',at:Date.now()}}));
+    const d1=hnxLockedDrift(run(),true);
+    window._payOpsCurrentPeriod={start:'2026-09-17',end:'2026-09-23',payday:'2026-09-25',label:'17–23 Sep'};renderPayrollOps();await sleep(800);
+    const n=hnxLockedDriftCarry(RID);const ots=JSON.parse(localStorage.getItem('hydroPro_onetime_allow_v1'));
+    const nx=calcEmployeePayroll(labour('L1','JO SANTOS',{employmentType:'Probationary',dailyRate:800}),'2026-09-17','2026-09-23','weekly');
+    return {noDecision:d0.rows.length,unpaid:d1.unpaid,money:d1.rows[0]&&d1.rows[0].remMoney,carried:n,otAmt:ots.map(o=>o.amount),otRelease:ots.map(o=>o.lateRelease),released13:nx.lateReleased13};},
+  expect:{noDecision:0,unpaid:658,money:658,carried:1,otAmt:[658],otRelease:[658],released13:658} },
+
 ];
