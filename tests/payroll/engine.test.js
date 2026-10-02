@@ -47,7 +47,7 @@ module.exports=[
     const a3={};['2026-09-07','2026-09-08','2026-09-09','2026-09-10','2026-09-11','2026-09-13','2026-09-14','2026-09-15'].forEach(d=>{a3[d]={ANN:rec('present','07:00','17:30')};});setA(a3);
     const sun=L(calcEmployeePayroll(ann,'2026-09-01','2026-09-15','semi_monthly'));
     return {before:before.pending,after:after.pending,afterMemo:after.memoAdd,afterTardy:after.tardy,sun:sun.pending,sunPaid:sun.sun};},
-  expect:{'before.late':[1,82.25],'before.memo':[1,500],'after.late':[0,0],'after.memo':[0,0],afterMemo:500,afterTardy:82.25,'sun.sun':[1,910],sunPaid:0} },
+  expect:{'before.late':[1,658],'before.memo':[1,500],'after.late':[0,0],'after.memo':[0,0],afterMemo:500,afterTardy:82.25,'sun.sun':[1,910],sunPaid:0} },
 { name:'today with no report is not an absence; a missing past day is, and is named (v20.64/v20.89)',
   run:async()=>{const e=labour('ERIC','ERIC');const o=labour('OTH','OTHER');setE([e,o]);const days=daysEnding(today,7);const a={};
     days.slice(0,6).forEach(d=>{a[d]={ERIC:rec('present','07:00','17:00'),OTH:rec('present','07:00','17:00')};});setA(a);
@@ -182,4 +182,20 @@ module.exports=[
     const l=calcEmployeePayroll(jo,'2026-09-10','2026-09-16','weekly');
     return {days:l.daysWorked,noProof:l.dayAudit.noProof,holidayPay:l.holidayPay,gap:l.daysGap};},
   expect:{days:4,noProof:1,holidayPay:658,gap:0} },
+{ name:'late hold details (v21.39): a HALF-day late is held at half a day (329, not 658); NOT PAID withholds the day AND its allowance share (weekly ₱2,600/mo ÷26 = ₱100/day × 6 Mon–Sat days: allowance 600 → 500) and is reported as lateUnpaid, not a penalty; a record saved present/0 with a 07:45 clock-in is held like any late (658, latePending 1)',
+  run:async()=>{const e=labour('T2','HALF LATE',{allowances:[{label:'Meal',monthly:2600,taxable:false}]});setE([e]);const a={};
+    a['2026-09-08']={T2:rec('present','07:00','17:00')};
+    ['2026-09-10','2026-09-11','2026-09-12','2026-09-14','2026-09-15','2026-09-16'].forEach(d=>{a[d]={T2:rec('present','07:00','17:00')};});
+    a['2026-09-10']={T2:Object.assign(rec('late','08:00','12:00'),{dayFraction:0.5})};setA(a);localStorage.setItem('hydroPro_late_approvals_v1','{}');
+    const F=()=>calcEmployeePayroll(e,'2026-09-10','2026-09-16','weekly');
+    const half=F();
+    /* NOT PAID on a full day */
+    a['2026-09-10']={T2:rec('late','08:00','17:00')};setA(a);
+    const full=F();
+    localStorage.setItem('hydroPro_late_approvals_v1',JSON.stringify({'2026-09-10|T2':{decision:'unpaid',by:'Eyal',at:Date.now()}}));const unpaid=F();
+    /* present/0 with a late clock-in */
+    localStorage.setItem('hydroPro_late_approvals_v1','{}');a['2026-09-10']={T2:rec('present','07:45','17:00')};setA(a);const p0=F();
+    return {halfHeld:half.lateHeldAmt,halfTardy:half.tardyDeduction,halfDays:half.daysWorked,fullHeld:full.lateHeldAmt,fullAllow:full.allowanceNonTaxAmt,unpaidTardy:unpaid.tardyDeduction,unpaidN:unpaid.lateUnpaid,unpaidAmt:unpaid.lateUnpaidAmt,unpaidPenalty:unpaid.latePenaltyAmt||0,unpaidAllow:unpaid.allowanceNonTaxAmt,unpaidHeld:unpaid.lateHeld,p0Held:p0.lateHeldAmt,p0Pending:p0.latePending,p0Label:hnxLateDedLabel(p0)};},
+  expect:{halfHeld:329,halfTardy:329,halfDays:5.5,fullHeld:658,fullAllow:600,unpaidTardy:658,unpaidN:1,unpaidAmt:658,unpaidPenalty:0,unpaidAllow:500,unpaidHeld:0,p0Held:658,p0Pending:1,p0Label:'1 day HELD — waiting for Eyal / Dr Amy'} },
+
 ];

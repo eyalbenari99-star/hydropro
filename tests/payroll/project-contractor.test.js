@@ -7,7 +7,8 @@ module.exports=[
   seed:SEED,
   run:async()=>{
     const mk=(cat)=>{const e=labour('P1','PEDRO PROJECT',{salaryCategory:cat,employmentType:'Regular',dailyRate:600,contractorProject:'15',allowances:[{type:'rice',monthly:2600,taxable:false}]});setE([e]);
-      const w=(x)=>rec(x,'08:00','17:00','fingerprint');
+      /* v21.39: a Regular's 08:00 scan is a late whose whole day is HELD until Eyal / Dr Amy decide — the comparison is about holiday, allowance and statutory, so the Regular arrives at 07:00 */
+      const w=(x)=>rec(x,cat==='project_contractor'?'08:00':'07:00','17:00','fingerprint');
       setA({'2026-09-10':{P1:w('present')},'2026-09-11':{P1:w('present')},'2026-09-12':{P1:w('present')},'2026-09-15':{P1:w('present')},'2026-09-16':{P1:rec('authorized','','','manual',{editedBy:'jinky'})}});return e;};
     const reg=calcEmployeePayroll(mk('production_regular'),'2026-09-10','2026-09-16','weekly');
     const c=calcEmployeePayroll(mk('project_contractor'),'2026-09-10','2026-09-16','weekly');
