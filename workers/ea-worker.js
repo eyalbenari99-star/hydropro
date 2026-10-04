@@ -1,5 +1,11 @@
 /**
- * HydroNexis-AI — Executive Assistant Worker (Phase 4b)
+ * HydroNexis-AI — Executive Assistant Worker (Phase 4b) · v2.0 per-user mailboxes (Oct 2026, Eyal: "each user
+ * should connect his work email that Nexi follows up daily, or each hour, or whatever the user asks")
+ *   Session: besides the HMAC token, a Nexi cloud token (the same Bearer the app sends to hnx-sync) is accepted and
+ *   verified through SYNC_URL + /auth/me (cached 10 min in KV). Email tokens are stored PER USER; each user has
+ *   prefs {cadence, hour, vipSenders}; the 1-minute cron scans every due mailbox and stores a redacted snapshot
+ *   (metadata only) the app pulls with GET /ea/email/inbox. New routes: /ea/email/prefs, /ea/email/inbox,
+ *   /ea/email/disconnect. Still no send route anywhere.
  * Implements the v13.45/v13.47 handoff contracts:
  *   GET  /ea/status
  *   POST /ea/calendar/oauth/start          (google | microsoft, read-only)
@@ -69,11 +75,28 @@ async function verifySession(req, env) {
   const h = req.headers.get('Authorization') || '';
   const tok = h.startsWith('Bearer ') ? h.slice(7) : '';
   const parts = tok.split('.');
-  if (parts.length !== 4) return null;
+  if (parts.length !== 4) return verifyCloudToken(req, env, tok);
   const [tenant, user, exp, sig] = parts;
   if (+exp < Date.now() / 1000) return null;
   if (await hmac(env, tenant + '.' + user + '.' + exp) !== sig) return null;
   return { tenant, user };
+}
+/* v2.0: the app's own cloud session (hnx_cloud_token) — verified against hnx-sync /auth/me, cached 10 min */
+async function verifyCloudToken(req, env, tok) {
+  if (!tok || tok.length < 8) return null;
+  const h = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(tok)));
+  const key = 'sess:' + Array.from(h.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const cached = await env.EA_KV.get(key);
+  if (cached) { try { return JSON.parse(cached); } catch (e) { /* fall through */ } }
+  const base = (env.SYNC_URL || 'https://hnx-sync.eyalbenari99.workers.dev').replace(/\/$/, '');
+  let r;
+  try { r = await fetch(base + '/auth/me', { headers: { Authorization: 'Bearer ' + tok } }); } catch (e) { return null; }
+  if (!r.ok) return null;
+  const j = await r.json().catch(() => null);
+  if (!j || !j.username) return null;
+  const sess = { tenant: env.TENANT || 'aba', user: String(j.username).toLowerCase(), isAdmin: !!j.isAdmin };
+  await env.EA_KV.put(key, JSON.stringify(sess), { expirationTtl: 600 });
+  return sess;
 }
 function deny(status, msg) {
   return new Response(JSON.stringify({ ok: false, error: msg }), { status, headers: { 'content-type': 'application/json' } });
@@ -91,8 +114,16 @@ const K = {
   suppress: (t, slot) => `suppress:${t}:${slot}`,
   idem: k => `idem:${k}`,
   note: (t, kind, date) => `note:${t}:${kind}:${date}`,
-  emailTok: (t, prov) => `etok:${t}:assistant:${prov}`,
+  emailTok: (t, prov, user) => `etok:${t}:${user || 'assistant'}:${prov}`,
+  emailPrefs: (t, user) => `eprefs:${t}:${user}`,
+  emailInbox: (t, user) => `einbox:${t}:${user}`,
+  emailUsers: t => `eusers:${t}`,
+  emailRun: (t, user, slot) => `erun:${t}:${user}:${slot}`,
 };
+const EMAIL_DEFAULT_PREFS = { cadence: 'daily', hour: '07:00', timezone: 'Asia/Manila', vipSenders: [], days: 14 };
+async function emailPrefs(env, tenant, user) { return { ...EMAIL_DEFAULT_PREFS, ...(JSON.parse((await env.EA_KV.get(K.emailPrefs(tenant, user))) || '{}')) }; }
+async function emailUsers(env, tenant) { try { return JSON.parse((await env.EA_KV.get(K.emailUsers(tenant))) || '[]'); } catch (e) { return []; } }
+async function rememberEmailUser(env, tenant, user) { const L = await emailUsers(env, tenant); if (!L.includes(user)) { L.push(user); await env.EA_KV.put(K.emailUsers(tenant), JSON.stringify(L)); } }
 
 /* ---------------- OAuth ---------------- */
 function b64url(bytes) {
@@ -101,13 +132,13 @@ function b64url(bytes) {
 async function oauthStart(req, env, sess, kind) {
   const body = await req.json().catch(() => ({}));
   const { slot, provider } = body;
-  if (kind === 'email' && slot !== 'assistant') return deny(400, 'email slot must be assistant');
   if (kind !== 'email' && !SLOTS.includes(slot)) return deny(400, 'bad slot');
+  const emailUser = kind === 'email' ? sess.user : '';
   if (!['google', 'microsoft'].includes(provider)) return deny(400, 'bad provider');
   const state = b64url(crypto.getRandomValues(new Uint8Array(24)));
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
   const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
-  await env.EA_KV.put(K.oauthState(state), JSON.stringify({ tenant: sess.tenant, user: sess.user, slot, provider, verifier, kind: kind || 'calendar' }), { expirationTtl: 600 });
+  await env.EA_KV.put(K.oauthState(state), JSON.stringify({ tenant: sess.tenant, user: sess.user, slot: kind === 'email' ? 'email' : slot, emailUser, provider, verifier, kind: kind || 'calendar' }), { expirationTtl: 600 });
   const base = kind === 'email' ? 'email' : 'calendar';
   const cb = `${new URL(req.url).origin}/ea/${base}/oauth/${provider}/callback`;
   let url;
@@ -147,8 +178,13 @@ async function oauthCallback(req, env, provider, kind) {
   const sealed = await seal(env, {
     refresh: tok.refresh_token || '', access: tok.access_token, exp: Date.now() + (tok.expires_in || 3600) * 1000, provider,
   });
-  if ((st.kind || 'calendar') === 'email') await env.EA_KV.put(K.emailTok(st.tenant, provider), sealed);
-  else await env.EA_KV.put(K.token(st.tenant, st.slot, provider), sealed);
+  if ((st.kind || 'calendar') === 'email') {
+    const eu = st.emailUser || st.user || 'assistant';
+    await env.EA_KV.put(K.emailTok(st.tenant, provider, eu), sealed);
+    await rememberEmailUser(env, st.tenant, eu);
+    return Response.redirect(env.APP_ORIGIN + '/?ea_oauth=connected&slot=email&user=' + encodeURIComponent(eu), 302);
+  }
+  await env.EA_KV.put(K.token(st.tenant, st.slot, provider), sealed);
   return Response.redirect(env.APP_ORIGIN + '/?ea_oauth=connected&slot=' + st.slot, 302);
 }
 async function accessToken(env, tenant, slot) {
@@ -420,9 +456,9 @@ async function runSchedule(env) {
 }
 
 /* ---------------- email intelligence (v13.46 contract) ---------------- */
-async function emailToken(env, tenant) {
+async function emailToken(env, tenant, user) {
   for (const prov of ['google', 'microsoft']) {
-    const blob = await env.EA_KV.get(K.emailTok(tenant, prov));
+    const blob = await env.EA_KV.get(K.emailTok(tenant, prov, user));
     if (!blob) continue;
     let t = await open_(env, blob);
     if (t.exp < Date.now() + 60000 && t.refresh) {
@@ -439,7 +475,7 @@ async function emailToken(env, tenant) {
       if (!r.ok) return { error: 'refresh_failed' };
       const nt = await r.json();
       t = { ...t, access: nt.access_token, exp: Date.now() + (nt.expires_in || 3600) * 1000 };
-      await env.EA_KV.put(K.emailTok(tenant, prov), await seal(env, t));
+      await env.EA_KV.put(K.emailTok(tenant, prov, user), await seal(env, t));
     }
     return { access: t.access, provider: prov };
   }
@@ -464,8 +500,51 @@ function classifyEmail(m, vipSenders) {
   m.recommendation = m.needsReply ? 'Prepare a reply draft' : (m.needsFollowUp ? 'Chase the follow-up' : 'Review when convenient');
   return m;
 }
-async function emailFetch(env, tenant, query, days, maxResults, vipSenders) {
-  const t = await emailToken(env, tenant);
+/* v2.0: one scan of one user's mailbox; the redacted snapshot (metadata only, never bodies) is stored for the app to pull */
+async function scanUser(env, tenant, user, prefs, query, days, maxResults) {
+  const r = await emailFetch(env, tenant, query || '', days || prefs.days, maxResults || 150, prefs.vipSenders || [], user);
+  if (r.error) return r;
+  const counts = { important: 0, reply: 0, followUp: 0 };
+  r.messages.forEach(m => { if (m.important) counts.important++; if (m.needsReply) counts.reply++; if (m.needsFollowUp) counts.followUp++; });
+  const scannedAt = new Date().toISOString();
+  if (!query) {
+    const items = r.messages.filter(m => m.important || m.needsReply || m.needsFollowUp).slice(0, 80);
+    await env.EA_KV.put(K.emailInbox(tenant, user), JSON.stringify({ scannedAt, counts, total: r.messages.length, items }), { expirationTtl: 60 * 60 * 24 * 14 });
+  }
+  return { messages: r.messages, counts, scannedAt };
+}
+/* which cadence slot is due now for this user (one run per slot key, idempotent) */
+function dueSlot(prefs) {
+  const now = localNow(prefs.timezone || 'Asia/Manila');
+  const hm = now.hm, h = hm.slice(0, 2), m = hm.slice(3, 5);
+  if (prefs.cadence === 'off') return '';
+  if (prefs.cadence === 'hourly') return m === '00' ? now.date + 'T' + h : '';
+  const want = prefs.hour || '07:00';
+  if (prefs.cadence === 'daily') return hm === want ? now.date + 'T' + want : '';
+  if (prefs.cadence === 'twice') {
+    const second = String((parseInt(want.slice(0, 2), 10) + 8) % 24).padStart(2, '0') + want.slice(2);
+    return hm === want ? now.date + 'T' + want : (hm === second ? now.date + 'T' + second : '');
+  }
+  return '';
+}
+async function runEmailSchedule(env, tenant) {
+  const users = await emailUsers(env, tenant);
+  for (const user of users) {
+    try {
+      const prefs = await emailPrefs(env, tenant, user);
+      const slot = dueSlot(prefs);
+      if (!slot) continue;
+      const k = K.emailRun(tenant, user, slot);
+      if (await env.EA_KV.get(k)) continue;
+      await env.EA_KV.put(k, '1', { expirationTtl: 60 * 60 * 36 });
+      const t = await emailToken(env, tenant, user);
+      if (t.error || !t.access) continue;
+      await scanUser(env, tenant, user, prefs, '', prefs.days, 150);
+    } catch (e) { /* one user's failure never stops the others; nothing sensitive logged */ }
+  }
+}
+async function emailFetch(env, tenant, query, days, maxResults, vipSenders, user) {
+  const t = await emailToken(env, tenant, user);
   if (t.error) return { error: t.error };
   const out = [];
   if (t.provider === 'google') {
@@ -555,19 +634,44 @@ export default {
     if (p === '/ea/calendar/oauth/start' && req.method === 'POST') return oauthStart(req, env, sess, 'calendar');
     if (p === '/ea/email/oauth/start' && req.method === 'POST') return oauthStart(req, env, sess, 'email');
     if (p === '/ea/email/status') {
+      /* v2.0: the signed-in user's OWN mailbox */
       let connected = false, provider = '';
-      for (const prov of ['google', 'microsoft']) if (await env.EA_KV.get(K.emailTok(sess.tenant, prov))) { connected = true; provider = prov; }
-      return ok({ ok: true, connected, slot: 'assistant', provider, scopes: connected ? [provider === 'google' ? GMAIL_SCOPE : 'Mail.Read'] : [], scheduler: { enabled: false, intervalMinutes: 15 }, error: null });
+      for (const prov of ['google', 'microsoft']) if (await env.EA_KV.get(K.emailTok(sess.tenant, prov, sess.user))) { connected = true; provider = prov; }
+      const prefs = await emailPrefs(env, sess.tenant, sess.user);
+      let snap = null; try { snap = JSON.parse((await env.EA_KV.get(K.emailInbox(sess.tenant, sess.user))) || 'null'); } catch (e) { snap = null; }
+      return ok({ ok: true, connected, slot: 'email', user: sess.user, provider, scopes: connected ? [provider === 'google' ? GMAIL_SCOPE : 'Mail.Read'] : [],
+        prefs: { cadence: prefs.cadence, hour: prefs.hour, timezone: prefs.timezone, vipSenders: prefs.vipSenders, days: prefs.days },
+        scheduler: { enabled: connected && prefs.cadence !== 'off', cadence: prefs.cadence, hour: prefs.hour },
+        lastScanAt: snap ? snap.scannedAt : null, counts: snap ? snap.counts : null, error: null });
+    }
+    if (p === '/ea/email/prefs' && req.method === 'GET') return ok({ ok: true, user: sess.user, prefs: await emailPrefs(env, sess.tenant, sess.user) });
+    if (p === '/ea/email/prefs' && req.method === 'POST') {
+      const body = await req.json().catch(() => ({}));
+      const cur = await emailPrefs(env, sess.tenant, sess.user), next = { ...cur };
+      if (['off', 'hourly', 'twice', 'daily'].includes(body.cadence)) next.cadence = body.cadence;
+      if (/^\d{2}:\d{2}$/.test(body.hour || '')) next.hour = body.hour;
+      if (typeof body.timezone === 'string' && body.timezone.length < 40) next.timezone = body.timezone;
+      if (Array.isArray(body.vipSenders)) next.vipSenders = body.vipSenders.map(x => String(x).slice(0, 120)).slice(0, 50);
+      if (Number.isInteger(body.days) && body.days >= 1 && body.days <= 90) next.days = body.days;
+      await env.EA_KV.put(K.emailPrefs(sess.tenant, sess.user), JSON.stringify(next));
+      await rememberEmailUser(env, sess.tenant, sess.user);
+      return ok({ ok: true, prefs: next });
+    }
+    if (p === '/ea/email/inbox' && req.method === 'GET') {
+      let snap = null; try { snap = JSON.parse((await env.EA_KV.get(K.emailInbox(sess.tenant, sess.user))) || 'null'); } catch (e) { snap = null; }
+      return ok({ ok: true, user: sess.user, snapshot: snap });
+    }
+    if (p === '/ea/email/disconnect' && req.method === 'POST') {
+      for (const prov of ['google', 'microsoft']) await env.EA_KV.delete(K.emailTok(sess.tenant, prov, sess.user));
+      await env.EA_KV.delete(K.emailInbox(sess.tenant, sess.user));
+      return ok({ ok: true, connected: false });
     }
     if ((p === '/ea/email/scan' || p === '/ea/email/search') && req.method === 'POST') {
       const body = await req.json().catch(() => ({}));
-      if (body.slot !== 'assistant') return deny(400, 'slot must be assistant');
-      const cfgAll = await getCfg(env, sess.tenant);
-      const r = await emailFetch(env, sess.tenant, p.endsWith('search') ? String(body.query || '').slice(0, 300) : '', body.days, body.maxResults, cfgAll.vipSenders || []);
+      const prefs = await emailPrefs(env, sess.tenant, sess.user);
+      const r = await scanUser(env, sess.tenant, sess.user, prefs, p.endsWith('search') ? String(body.query || '').slice(0, 300) : '', body.days, body.maxResults);
       if (r.error) return deny(502, r.error);
-      const counts = { important: 0, reply: 0, followUp: 0 };
-      r.messages.forEach(m => { if (m.important) counts.important++; if (m.needsReply) counts.reply++; if (m.needsFollowUp) counts.followUp++; });
-      return ok({ messages: r.messages, scannedAt: new Date().toISOString(), searchedAt: new Date().toISOString(), deltaApplied: false, counts, closedActionIds: [], nextPageToken: '' });
+      return ok({ messages: r.messages, scannedAt: r.scannedAt, searchedAt: r.scannedAt, deltaApplied: false, counts: r.counts, closedActionIds: [], nextPageToken: '' });
     }
     if (p === '/ea/email/draft/generate' && req.method === 'POST') {
       /* grounded skeleton draft — plug your approved model call here.
@@ -643,5 +747,6 @@ export default {
   },
   async scheduled(_evt, env, ctx) {
     ctx.waitUntil(runSchedule(env));
+    ctx.waitUntil(runEmailSchedule(env, env.TENANT || 'aba'));
   },
 };
