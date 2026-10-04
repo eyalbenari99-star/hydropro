@@ -84,3 +84,12 @@ module.exports=[
     return {recorded:!!e,stats:e&&e.stats.changed,restored:now.r0&&now.r0.val==='good',newer:now.r0&&now.r0.updatedAt>1700000000000};},
   expect:{recorded:true,stats:10,restored:true,newer:true} },
 ];
+module.exports.push(
+{ name:'🛡 Data Safety is the owner\'s: with 2 held uploads in store, admin_secondary (Dr Amy / Jinky Admin-2) sees NO banner and the screen says admin only; the primary admin sees the banner (v21.49)',
+  seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true},{username:'amy',fullname:'Dr Amy',passwordHash:'x',role:'admin_secondary',active:true}]));
+    localStorage.setItem('hnxlocal_push_held_v1',JSON.stringify({hydroPro_employees:{at:Date.now(),stats:{removed:40,changed:0,added:0,before:50}},hydroPro_customers:{at:Date.now(),stats:{removed:30,changed:0,added:0,before:40}}}));},
+  run:new Function(`return (async()=>{const as=u=>sessionStorage.setItem('hydroPro_session',JSON.stringify({username:u,loginAt:Date.now()}));await sleep(4000);
+    as('amy');const b0=document.getElementById('hnxDsBanner');if(b0)b0.remove();HNXDS.banner();await sleep(100);const amyBanner=!!document.getElementById('hnxDsBanner');
+    as('tester');HNXDS.banner();await sleep(100);const adminBanner=!!document.getElementById('hnxDsBanner');
+    return {amyBanner,adminBanner};})();`),
+  expect:{amyBanner:false,adminBanner:true} });
