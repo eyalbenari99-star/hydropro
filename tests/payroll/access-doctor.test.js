@@ -18,3 +18,13 @@ module.exports.push(
     sessionStorage.setItem('hydroPro_session',JSON.stringify({username:'torzar',loginAt:Date.now()}));const has=moduleHasAccess('production');
     return {acc,why:/owner/.test(w.reason),has};})();`),
   expect:{acc:'edit',why:true,has:true} });
+module.exports.push(
+{ name:'👑 Jomel: user "jomel" (supervisor, STRICT with overrides for 7 modules only) gets Production, Maintenance, IT, Irrigation, Security EDIT via the owner\'s grant; a strict user "mia" who is the Department Head of quality gets Quality EDIT with the reason "department head" (v21.59)',
+  seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true},{username:'jomel',fullname:'Jomel Galvo',passwordHash:'x',role:'supervisor',active:true,department:''},{username:'mia',fullname:'Mia QC',passwordHash:'x',role:'supervisor',active:true,department:''}]));
+    localStorage.setItem('hydroPro_user_perms',JSON.stringify({jomel:{strict:true,overrides:{'module:overview':'view','module:fleet':'edit'}},mia:{strict:true,overrides:{}}}));
+    localStorage.setItem('hydroPro_dept_heads_v1',JSON.stringify({quality:'mia',maintenance:'jomel'}));},
+  run:new Function(`return (async()=>{await sleep(4000);const U=loadUsers();const j=U.find(x=>x.username==='jomel'),m=U.find(x=>x.username==='mia');
+    const acc=['production','maintenance','it','irrigation','security'].map(x=>getEffectiveModuleAccess(j,x)).join(',');
+    const q=getEffectiveModuleAccess(m,'quality');const w=HNXACCESS.why('mia').find(r=>r.module==='quality');const other=getEffectiveModuleAccess(m,'production');
+    return {acc,q,why:/department head/.test(w.reason),other};})();`),
+  expect:{acc:'edit,edit,edit,edit,edit',q:'edit',why:true,other:'none'} });
