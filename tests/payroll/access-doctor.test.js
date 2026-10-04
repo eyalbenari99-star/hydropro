@@ -10,3 +10,11 @@ module.exports=[
     return {edAcc,opsBefore:w1.access,strictWhy:/STRICT/.test(w1.reason),opsAfter:w2.access,ovWhy:/override/.test(w2.reason),modal,reset:w3.access,screen:/Ops Person/.test(txt)&&/PRODUCTION/i.test(txt)};})();`),
   expect:{edAcc:'edit',opsBefore:'none',strictWhy:true,opsAfter:'edit',ovWhy:true,modal:true,reset:'none',screen:true} },
 ];
+module.exports.push(
+{ name:'👑 Owner\'s standing grant: user "torzar" (Ederlyn Torzar, supervisor, STRICT on, override production=none, home dept blank) still gets Production EDIT, the sidebar lists Production, and the doctor names the owner\'s grant (v21.57)',
+  seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true},{username:'torzar',fullname:'Ederlyn Torzar',passwordHash:'x',role:'supervisor',active:true,department:''}]));
+    localStorage.setItem('hydroPro_user_perms',JSON.stringify({torzar:{strict:true,overrides:{'module:production':'none'}}}));},
+  run:new Function(`return (async()=>{await sleep(4000);const u=loadUsers().find(x=>x.username==='torzar');const acc=getEffectiveModuleAccess(u,'production');const w=HNXACCESS.why('torzar').find(r=>r.module==='production');
+    sessionStorage.setItem('hydroPro_session',JSON.stringify({username:'torzar',loginAt:Date.now()}));const has=moduleHasAccess('production');
+    return {acc,why:/owner/.test(w.reason),has};})();`),
+  expect:{acc:'edit',why:true,has:true} });
