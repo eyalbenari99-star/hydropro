@@ -69,3 +69,18 @@ module.exports.push(
     return {gps:m&&m[1],odo:m&&m[2],totalKm:/Total KM:<\/strong><\/td><td>86\.0/.test(h)};},
   expect:{gps:'9.40',odo:'7.45',totalKm:true} }
 );
+module.exports.push(
+{ name:'📏 Syra 4 Oct: base APAC (no KM) → Chungdam 39.2 → Picasso 43.5 → Carinderia 71.9 → APAC 73.9 → Petron 77.4 → APAC 80.4, ODO 83573→83645, 8.109 L: first leg 39.2 is counted, Total Distance (GPS) 80.4 (was 41.2), KM/L 9.91 (was 5.08), GPS vs Odometer +8.40 km (+11.7%) not −30.80; an odometer-style sheet (first KM 83612 after ODO OUT 83573) gives a first leg of 39.0 (v21.58)',
+  seed:function(){
+    localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'E1',name:'DINOROG, JERRY',status:'Active',position:'Driver',payType:'weekly',dailyRate:658}]));
+    localStorage.setItem('hydroPro_fleet_vehicles',JSON.stringify([{id:'V1',name:'ISUZU TRUCK NIF 6891',plate:'NIF-6891',active:true},{id:'V2',name:'TRUCK 2',plate:'X-2',active:true}]));
+    const d=new Date();const y=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');window.__gpsDay=y;
+    const S=[{location:'APAC',timeOut:'08:42',kind:'base'},{location:'CHUNGDAM BGC',timeIn:'09:17',timeOut:'09:31',km:39.2,kind:'customer'},{location:'PICASSO',timeIn:'09:52',timeOut:'09:57',km:43.5,kind:'customer'},{location:'Carinderia',timeIn:'10:31',timeOut:'10:35',km:71.9,kind:'unplanned',reason:'food'},{location:'APAC',timeIn:'10:49',timeOut:'15:44',km:73.9,kind:'base'},{location:'PETRON',timeIn:'15:52',timeOut:'16:02',km:77.4,kind:'fuel'},{location:'APAC',timeIn:'16:13',km:80.4,kind:'base'}];
+    localStorage.setItem('hydroPro_gps_reports',JSON.stringify({[y+'::V1']:{date:y,vehicleId:'V1',driverId:'E1',odoOut:83573,odoIn:83645,fillUpLiters:8.109,perLiter:95,dashCam:'WORKING',kmMode:'odo',stops:S},
+      [y+'::V2']:{date:y,vehicleId:'V2',driverId:'E1',odoOut:83573,odoIn:83645,kmMode:'odo',stops:[{location:'APAC',timeOut:'08:00',kind:'base'},{location:'A',timeIn:'09:00',timeOut:'09:10',km:83612,kind:'customer'}]}}));
+    window.__printed='';window.open=function(){return {document:{write:function(h){window.__printed+=h;},close:function(){}}};};
+  },
+  run:async()=>{await sleep(4000);printGpsDaily(window.__gpsDay);await sleep(300);const h=window.__printed;
+    const c=_computeGpsStops(JSON.parse(localStorage.getItem('hydroPro_gps_reports'))[window.__gpsDay+'::V1'].stops,'odo',83573);const c2=_computeGpsStops(JSON.parse(localStorage.getItem('hydroPro_gps_reports'))[window.__gpsDay+'::V2'].stops,'odo',83573);
+    return {first:c[1]._distance,total:Math.round(c.reduce((s,x)=>s+(x._distance||0),0)*10)/10,printTotal:/Total Distance \(GPS\):<\/strong><\/td><td>80\.4</.test(h),kml:/9\.91/.test(h),gap:/\+8\.40 km \(\+11\.7%\)/.test(h),noBad:h.indexOf('-30.80')<0,odoStyle:c2[1]._distance};},
+  expect:{first:39.2,total:80.4,printTotal:true,kml:true,gap:true,noBad:true,odoStyle:39} });
