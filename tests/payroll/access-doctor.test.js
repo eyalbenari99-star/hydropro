@@ -38,3 +38,11 @@ module.exports.push(
     HNXACCESS.fixAll();await sleep(100);const U=loadUsers().find(u=>u.username==='ops');let err='';try{HNXACCESS.openAudit();}catch(e){err=String(e);}const after=HNXACCESS.auditAll().filter(r=>r.missing.length).length;
     return Object.assign(before,{prod:getEffectiveModuleAccess(U,'production'),maint:getEffectiveModuleAccess(U,'maintenance'),after,modal:!!document.getElementById('hnxAccAudit'),err});})();`),
   expect:{opsMissProd:true,opsMissMaint:true,clerkMissing:0,prod:'edit',maint:'edit',after:0,modal:true,err:''} });
+module.exports.push(
+{ name:'👑 Mea: user "mea" (Meajean Magracia, supervisor, home dept APAC_ADMIN, STRICT with no overrides) gets Production EDIT via the owner\'s standing grant and 🔎 Access says so; "clerk2" (same dept, no grant) stays none (v21.61)',
+  seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true},{username:'mea',fullname:'Meajean Magracia',passwordHash:'x',role:'supervisor',active:true,department:'APAC_ADMIN'},{username:'clerk2',fullname:'Other Clerk',passwordHash:'x',role:'supervisor',active:true,department:'APAC_ADMIN'}]));
+    localStorage.setItem('hydroPro_user_perms',JSON.stringify({mea:{strict:true,overrides:{}},clerk2:{strict:true,overrides:{}}}));},
+  run:new Function(`return (async()=>{await sleep(4000);const U=loadUsers();const m=U.find(x=>x.username==='mea'),c=U.find(x=>x.username==='clerk2');
+    const w=HNXACCESS.why('mea').find(r=>r.module==='production');
+    return {prod:getEffectiveModuleAccess(m,'production'),why:/standing grant/.test(w.reason),other:getEffectiveModuleAccess(c,'production')};})();`),
+  expect:{prod:'edit',why:true,other:'none'} });
