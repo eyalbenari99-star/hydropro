@@ -18,3 +18,17 @@ module.exports=[
     return {fitHasDepot:/Hardware Depot/.test(fitSec),fitHasCulvert:/Culvert King/.test(fitSec),groceryFolded:/Dali Everyday Grocery/.test(other)&&!/Dali Everyday Grocery/.test(fitSec),amazonFolded:/Amazon/.test(other),sug:/Allied Concrete/.test(txt)&&/DAP Pipes/.test(txt)&&/Tosang/.test(txt),verify:/WEB · VERIFY/.test(txt),noObj:txt.indexOf('[object Object]')<0,sosName:/SOS Vendor Obj/.test(txt2),dap:!!V.find(x=>x.name==='DAP Pipes Manufacturing'&&/concrete/.test(x.category)),typed:!!V.find(x=>x.name==='Carmona Precast'&&x.phone==='0918')};})();`),
   expect:{fitHasDepot:true,fitHasCulvert:true,groceryFolded:true,amazonFolded:true,sug:true,verify:true,noObj:true,sosName:true,dap:true,typed:true} },
 ];
+<<<<<<< HEAD
+module.exports.push(
+{ name:'🔎 Supplier 360° from the RCP request: Culvert King shows "Relevant to this request (1)" with the concrete culvert row; Dali Everyday Grocery says it never sold us this kind of item and folds its coffee purchase; a history row whose unit is an SOS object prints "pc", never [object Object] (v21.55)',
+  seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));
+    localStorage.setItem('hydroPro_acct_vendors',JSON.stringify([{id:'v2',name:'Dali Everyday Grocery'}]));
+    localStorage.setItem('hydroPro_acct_purch_history',JSON.stringify([{id:'h1',date:'2026-08-01',product:'concrete culvert 24in',supplier:'Culvert King',qty:4,unit:{name:'pc'},unitCost:3000},{id:'h2',date:'2026-08-02',product:'coffee',supplier:'Dali Everyday Grocery',qty:2,unitCost:100}]));
+    localStorage.setItem('hydroPro_purch_prs',JSON.stringify([{id:'pr1',number:'PR-2026-000002',title:'Cement pipes RCP',dept:'Construction',needBy:'2026-10-05',priority:'High',justification:'x',items:[{desc:'RCP reinforced concrete pipes 12" by 1m',qty:25,unit:'pc'}],status:'Supplier Sourcing',createdBy:'tester',createdAt:Date.now(),revision:1,workflow:[],overrides:[]}]));},
+  run:new Function(`return (async()=>{await sleep(4000);switchView('acct_purch_pro');await sleep(600);__PURPRO.openPR('pr1');await sleep(400);
+    __PURPRO.sup360N('Culvert King');await sleep(200);const m1=document.getElementById('ppSup360');const t1=m1?m1.innerText:'';if(m1)m1.remove();
+    __PURPRO.sup360N('Dali Everyday Grocery');await sleep(200);const m2=document.getElementById('ppSup360');[...(m2?m2.querySelectorAll('details'):[])].forEach(d=>d.open=true);const t2=m2?m2.innerText:'';if(m2)m2.remove();
+    return {relCount:/Relevant to this request \\(1\\)/.test(t1),culvert:/concrete culvert 24in/.test(t1),unit:/4 pc/.test(t1)&&t1.indexOf('[object Object]')<0,never:/never sold us this kind of item/.test(t2),folded:/Other purchases from this supplier \\(1\\)/.test(t2)&&/coffee/.test(t2)};})();`),
+  expect:{relCount:true,culvert:true,unit:true,never:true,folded:true} });
+=======
+>>>>>>> origin/main
