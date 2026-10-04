@@ -85,21 +85,24 @@ module.exports=[
   expect:{recorded:true,stats:10,restored:true,newer:true} },
 ];
 module.exports.push(
-<<<<<<< HEAD
 { name:'🛡 Data Safety is the owner\'s: with 2 held uploads in store, admin_secondary (Dr Amy / Jinky Admin-2) sees NO banner and the screen says admin only; the primary admin sees the banner; the Administration tab is hidden for Admin-2 and shown for the primary admin (v21.49–21.50)',
-=======
-{ name:'🛡 Data Safety is the owner\'s: with 2 held uploads in store, admin_secondary (Dr Amy / Jinky Admin-2) sees NO banner and the screen says admin only; the primary admin sees the banner (v21.49)',
->>>>>>> origin/main
   seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true},{username:'amy',fullname:'Dr Amy',passwordHash:'x',role:'admin_secondary',active:true}]));
     localStorage.setItem('hnxlocal_push_held_v1',JSON.stringify({hydroPro_employees:{at:Date.now(),stats:{removed:40,changed:0,added:0,before:50}},hydroPro_customers:{at:Date.now(),stats:{removed:30,changed:0,added:0,before:40}}}));},
   run:new Function(`return (async()=>{const as=u=>sessionStorage.setItem('hydroPro_session',JSON.stringify({username:u,loginAt:Date.now()}));await sleep(4000);
     as('amy');const b0=document.getElementById('hnxDsBanner');if(b0)b0.remove();HNXDS.banner();await sleep(100);const amyBanner=!!document.getElementById('hnxDsBanner');
     as('tester');HNXDS.banner();await sleep(100);const adminBanner=!!document.getElementById('hnxDsBanner');
-<<<<<<< HEAD
     as('amy');const amyTab=getVisibleViews('admin').some(v=>v.id==='admin_datasafety');as('tester');const adminTab=getVisibleViews('admin').some(v=>v.id==='admin_datasafety');
     return {amyBanner,adminBanner,amyTab,adminTab};})();`),
   expect:{amyBanner:false,adminBanner:true,amyTab:false,adminTab:true} });
-=======
-    return {amyBanner,adminBanner};})();`),
-  expect:{amyBanner:false,adminBanner:true} });
->>>>>>> origin/main
+module.exports.push(
+{ name:'🛡 Owner\'s decision: the primary admin presses ☁ Take the cloud copy on EVERY computer → a dated policy is stored; a computer holding 2 uploads (cloud copies in memory) applies it: both stores become the cloud copy, holds cleared, applied stamp set; a hold made AFTER the decision is left alone (v21.51)',
+  seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));
+    localStorage.setItem('hydroPro_ds_t1_v1',JSON.stringify([{id:1,n:'local'}]));localStorage.setItem('hydroPro_ds_t2_v1',JSON.stringify([{id:2,n:'local'}]));localStorage.setItem('hydroPro_ds_t3_v1',JSON.stringify([{id:3,n:'local'}]));},
+  run:new Function(`return (async()=>{await sleep(4000);window.confirm=()=>true;
+    const held=HNXDS.held();const t0=Date.now()-60000;held['hydroPro_ds_t1_v1']={at:t0,stats:{removed:5,changed:0,added:0,before:6}};held['hydroPro_ds_t2_v1']={at:t0,stats:{removed:5,changed:0,added:0,before:6}};
+    window.__hnxCloudRaw['hydroPro_ds_t1_v1']=JSON.stringify([{id:1,n:'cloud'}]);window.__hnxCloudRaw['hydroPro_ds_t2_v1']=JSON.stringify([{id:2,n:'cloud'}]);window.__hnxCloudRaw['hydroPro_ds_t3_v1']=JSON.stringify([{id:3,n:'cloud'}]);
+    HNXDS.ownerTakeAll();await sleep(200);const pol=HNXDS.policy().takeCloudAll;
+    held['hydroPro_ds_t3_v1']={at:Date.now()+5,stats:{removed:5,changed:0,added:0,before:6}};
+    const r=HNXDS.applyPolicy();
+    return {polBy:pol&&pol.by,t1:JSON.parse(localStorage.getItem('hydroPro_ds_t1_v1'))[0].n,t2:JSON.parse(localStorage.getItem('hydroPro_ds_t2_v1'))[0].n,t3:JSON.parse(localStorage.getItem('hydroPro_ds_t3_v1'))[0].n,heldLeft:Object.keys(HNXDS.held()).join(','),applied:Number(localStorage.getItem('hnxlocal_ds_policy_applied_v1'))>=pol.at};})();`),
+  expect:{polBy:'Tester',t1:'cloud',t2:'cloud',t3:'local',heldLeft:'hydroPro_ds_t3_v1',applied:true} });
