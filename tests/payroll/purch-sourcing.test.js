@@ -18,7 +18,6 @@ module.exports=[
     return {fitHasDepot:/Hardware Depot/.test(fitSec),fitHasCulvert:/Culvert King/.test(fitSec),groceryFolded:/Dali Everyday Grocery/.test(other)&&!/Dali Everyday Grocery/.test(fitSec),amazonFolded:/Amazon/.test(other),sug:/Allied Concrete/.test(txt)&&/DAP Pipes/.test(txt)&&/Tosang/.test(txt),verify:/WEB · VERIFY/.test(txt),noObj:txt.indexOf('[object Object]')<0,sosName:/SOS Vendor Obj/.test(txt2),dap:!!V.find(x=>x.name==='DAP Pipes Manufacturing'&&/concrete/.test(x.category)),typed:!!V.find(x=>x.name==='Carmona Precast'&&x.phone==='0918')};})();`),
   expect:{fitHasDepot:true,fitHasCulvert:true,groceryFolded:true,amazonFolded:true,sug:true,verify:true,noObj:true,sosName:true,dap:true,typed:true} },
 ];
-<<<<<<< HEAD
 module.exports.push(
 { name:'🔎 Supplier 360° from the RCP request: Culvert King shows "Relevant to this request (1)" with the concrete culvert row; Dali Everyday Grocery says it never sold us this kind of item and folds its coffee purchase; a history row whose unit is an SOS object prints "pc", never [object Object] (v21.55)',
   seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));
@@ -30,5 +29,3 @@ module.exports.push(
     __PURPRO.sup360N('Dali Everyday Grocery');await sleep(200);const m2=document.getElementById('ppSup360');[...(m2?m2.querySelectorAll('details'):[])].forEach(d=>d.open=true);const t2=m2?m2.innerText:'';if(m2)m2.remove();
     return {relCount:/Relevant to this request \\(1\\)/.test(t1),culvert:/concrete culvert 24in/.test(t1),unit:/4 pc/.test(t1)&&t1.indexOf('[object Object]')<0,never:/never sold us this kind of item/.test(t2),folded:/Other purchases from this supplier \\(1\\)/.test(t2)&&/coffee/.test(t2)};})();`),
   expect:{relCount:true,culvert:true,unit:true,never:true,folded:true} });
-=======
->>>>>>> origin/main
