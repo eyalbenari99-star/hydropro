@@ -29,4 +29,3 @@ module.exports.push(
     __PURPRO.sup360N('Dali Everyday Grocery');await sleep(200);const m2=document.getElementById('ppSup360');[...(m2?m2.querySelectorAll('details'):[])].forEach(d=>d.open=true);const t2=m2?m2.innerText:'';if(m2)m2.remove();
     return {relCount:/Relevant to this request \\(1\\)/.test(t1),culvert:/concrete culvert 24in/.test(t1),unit:/4 pc/.test(t1)&&t1.indexOf('[object Object]')<0,never:/never sold us this kind of item/.test(t2),folded:/Other purchases from this supplier \\(1\\)/.test(t2)&&/coffee/.test(t2)};})();`),
   expect:{relCount:true,culvert:true,unit:true,never:true,folded:true} });
->>>>>>> origin/main
