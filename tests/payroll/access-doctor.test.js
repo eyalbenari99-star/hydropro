@@ -28,3 +28,13 @@ module.exports.push(
     const q=getEffectiveModuleAccess(m,'quality');const w=HNXACCESS.why('mia').find(r=>r.module==='quality');const other=getEffectiveModuleAccess(m,'production');
     return {acc,q,why:/department head/.test(w.reason),other};})();`),
   expect:{acc:'edit,edit,edit,edit,edit',q:'edit',why:true,other:'none'} });
+module.exports.push(
+{ name:'🔎 Audit all: "ops" (supervisor, STRICT, override production=none, head of maintenance) is reported missing production and maintenance among others; "clerk" (accounting, no strict) is missing nothing; Fix everyone writes the overrides so ops gets production and maintenance EDIT and the audit then shows 0 to fix (v21.60)',
+  seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true},{username:'ops',fullname:'Ops Person',passwordHash:'x',role:'supervisor',active:true,department:'production'},{username:'clerk',fullname:'Acct Clerk',passwordHash:'x',role:'accounting',active:true,department:'accounting'}]));
+    localStorage.setItem('hydroPro_user_perms',JSON.stringify({ops:{strict:true,overrides:{'module:production':'none'}}}));localStorage.setItem('hydroPro_dept_heads_v1',JSON.stringify({maintenance:'ops'}));},
+  run:new Function(`return (async()=>{await sleep(4000);window.confirm=()=>true;window.showToast=()=>{};
+    const A=HNXACCESS.auditAll();const ops=A.find(r=>r.username==='ops'),clerk=A.find(r=>r.username==='clerk');
+    const before={opsMissProd:ops.missing.includes('production'),opsMissMaint:ops.missing.includes('maintenance')||ops.has.includes('maintenance'),clerkMissing:clerk.missing.length};
+    HNXACCESS.fixAll();await sleep(100);const U=loadUsers().find(u=>u.username==='ops');let err='';try{HNXACCESS.openAudit();}catch(e){err=String(e);}const after=HNXACCESS.auditAll().filter(r=>r.missing.length).length;
+    return Object.assign(before,{prod:getEffectiveModuleAccess(U,'production'),maint:getEffectiveModuleAccess(U,'maintenance'),after,modal:!!document.getElementById('hnxAccAudit'),err});})();`),
+  expect:{opsMissProd:true,opsMissMaint:true,clerkMissing:0,prod:'edit',maint:'edit',after:0,modal:true,err:''} });
