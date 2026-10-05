@@ -1,5 +1,5 @@
 /**
- * HydroNexis-AI — Executive Assistant Worker (Phase 4b) · v2.2 CORS · v2.0 per-user mailboxes (Oct 2026, Eyal: "each user
+ * HydroNexis-AI — Executive Assistant Worker (Phase 4b) · v2.2.1 CORS + auth reason · v2.0 per-user mailboxes (Oct 2026, Eyal: "each user
  * should connect his work email that Nexi follows up daily, or each hour, or whatever the user asks")
  *   Session: besides the HMAC token, a Nexi cloud token (the same Bearer the app sends to hnx-sync) is accepted and
  *   verified through SYNC_URL + /auth/me (cached 10 min in KV). Email tokens are stored PER USER; each user has
@@ -82,18 +82,20 @@ async function verifySession(req, env) {
   return { tenant, user };
 }
 /* v2.0: the app's own cloud session (hnx_cloud_token) — verified against hnx-sync /auth/me, cached 10 min */
+let lastAuthWhy = ''; /* v2.2.1: surfaced in the 401 so the app can show WHY the cloud token was refused */
 async function verifyCloudToken(req, env, tok) {
-  if (!tok || tok.length < 8) return null;
+  lastAuthWhy = '';
+  if (!tok || tok.length < 8) { lastAuthWhy = 'no cloud token sent'; return null; }
   const h = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(tok)));
   const key = 'sess:' + Array.from(h.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join('');
   const cached = await env.EA_KV.get(key);
   if (cached) { try { return JSON.parse(cached); } catch (e) { /* fall through */ } }
   const base = (env.SYNC_URL || 'https://hnx-sync.eyalbenari99.workers.dev').replace(/\/$/, '');
   let r;
-  try { r = await fetch(base + '/auth/me', { headers: { Authorization: 'Bearer ' + tok } }); } catch (e) { return null; }
-  if (!r.ok) return null;
+  try { r = await fetch(base + '/auth/me', { headers: { Authorization: 'Bearer ' + tok } }); } catch (e) { lastAuthWhy = 'hnx-sync unreachable: ' + (e && e.message); return null; }
+  if (!r.ok) { lastAuthWhy = 'hnx-sync ' + r.status + ' ' + String(await r.text().catch(() => '')).slice(0, 120); return null; }
   const j = await r.json().catch(() => null);
-  if (!j || !j.username) return null;
+  if (!j || !j.username) { lastAuthWhy = 'hnx-sync reply had no username'; return null; }
   const sess = { tenant: env.TENANT || 'aba', user: String(j.username).toLowerCase(), isAdmin: !!j.isAdmin };
   await env.EA_KV.put(key, JSON.stringify(sess), { expirationTtl: 600 });
   return sess;
@@ -732,7 +734,7 @@ async function handle(req, env) {
     if (p === '/ea/sms/webhook' && req.method === 'POST') return smsWebhook(req, env);
 
     const sess = await verifySession(req, env);
-    if (!sess) return deny(401, 'session required');
+    if (!sess) return deny(401, 'session required' + (lastAuthWhy ? ' — ' + lastAuthWhy : ''));
 
     if (p === '/ea/status') {
       const cfg = await getCfg(env, sess.tenant);
