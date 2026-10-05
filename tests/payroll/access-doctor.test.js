@@ -46,3 +46,15 @@ module.exports.push(
     const w=HNXACCESS.why('mea').find(r=>r.module==='production');
     return {prod:getEffectiveModuleAccess(m,'production'),hr:getEffectiveModuleAccess(m,'hr'),why:/standing grant/.test(w.reason),other:getEffectiveModuleAccess(c,'production'),otherHr:getEffectiveModuleAccess(c,'hr')};})();`),
   expect:{prod:'edit',hr:'edit',why:true,other:'none',otherHr:'none'} });
+module.exports.push(
+{ name:'🔒 Strict by default (v21.69): supervisor "sup" (home dept production, no overrides) gets production EDIT, tasks/assistant/overview, but NOT hr, accounting or purchasing from the role default; Lift Strict writes strict:false and the role defaults come back; "amy" (Dr Amy, supervisor role) keeps the wide defaults; Audit all reports sup missing nothing; the sidebar module says NEXI ASSISTANT',
+  seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true},{username:'sup',fullname:'Sup Ervisor',passwordHash:'x',role:'supervisor',active:true,department:'PROD_TRAINEES'},{username:'amy',fullname:'Dr Amy Patdu',passwordHash:'x',role:'supervisor',active:true,department:''}]));localStorage.setItem('hydroPro_user_perms',JSON.stringify({}));},
+  run:new Function(`return (async()=>{await sleep(4000);const U=loadUsers();const s=U.find(x=>x.username==='sup'),a=U.find(x=>x.username==='amy');
+    const g=(u,m)=>getEffectiveModuleAccess(u,m);
+    const before={prod:g(s,'production'),tasks:g(s,'tasks'),asst:g(s,'assistant'),ov:g(s,'overview'),hr:g(s,'hr'),acct:g(s,'accounting'),maint:g(s,'maintenance')};
+    const amyWide=['production','maintenance','hr'].map(m=>g(a,m)).some(x=>x!=='none');
+    const audit=HNXACCESS.auditAll().find(r=>r.username==='sup');const why=HNXACCESS.why('sup').find(r=>r.module==='maintenance');
+    window.showToast=()=>{};HNXACCESS.liftStrict('sup');await sleep(200);const perms=JSON.parse(localStorage.getItem('hydroPro_user_perms'));
+    const after={maint:g(loadUsers().find(x=>x.username==='sup'),'maintenance')};
+    return Object.assign(before,{amyWide,missing:audit.missing.length,why:/strict by default/.test(why.reason),lifted:perms.sup.strict===false,afterMaint:after.maint!=='none',name:MODULES.assistant.name});})();`),
+  expect:{prod:'edit',tasks:'edit',asst:'edit',ov:'edit',hr:'none',acct:'none',maint:'none',amyWide:true,missing:0,why:true,lifted:true,afterMaint:true,name:'NEXI ASSISTANT'} });
