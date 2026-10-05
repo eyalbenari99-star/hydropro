@@ -1,5 +1,5 @@
 /**
- * HydroNexis-AI — Executive Assistant Worker (Phase 4b) · v2.0 per-user mailboxes (Oct 2026, Eyal: "each user
+ * HydroNexis-AI — Executive Assistant Worker (Phase 4b) · v2.2 CORS · v2.0 per-user mailboxes (Oct 2026, Eyal: "each user
  * should connect his work email that Nexi follows up daily, or each hour, or whatever the user asks")
  *   Session: besides the HMAC token, a Nexi cloud token (the same Bearer the app sends to hnx-sync) is accepted and
  *   verified through SYNC_URL + /auth/me (cached 10 min in KV). Email tokens are stored PER USER; each user has
@@ -686,8 +686,42 @@ async function emailFetch(env, tenant, query, days, maxResults, vipSenders, user
 }
 
 /* ---------------- router ---------------- */
+/* v2.2 (5 Oct 2026): CORS — the Nexi site (APP_ORIGIN) calls this worker from the browser with an Authorization
+   header, which triggers a preflight. Without these headers every call failed and the app showed "worker not
+   reachable". Allowed: APP_ORIGIN, plus localhost / 127.0.0.1 for the payroll test runner. */
+function corsHeaders(req, env) {
+  const o = req.headers.get('Origin') || '';
+  const allowed = [String(env.APP_ORIGIN || '').replace(/\/$/, '')];
+  const ok = o && (allowed.includes(o) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o));
+  if (!ok) return null;
+  return {
+    'Access-Control-Allow-Origin': o,
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'Authorization,Content-Type,X-Nexi-User',
+    'Access-Control-Max-Age': '600',
+    'Vary': 'Origin',
+  };
+}
+function withCors(res, cors) {
+  if (!cors || !res || res.status === 302 || res.status === 301) return res;
+  const h = new Headers(res.headers);
+  for (const k in cors) h.set(k, cors[k]);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+
 export default {
   async fetch(req, env) {
+    const cors = corsHeaders(req, env);
+    if (req.method === 'OPTIONS') return new Response(null, { status: cors ? 204 : 403, headers: cors || {} });
+    return withCors(await handle(req, env), cors);
+  },
+  async scheduled(_evt, env, ctx) {
+    ctx.waitUntil(runSchedule(env));
+    ctx.waitUntil(runEmailSchedule(env, env.TENANT || 'aba'));
+  },
+};
+
+async function handle(req, env) {
     const u = new URL(req.url);
     const p = u.pathname;
     // OAuth callbacks and SMS webhook are unauthenticated by nature (validated internally)
@@ -831,9 +865,4 @@ export default {
       });
     }
     return deny(404, 'no route');
-  },
-  async scheduled(_evt, env, ctx) {
-    ctx.waitUntil(runSchedule(env));
-    ctx.waitUntil(runEmailSchedule(env, env.TENANT || 'aba'));
-  },
-};
+}
