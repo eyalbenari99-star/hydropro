@@ -64,13 +64,15 @@ Each Nexi user connects **their own** work mailbox from Executive Assistant → 
 
 1. **Google Cloud → APIs & Services** (project of the abapardes.com.ph Workspace):
    - Enable the **Gmail API**.
-   - OAuth consent screen: *Internal* (Workspace users only), app name "Nexi Executive Assistant", scope `https://www.googleapis.com/auth/gmail.readonly`.
+   - OAuth consent screen: *Internal* (Workspace users only), app name "Nexi Assistant", scopes `https://www.googleapis.com/auth/gmail.readonly` **and** `https://www.googleapis.com/auth/gmail.compose` (v2.1: reply drafts in the user's own Drafts; still no send).
    - Credentials → **OAuth client ID** → Web application → authorized redirect URI `https://hnx-ea.eyalbenari99.workers.dev/ea/email/oauth/google/callback` (and `/ea/calendar/oauth/google/callback` if calendars are used). Copy the client id and secret — never paste them into chat.
 2. **Cloudflare → Workers → create `hnx-ea`** from `workers/ea-worker.js`.
    - KV namespace `EA_KV` bound as `EA_KV`.
    - Variables: `APP_ORIGIN = https://aba-pardes-monitoring.netlify.app`, `SYNC_URL = https://hnx-sync.eyalbenari99.workers.dev`, `TENANT = aba`.
    - Secrets: `EA_TOKEN_KEY` (32-byte base64: `openssl rand -base64 32`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`; `SESSION_SECRET` any random string (legacy HMAC path; the app uses the Nexi cloud token instead). Twilio / Microsoft secrets only if those features are used.
    - Trigger: cron `* * * * *`.
+   - v2.1 (Eyal, 5 Oct 2026 — three briefings a day): also set `NOTIFY_URL = https://nexi-notify.eyalbenari99.workers.dev` + secret `NOTIFY_TOKEN` (the nexi-notify bearer) so the briefing is e-mailed to the user; and `WA_URL = https://nexi-wa.eyalbenari99.workers.dev`, secret `WA_TOKEN`, var `WA_COMPANY_PHONE` (E.164, e.g. 639171234567) for the WhatsApp reminder. Missing settings skip that step; the scan and the in-app list still work.
+   - What runs: every user's connected mailbox is scanned at **06:00, 12:00 and 17:00 Manila** (default cadence `three`); the briefing (needs a reply / follow up) goes to the user's own address read from the Gmail profile; up to five reply DRAFTS per run are placed in the user's Drafts (one per message, never resent); one WhatsApp line per briefing on the company phone.
 3. In Nexi (any user): Executive Assistant → 📧 Email Intelligence → tick the authorization box → **🔗 Connect my Gmail** → Google consent → back in Nexi the chip says ● connected. Pick the cadence (Daily at 07:00 / Twice a day / Every hour / Off). 📥 pulls Nexi's follow-ups now; otherwise they arrive on the cadence.
 
 Routes (all need `Authorization: Bearer <Nexi cloud token>`, verified via hnx-sync `/auth/me` and cached 10 min):

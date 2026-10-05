@@ -17,7 +17,7 @@ module.exports=[
     const step2=HNXTASKWIZ.state().step;HNXTASKWIZ.set('priority','high');const tmr=new Date();tmr.setDate(tmr.getDate()+1);const d=tmr.getFullYear()+'-'+String(tmr.getMonth()+1).padStart(2,'0')+'-'+String(tmr.getDate()).padStart(2,'0');HNXTASKWIZ.set('due',d);HNXTASKWIZ.set('visibility','team');HNXTASKWIZ.next();await sleep(50);
     const step3=HNXTASKWIZ.state().step;HNXTASKWIZ.set('rule','evidence');document.getElementById('twSub').value='Call the buyer';HNXTASKWIZ.addSub();HNXTASKWIZ.save();await sleep(200);
     const done=!!document.querySelector('#hnxTaskWiz .tw-done');const all=HNXTASKS.load();const t=all.find(x=>x.title==='Send SM the delivery schedule');const sub=all.find(x=>x.parentId===(t&&t.id));
-    HNXTASKWIZ.close();switchView('dashboard');await sleep(1500);const fabOff=getComputedStyle(document.getElementById('hnxTaskFab')).display==='none';
+    HNXTASKWIZ.close();switchView('geo_dash');await sleep(1500);const fabOff=getComputedStyle(document.getElementById('hnxTaskFab')).display==='none';
     return {purch:!!(HNXTASKS.heads&&true)&&(function(){HNXTASKWIZ.open();HNXTASKWIZ.set('module','purchasing');var ok=!!document.querySelector('#hnxTaskWiz .tw-tile.on')&&/Purchasing/.test(document.querySelector('#hnxTaskWiz .tw-tile.on').textContent);HNXTASKWIZ.close();return ok;})(),fabOn,wiz1,step2,step3,done,owner:t&&t.owner,module:t&&t.module,pri:t&&t.priority,due:t&&t.due===d,vis:t&&t.visibility,rule:t&&t.rule,sub:sub&&sub.title,subOwner:sub&&sub.owner,fabOff};})();`),
   expect:{fabOn:true,wiz1:true,step2:2,step3:3,done:true,owner:'jinky',module:'accounting',pri:'high',due:true,vis:'team',rule:'evidence',sub:'Call the buyer',subOwner:'jinky',fabOff:true,purch:true} },
 ];

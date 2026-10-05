@@ -37,7 +37,7 @@
  */
 
 const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/calendar.events.readonly';
-const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose'; /* v2.1: compose = place reply DRAFTS in the user's own Drafts; still no send */
 const MSMAIL_SCOPE = 'offline_access Mail.Read';
 const MS_SCOPE = 'offline_access Calendars.Read';
 const SLOTS = ['owner', 'assistant'];
@@ -120,7 +120,9 @@ const K = {
   emailUsers: t => `eusers:${t}`,
   emailRun: (t, user, slot) => `erun:${t}:${user}:${slot}`,
 };
-const EMAIL_DEFAULT_PREFS = { cadence: 'daily', hour: '07:00', timezone: 'Asia/Manila', vipSenders: [], days: 14 };
+/* v2.1 (Eyal, 5 Oct 2026): company standard — three briefings a day, 06:00 · 12:00 · 17:00 Manila, e-mailed to the user, reply drafts offered, WhatsApp ping on the company phone */
+const BRIEF_SLOTS = ['06:00', '12:00', '17:00'];
+const EMAIL_DEFAULT_PREFS = { cadence: 'three', hour: '07:00', timezone: 'Asia/Manila', vipSenders: [], days: 14, address: '', name: '' };
 async function emailPrefs(env, tenant, user) { return { ...EMAIL_DEFAULT_PREFS, ...(JSON.parse((await env.EA_KV.get(K.emailPrefs(tenant, user))) || '{}')) }; }
 async function emailUsers(env, tenant) { try { return JSON.parse((await env.EA_KV.get(K.emailUsers(tenant))) || '[]'); } catch (e) { return []; } }
 async function rememberEmailUser(env, tenant, user) { const L = await emailUsers(env, tenant); if (!L.includes(user)) { L.push(user); await env.EA_KV.put(K.emailUsers(tenant), JSON.stringify(L)); } }
@@ -513,11 +515,95 @@ async function scanUser(env, tenant, user, prefs, query, days, maxResults) {
   }
   return { messages: r.messages, counts, scannedAt };
 }
+
+/* ===================== v2.1 · BRIEFING E-MAIL · REPLY DRAFTS · WHATSAPP PING =====================
+   After each due scan: (1) e-mail the user a briefing of what needs a reply / follow-up through nexi-notify
+   (nexi@abapardes.com.ph → the user's own work address, read once from the Gmail profile); (2) for up to five
+   messages that need a reply, place a DRAFT answer in the user's Drafts (Gmail users.drafts.create; never sent);
+   (3) post one line on the company WhatsApp phone through nexi-wa so the person knows the briefing is in the inbox.
+   Env (all optional — each step is skipped when its setting is missing): NOTIFY_URL, NOTIFY_TOKEN, WA_URL, WA_TOKEN, WA_COMPANY_PHONE. */
+async function profileAddress(env, tenant, user, prefs) {
+  if (prefs.address) return prefs;
+  const t = await emailToken(env, tenant, user);
+  if (t.error || t.provider !== 'google') return prefs;
+  try {
+    const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', { headers: { Authorization: 'Bearer ' + t.access } });
+    if (r.ok) { const j = await r.json(); if (j.emailAddress) { prefs.address = String(j.emailAddress); await env.EA_KV.put(K.emailPrefs(tenant, user), JSON.stringify(prefs)); } }
+  } catch (e) {}
+  return prefs;
+}
+function draftBody(m, who) {
+  const first = String((m.from && m.from.name) || '').split(/[ ,]/)[0] || 'there';
+  const subj = String(m.subject || '').replace(/^\s*(re|fwd?):\s*/i, '');
+  const lead = m.needsReply && QUESTION_RE.test((m.subject || '') + ' ' + (m.snippet || ''))
+    ? 'Here is the information you asked for: [fill in]'
+    : (m.needsFollowUp ? 'Here is the update on this: [fill in]' : 'Noted, thank you. [fill in your answer]');
+  return `Hi ${first},\n\nThank you for your e-mail regarding "${subj}".\n\n${lead}\n\nBest regards,\n${who}\nABA Pardes\n\n— Nexi prepared this draft from the subject line only. Edit before sending; Nexi never sends.`;
+}
+function mimeReply(m, to, fromAddr, body) {
+  const subj = /^re:/i.test(m.subject || '') ? m.subject : 'Re: ' + (m.subject || '');
+  const hdr = [`To: ${to}`, fromAddr ? `From: ${fromAddr}` : '', `Subject: ${subj}`, m.messageId ? `In-Reply-To: ${m.messageId}` : '', m.messageId ? `References: ${m.messageId}` : '', 'Content-Type: text/plain; charset="UTF-8"', 'MIME-Version: 1.0'].filter(Boolean).join('\r\n');
+  const raw = hdr + '\r\n\r\n' + body;
+  return b64url(new TextEncoder().encode(raw));
+}
+async function placeDrafts(env, tenant, user, prefs, items) {
+  const t = await emailToken(env, tenant, user);
+  if (t.error || t.provider !== 'google') return 0;
+  let n = 0;
+  for (const m of items.filter(x => x.needsReply && x.from && x.from.email).slice(0, 5)) {
+    const k = `edraft:${tenant}:${user}:${m.id}`;
+    if (await env.EA_KV.get(k)) continue;
+    try {
+      const raw = mimeReply(m, m.from.email, prefs.address, draftBody(m, prefs.name || user));
+      const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
+        method: 'POST', headers: { Authorization: 'Bearer ' + t.access, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: { raw, threadId: m.threadId || undefined } }),
+      });
+      if (r.ok) { n++; await env.EA_KV.put(k, '1', { expirationTtl: 60 * 60 * 24 * 30 }); }
+    } catch (e) {}
+  }
+  return n;
+}
+function briefText(user, prefs, r, slot, drafts) {
+  const items = r.messages.filter(m => m.important || m.needsReply || m.needsFollowUp);
+  const reply = items.filter(m => m.needsReply), fu = items.filter(m => m.needsFollowUp && !m.needsReply);
+  const line = m => `• ${(m.from && (m.from.name || m.from.email)) || '?'} — ${m.subject || '(no subject)'}${m.reasons && m.reasons.length ? ' (' + m.reasons[0] + ')' : ''}`;
+  const when = slot.slice(11);
+  return `Nexi briefing — ${slot.slice(0, 10)} ${when} (Manila)\n\n` +
+    `NEEDS A REPLY (${reply.length})\n${reply.length ? reply.slice(0, 15).map(line).join('\n') : 'Nothing waiting for your answer.'}\n` +
+    (drafts ? `\n${drafts} draft answer(s) are in your Drafts folder — edit and send.\n` : '') +
+    `\nFOLLOW UP (${fu.length})\n${fu.length ? fu.slice(0, 15).map(line).join('\n') : 'Nothing to chase.'}\n` +
+    `\nScanned ${r.messages.length} messages from the last ${prefs.days} days. Nexi never sends a reply for you.\n— Nexi`;
+}
+async function notifyMail(env, to, subject, text) {
+  if (!env.NOTIFY_URL || !env.NOTIFY_TOKEN || !to) return false;
+  try {
+    const r = await fetch(env.NOTIFY_URL.replace(/\/$/, '') + '/notify/mail', { method: 'POST', headers: { Authorization: 'Bearer ' + env.NOTIFY_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ to: [to], subject, text }) });
+    return r.ok;
+  } catch (e) { return false; }
+}
+async function waPing(env, text) {
+  if (!env.WA_URL || !env.WA_TOKEN || !env.WA_COMPANY_PHONE) return false;
+  try {
+    const r = await fetch(env.WA_URL.replace(/\/$/, '') + '/wa/send', { method: 'POST', headers: { Authorization: 'Bearer ' + env.WA_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ to: env.WA_COMPANY_PHONE, text }) });
+    return r.ok;
+  } catch (e) { return false; }
+}
+async function briefUser(env, tenant, user, prefs, r, slot) {
+  prefs = await profileAddress(env, tenant, user, prefs);
+  const items = r.messages.filter(m => m.important || m.needsReply || m.needsFollowUp);
+  const drafts = await placeDrafts(env, tenant, user, prefs, items);
+  const subject = `✉ Nexi briefing ${slot.slice(11)} — ${items.filter(m => m.needsReply).length} to reply, ${items.filter(m => m.needsFollowUp && !m.needsReply).length} to follow up`;
+  const sent = await notifyMail(env, prefs.address, subject, briefText(user, prefs, r, slot, drafts));
+  if (sent) await waPing(env, `📧 Nexi: ${prefs.name || user}'s ${slot.slice(11)} e-mail briefing is in the inbox (${prefs.address}) — ${items.filter(m => m.needsReply).length} to reply, ${drafts} draft(s) ready.`);
+  try { await env.EA_KV.put(`ebrief:${tenant}:${user}:${slot}`, JSON.stringify({ at: new Date().toISOString(), sent, drafts, items: items.length }), { expirationTtl: 60 * 60 * 24 * 14 }); } catch (e) {}
+}
 /* which cadence slot is due now for this user (one run per slot key, idempotent) */
 function dueSlot(prefs) {
   const now = localNow(prefs.timezone || 'Asia/Manila');
   const hm = now.hm, h = hm.slice(0, 2), m = hm.slice(3, 5);
   if (prefs.cadence === 'off') return '';
+  if (!prefs.cadence || prefs.cadence === 'three') return BRIEF_SLOTS.includes(hm) ? now.date + 'T' + hm : '';
   if (prefs.cadence === 'hourly') return m === '00' ? now.date + 'T' + h : '';
   const want = prefs.hour || '07:00';
   if (prefs.cadence === 'daily') return hm === want ? now.date + 'T' + want : '';
@@ -539,7 +625,8 @@ async function runEmailSchedule(env, tenant) {
       await env.EA_KV.put(k, '1', { expirationTtl: 60 * 60 * 36 });
       const t = await emailToken(env, tenant, user);
       if (t.error || !t.access) continue;
-      await scanUser(env, tenant, user, prefs, '', prefs.days, 150);
+      const r = await scanUser(env, tenant, user, prefs, '', prefs.days, 150);
+      if (!r.error) await briefUser(env, tenant, user, prefs, r, slot);
     } catch (e) { /* one user's failure never stops the others; nothing sensitive logged */ }
   }
 }
@@ -555,7 +642,7 @@ async function emailFetch(env, tenant, query, days, maxResults, vipSenders, user
     if (!list.ok) return { error: 'provider_' + list.status };
     const j = await list.json();
     for (const it of (j.messages || []).slice(0, Math.min(150, maxResults || 100))) {
-      const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${it.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=To`, {
+      const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${it.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=To&metadataHeaders=Message-ID`, {
         headers: { Authorization: 'Bearer ' + t.access },
       });
       if (!r.ok) continue;
@@ -564,7 +651,7 @@ async function emailFetch(env, tenant, query, days, maxResults, vipSenders, user
       const fromRaw = H('From');
       const fm = fromRaw.match(/^(.*?)\s*<(.+)>$/);
       out.push(classifyEmail({
-        id: m.id, threadId: m.threadId, provider: 'google',
+        id: m.id, threadId: m.threadId, provider: 'google', messageId: H('Message-ID'),
         from: { name: fm ? fm[1].replace(/"/g, '') : fromRaw, email: fm ? fm[2] : fromRaw },
         subject: H('Subject'), snippet: String(m.snippet || '').slice(0, 420),
         receivedAt: new Date(+m.internalDate).toISOString(),
@@ -641,14 +728,14 @@ export default {
       let snap = null; try { snap = JSON.parse((await env.EA_KV.get(K.emailInbox(sess.tenant, sess.user))) || 'null'); } catch (e) { snap = null; }
       return ok({ ok: true, connected, slot: 'email', user: sess.user, provider, scopes: connected ? [provider === 'google' ? GMAIL_SCOPE : 'Mail.Read'] : [],
         prefs: { cadence: prefs.cadence, hour: prefs.hour, timezone: prefs.timezone, vipSenders: prefs.vipSenders, days: prefs.days },
-        scheduler: { enabled: connected && prefs.cadence !== 'off', cadence: prefs.cadence, hour: prefs.hour },
+        scheduler: { enabled: connected && prefs.cadence !== 'off', cadence: prefs.cadence, hour: prefs.hour, slots: prefs.cadence === 'three' ? BRIEF_SLOTS : null, address: prefs.address || '' },
         lastScanAt: snap ? snap.scannedAt : null, counts: snap ? snap.counts : null, error: null });
     }
     if (p === '/ea/email/prefs' && req.method === 'GET') return ok({ ok: true, user: sess.user, prefs: await emailPrefs(env, sess.tenant, sess.user) });
     if (p === '/ea/email/prefs' && req.method === 'POST') {
       const body = await req.json().catch(() => ({}));
       const cur = await emailPrefs(env, sess.tenant, sess.user), next = { ...cur };
-      if (['off', 'hourly', 'twice', 'daily'].includes(body.cadence)) next.cadence = body.cadence;
+      if (['three', 'off', 'hourly', 'twice', 'daily'].includes(body.cadence)) next.cadence = body.cadence;
       if (/^\d{2}:\d{2}$/.test(body.hour || '')) next.hour = body.hour;
       if (typeof body.timezone === 'string' && body.timezone.length < 40) next.timezone = body.timezone;
       if (Array.isArray(body.vipSenders)) next.vipSenders = body.vipSenders.map(x => String(x).slice(0, 120)).slice(0, 50);
