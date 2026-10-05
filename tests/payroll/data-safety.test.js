@@ -106,3 +106,13 @@ module.exports.push(
     const r=HNXDS.applyPolicy();
     return {polBy:pol&&pol.by,t1:JSON.parse(localStorage.getItem('hydroPro_ds_t1_v1'))[0].n,t2:JSON.parse(localStorage.getItem('hydroPro_ds_t2_v1'))[0].n,t3:JSON.parse(localStorage.getItem('hydroPro_ds_t3_v1'))[0].n,heldLeft:Object.keys(HNXDS.held()).join(','),applied:Number(localStorage.getItem('hnxlocal_ds_policy_applied_v1'))>=pol.at};})();`),
   expect:{polBy:'Tester',t1:'cloud',t2:'cloud',t3:'local',heldLeft:'hydroPro_ds_t3_v1',applied:true} });
+module.exports.push(
+{ name:'🛡 v21.72: a biometric attendance day — 14 records, 0 removed, 14 changed — is NOT held (passes the push); an employees upload rewriting 110 of 110 with 0 removed IS still held; 60 of 80 removed is held',
+  seed:withCloud(()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));}),
+  run:async()=>{await sleep(4000);
+    const day=(n,t)=>{const o={};for(let i=1;i<=n;i++)o['E'+i]={status:'present',timeIn:t,updatedAt:1};return JSON.stringify(o);};
+    const roster=(n,dept,t)=>JSON.stringify(Array.from({length:n},(_,i)=>({id:'E'+(i+1),name:'EMP '+(i+1),status:'Active',dept:dept,updatedAt:t||0})));
+    window.__hnxCloudRaw['hydroPro_att_day_test']=day(14,'07:00');window.__hnxCloudRaw['hydroPro_employees']=roster(110,'A',1);window.__hnxCloudRaw['hydroPro_big_test']=roster(80,'A',1);
+    const out=window.__hnxPushGuard({'hydroPro_att_day_test':day(14,'07:05'),'hydroPro_employees':roster(110,'B',Date.now()),'hydroPro_big_test':roster(20,'B',Date.now())});
+    return {dayPassed:'hydroPro_att_day_test' in out,empHeld:!('hydroPro_employees' in out),bigHeld:!('hydroPro_big_test' in out)};},
+  expect:{dayPassed:true,empHeld:true,bigHeld:true} });
