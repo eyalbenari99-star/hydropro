@@ -58,3 +58,10 @@ module.exports.push(
     const after={maint:g(loadUsers().find(x=>x.username==='sup'),'maintenance')};
     return Object.assign(before,{amyWide,missing:audit.missing.length,why:/strict by default/.test(why.reason),lifted:perms.sup.strict===false,afterMaint:after.maint!=='none',name:MODULES.assistant.name});})();`),
   expect:{prod:'edit',tasks:'edit',asst:'edit',ov:'edit',hr:'none',acct:'none',maint:'none',amyWide:true,missing:0,why:true,lifted:true,afterMaint:true,name:'NEXI ASSISTANT'} });
+module.exports.push(
+{ name:'🧹 Users screen layout (v21.73): with three users the Actions cell is at least 440px wide and no row is taller than 110px (was ~350px with nine stacked buttons)',
+  seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true},{username:'ederlynt',fullname:'Ederlyn Torzar',passwordHash:'x',role:'supervisor',active:true,email:'ederlynt@abapardes.com.ph',department:'PROD_TRAINEES',mustChangePassword:true},{username:'joshanee',fullname:'Joshane Espinosa',passwordHash:'x',role:'supervisor',active:true,email:'joshanee@abapardes.com.ph'}]));},
+  run:new Function(`return (async()=>{await sleep(4000);switchView('users');await sleep(2500);
+    const rows=[...document.querySelectorAll('#usersTable tbody tr')];const last=rows.map(r=>r.lastElementChild);
+    const minW=Math.min(...last.map(td=>td.getBoundingClientRect().width)),maxH=Math.max(...rows.map(r=>r.getBoundingClientRect().height));return {rows:rows.length,wide:minW>=440,short:maxH<=110,minW:Math.round(minW),maxH:Math.round(maxH)};})();`),
+  expect:{rows:3,wide:true,short:true} });
