@@ -71,5 +71,13 @@ module.exports=[
     const eb=ib.find(x=>x.id==='ROSB_edelyn.n_2026-10-13')||{};const tb=ib.filter(x=>/^ROST_.*_2026-10-13$/.test(x.id)).map(x=>x.user).sort().join(',');
     const rv=T.find(t=>t.id==='ROS_edelyn_D03_2026-10-13').roleos.rev;
     return {owners,e:n('edelyn','2026-10-13'),j:n('joshane','2026-10-13'),c:n('cyra','2026-10-13'),fri:R.dutiesOn('cyra','2026-10-16').length,first:R.dutiesOn('cyra','2026-11-01').filter(x=>x.freq==='monthly').map(x=>x.tid).join('+'),lab:R.ROLES.cyra.label,sun,brief:/^🌅 Your day — 9 duties · 9 carried over$/.test(eb.title||''),steps:/Carried over from 2026-10-12/.test(eb.text||''),tb,again:b2===0,rv};})()`),
-  expect:{owners:'edelyn.n,joshane,cyra',e:9,j:9,c:13,fri:16,first:'M01+M02',lab:'Syra Mae Montesa',sun:'W06|',brief:true,steps:true,tb:'amy,eyal,jinky',again:true,rv:'amy'} }
+  expect:{owners:'edelyn.n,joshane,cyra',e:9,j:9,c:13,fri:16,first:'M01+M02',lab:'Syra Mae Montesa',sun:'W06|',brief:true,steps:true,tb:'amy,eyal,jinky',again:true,rv:'amy'} },
+{ name:'🗓 Role OS v21.85 audit: every monthly duty of all five people is created exactly once in every month of 2026–2027 (Syra M01/M02 on Sat 1 Aug 2026 → Sun 2 Aug, not lost); Mea M13 due 17:00 (v21.85)',
+  seed:function(){localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));},
+  run:new Function(`return (async()=>{await sleep(6000);const R=HNXROLEOS;let miss=[],dbl=0;
+    for(const k of Object.keys(R.ROLES))for(const m of R.ROLES[k].monthly)for(let y=2026;y<=2027;y++)for(let mo=0;mo<12;mo++){let n=0;const last=new Date(y,mo+1,0).getDate();
+      for(let d=1;d<=last;d++){const s=y+'-'+String(mo+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');if(R.dutiesOn(k,s).some(x=>x.tid===m[0]))n++;}
+      if(!n)miss.push(k+m[0]+'@'+y+'-'+(mo+1));if(n>1)dbl++;}
+    return {miss:miss.join(','),dbl,aug:R.ruleDate(1,'2026-08-15'),m13:R.ROLES.mea.monthly.find(x=>x[0]==='M13')[2]};})()`),
+  expect:{miss:'',dbl:0,aug:'2026-08-02',m13:'17:00'} }
 ];
