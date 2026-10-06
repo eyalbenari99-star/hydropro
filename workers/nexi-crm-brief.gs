@@ -1,4 +1,12 @@
-/** Nexi 🤝 CRM Brief — Google Apps Script (v1.0)
+/** Nexi 🤝 CRM Brief — Google Apps Script (v1.1)
+ *
+ * v1.1 (6 Oct 2026, Eyal: "Nexi should follow up 3 times a day with customer tasks with all users"):
+ *   + nexiCustomerTasks — 08:00, 12:00 and 16:00 Asia/Manila. Every Nexi user with an e-mail on their
+ *     user card gets their OPEN CUSTOMER TASKS (Tasks module, CRM or linked to a customer) that are late,
+ *     due today or due in the next 2 days — the ones they own and the ones shared with them; admins see
+ *     all non-personal customer tasks. Nobody with nothing due gets a mail. Same cloud store, read-only.
+ *     The app shows the same follow-up in-app at 09:00 · 13:00 · 17:00.
+ *   Re-paste this file and run installCrmBrief once: it adds the three triggers (the 07:00 brief is kept).
  *
  * 07:00 Asia/Manila, every working morning: the accounts to approach TODAY,
  * ranked by the money at stake — WhatsApp first, the full list by e-mail.
@@ -78,7 +86,9 @@ function installCrmBrief() {
   if (!have) {
     ScriptApp.newTrigger('nexiCrmBrief').timeBased().atHour(BRIEF_HOUR).everyDays(1).create();
   }
+  healTaskTriggers_();
   nexiCrmBrief();
+  nexiCustomerTasks();
 }
 
 /* ---------------- the run ---------------- */
@@ -109,6 +119,7 @@ function installHeal_() {
     if (t.getHandlerFunction() === 'nexiCrmBrief') have = true;
   });
   if (!have) ScriptApp.newTrigger('nexiCrmBrief').timeBased().atHour(BRIEF_HOUR).everyDays(1).create();
+  healTaskTriggers_();
 }
 
 /* ---------------- cloud ---------------- */
@@ -486,4 +497,79 @@ function mailHtml_(rc, W) {
        + 'Nexi never contacts a customer: it tells you who to contact. Outbound stays signed by a person (SOP-CRM-01 clause 2).'
        + '</div></div>');
   return H.join('');
+}
+
+
+/* ================= v1.1 — customer tasks, three times a day ================= */
+
+var TASK_HOURS = [8, 12, 16];        /* Asia/Manila; Apps Script fires within that hour */
+
+function healTaskTriggers_() {
+  var n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'nexiCustomerTasks') n++;
+  });
+  if (n >= TASK_HOURS.length) return;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'nexiCustomerTasks') ScriptApp.deleteTrigger(t);
+  });
+  TASK_HOURS.forEach(function (h) {
+    ScriptApp.newTrigger('nexiCustomerTasks').timeBased().atHour(h).everyDays(1).create();
+  });
+}
+
+function isCustomerTask_(t) {
+  if (!t) return false;
+  if (t.module === 'crm') return true;
+  return (t.links || []).some(function (l) { return /^(customer|customers|lead|crm):/i.test(String(l)); });
+}
+
+function nexiCustomerTasks() {
+  try { healTaskTriggers_(); } catch (e) {}
+  var data;
+  try { data = pullCloud_(); } catch (e) {
+    try { GmailApp.sendEmail(RECIPIENTS[0].to, '⚠ Nexi customer-task follow-up failed',
+      'The customer-task follow-up could not read the cloud.\n\n' + (e && e.message ? e.message : e)); } catch (_) {}
+    return;
+  }
+  var today = today_();
+  var hour = Utilities.formatDate(new Date(), TZ, 'HH:mm');
+  var users = (store_(data, 'hydroPro_users', []) || []).filter(function (u) { return u && u.username && u.active !== false; });
+  var names = {}; users.forEach(function (u) { names[u.username] = u.fullname || u.username; });
+  var tasks = (store_(data, 'hydroPro_tasks_v1', []) || []).filter(function (t) {
+    return t && t.id && t.due && t.status !== 'done' && t.status !== 'cancelled' && isCustomerTask_(t);
+  });
+  users.forEach(function (u) {
+    var to = String(u.email || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return;
+    var admin = u.role === 'admin' || u.role === 'admin_secondary';
+    var mine = tasks.filter(function (t) {
+      if (t.owner === u.username || (t.sharedWith || []).indexOf(u.username) >= 0) return true;
+      return admin && t.visibility !== 'personal';
+    });
+    var late = [], now = [], soon = [];
+    mine.forEach(function (t) {
+      var dd = daysBetween_(today, d10_(t.due));
+      if (dd == null) return;
+      if (dd < 0) late.push(t); else if (dd === 0) now.push(t); else if (dd <= 2) soon.push(t);
+    });
+    var n = late.length + now.length + soon.length;
+    if (!n) return;
+    var by = function (a, b) { return (a.due + (a.dueTime || '')).localeCompare(b.due + (b.dueTime || '')); };
+    late.sort(by); now.sort(by); soon.sort(by);
+    var row = function (t) {
+      var dd = daysBetween_(today, d10_(t.due));
+      var when = dd < 0 ? ('late ' + (-dd) + 'd') : dd === 0 ? ('today' + (t.dueTime ? ' ' + t.dueTime : '')) : (t.due.slice(5) + (t.dueTime ? ' ' + t.dueTime : ''));
+      return '• [' + when + '] ' + t.title + (t.owner !== u.username ? ' — ' + (names[t.owner] || t.owner) : '') +
+        ((t.evidence || []).length ? ' · evidence ' + t.evidence.length : (t.rule === 'evidence' ? ' · evidence needed' : ''));
+    };
+    var body = 'Customer follow-up · ' + today + ' ' + hour + ' (Manila)\n\n' +
+      (late.length ? '⏰ LATE\n' + late.map(row).join('\n') + '\n\n' : '') +
+      (now.length ? '📌 TODAY\n' + now.map(row).join('\n') + '\n\n' : '') +
+      (soon.length ? '🔜 NEXT 2 DAYS\n' + soon.map(row).join('\n') + '\n\n' : '') +
+      'Open Nexi ▸ Tasks ▸ My Day. Close each task with its evidence (📤 File inside the task).\n— Nexi';
+    try {
+      GmailApp.sendEmail(to, '🤝 Customer follow-up — ' + n + ' task' + (n > 1 ? 's' : '') + (late.length ? ' (' + late.length + ' late)' : '') + ' · ' + hour, body, { name: 'Nexi' });
+    } catch (e) {}
+  });
 }
