@@ -41,5 +41,20 @@ module.exports=[
     const U=JSON.parse(localStorage.getItem('hydroPro_users'));U.find(u=>u.username==='reamae').email='rea.old@abapardes.com.ph';localStorage.setItem('hydroPro_users',JSON.stringify(U));
     HNXROLEOS.ensureRea();const r2=JSON.parse(localStorage.getItem('hydroPro_users')).find(u=>u.username==='reamae');
     return {ch,email:r.email,phone:r.phone,keep:r2.email};})()`),
-  expect:{ch:true,email:'reag@abapardes.com.ph',phone:'+639178209154',keep:'rea.old@abapardes.com.ph'} }
+  expect:{ch:true,email:'reag@abapardes.com.ph',phone:'+639178209154',keep:'rea.old@abapardes.com.ph'} },
+{ name:'🧭 Role OS v21.82: Mea D01 reviewer = Dr Amy, Rea D05 = Jinky; task text carries the workbook steps; 16:16 → Rea gets "Missed" for D02 (16:00); 18:05 → D02 escalates to Jinky, Mea D01 to amy; owner-cancelled duty = NA? and counts as X after the day until a manager approves → NA (not counted); empty day shows no score (v21.82)',
+  seed:SEED,
+  run:new Function(`return (async()=>{${AS}
+    as('tester');await sleep(6000);await HNXROLEOS.ensureMea();const R=HNXROLEOS;R.generate('2026-10-13');
+    const tk=id=>JSON.parse(localStorage.getItem('hydroPro_tasks_v1')).find(t=>t.id===id);
+    const r1=tk('ROS_mea_D01_2026-10-13').roleos.rev,r2=tk('ROS_rea_D05_2026-10-13').roleos.rev,steps=/Steps: 1\\) Walk every admin area/.test(tk('ROS_mea_D01_2026-10-13').desc);
+    R.remind('2026-10-13','16:16');R.remind('2026-10-13','18:05');
+    const ib=JSON.parse(localStorage.getItem('hydroPro_pa_inbox_v1')||'[]');
+    const missed=ib.some(x=>x.user==='reamae'&&x.id==='ROSM_ROS_rea_D02_2026-10-13'),e1=(ib.find(x=>x.id==='ROSE_ROS_rea_D02_2026-10-13')||{}).user,e2=(ib.find(x=>x.id==='ROSE_ROS_mea_D01_2026-10-13')||{}).user;
+    const a=JSON.parse(localStorage.getItem('hydroPro_tasks_v1'));a.find(t=>t.id==='ROS_rea_D04_2026-10-13').status='cancelled';localStorage.setItem('hydroPro_tasks_v1',JSON.stringify(a));
+    const before=R.code(tk('ROS_rea_D04_2026-10-13')),sc1=R.score('rea','2026-10-13','2026-10-13','2026-10-14','08:00');
+    R.approveNA('ROS_rea_D04_2026-10-13',true);const after=R.code(tk('ROS_rea_D04_2026-10-13')),sc2=R.score('rea','2026-10-13','2026-10-13','2026-10-14','08:00');
+    const empty=R.score('rea','2026-10-10','2026-10-10').pct;
+    return {r1,r2,steps,missed,e1,e2,before,n1:sc1.n,after,n2:sc2.n,empty};})()`),
+  expect:{r1:'amy',r2:'jinky',steps:true,missed:true,e1:'jinky',e2:'amy',before:'NAreq',n1:12,after:'NA',n2:11,empty:null} }
 ];
