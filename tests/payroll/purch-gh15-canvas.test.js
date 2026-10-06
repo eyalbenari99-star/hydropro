@@ -11,9 +11,9 @@ module.exports=[
     return {a2,status:sand.status+'|'+prs.find(p=>p.id==='PR_GH15_GRAVEL').status,offers:r.suppliers.length,famTotal:fam.quote.total,
       deliverTo:/Side of GH15 ONLY/.test(sand.deliverTo),refused};})()`),
   expect:{a2:0,status:'Quotation Evaluation|Quotation Evaluation',offers:8,famTotal:12000,deliverTo:true,refused:true} },
-{ name:'📨 RFQ reply contact: GH15 sand RFQ e-mail ends with Accounting 09778572212 + accounting@abapardes.com.ph; SMS keeps the contact and the GH15 delivery point, under 400 chars (v21.78)',
+{ name:'📨 RFQ reply contact (v21.79: reply ONLY to Accounting): GH15 sand RFQ e-mail ends with Accounting 09778572212 + accounting@abapardes.com.ph; SMS keeps the contact and the GH15 delivery point, under 400 chars (v21.78)',
   seed:function(){localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));},
   run:new Function(`return (async()=>{await sleep(6000);HNXGH15CANVAS.seed();const t=__PURPRO.rfqText('PR_GH15_SAND','RFQ_GH15_SAND');
-    return {mail:/Mobile: 09778572212\\nEmail: accounting@abapardes\\.com\\.ph$/.test(t.email),sms:/Reply to Accounting: 09778572212 \\/ accounting@abapardes\\.com\\.ph$/.test(t.sms),gh:/GH15/.test(t.sms),short:t.sms.length<400};})()`),
+    return {mail:t.email.includes('ALL replies ONLY to')&&t.email.includes('09778572212')&&t.email.includes('accounting@abapardes.com.ph')&&t.email.includes('Do NOT reply to any other number'),sms:t.sms.endsWith('reply ONLY to Accounting 09778572212 or accounting@abapardes.com.ph — no other number.'),gh:/GH15/.test(t.sms),short:t.sms.length<400};})()`),
   expect:{mail:true,sms:true,gh:true,short:true} }
 ];
