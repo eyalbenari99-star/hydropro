@@ -56,5 +56,20 @@ module.exports=[
     R.approveNA('ROS_rea_D04_2026-10-13',true);const after=R.code(tk('ROS_rea_D04_2026-10-13')),sc2=R.score('rea','2026-10-13','2026-10-13','2026-10-14','08:00');
     const empty=R.score('rea','2026-10-10','2026-10-10').pct;
     return {r1,r2,steps,missed,e1,e2,before,n1:sc1.n,after,n2:sc2.n,empty};})()`),
-  expect:{r1:'amy',r2:'jinky',steps:true,missed:true,e1:'jinky',e2:'amy',before:'NAreq',n1:12,after:'NA',n2:11,empty:null} }
+  expect:{r1:'amy',r2:'jinky',steps:true,missed:true,e1:'jinky',e2:'amy',before:'NAreq',n1:12,after:'NA',n2:11,empty:null} },
+{ name:'🌅 Role OS v21.83: Edelyn Nicolas, Joshane, Cyra get duties (Edelyn Torzar does not); Tue 13 Oct Edelyn 8 daily + W02 = 9, Joshane 8 + W02 = 9, Cyra 8 daily; Sun 11 Oct Edelyn W? none but Joshane W06 + Cyra W05; morning brief lands for edelyn.n with 9 duties and the 9 missed duties of Mon 12 (8 daily + W01) carried over; team brief to jinky/amy/eyal once (v21.83)',
+  seed:function(){localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true},
+    {username:'edelyn.n',fullname:'Edelyn Rose Nicolas',passwordHash:'x',role:'supervisor',active:true},{username:'edelyn.t',fullname:'Edelyn Torzar',passwordHash:'x',role:'supervisor',active:true},
+    {username:'joshane',fullname:'Joshane Espinosa',passwordHash:'x',role:'accounting',active:true},{username:'cyra',fullname:'Cyra Logistics',passwordHash:'x',role:'supervisor',active:true},
+    {username:'jinky',fullname:'Jinky Pagtama',passwordHash:'x',role:'accounting',active:true},{username:'eyal',fullname:'Eyal Ben Ari',passwordHash:'x',role:'admin',active:true},{username:'amy',fullname:'Dr Amy Patdu',passwordHash:'x',role:'admin_secondary',active:true}]));},
+  run:new Function(`return (async()=>{${AS}as('tester');await sleep(6000);const R=HNXROLEOS;
+    R.generate('2026-10-12');R.generate('2026-10-13');
+    const T=JSON.parse(localStorage.getItem('hydroPro_tasks_v1'));const n=(k,d)=>T.filter(t=>t.roleos&&t.roleos.key===k&&t.due===d).length;
+    const owners=['edelyn','joshane','cyra'].map(k=>R.owner(k)).join(',');
+    const sun=R.dutiesOn('joshane','2026-10-11').filter(x=>x.freq==='weekly').map(x=>x.tid).join('+')+'|'+R.dutiesOn('cyra','2026-10-11').filter(x=>x.freq==='weekly').map(x=>x.tid).join('+');
+    const b1=R.brief('2026-10-13'),b2=R.brief('2026-10-13');const ib=JSON.parse(localStorage.getItem('hydroPro_pa_inbox_v1')||'[]');
+    const eb=ib.find(x=>x.id==='ROSB_edelyn.n_2026-10-13')||{};const tb=ib.filter(x=>/^ROST_.*_2026-10-13$/.test(x.id)).map(x=>x.user).sort().join(',');
+    const rv=T.find(t=>t.id==='ROS_edelyn_D03_2026-10-13').roleos.rev;
+    return {owners,e:n('edelyn','2026-10-13'),j:n('joshane','2026-10-13'),c:n('cyra','2026-10-13'),sun,brief:/^🌅 Your day — 9 duties · 9 carried over$/.test(eb.title||''),steps:/Carried over from 2026-10-12/.test(eb.text||''),tb,again:b2===0,rv};})()`),
+  expect:{owners:'edelyn.n,joshane,cyra',e:9,j:9,c:8,sun:'W06|W05',brief:true,steps:true,tb:'amy,eyal,jinky',again:true,rv:'amy'} }
 ];
