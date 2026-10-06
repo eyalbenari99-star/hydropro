@@ -16,6 +16,7 @@ async function runCase(t){
   const errs=[];pg.on('pageerror',e=>{const s=String(e);if(!/NotSupportedError/.test(s))errs.push(s.slice(0,160));});
   pg.on('dialog',d=>d.accept());
   await pg.addInitScript((extra)=>{
+    localStorage.setItem('hnx_test_harness','1'); /* v21.91: lets the test admin user through the payroll lock */
     localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));
     localStorage.setItem('hnx_first_boot','2026-01-01');
     sessionStorage.setItem('hydroPro_session',JSON.stringify({username:'tester',loginAt:Date.now()}));
