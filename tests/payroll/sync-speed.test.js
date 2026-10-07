@@ -42,4 +42,15 @@ module.exports=[
     window.__hnxLzCompact();const raw2=Storage.prototype.getItem.call(localStorage,'hydroPro_lazy_test')||'';
     return {rawFirst:raw1===v,compressedLater:raw2.indexOf('\u0001LZ\u0001')===0&&raw2.length<v.length/2,same:localStorage.getItem('hydroPro_lazy_test')===v,calls:__hnxAUTOVAULT.isVault('hydroPro_calls')};},
   expect:{rawFirst:true,compressedLater:true,same:true,calls:true} },
+{ name:'⚡ Sync v21.99: the full pull asks /sync/keys and pulls only synced keys — the 11.7 MB QuickBooks cache (hydroPro_acct_qb_monthly_v1) is never requested and never merged; CRM leads still arrive (v21.99)',
+  seed:function(){localStorage.setItem('hnx_cloud_token','t');window.__pullUrls=[];
+    const cloud={'hydroPro_crm_leads':'[{"id":"L1","company":"Cloud Co","stage":"new","updatedAt":1}]','hydroPro_acct_qb_monthly_v1':'{"big":"'+'q'.repeat(2000)+'"}'};
+    const of=window.fetch;window.fetch=function(u,o){u=String(u);
+      if(u.indexOf('/sync/keys')>=0)return Promise.resolve(new Response(JSON.stringify({keys:Object.keys(cloud),count:2}),{status:200}));
+      if(u.indexOf('/sync/pull')>=0){const q=decodeURIComponent(u.split('/sync/pull')[1]||'');window.__pullUrls.push(q);const m=/keys=([^&]*)/.exec(q);const d={};Object.keys(cloud).forEach(k=>{if(!m||m[1].split(',').indexOf(k)>=0)d[k]=cloud[k];});return Promise.resolve(new Response(JSON.stringify({data:d}),{status:200}));}
+      if(u.indexOf('hnx-sync')>=0)return Promise.resolve(new Response('{"ok":true,"data":{}}',{status:200}));return of.apply(this,arguments);};},
+  run:async()=>{for(let i=0;i<60;i++){if(window.__hnxPulledOk)break;await sleep(500);}await sleep(3000);
+    const leads=JSON.parse(localStorage.getItem('hydroPro_crm_leads')||'[]');
+    return {pulled:__pullUrls.length>0,allKeyed:__pullUrls.every(u=>/keys=/.test(u)),noQb:__pullUrls.every(u=>u.indexOf('hydroPro_acct_qb_monthly_v1')<0),qbNotMerged:(localStorage.getItem('hydroPro_acct_qb_monthly_v1')||'').indexOf('qqqq')<0,leads:leads.some(l=>l.id==='L1')};},
+  expect:{pulled:true,allKeyed:true,noQb:true,qbNotMerged:true,leads:true} },
 ];
