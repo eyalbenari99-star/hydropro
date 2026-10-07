@@ -27,4 +27,13 @@ module.exports=[
     const fulls=__pullUrls.filter(u=>!/keys=/.test(u)).length-n0;
     return {few:fulls<=2,stats:window.__hnxPullStats.lastMs>=2500};},
   expect:{few:true,stats:true} },
+{ name:'⚡ Sync v21.97: the first cloud download (60 stores, ~6 MB) is merged in slices — a 50 ms heartbeat timer never waits more than 1 s while it merges, and all 60 stores arrive (v21.97)',
+  seed:function(){localStorage.setItem('hnx_cloud_token','t');const big={};for(let k=0;k<60;k++)big['hydroPro_slice_'+k]=JSON.stringify(Array.from({length:400},(_,i)=>({id:k+'_'+i,v:'y'.repeat(200),updatedAt:1})));
+    window.__gap=0;let last=performance.now();setInterval(()=>{const n=performance.now();if(n-last>window.__gap)window.__gap=n-last;last=n;},50);
+    const of=window.fetch;window.fetch=function(u,o){u=String(u);if(u.indexOf('/sync/pull')>=0)return new Promise(r=>setTimeout(()=>{window.__gap=0;r(new Response(JSON.stringify({ok:true,data:big}),{status:200}));},6000));
+      if(u.indexOf('hnx-sync')>=0)return Promise.resolve(new Response('{"ok":true,"data":{}}',{status:200}));return of.apply(this,arguments);};},
+  run:async()=>{for(let i=0;i<80;i++){if(window.__hnxPulledOk)break;await sleep(250);}await sleep(500);
+    let n=0;for(let k=0;k<60;k++)if((localStorage.getItem('hydroPro_slice_'+k)||'').length>1000)n++;
+    return {all:n===60,smooth:window.__gap<1000};},
+  expect:{all:true,smooth:true} },
 ];
