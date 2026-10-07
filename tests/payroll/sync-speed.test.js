@@ -36,4 +36,10 @@ module.exports=[
     let n=0;for(let k=0;k<60;k++)if((localStorage.getItem('hydroPro_slice_'+k)||'').length>1000)n++;
     return {all:n===60,smooth:window.__gap<1000};},
   expect:{all:true,smooth:true} },
+{ name:'⚡ Storage v21.98: a 60 KB save is written as-is (no compression on the save itself); the background pass compresses it later and it still reads back identical; hydroPro_calls lives in the device database (v21.98)',
+  run:async()=>{await sleep(3000);const v=JSON.stringify(Array.from({length:600},(_,i)=>({id:'X'+i,t:'row '+i+' '+'q'.repeat(60)})));
+    localStorage.setItem('hydroPro_lazy_test',v);const raw1=Storage.prototype.getItem.call(localStorage,'hydroPro_lazy_test')||'';
+    window.__hnxLzCompact();const raw2=Storage.prototype.getItem.call(localStorage,'hydroPro_lazy_test')||'';
+    return {rawFirst:raw1===v,compressedLater:raw2.indexOf('\u0001LZ\u0001')===0&&raw2.length<v.length/2,same:localStorage.getItem('hydroPro_lazy_test')===v,calls:__hnxAUTOVAULT.isVault('hydroPro_calls')};},
+  expect:{rawFirst:true,compressedLater:true,same:true,calls:true} },
 ];

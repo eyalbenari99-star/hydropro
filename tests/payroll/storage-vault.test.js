@@ -16,6 +16,7 @@ module.exports=[
     const stub=K.map(k=>__hnxAUTOVAULT.rawGet(k)===__hnxAUTOVAULT.STUB),inV=K.map(k=>__hnxAUTOVAULT.inVault(k));
     const full=JSON.parse(localStorage.getItem('hydroPro_cea_docs_v1'))[0],c=JSON.parse(localStorage.getItem('hydroPro_emp_contract_E1'));
     const push=String(hnxEaRawGet('hydroPro_cea_docs_v1')||'').indexOf('Well permit.pdf')>=0;
+    try{window.__hnxLzCompact&&window.__hnxLzCompact();}catch(e){} /* v21.98: big saves are compressed in the background — run that pass now */
     let t=0;for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);t+=k.length+(__hnxAUTOVAULT.rawGet(k)||'').length;}
     return {stub,inV,name:full.name,bytes:full.data.length>300000,contract:c.fileName,push,smallStore:t<0.2*1024*1024,memosVaulted:__hnxAUTOVAULT.isVault('hydroPro_memos'),memosOk:JSON.parse(localStorage.getItem('hydroPro_memos')).length,broken:__hnxAUTOVAULT.broken()};})()`),
   expect:{stub:[true,true,true],inV:[true,true,true],name:'Well permit.pdf',bytes:true,contract:'contract.pdf',push:true,smallStore:true,memosVaulted:false,memosOk:1,broken:false} },
