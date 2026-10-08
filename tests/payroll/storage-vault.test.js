@@ -119,6 +119,9 @@ module.exports.push(
       if(u.indexOf('/sync/push')>=0){try{window.__pushes.push(JSON.parse(o.body).data);}catch(e){}return Promise.resolve(new Response('{"ok":true}',{status:200}));}
       if(u.indexOf('hnx-sync')>=0)return Promise.resolve(new Response('{"ok":true,"data":{}}',{status:200}));
       return of.apply(this,arguments);};
+    /* the boot sync now waits for the vault (first pull = the 'vault ready' event or the 20 s tick), so the scenario is
+       made explicit: a refocus 6 s in starts a download while the device database is still loading (it answers at 14 s) */
+    setTimeout(function(){ try{ window.dispatchEvent(new Event('focus')); }catch(e){} },6000);
   },
   run:new Function(`return (async()=>{
     await sleep(2500);${WAIT}await sleep(6000);

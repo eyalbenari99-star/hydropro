@@ -514,7 +514,7 @@ module.exports=[
     const nums=(html.match(/₱[\d,]+\.\d{2}/g)||[]).map(s=>parseFloat(s.replace(/[₱,]/g,'')));
     const tot=nums.slice(-2);return {td:tot[0],tc:tot[1],draftNamed:/DRAFT, ONLY/.test(html)};},
   expect:{td:3512.5,tc:3512.5,draftNamed:false} },
-{ name:'🏗 New-asset JE package (v20.98): Epson printer ₱22,361.33 · 5y · bought 2026-01-19, booked in 1025-003-005 → numbered under the lapsing file mother 1025-003-002 (not the Agri default), accounts N, N-1, N-2 to open; JE 1 reclass ₱22,361.33 from 1025-003-005; JE 2 catch-up 7 months (2026-02→2026-08) ₱2,608.83; recurring ₱372.69 from 2026-09 × 53, final month ₱372.62 (to 2031-01). A 2025 asset ₱12,000 · 1y splits the catch-up ₱6,000 prior years / ₱6,000 this year and needs no recurring JE',
+{ name:'🏗 New-asset JE package (v20.98): Epson printer ₱22,361.33 · 5y · bought 2026-01-19, booked in 1025-003-005 → numbered under the lapsing file mother 1025-003-002 (not the Agri default), accounts N, N-1, N-2 to open; JE 1 ₱22,361.33 from 1025-003-005 is optional (already in a fixed-asset account, v21.22); JE 2 catch-up 7 months (2026-02→2026-08) ₱2,608.83; recurring ₱372.69 from 2026-09 × 53, final month ₱372.62 (to 2031-01). A 2025 asset ₱12,000 · 1y splits the catch-up ₱6,000 prior years / ₱6,000 this year and needs no recurring JE',
   seed:()=>{localStorage.removeItem('hydroPro_asset_recon_v1');},
   run:async()=>{
     const H=['MOTHER ACCOUNT','CATEGORY','DEPARTMENT','Equipment Per Lapsing','QUANTITY','ESTIMATED YEARS','Acquisition Date','END DATE','Recorded in Quickbook','VENDOR','COST','MONTHLY AMORTIZATION'];
@@ -529,11 +529,11 @@ module.exports=[
     const vNew=document.getElementById('view-acct_assets').innerHTML;
     hnxArTab('je');await sleep(900);
     const vJe=document.getElementById('view-acct_assets').innerHTML;
-    const screen={newTab:/① Accounts to open/.test(vNew)&&/RECURRING MONTHLY JE/.test(vNew)&&vNew.indexOf(p.no+'-2')>=0,jeTab:/② JE 1 — reclassify the purchase already booked in 1025-003-005/.test(vJe)};
-    return {screen,mom:p.mom,noUnderMom:p.no.indexOf('1025-003-002-')===0,qbFrom:ep.qbFrom,credit:p.je1.rows[1].acct,je1:p.je1.rows[0].dr,hasN:nos.indexOf(p.no)>=0,hasCost:nos.indexOf(p.no+'-1')>=0,hasDep:nos.indexOf(p.no+'-2')>=0,
+    const screen={newTab:/① Accounts to open/.test(vNew)&&/RECURRING MONTHLY JE/.test(vNew)&&vNew.indexOf(p.no+'-2')>=0,jeTab:/JE 1 — already booked in the fixed-asset account 1025-003-005/.test(vJe)}; /* v21.22: a purchase already in a 1025 fixed-asset account needs no reclass — JE 1 is optional */
+    return {screen,je1Optional:p.je1.optional===true,mom:p.mom,noUnderMom:p.no.indexOf('1025-003-002-')===0,qbFrom:ep.qbFrom,credit:p.je1.rows[1].acct,je1:p.je1.rows[0].dr,hasN:nos.indexOf(p.no)>=0,hasCost:nos.indexOf(p.no+'-1')>=0,hasDep:nos.indexOf(p.no+'-2')>=0,
       mon:p.mon,done:p.done,catchAmt:p.catchAmt,left:p.left,first:p.firstRec,finalAmt:p.finalAmt,ends:p.ends,
       oldDone:q.done,oldPrior:q.priorAmt,oldCur:q.curAmt,oldRec:q.rec===null,oldCredit:q.je1.rows[1].acct.slice(0,4)};},
-  expect:{'screen.newTab':true,'screen.jeTab':true,mom:'1025-003-002',noUnderMom:true,qbFrom:'1025-003-005 FURNITURE & FIXTURES:Office Machine and Equipment',credit:'1025-003-005 FURNITURE & FIXTURES:Office Machine and Equipment',je1:22361.33,hasN:true,hasCost:true,hasDep:true,
+  expect:{'screen.newTab':true,'screen.jeTab':true,je1Optional:true,mom:'1025-003-002',noUnderMom:true,qbFrom:'1025-003-005 FURNITURE & FIXTURES:Office Machine and Equipment',credit:'1025-003-005 FURNITURE & FIXTURES:Office Machine and Equipment',je1:22361.33,hasN:true,hasCost:true,hasDep:true,
     mon:372.69,done:7,catchAmt:2608.83,left:53,first:'2026-09-01',finalAmt:372.62,ends:'2031-01',
     oldDone:12,oldPrior:6000,oldCur:6000,oldRec:true,oldCredit:'(the'} },
 { name:'🚑 storage (v21.02): 1.6 M characters stored (≈31% of the 5.2 M browser limit) shows NO "STORAGE FULL" and no button on the trips screen; the usage API says 31% and saving works',

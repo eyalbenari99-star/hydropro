@@ -25,7 +25,7 @@ async function runCase(t){
     localStorage.setItem('hydroPro_memos','[]');
     if(extra)eval('('+extra+')()');
   }, t.seed?t.seed.toString():null);
-  await pg.goto('http://127.0.0.1:'+PORT+'/index.html?cb='+Date.now(),{waitUntil:'domcontentloaded',timeout:180000});
+  await pg.goto('http://127.0.0.1:'+PORT+'/'+(process.env.NEXI_PAGE||'index.html')+'?cb='+Date.now(),{waitUntil:'domcontentloaded',timeout:180000});
   await pg.waitForTimeout(BOOT_MS);
   let out;
   try{ out=await pg.evaluate('(async()=>{'+PAGE_HELPERS+' return ('+t.run.toString()+')();})()'); }catch(e){ out={__threw:String(e.message).slice(0,200)}; }
