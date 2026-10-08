@@ -189,3 +189,6 @@ module.exports=[
     issue:['Pump 3 leak'],issueLines:1,issueKey:"hydroPro_issues_v2 (duplicate id — kept this computer's copy; cloud copy set aside)",issueWas:'{"title":"Valve 7 stuck"}',
     orderLines:0,sensorLines:0,total:2} },
 ];
+
+/* v22.18: these cases test the v22.17 sensor merge, which lives in next.html (trial) until it is promoted — the stable copy skips them (lib.js requires) */
+module.exports.forEach(function(t){ if(t&&!t.requires) t.requires="typeof window._sensorStamp==='function'"; });

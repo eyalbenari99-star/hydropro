@@ -116,3 +116,6 @@ module.exports=[
     return out;},
   expect:{queued:true,stored:[136,136,136],lzBlobs:0,pendB:true,readB:'small-save-B',storedB:'small-save-B',pendC:true,readC:null,storedC:null,readCAfter:null} },
 ];
+
+/* v22.18: these cases test the v22.17 storage step 2.0 (backups, census, compressor fix), which lives in next.html (trial) until it is promoted — the stable copy skips them (lib.js requires) */
+module.exports.forEach(function(t){ if(t&&!t.requires) t.requires="typeof window.hnxStoreCensus==='function'"; });
