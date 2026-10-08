@@ -193,5 +193,20 @@ module.exports=[
       status:st.status,frozen,memoAddT:lT.memoAdd,memoDedT:lT.memoDed,paysFrozen:(lT.memoAdd||0)-(lT.memoDed||0)===frozen,memoAddW:lW.memoAdd,memoDedW:lW.memoDed};},
   expect:{rW:100,rT:150,cA1:300,cA2:450,cAKind:'calc',cAField:'450',b1:300,b2:250,bField:'250',bType:'good',bBy:'tester',
     srcKind:'typed',srcText:'typed by hand by @tester — the count gives +₱450',offerUse450:true,box450:true,
-    savedAmt:250,savedType:'good',savedEmp:'T1',savedImpact:[['T1',250]],status:'signed',frozen:250,memoAddT:250,memoDedT:0,paysFrozen:true,memoAddW:0,memoDedW:0} }
+    savedAmt:250,savedType:'good',savedEmp:'T1',savedImpact:[['T1',250]],status:'signed',frozen:250,memoAddT:250,memoDedT:0,paysFrozen:true,memoAddW:0,memoDedW:0} },
+{ name:'HR memo employee switch then emptied count: count 3 × +₱100 = +₱300 for a worker, typed +₱250, switched to a team leader, then typed +₱300 and emptied the count → the Amount stays +₱300 typed by hand (the old worker figure ₱300 made the empty count "take it back" to ₱0) (v22.17)',
+  run:async()=>{
+    const W=labour('W1','CRUZ, JUAN',{ghAssigned:['GH3']});
+    const T=labour('T1','SANTOS, MARIA',{tier:'Team Leader',ghAssigned:['GH3']});
+    setE([W,T]);loadEmployees();window.confirm=()=>true;window.alert=()=>{};
+    try{localStorage.removeItem('hnx_memo_form_draft_v1');}catch(e){}
+    openMemoCreate('hr');await sleep(200);
+    memoUpdateField('empId','W1');renderMemoModal();
+    memoUpdateField('date','2026-09-15');memoUpdateField('notes','Three commendations');
+    memoHrCalcSet('good',3);const counted=_editingMemoData.totalAmount;
+    memoUpdateHrAmount('250');memoUpdateField('empId','T1');const afterSwitch=_editingMemoData.totalAmount;
+    memoUpdateHrAmount('300');memoHrCalcSet('good',0);
+    const m=_editingMemoData,out={counted,afterSwitch,amount:m.totalAmount,field:(document.getElementById('memoHrAmt')||{}).value,impact:(m.impact||[]).map(i=>[i.empId,i.amount])};
+    closeMemoModal();return out;},
+  expect:{counted:300,afterSwitch:250,amount:300,field:'300',impact:[['T1',300]]} },
 ];
