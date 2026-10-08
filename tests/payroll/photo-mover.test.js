@@ -11,7 +11,7 @@ module.exports=[
     localStorage.setItem('hydroPro_test_photos_v1',JSON.stringify([{id:'x1',img:photo(3),notes:'m'.repeat(30000)}]));
     window.__hnxLzCompact&&window.__hnxLzCompact();
     const compressed=nat('hydroPro_maint_tasks').charCodeAt(0)===1&&nat('hydroPro_maint_tasks').indexOf('data:image/')<0;
-    let uploads=0;const of=window.fetch;window.fetch=function(u,o){ if(String(u).indexOf('/r2/upload')>-1){uploads++;return new Promise(r=>setTimeout(()=>r(new Response('{"ok":true}',{status:200,headers:{'Content-Type':'application/json'}})),400));} return of.apply(this,arguments); };
+    let uploads=0;const of=window.fetch;window.fetch=function(u,o){ if(String(u).indexOf('/r2/upload')>-1){if(/maint_tasks|test_photos/.test(decodeURIComponent(String(u))))uploads++; /* only this test's stores (the app's own R&D sample photos may move too) */return new Promise(r=>setTimeout(()=>r(new Response('{"ok":true}',{status:200,headers:{'Content-Type':'application/json'}})),400));} return of.apply(this,arguments); };
     window.__hnxAUTOVAULT.run();
     for(let i=0;i<100&&uploads<1;i++)await sleep(100);
     const ts=loadMaintTasks();ts.find(t=>t.id==='mt3').title='edited during upload';saveMaintTasks(ts);

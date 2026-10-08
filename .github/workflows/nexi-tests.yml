@@ -1,0 +1,39 @@
+# Nexi regression suite (tests/payroll) — runs the REAL index.html in Chromium on every change.
+# A release must not reach main while this is red (turn on branch protection: Settings → Branches → main → require "nexi-tests").
+name: nexi-tests
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: nexi-tests-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  suite:
+    name: suite ${{ matrix.shard }}/12
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install test tools
+        working-directory: tests
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright-core install --with-deps chromium
+      - name: Run shard
+        working-directory: tests
+        env:
+          SHARD: ${{ matrix.shard }}/12
+          PORT: 8799
+        run: |
+          export CHROME="$(node -e "console.log(require('playwright-core').chromium.executablePath())")"
+          bash payroll/run.sh

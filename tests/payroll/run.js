@@ -2,7 +2,10 @@ const fs=require('fs'),path=require('path');
 const {runCase}=require('./lib');
 (async()=>{
   const only=process.argv[2]||'';
-  const files=fs.readdirSync(__dirname).filter(f=>/\.test\.js$/.test(f)&&true).sort();
+  let files=fs.readdirSync(__dirname).filter(f=>/\.test\.js$/.test(f)&&true).sort();
+  /* CI: SHARD=i/N runs every N-th test file starting at i (0-based) so the suite can run in parallel jobs */
+  const sh=String(process.env.SHARD||'').match(/^(\d+)\/(\d+)$/);
+  if(sh){const i=+sh[1],n=+sh[2];files=files.filter((f,k)=>k%n===i);console.log('shard '+i+'/'+n+': '+files.join(', '));}
   let failed=0,total=0;
   for(const f of files){
     const cases=require(path.join(__dirname,f));

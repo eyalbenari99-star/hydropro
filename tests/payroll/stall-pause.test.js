@@ -2,14 +2,18 @@
 module.exports=[
 { name:'🧯 Stall v22.14: a 10 s gap the browser saw NO work in (window covered / asleep) shows no box, files no inbox item and is kept as a pause; a gap right after the window was hidden is a pause too (v22.14)',
   seed:function(){localStorage.setItem('hydroPro_users',JSON.stringify([{username:'jinky',fullname:'Jinky',passwordHash:'x',role:'admin_secondary',active:true}]));sessionStorage.setItem('hydroPro_session',JSON.stringify({username:'jinky',loginAt:Date.now()}));},
-  run:async()=>{await sleep(4000);const BB=window.__hnxBB;const s0=BB.stalls.length;
+  run:async()=>{await sleep(4000);const BB=window.__hnxBB;
+    /* wait for a genuinely quiet moment — the app is still busy loading ~30 s after start, and a gap with real work in it IS a stall */
+    try{window.HNX_LITE.set(true,true);}catch(e){} /* as on every office PC (Lite is on by default outside the test harness): animations paused */
+    let quiet=false;for(let i=0;i<60;i++){const n=Date.now();if(BB.busyMs(n-14000,n)<500){quiet=true;break;}await sleep(1000);}
+    const s0=BB.stalls.length;
     const inb=()=>JSON.parse(localStorage.getItem('hydroPro_pa_inbox_v1')||'[]').filter(x=>x.itemId==='freeze').length;const i0=inb();
     BB.mark('quiet.test','x');BB.checkGap(10000);await sleep(1600);
     const noBox=!document.getElementById('hnxStallBox');
     document.dispatchEvent(new Event('visibilitychange'));{const t=Date.now();while(Date.now()-t<2000){}} BB.checkGap(12000);await sleep(1600);
     const last=BB.pauses[BB.pauses.length-1]||{};
-    return {noBox,noBoxAfterHidden:!document.getElementById('hnxStallBox'),stallsUnchanged:BB.stalls.length===s0,pauses:BB.pauses.length>=2,hiddenFlag:!!last.hidden,inboxUnchanged:inb()===i0};},
-  expect:{noBox:true,noBoxAfterHidden:true,stallsUnchanged:true,pauses:true,hiddenFlag:true,inboxUnchanged:true} },
+    return {quiet,noBox,noBoxAfterHidden:!document.getElementById('hnxStallBox'),stallsUnchanged:BB.stalls.length===s0,pauses:BB.pauses.length>=2,hiddenFlag:!!last.hidden,inboxUnchanged:inb()===i0};},
+  expect:{quiet:true,noBox:true,noBoxAfterHidden:true,stallsUnchanged:true,pauses:true,hiddenFlag:true,inboxUnchanged:true} },
 { name:'🧯 Stall v22.14: a REAL 2.5 s block shows the box at the BOTTOM-LEFT, clicks pass through it to the screen underneath (a Payroll menu stays clickable), ✕ closes it, and a second box closes by itself after 25 s (v22.14)',
   seed:function(){localStorage.setItem('hydroPro_users',JSON.stringify([{username:'jinky',fullname:'Jinky',passwordHash:'x',role:'admin_secondary',active:true}]));sessionStorage.setItem('hydroPro_session',JSON.stringify({username:'jinky',loginAt:Date.now()}));},
   run:async()=>{await sleep(4000);const BB=window.__hnxBB;
