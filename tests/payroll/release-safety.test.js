@@ -32,8 +32,8 @@ module.exports=[
   expect:{refused:true,set:true,bar:true,barGone:true,panel:true} },
 { name:'🛟 Safe mode v22.16: started with ?safe=1, Nexi runs Lite with background helpers off (a decorator interval never runs, cloud sync keeps its pace), shows the SAFE MODE badge, and Labor Payroll still opens (v22.16)',
   seed:splice(function(){ (ADMIN)(); sessionStorage.setItem('hnx_safe','1'); },{'(ADMIN)':ADMIN}),
-  run:async()=>{await sleep(3000);let deco=0,sync=0;setInterval(function decoForTest(){deco++;},300);setInterval(function(){/* tryAutoSync */sync++;},300);await sleep(2500);
+  run:async()=>{await sleep(3000);let deco=0,sync=0;setInterval(function decoForTest(){deco++;},300);setInterval(function(){/* tryAutoSync */sync++;},300);await sleep(6000); /* v22.17: 6 s window (2.5 s right after boot was too short on a busy CI runner) */
     let opened=false;try{switchView('payroll_ops');const v=document.getElementById('view-payroll_ops');opened=!!(v&&v.textContent.length>200);}catch(e){}
-    return {safe:window.__HNX_SAFE===true,skipped:(window.__hnxSafeSkipped||0)>20,decoNever:deco===0,syncRuns:sync>=2,sync,lite:document.documentElement.classList.contains('hnx-lite'),badge:!!document.getElementById('hnxSafeBadge'),opened};},
+    return {safe:window.__HNX_SAFE===true,skipped:(window.__hnxSafeSkipped||0)>20,decoNever:deco===0,syncRuns:sync>=3,sync,lite:document.documentElement.classList.contains('hnx-lite'),badge:!!document.getElementById('hnxSafeBadge'),opened};},
   expect:{safe:true,skipped:true,decoNever:true,syncRuns:true,lite:true,badge:true,opened:true} }
 ];

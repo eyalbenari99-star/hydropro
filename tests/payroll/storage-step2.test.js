@@ -24,7 +24,7 @@ module.exports=[
     localStorage.setItem('hydroPro_backup_manual_2026-10-08',JSON.stringify({keep:new Array(3000).join('k')}));
     localStorage.setItem('hydroPro_issues_bak_v2','[{"id":"B1"}]');localStorage.setItem('hydroPro_matrix_old_1','{"x":1}');localStorage.setItem('hydroPro_v33_notes','["n1"]'); },
   run:async()=>{await sleep(4000);const nat=k=>(window.__hnxNG||Storage.prototype.getItem).call(localStorage,k);
-    return {manual:(nat('hydroPro_backup_manual_2026-10-08')||'').length>1000,bak:nat('hydroPro_issues_bak_v2')!=null,old:nat('hydroPro_matrix_old_1')!=null,v33:nat('hydroPro_v33_notes')!=null,deletedBy:window.__who};}, /* deletedBy names the code that removed a backup key (it happened only on the CI runners) */
+    return {manual:(localStorage.getItem('hydroPro_backup_manual_2026-10-08')||'').length>1000, /* decoded: the idle compressor may have compressed it */bak:nat('hydroPro_issues_bak_v2')!=null,old:nat('hydroPro_matrix_old_1')!=null,v33:nat('hydroPro_v33_notes')!=null,deletedBy:window.__who};}, /* deletedBy names the code that removed a backup key (it happened only on the CI runners) */
   expect:{manual:true,bak:true,old:true,v33:true,deletedBy:[]} },
 
 { name:'🗄 Daily backup v22.17: attendance (300 K) and payroll runs (200 K) kept in the device database ARE in the daily backup, read through the vault (not the 7-char placeholder); HR scans (400 K PDF) and the QuickBooks cache are still left out (v21.19 dropped all four) (v22.17)',
