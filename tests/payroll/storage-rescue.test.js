@@ -8,7 +8,7 @@ module.exports=[
   run:async()=>{await sleep(3000);const nat=k=>Storage.prototype.getItem.call(localStorage,k);const before=localStorage.getItem('hydroPro_rsc_real');
     const r=window.hnxStorageRescue();let comp=false;for(let i=0;i<60;i++){const v=nat('hydroPro_rsc_real')||'';if(v.indexOf('\u0001LZ\u0001')===0){comp=true;break;}await sleep(500);}
     const ib=JSON.parse(localStorage.getItem('hydroPro_pa_inbox_v1')||'[]').filter(x=>x.itemId==='storage'&&x.user==='eyal');
-    return {ran:!!r&&!r.skipped,qbGone:nat('hydroPro_acct_qb_monthly_v1')===null,backupsGone:nat('hydroPro_backup_20260901')===null&&nat('hydroPro_autobackup_20260902')===null&&nat('hydroPro_rescue_2026-10-06T10')===null,
+    return {ran:!!r&&!r.skipped,qbGone:[null,'\u0001VAULT\u0001'].indexOf((window.__hnxNG||Storage.prototype.getItem).call(localStorage,'hydroPro_acct_qb_monthly_v1'))>=0, /* v22.15: out of the BROWSER store (the device database copy is not browser space) */backupsGone:nat('hydroPro_backup_20260901')===null&&nat('hydroPro_autobackup_20260902')===null&&nat('hydroPro_rescue_2026-10-06T10')===null,
       realKept:localStorage.getItem('hydroPro_rsc_real')===before,comp,queued:r&&r.queued>=1,inbox:ib.length>=1};},
   expect:{ran:true,qbGone:true,backupsGone:true,realKept:true,comp:true,queued:true,inbox:true} }
 ];
