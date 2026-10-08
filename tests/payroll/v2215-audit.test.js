@@ -37,6 +37,21 @@ module.exports=[
   run:async()=>{await sleep(9000);const J=k=>{try{return JSON.parse(localStorage.getItem(k)||'[]');}catch(e){return [];}};const nat=k=>(window.__hnxNG||Storage.prototype.getItem).call(localStorage,k)||'';
     return {audit:J('hydroPro_audit').filter(x=>/^AU/.test(x.id)).length,studies:J('hydroPro_seed_studies').filter(x=>/^SS/.test(x.id)).length,recurring:J('hydroPro_recurring_instances').filter(x=>/^RI/.test(x.id)).length,backup:nat('hydroPro_backup_manual_2026-10-08').length>100,pointer:nat('hydroPro_autobackup_2026-10-07').length>5};},
   expect:{audit:300,studies:80,recurring:60,backup:true,pointer:true} },
+{ name:'🛟 Snapshots v22.15: the automatic rescue snapshots (~1 MB each) no longer sit in the browser store — an old one found there is moved to the device database and removed from the browser, a new one is written to the device database, and 🛟 Data Rescue still lists them (Dr Amy’s Mac: the snapshots alone filled Safari’s store) (v22.15)',
+  seed:function(){ var pad=new Array(500000).join('s'); localStorage.setItem('hydroPro_rescue_2026-10-07T01',JSON.stringify({hydroPro_employees:pad})); localStorage.setItem('hydroPro_rescue_2026-10-07T07',JSON.stringify({hydroPro_employees:pad})); },
+  run:async()=>{await sleep(24000);const nat=k=>(window.__hnxNG||Storage.prototype.getItem).call(localStorage,k);
+    const inBrowser=Object.keys(localStorage).filter(k=>k.indexOf('hydroPro_rescue_20')===0).length;
+    const keys=await window.HNXIDB.keys();const inDb=keys.filter(k=>String(k).indexOf('rescue:hydroPro_rescue_20')===0).length;
+    let listed=0;try{window.renderDataRescue();const v=document.getElementById('view-data_rescue');listed=(v.textContent.match(/Merge back/g)||[]).length;}catch(e){}
+    return {inBrowser,inDb,listed,oldMoved:keys.some(k=>/2026-10-07T07/.test(k))};},
+  expect:{inBrowser:0,inDb:2,listed:2,oldMoved:true} }, /* the v17.65 pruner keeps only the newest old one in the browser — that one is moved */
+{ name:'🧭 Safari v22.15: on Safari (Mac) every “is the browser store full?” check uses Safari’s smaller room (≈ 2.5 M characters instead of Chrome’s ≈ 5 M), so the clean-up starts before saves fail (Dr Amy’s Mac) (v22.15)',
+  seed:function(){ Object.defineProperty(navigator,'userAgent',{get:function(){return 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15';}}); },
+  run:async()=>{await sleep(2000);return {limitK:Math.round((window.__hnxStoreLimit||0)/1024)};},
+  expect:{limitK:2500} },
+{ name:'🧭 Chrome v22.15: Chrome / Edge keep the normal ≈ 5 M-character room (v22.15)',
+  run:async()=>{await sleep(2000);return {limitK:Math.round((window.__hnxStoreLimit||0)/1024)};},
+  expect:{limitK:5000} },
 { name:'🛡 Control audit v22.15: a real (device-database) audit log of 300 entries is not topped up with invented demo entries at start (was +42 random entries every start of every computer) (v22.15)',
   seed:function(){ localStorage.setItem('hydroPro_control_audit',JSON.stringify(Array.from({length:300},function(_,i){return {id:'REAL_'+i,ts:new Date(Date.now()-i*60000).toISOString(),source:'manual',action_type:'logged',target:'GH1-Drum1',description:'real '+i,status:'logged'};}))); },
   run:async()=>{await sleep(9000);const a=window.loadControlAudit();return {n:a.length,allReal:a.every(x=>/^REAL_/.test(x.id))};},
