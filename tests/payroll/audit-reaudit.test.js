@@ -2,21 +2,24 @@
    fallbacks, trip frozen pricing (engine, trip-log row, Trip doctor) and the new-asset QB package. */
 const TRIP_SEED=()=>{localStorage.setItem('hydroPro_fleet_drivers',JSON.stringify([{id:'D1',name:'Dante',active:true}]));localStorage.setItem('hydroPro_fleet_helpers',JSON.stringify([{id:'H1',name:'Nico',active:true}]));};
 module.exports=[
-{ name:'🔒 office ₱16,000: 16 Sep booked as authorised leave in the approved 11–25 Sep run, later turned Present → paid days unchanged, drift carries ₱0.00 (was ₱727.27 paid twice); a manual absent turned Present still carries +1 × ₱727.27 = ₱727.27 (re-audit locked-inputs-01)',
+{ name:'🔒 office ₱16,000: 16 Sep booked as authorised leave in the approved 11–25 Sep run, later turned Present on time (07:00–17:30, tardy ₱0.00, 0 held) → paid days unchanged, drift carries ₱0.00 (was ₱727.27 paid twice); a manual absent turned Present on time still carries +1 × ₱727.27 = ₱727.27 (re-audit locked-inputs-01; v21.39: the Present day clocks in at the 07:00 official start — an 08:00 clock-in is now a late day HELD whole, ₱727.27, until Eyal or Dr Amy decide)',
   run:async()=>{
     const o=office('O1','ANN OFFICE',{monthlyBasic:16000,employmentType:'Probationary'});setE([o]);
     const mk=(st,l)=>({id:'office_2026-09-11_2026-09-25',type:'semi_monthly',status:'approved',periodStart:'2026-09-11',periodEnd:'2026-09-25',approvedAt:1,approvedBy:'eyal',totals:{},
       lines:[Object.assign({empId:'O1',name:'ANN OFFICE'},l)],attSig:{O1:'stale-'+st}});
     setA({'2026-09-16':{O1:rec('authorized','','','manual',{editedBy:'jinky'})}});
     const lA=calcEmployeePayroll(o,'2026-09-11','2026-09-25','semi_monthly');
-    setA({'2026-09-16':{O1:rec('present','08:00','17:00','manual',{editedBy:'jinky'})}});
+    setA({'2026-09-16':{O1:rec('present','07:00','17:30','manual',{editedBy:'jinky'})}});
+    const nowA=calcEmployeePayroll(o,'2026-09-11','2026-09-25','semi_monthly');
     const dA=hnxLockedDrift(mk('a',lA),true);
     setA({'2026-09-16':{O1:rec('absent','','','manual',{editedBy:'jinky'})}});
     const lB=calcEmployeePayroll(o,'2026-09-11','2026-09-25','semi_monthly');
-    setA({'2026-09-16':{O1:rec('present','08:00','17:00','manual',{editedBy:'jinky'})}});
+    setA({'2026-09-16':{O1:rec('present','07:00','17:30','manual',{editedBy:'jinky'})}});
     const dB=hnxLockedDrift(mk('b',lB),true);
-    return {leave:[lA.daysAbsentAuth],leaveRows:dA.rows.length,leaveUnpaid:dA.unpaid,absRows:dB.rows.map(x=>[x.dDays,x.remBasic]),absUnpaid:dB.unpaid};},
-  expect:{leave:[1],leaveRows:0,leaveUnpaid:0,absRows:[[1,727.27]],absUnpaid:727.27} },
+    setA({'2026-09-16':{O1:rec('present','08:00','17:00','manual',{editedBy:'jinky'})}});
+    const at8=calcEmployeePayroll(o,'2026-09-11','2026-09-25','semi_monthly');
+    return {at8:[at8.tardyDeduction,at8.lateHeld],leave:[lA.daysAbsentAuth],onTime:[nowA.daysWorked,nowA.paidDays,nowA.tardyDeduction,nowA.lateHeld],leaveRows:dA.rows.length,leaveUnpaid:dA.unpaid,absRows:dB.rows.map(x=>[x.dDays,x.remBasic]),absUnpaid:dB.unpaid};},
+  expect:{at8:[727.27,1],leave:[1],onTime:[11,11,0,0],leaveRows:0,leaveUnpaid:0,absRows:[[1,727.27]],absUnpaid:727.27} },
 
 { name:'🔒 office ₱16,000: a wrong 240-minute late scan deducted ₱363.64 in the approved 11–25 Sep run; HR fixes the Time In after the lock → the drift lists ₱363.64 unpaid with 0 days changed and ➕ Carry books ₱363.64 once into 26 Sep–10 Oct (re-audit locked-inputs-02)',
   run:async()=>{

@@ -110,7 +110,7 @@ module.exports=[
     return {tombed,gone:!w.load().some(x=>x.id===t.id),mine,head,headAfter};})()`),
   expect:{tombed:true,gone:true,mine:['Due tomorrow|due tomorrow'],head:['Two days late|2 days late · Maria Santos'],headAfter:0} },
 
-{ name:'💻 IT ▸ 📅 IT Calendar is the IT module’s own PM calendar again (one it_calendar entry, its own body), not the generic module calendar; the Tasks module is in the left rail after Overview; Administration ▸ Users shows the Department heads panel for an admin (v21.17)',
+{ name:'💻 IT ▸ 📅 IT Calendar is the IT module’s own PM calendar again (one it_calendar entry, its own body), not the generic module calendar; the Tasks module is in the left rail after Overview and its tabs are, in order, My Day · 👥 People & Work (v21.86) · Team · Repeating · Approvals · 🧭 Duty board (v21.80) · Calendar (7 views); Administration ▸ Users shows the Department heads panel for an admin (v21.17, Tasks tabs updated for v21.80 + v21.86)',
   seed:SEED,
   run:new Function(`return (async()=>{${AS}
     await sleep(6000);
@@ -121,7 +121,7 @@ module.exports=[
     switchView('users');let panel=null;for(let i=0;i<40;i++){panel=document.getElementById('hnxDeptHeads');if(panel&&panel.querySelectorAll('select').length>=16)break;await sleep(500);}
     const sel=panel&&panel.querySelector('select');const crmSel=panel&&Array.from(panel.querySelectorAll('select')).some(s=>s.value==='jinky');
     return {itEntries:itEntries.length,own,generic,railHas:items.indexOf('tasks')>=0,panel:!!panel,selects:panel?panel.querySelectorAll('select').length>=16:false,crmSel,modViews:MODULES.tasks.views.map(v=>v.id)};})()`),
-  expect:{itEntries:1,own:true,generic:false,railHas:true,panel:true,selects:true,crmSel:true,modViews:['tasks_my','tasks_team','tasks_recurring','tasks_approvals','tasks_calendar']} },
+  expect:{itEntries:1,own:true,generic:false,railHas:true,panel:true,selects:true,crmSel:true,modViews:['tasks_my','tasks_people','tasks_team','tasks_recurring','tasks_approvals','tasks_roleos','tasks_calendar']} }, /* v21.80 pushed 🧭 Duty board (tasks_roleos) after Approvals; v21.86 spliced 👥 People & Work (tasks_people) in right after My Day; the module calendar is appended last */
 ];
 /* dynamic expectations (dates) are resolved in the page: replace the placeholders */
 module.exports.forEach(function(t){

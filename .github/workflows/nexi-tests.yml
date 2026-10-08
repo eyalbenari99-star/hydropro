@@ -36,4 +36,20 @@ jobs:
           PORT: 8799
         run: |
           export CHROME="$(node -e "console.log(require('playwright-core').chromium.executablePath())")"
+          # v22.17: a trial release lives in next.html (index.html stays the stable copy) — test the candidate
+          if [ -f ../next.html ] && ! cmp -s ../index.html ../next.html; then export NEXI_PAGE=next.html; fi
+          echo "testing ${NEXI_PAGE:-index.html}"
           bash payroll/run.sh
+  workers:
+    # v22.17: the Cloudflare workers' own tests (mock KV, no network) — seconds, not minutes
+    name: workers
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run worker tests
+        run: |
+          for f in tests/workers/*.test.mjs; do echo "== $f"; node "$f" || exit 1; done

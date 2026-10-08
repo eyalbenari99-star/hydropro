@@ -64,7 +64,7 @@ module.exports=[
 /* ---- second tranche (network / render / DOM / storage lenses) ---- */
 module.exports.push(
 { name:'🔄 New-version check: reads only the first kilobytes of the page (Range request, one chunk), a newer APP_BUILD in that chunk shows the update banner, and the whole page is never downloaded (v21.19)',
-  seed:function(){window.__upd=[];const of=window.fetch;window.fetch=function(u,o){u=String(u);if(/index\.html\?_cb=/.test(u)){window.__upd.push((o&&o.headers&&o.headers.Range)||'');const big='x'.repeat(2000)+'const APP_BUILD=99999999999999;'+'y'.repeat(50000);return Promise.resolve(new Response(big.slice(0,16384),{status:206,headers:{'Content-Type':'text/html'}}));}return of.apply(this,arguments);};},
+  seed:function(){window.__upd=[];const of=window.fetch;window.fetch=function(u,o){u=String(u);if(/(index|next|prev)\.html\?_cb=/.test(u)){window.__upd.push((o&&o.headers&&o.headers.Range)||'');const big='x'.repeat(2000)+'const APP_BUILD=99999999999999;'+'y'.repeat(50000);return Promise.resolve(new Response(big.slice(0,16384),{status:206,headers:{'Content-Type':'text/html'}}));}return of.apply(this,arguments);};},
   run:async()=>{
     await sleep(6000);window.__updProbe=[];await checkForUpdate();await sleep(500);
     const banner=!!document.querySelector('[id*="pdate"],[class*="update-banner"],[id*="Update"]')||/new version|update/i.test(document.body.innerText.slice(0,4000));

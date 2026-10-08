@@ -1,6 +1,14 @@
 // ============================================================
-// HydroNexis-AI Cloudflare Worker v3.7.0-nexi
+// HydroNexis-AI Cloudflare Worker v3.7.1-nexi
 // ============================================================
+// CHANGE in v3.7.1-nexi (2026-10-08, Nexi v22.17 "stop losing data"):
+//   + /sync/pull and /sync/keys follow the KV list cursor (KV returns at
+//     most 1000 keys per call — a larger dataset was cut silently).
+//   + /sync/push replies with skipped:[{key,size,why}] for stores it did not
+//     store, and the per-store cap is 20 MB (was 5 MB, silently skipped).
+//     The app keeps a skipped store as "unsent" instead of clearing it.
+//   Paste over the deployed hnx-sync worker (Cloudflare → Workers → hnx-sync
+//   → Edit code → Deploy). Older apps ignore the new field.
 // CHANGE in v3.7.0-nexi (2026-10-03) — merged by Claude from the
 // deployed v3.6.0-setupcode code Eyal pasted, plus the four snippets
 // that were waiting in workers/ (never deployed until now):
@@ -167,7 +175,7 @@ const CORS_HEADERS = {
 
 const SESSION_TTL = 24 * 60 * 60; // 24 hours in seconds
 const BACKUP_RETENTION = 7; // Keep 7 days of backups
-const WORKER_VERSION = '3.7.0-nexi';
+const WORKER_VERSION = '3.7.1-nexi';
 
 // ============================================================
 // MAIN HANDLER
@@ -919,15 +927,21 @@ async function handleSyncPull(request, env) {
         }
       }
     } else {
-      const list = await env.TOKENS.list({ prefix });
-      for (const item of list.keys) {
-        const k = item.name.substring(prefix.length);
-        const raw = await env.TOKENS.get(item.name);
-        if (raw) {
-          try { result[k] = JSON.parse(raw); }
-          catch { result[k] = raw; }
+      // v3.7.1: KV returns at most 1000 keys per list call — follow the cursor so a
+      // dataset past 1000 stores is downloaded whole, not silently cut.
+      let cursor;
+      do {
+        const list = await env.TOKENS.list({ prefix, cursor });
+        for (const item of list.keys) {
+          const k = item.name.substring(prefix.length);
+          const raw = await env.TOKENS.get(item.name);
+          if (raw) {
+            try { result[k] = JSON.parse(raw); }
+            catch { result[k] = raw; }
+          }
         }
-      }
+        cursor = list.list_complete ? undefined : list.cursor;
+      } while (cursor);
     }
 
     return json({ data: result, count: Object.keys(result).length });
@@ -955,10 +969,14 @@ async function handleSyncPush(request, env) {
       : 'data:' + (session.user.dataNamespace || session.user.username) + ':';
 
     const written = [];
+    const skipped = [];
     for (const [k, v] of Object.entries(data)) {
       const safeKey = String(k).replace(/[^a-zA-Z0-9_:.-]/g, '_').slice(0, 200);
       const value = typeof v === 'string' ? v : JSON.stringify(v);
-      if (value.length > 5 * 1024 * 1024) {
+      // v3.7.1: KV holds up to 25 MiB per value; 20 MB leaves room. A store above it is
+      // NAMED in the reply (skipped) so the app keeps it as unsent instead of believing it synced.
+      if (value.length > 20 * 1024 * 1024) {
+        skipped.push({ key: safeKey, size: value.length, why: 'too-big' });
         continue;
       }
       // v3.7.0: keep the previous value before it is overwritten (never fails the push)
@@ -967,7 +985,7 @@ async function handleSyncPush(request, env) {
       written.push(safeKey);
     }
 
-    return json({ ok: true, written: written.length, keys: written });
+    return json({ ok: true, written: written.length, keys: written, skipped });
   } catch (e) {
     return json({ error: e.message }, e.name === 'AuthError' ? 401 : 500);
   }
@@ -987,8 +1005,14 @@ async function handleSyncKeys(request, env) {
       ? 'data:_shared:'
       : 'data:' + (session.user.dataNamespace || session.user.username) + ':';
 
-    const list = await env.TOKENS.list({ prefix });
-    const keys = list.keys.map(k => k.name.substring(prefix.length));
+    // v3.7.1: follow the cursor past 1000 keys
+    const keys = [];
+    let cursor;
+    do {
+      const list = await env.TOKENS.list({ prefix, cursor });
+      list.keys.forEach(k => keys.push(k.name.substring(prefix.length)));
+      cursor = list.list_complete ? undefined : list.cursor;
+    } while (cursor);
     return json({ keys, count: keys.length });
   } catch (e) {
     return json({ error: e.message }, e.name === 'AuthError' ? 401 : 500);
