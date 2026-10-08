@@ -15,6 +15,22 @@
   when the push is live. Direct fetches to netlify.app/cloudflare are blocked
   by this environment's network policy.
 
+## Releases: trial ring, rollback, safe mode (v22.16+, IMPORTANT)
+- Three copies are served from `main` (same origin, so the same data): `index.html` = STABLE (everyone),
+  `next.html` = TRIAL candidate, `prev.html` = PREVIOUS stable. The router script at the very top of the page
+  (`hnx-release-router-v2216`) picks the copy; never move it below other scripts. Never delete next.html or prev.html.
+- A normal release is a TRIAL first: develop and test in `index.html` on the branch as always (APP_VERSION bump,
+  guide, tests), but in the PR to `main` write the new file as `next.html` and keep `index.html` = current stable.
+  Computers marked 🚦 trial (TOOLS → 🚦 Release control) open it within ~5 min; nobody else does.
+- PROMOTE only after the trial computers stay green in 🩺 Nexi Health for a few hours and the owner agrees:
+  `prev.html` ← old `index.html`, then `index.html` ← `next.html` (next.html stays identical to index.html).
+- Emergency hotfix while the company is blocked (owner asks): may go straight to `index.html`, but copy the old
+  `index.html` to `prev.html` in the same commit.
+- Rollback: the owner presses ⏪ in 🚦 Release control (synced flag `hydroPro_release_ctl_v1`) → every computer
+  opens prev.html; outside Nexi: Netlify → Deploys → last good deploy → Publish deploy.
+- Safe mode: `?safe=1` (or the link under the sign-in box) — only ESS/`SAFE_KEEP` jobs run; Lite on.
+- CI: `.github/workflows/nexi-tests.yml` runs `tests/payroll` in 12 shards on every PR; do not merge red.
+
 ## Code layout
 - The app is one large `index.html` (~26 MB): a base app plus many additive
   IIFE patch `<script>` blocks (versioned v13.x–v15.x). Patches are additive
