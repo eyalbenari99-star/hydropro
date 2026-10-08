@@ -31,30 +31,41 @@ module.exports=[
     const err2=await window.__tCloud.push();
     return {blocked,paused:/upload paused/.test(err||''),cleared:!/upload paused/.test(err2||'')};},
   expect:{blocked:true,paused:true,cleared:true} },
-{ name:'🛡 Cloud-first boot: a synced key that was EMPTY at boot takes the cloud copy whole on the first download even though this computer wrote a seed to it meanwhile (80 real records win over 20 seeded), and the key is not dirty; a key that was present at boot still merges (v21.28)',
+{ name:'🛡 Cloud-first boot: a synced key that was EMPTY at boot takes the cloud copy whole on the first download even though this computer wrote a seed to it meanwhile (80 real records win over 20 seeded), and the key is not dirty; a key that was present at boot still merges when the cloud copy changes — 80 records: this computer\'s newer E1 edit kept, another computer\'s E2 edit taken (v21.28; since v21.97 an UNCHANGED cloud copy is skipped, so the second download carries a changed one)',
   seed:withCloud(()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));}),
   run:async()=>{
     await sleep(4000);const RK='hydroPro_employees';
-    const roster=(n,dept,t)=>JSON.stringify(Array.from({length:n},(_,i)=>({id:'E'+(i+1),name:'EMP '+(i+1),status:'Active',dept:dept,updatedAt:t||0})));
+    /* names differ in LETTERS ("EMP xaa", "EMP xab", …): the v15.86 duplicate-employee guard keys names on letters only, so
+       "EMP 1" … "EMP 80" were one person to it — its 30-second pass collapsed the roster to 1 record at a random moment */
+    const tag=i=>'x'+String.fromCharCode(97+Math.floor(i/26))+String.fromCharCode(97+i%26);
+    const roster=(n,dept,t)=>JSON.stringify(Array.from({length:n},(_,i)=>({id:'E'+(i+1),name:'EMP '+tag(i),status:'Active',dept:dept,updatedAt:t||0})));
     window.__hnxPresentAtBoot={}; /* this computer held nothing at boot */
     localStorage.setItem(RK,roster(20,'APAC_PACKAGING',Date.now())); /* a seed written after boot, dated now */
     const cloud=roster(80,'APTI_ACCOUNTING',1700000000000);
     await window.__tCloud.pull({[RK]:cloud},true);
     const got=JSON.parse(localStorage.getItem(RK)||'[]');
     const released=window.__hnxPresentAtBoot===null;
+    /* the dirty map is persisted on a 500 ms debounce (later on a busy page): wait until the saved copy settles, up to 10 s */
+    const dirtyNow=()=>{try{return RK in (JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}')||{});}catch(e){return true;}};
+    for(let i=0;i<50&&dirtyNow();i++)await sleep(200);
+    const notDirty=!dirtyNow();
     /* present at boot → ordinary merge: a newer local record survives */
     window.__hnxPresentAtBoot=null;window.__hnxPulledOk=true;
     window.__hnxRawSetSuppressed(RK,JSON.stringify([{id:'E1',name:'EMP 1 EDITED',status:'Active',dept:'APTI_ACCOUNTING',updatedAt:Date.now()}])); /* written without the dirty flag, as a merge would leave it */
-    await window.__tCloud.pull({[RK]:cloud},false);
-    const after=JSON.parse(localStorage.getItem(RK)||'[]');const e1=after.find(x=>x.id==='E1')||{};
-    return {count:got.length,dept:got[0]&&got[0].dept,released,mergedCount:after.length,keptEdit:e1.name==='EMP 1 EDITED'};},
-  expect:{count:80,dept:'APTI_ACCOUNTING',released:true,mergedCount:80,keptEdit:true} },
+    /* v21.97 skips a key whose cloud copy is identical to the one last merged ("nothing to merge"), so the second download
+       carries a changed cloud copy: another computer renamed E2 since the first download */
+    const cloud2=JSON.stringify(JSON.parse(cloud).map(r=>r.id==='E2'?Object.assign({},r,{name:'EMP 2 CLOUD EDIT',updatedAt:1700000500000}):r));
+    await window.__tCloud.pull({[RK]:cloud2},false);
+    const after=JSON.parse(localStorage.getItem(RK)||'[]');const e1=after.find(x=>x.id==='E1')||{},e2=after.find(x=>x.id==='E2')||{};
+    return {count:got.length,dept:got[0]&&got[0].dept,released,notDirty,mergedCount:after.length,keptEdit:e1.name==='EMP 1 EDITED',cloudEdit:e2.name==='EMP 2 CLOUD EDIT'};},
+  expect:{count:80,dept:'APTI_ACCOUNTING',released:true,notDirty:true,mergedCount:80,keptEdit:true,cloudEdit:true} },
 
 { name:'🛡 Bulk-change gate: an upload of employees that would drop 60 of 80 records is HELD (not in the push), listed on Administration → Data Safety; "Upload anyway" re-stamps it and the next push carries it; "Take the cloud copy" restores the 80 (v21.28)',
   seed:withCloud(()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));}),
   run:async()=>{
     await sleep(4000);const RK='hydroPro_employees';
-    const roster=(n,dept,t)=>JSON.stringify(Array.from({length:n},(_,i)=>({id:'E'+(i+1),name:'EMP '+(i+1),status:'Active',dept:dept,updatedAt:t||0})));
+    const tag=i=>'x'+String.fromCharCode(97+Math.floor(i/26))+String.fromCharCode(97+i%26); /* letter-unique names: the duplicate-employee guard (v15.86) would merge "EMP 1" … "EMP 80" into one */
+    const roster=(n,dept,t)=>JSON.stringify(Array.from({length:n},(_,i)=>({id:'E'+(i+1),name:'EMP '+tag(i),status:'Active',dept:dept,updatedAt:t||0})));
     window.__hnxCloudRaw[RK]=roster(80,'APTI_ACCOUNTING',1700000000000);
     const local=roster(20,'APAC_PACKAGING',Date.now());
     const out=window.__hnxPushGuard({[RK]:local,'hydroPro_other_v1':'{"a":1}'});
