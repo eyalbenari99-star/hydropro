@@ -12,13 +12,15 @@ concurrency:
   cancel-in-progress: true
 jobs:
   suite:
-    name: suite ${{ matrix.shard }}/12
+    name: suite ${{ matrix.shard }}/12 ${{ matrix.page }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+        # v22.18: both copies are tested — a hotfix changes the STABLE index.html, a trial changes next.html
+        page: [index.html, next.html]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,9 +38,10 @@ jobs:
           PORT: 8799
         run: |
           export CHROME="$(node -e "console.log(require('playwright-core').chromium.executablePath())")"
-          # v22.17: a trial release lives in next.html (index.html stays the stable copy) — test the candidate
-          if [ -f ../next.html ] && ! cmp -s ../index.html ../next.html; then export NEXI_PAGE=next.html; fi
-          echo "testing ${NEXI_PAGE:-index.html}"
+          # v22.18: each job tests one copy; next.html is skipped while it is identical to index.html
+          if [ "${{ matrix.page }}" = "next.html" ] && { [ ! -f ../next.html ] || cmp -s ../index.html ../next.html; }; then echo "next.html = index.html — nothing extra to test"; exit 0; fi
+          export NEXI_PAGE=${{ matrix.page }}
+          echo "testing $NEXI_PAGE"
           bash payroll/run.sh
   workers:
     # v22.17: the Cloudflare workers' own tests (mock KV, no network) — seconds, not minutes

@@ -30,8 +30,9 @@
   opens prev.html; outside Nexi: Netlify → Deploys → last good deploy → Publish deploy.
 - Safe mode: `?safe=1` (or the link under the sign-in box) — only ESS/`SAFE_KEEP` jobs run; Lite on.
 - CI: `.github/workflows/nexi-tests.yml` runs `tests/payroll` in 12 shards on every PR; do not merge red.
-  CI tests `next.html` when it differs from `index.html` (the trial candidate); locally use
-  `NEXI_PAGE=next.html bash payroll/run.sh`. Worker tests (mock KV, no network) live in `tests/workers/*.test.mjs`.
+  CI tests BOTH `index.html` and `next.html` (12 shards each; the next.html jobs skip while it equals index.html);
+  locally use `NEXI_PAGE=next.html bash payroll/run.sh`. Release markers: the v22.16 stale check reads only the first
+  two numbers of `NEXI_BUILD`, so a hotfix must change those (22.16 → 22.18, never 22.16.1) or open tabs never update. Worker tests (mock KV, no network) live in `tests/workers/*.test.mjs`.
 
 ## Code layout
 - The app is one large `index.html` (~26 MB): a base app plus many additive
