@@ -49,6 +49,12 @@ module.exports=[
     const banner0=banner;for(let j=0;j<40;j++)localStorage.removeItem('zz_fill_'+j);for(let j=0;j<200;j++)localStorage.removeItem('zz_fillsmall_'+j);
     return {saved:!threw&&back===v,noFalseCount:(window.__hnxQuotaHits||0)===h0,noBanner:!banner};},
   expect:{saved:true,noFalseCount:true,noBanner:true} },
+{ name:'🛑 Quota banner v22.15: after a REAL failed save the thin STORAGE FULL strip appears, clicks pass through it, and it clears by itself once saves succeed again for 20 s (Dr Amy: it stayed for the whole session after one failure) (v22.15)',
+  run:async()=>{await sleep(3000);let threw=false;try{Storage.prototype.setItem.call(localStorage,'zz_huge_probe',new Array(6000000).join('h'));}catch(e){threw=true;}
+    const el=document.getElementById('hnxQuotaWarn');const shown=!!el;const pe=el?getComputedStyle(el).pointerEvents:'';
+    await sleep(21000);localStorage.setItem('hnx_quota_probe_ok',String(Date.now()));await sleep(200);
+    return {threw,shown,clickThrough:pe==='none',cleared:!document.getElementById('hnxQuotaWarn')};},
+  expect:{threw:true,shown:true,clickThrough:true,cleared:true} },
 { name:'🧠 Pill v22.15: with nothing changing, the Brain pill is not rewritten again and again (the page watchers and the pill fed each other ~2 times a second) — 0 rewrites in 12 s (v22.15)',
   run:async()=>{await sleep(6000);const pill=document.getElementById('hnBrainPill');if(!pill)return {pill:false};let n=0;const mo=new MutationObserver(r=>{n+=r.length;});mo.observe(pill,{childList:true,subtree:true,characterData:true});
     await sleep(12000);mo.disconnect();return {pill:true,rewrites:n};},
