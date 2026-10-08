@@ -92,6 +92,8 @@ module.exports=[
     for(let i=0;i<40;i++){ if(isPtr(nat('hydroPro_backup_manual_'+td+'T01'))&&isPtr(nat('hydroPro_backup_manual_2026-09-29T08')))break; await sleep(500); } /* the move is device-database write → read back → pointer (async) */
     const pOld=nat('hydroPro_backup_manual_2026-09-29T08'),pNew=nat('hydroPro_backup_manual_'+td+'T01');window._bkMem={};
     const wOld=await getBackupAsync('manual_2026-09-29T08'),wNew=await getBackupAsync('manual_'+td+'T01'),wPre=await getBackupAsync('pre-action_'+td+'T00-00-01');const ok=(p)=>p.length>0&&p.length<1000&&p.indexOf('"idb":1')>=0;const whole=(w)=>!!(w&&w.data&&w.data.hydroPro_employees&&w.data.hydroPro_employees.length>899000);
-    return {ran:!!r&&!r.skipped,oldPointer:ok(pOld),newPointer:ok(pNew),oldWhole:whole(wOld),newWhole:whole(wNew),preWhole:whole(wPre),index:loadBackupIndex().length,deletedBy:window.__who};},
-  expect:{ran:true,oldPointer:true,newPointer:true,oldWhole:true,newWhole:true,preWhole:true,index:4,deletedBy:[]} },
+    let dbHas=null;try{dbHas=!!(await window.HNXIDB.get('hydroPro_backup_manual_'+td+'T01'));}catch(e){dbHas='err';}
+    const newDiag=ok(pNew)?'ok':('stored len '+pNew.length+' head '+JSON.stringify(pNew.slice(0,24))+' · decoded len '+(localStorage.getItem('hydroPro_backup_manual_'+td+'T01')||'').length+' · in device db '+dbHas+' · rescue dropped '+JSON.stringify((r&&r.dropped)||[]).slice(0,300)+' · lz pending '+JSON.stringify((window.__hnxLzPending&&__hnxLzPending())||[]));
+    return {ran:!!r&&!r.skipped,oldPointer:ok(pOld),newPointer:newDiag,oldWhole:whole(wOld),newWhole:whole(wNew),preWhole:whole(wPre),index:loadBackupIndex().length,deletedBy:window.__who};},
+  expect:{ran:true,oldPointer:true,newPointer:'ok',oldWhole:true,newWhole:true,preWhole:true,index:4,deletedBy:[]} },
 ];
