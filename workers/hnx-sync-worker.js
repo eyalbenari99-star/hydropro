@@ -1,6 +1,29 @@
 // ============================================================
-// HydroNexis-AI Cloudflare Worker v3.7.1-nexi
+// HydroNexis-AI Cloudflare Worker v3.7.2-nexi
 // ============================================================
+// CHANGE in v3.7.2-nexi (2026-10-09, SECURITY):
+//   The app's default administrator (username 'admin', password 'admin123',
+//   created on a brand-new computer and flagged bootstrap:true) could reach the
+//   cloud roster: a real person signed in on that computer, and its first upload
+//   carried the record into data:<company>:hydroPro_users. From then on
+//   /auth/app-login accepted admin/admin123 and handed out a token for the whole
+//   company dataset.
+//   + /auth/app-login refuses (403 'default admin is disabled — set a real
+//     password') the username 'admin' with the admin123 password, and any
+//     roster record that still holds the admin123 password while it is named
+//     'admin' or flagged bootstrap:true. All three hash forms the app's
+//     hashPassword can store are recognised (sha256:<hex>, bare hex, fb1:).
+//     A record with a REAL password is never refused, whatever its flags: an
+//     'admin' that was given a real password keeps signing in.
+//   + When two roster records share a username, the one that is not the
+//     default admin is used (a stray default copy cannot lock out the real one).
+//   + /sync/push drops from hydroPro_users only records that are flagged
+//     bootstrap:true AND still hold the admin123 password, so an older app can
+//     never put the unused default admin back. Nothing else is ever removed. A
+//     roster that would be left empty is not stored (named in skipped, why
+//     'default-admin-only').
+//   Paste over the deployed hnx-sync worker (Cloudflare → Workers → hnx-sync →
+//   Edit code → Deploy). Real users sign in exactly as before.
 // CHANGE in v3.7.1-nexi (2026-10-08, Nexi v22.17 "stop losing data"):
 //   + /sync/pull and /sync/keys follow the KV list cursor (KV returns at
 //     most 1000 keys per call — a larger dataset was cut silently).
@@ -175,7 +198,44 @@ const CORS_HEADERS = {
 
 const SESSION_TTL = 24 * 60 * 60; // 24 hours in seconds
 const BACKUP_RETENTION = 7; // Keep 7 days of backups
-const WORKER_VERSION = '3.7.1-nexi';
+const WORKER_VERSION = '3.7.2-nexi';
+
+// v3.7.2 (security): the app's default admin. These are hashPassword('admin123') exactly as the app stores it
+// (index.html hashPassword: input = password + ':hydroPro_salt_v1'; 'sha256:' + hex(SHA-256(input)), or 'fb1:' +
+// the cyrb128 fallback where crypto.subtle is missing; rosters from before the prefixes hold the bare hex).
+// tests/workers/hnx-sync-default-admin.test.mjs recomputes all three from the app's own code, so a drift fails CI.
+const DEFAULT_ADMIN_USERNAME = 'admin';
+const DEFAULT_ADMIN_HASHES = [
+  'sha256:57138b0938f9091810a2bc31622e14395826bd75cc58a0daf70edcfddc75ba1d',
+  '57138b0938f9091810a2bc31622e14395826bd75cc58a0daf70edcfddc75ba1d',
+  'fb1:19af296bf1e38f5f9078b4364cd0d07f'
+];
+const DEFAULT_ADMIN_REFUSED = 'default admin is disabled — set a real password';
+function isDefaultAdminHash(h) { return DEFAULT_ADMIN_HASHES.indexOf(String(h || '').trim().toLowerCase()) >= 0; }
+// A roster record that must never open the company data: it still holds the admin123 password AND it is the
+// default admin (named 'admin', or flagged bootstrap:true). A record with any other password is a real account.
+function isDefaultAdminRecord(u) {
+  if (!u || typeof u !== 'object' || !isDefaultAdminHash(u.passwordHash)) return false;
+  return !!u.bootstrap || String(u.username || '').trim().toLowerCase() === DEFAULT_ADMIN_USERNAME;
+}
+// A roster record /sync/push never stores: the UNUSED default admin only (flag + default password).
+function isUnusedDefaultAdmin(u) { return !!(u && typeof u === 'object' && u.bootstrap && isDefaultAdminHash(u.passwordHash)); }
+// Returns { value, removed, empty } — the roster string without unused default-admin records, in the encoding
+// it arrived in (the app pushes a JSON string; tolerate one level of double-encoding).
+function stripDefaultAdmins(value) {
+  try {
+    let v = JSON.parse(value), dbl = false;
+    if (typeof v === 'string') { v = JSON.parse(v); dbl = true; }
+    if (!Array.isArray(v)) return { value, removed: 0, empty: false };
+    const kept = v.filter(u => !isUnusedDefaultAdmin(u));
+    const removed = v.length - kept.length;
+    if (!removed) return { value, removed: 0, empty: false };
+    const out = JSON.stringify(kept);
+    return { value: dbl ? JSON.stringify(out) : out, removed, empty: kept.length === 0 };
+  } catch (_) {
+    return { value, removed: 0, empty: false };
+  }
+}
 
 // ============================================================
 // MAIN HANDLER
@@ -620,6 +680,11 @@ async function handleAppLogin(request, env) {
     return json({ error: 'username and hash required' }, 400);
   }
 
+  // ---- v3.7.2: the default admin (admin / admin123) never signs in to the cloud ----
+  if (username === DEFAULT_ADMIN_USERNAME && isDefaultAdminHash(hash)) {
+    return json({ error: DEFAULT_ADMIN_REFUSED }, 403);
+  }
+
   // ---- 1. Load the roster the app already synced into the cloud ----
   const DATA_USER = appDataUser(env);
   const rosterRaw = await env.TOKENS.get('data:' + DATA_USER + ':hydroPro_users');
@@ -641,14 +706,19 @@ async function handleAppLogin(request, env) {
   }
 
   // ---- 2. Find the user + verify their app credentials ----
-  const rosterUser = roster.find(u =>
-    u && String(u.username || '').toLowerCase() === username);
+  // v3.7.2: when two records share the username, use the one that is not the default admin
+  const _same = roster.filter(u => u && String(u.username || '').toLowerCase() === username);
+  const rosterUser = _same.find(u => !isDefaultAdminRecord(u)) || _same[0] || null;
 
   if (!rosterUser || !rosterUser.passwordHash) {
     return json({ error: 'Invalid credentials' }, 401);
   }
   if (rosterUser.active === false) {
     return json({ error: 'Account deactivated' }, 403);
+  }
+  // v3.7.2: a default-admin record (still on the admin123 password) is refused whatever hash is offered
+  if (isDefaultAdminRecord(rosterUser)) {
+    return json({ error: DEFAULT_ADMIN_REFUSED }, 403);
   }
   if (!timingSafeEqualStr(hash, String(rosterUser.passwordHash))) {
     return json({ error: 'Invalid credentials' }, 401);
@@ -972,7 +1042,13 @@ async function handleSyncPush(request, env) {
     const skipped = [];
     for (const [k, v] of Object.entries(data)) {
       const safeKey = String(k).replace(/[^a-zA-Z0-9_:.-]/g, '_').slice(0, 200);
-      const value = typeof v === 'string' ? v : JSON.stringify(v);
+      let value = typeof v === 'string' ? v : JSON.stringify(v);
+      // v3.7.2 (security): the unused default admin never reaches the cloud roster, even from an older app
+      if (safeKey === 'hydroPro_users' && !shared) {
+        const st = stripDefaultAdmins(value);
+        if (st.empty) { skipped.push({ key: safeKey, size: value.length, why: 'default-admin-only' }); continue; }
+        value = st.value;
+      }
       // v3.7.1: KV holds up to 25 MiB per value; 20 MB leaves room. A store above it is
       // NAMED in the reply (skipped) so the app keeps it as unsent instead of believing it synced.
       if (value.length > 20 * 1024 * 1024) {
