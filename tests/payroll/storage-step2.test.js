@@ -96,4 +96,23 @@ module.exports=[
     const newDiag=ok(pNew)?'ok':('stored len '+pNew.length+' head '+JSON.stringify(pNew.slice(0,24))+' · decoded len '+(localStorage.getItem('hydroPro_backup_manual_'+td+'T01')||'').length+' · in device db '+dbHas+' · rescue dropped '+JSON.stringify((r&&r.dropped)||[]).slice(0,300)+' · lz pending '+JSON.stringify((window.__hnxLzPending&&__hnxLzPending())||[]));
     return {ran:!!r&&!r.skipped,oldPointer:ok(pOld),newPointer:newDiag,oldWhole:whole(wOld),newWhole:whole(wNew),preWhole:whole(wPre),index:loadBackupIndex().length,deletedBy:window.__who};},
   expect:{ran:true,oldPointer:true,newPointer:'ok',oldWhole:true,newWhole:true,preWhole:true,index:4,deletedBy:[]} },
+{ name:'🗜 Compressor v22.17b: three 400 K stores queued for the background worker and replaced by 136-char values before their turn are stored as those 136 chars (not an LZ blob — a moved backup’s pointer was compressed this way); a 12-char save over a 6 M value waiting in memory is what reads return and what stays stored (the worker wrote the old 6 M back); a removed key waiting in memory stays removed (it came back)',
+  run:async()=>{await sleep(1500);const nat=k=>(window.__hnxNG||Storage.prototype.getItem).call(localStorage,k);
+    const noise=n=>{let x='',r=7;while(x.length<n){r=(r*48271)%2147483647;x+=r.toString(36);}return x.slice(0,n);};
+    const A=['hydroPro_zz_q1','hydroPro_zz_q2','hydroPro_zz_q3'],small=new Array(137).join('p');
+    A.forEach((k,i)=>localStorage.setItem(k,noise(400000+i)));
+    const queued=window.__hnxLzQueueAll?window.__hnxLzQueueAll(100000):-1;
+    A.forEach(k=>localStorage.setItem(k,small)); /* same tick: the worker has not reached them yet */
+    localStorage.setItem('hydroPro_zz_pb',new Array(6000001).join('x')); /* over the browser quota → waits in memory for the worker */
+    const pendB=((window.__hnxLzPending&&__hnxLzPending())||[]).indexOf('hydroPro_zz_pb')>=0;
+    localStorage.setItem('hydroPro_zz_pb','small-save-B');const readB=localStorage.getItem('hydroPro_zz_pb');
+    localStorage.setItem('hydroPro_zz_pc',new Array(6000001).join('y'));
+    const pendC=((window.__hnxLzPending&&__hnxLzPending())||[]).indexOf('hydroPro_zz_pc')>=0;
+    localStorage.removeItem('hydroPro_zz_pc');const readC=localStorage.getItem('hydroPro_zz_pc');
+    for(let i=0;i<60;i++){ if(!((window.__hnxLzPending&&__hnxLzPending())||[]).length) break; await sleep(500); } await sleep(3000);
+    const out={queued:queued>=3,stored:A.map(k=>(nat(k)||'').length),lzBlobs:A.filter(k=>(nat(k)||'').indexOf('\u0001LZ\u0001')===0).length,
+      pendB,readB,storedB:nat('hydroPro_zz_pb'),pendC,readC,storedC:nat('hydroPro_zz_pc'),readCAfter:localStorage.getItem('hydroPro_zz_pc')};
+    A.concat(['hydroPro_zz_pb','hydroPro_zz_pc']).forEach(k=>{try{localStorage.removeItem(k);}catch(e){}});
+    return out;},
+  expect:{queued:true,stored:[136,136,136],lzBlobs:0,pendB:true,readB:'small-save-B',storedB:'small-save-B',pendC:true,readC:null,storedC:null,readCAfter:null} },
 ];
