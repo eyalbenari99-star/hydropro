@@ -20,12 +20,12 @@ module.exports=[
     return {vehicles:a.map(x=>x.plateNo).sort().join(','),abc1:(a.find(x=>x.plateNo==='ABC1')||{}).km,leaveRows:b==null?'kept local':b.length,idless:c.some(x=>x.v==='no id here'),idA:(c.find(x=>x.id==='A')||{}).v};},
   expect:{vehicles:'ABC1,ABC2,ABC3',abc1:5,leaveRows:2,idless:true,idA:2} },
 { name:'🗄 Clean-up v22.17: on a computer that is not full, the v55 clean-up no longer deletes the manual backup, a _bak_v2 copy, an _old_ copy or a v33 store 2 s after start and every 5 minutes (it ran on every computer whatever the storage level) (v22.17)',
-  seed:function(){ localStorage.setItem('hnx_v285_cleanup_done','1');
+  seed:function(){ localStorage.setItem('hnx_v285_cleanup_done','1'); window.__who=[];try{var __R=Storage.prototype.removeItem;Storage.prototype.removeItem=function(k){ if(/^hydroPro_backup_/.test(String(k))) window.__who.push(String(k).slice(16,40)+' @'+(performance.now()|0)+'ms: '+(new Error().stack||'').split('\n').slice(2,6).map(function(x){return x.trim().slice(0,90);}).join(' < ')); return __R.call(this,k); };}catch(e){}
     localStorage.setItem('hydroPro_backup_manual_2026-10-08',JSON.stringify({keep:new Array(3000).join('k')}));
     localStorage.setItem('hydroPro_issues_bak_v2','[{"id":"B1"}]');localStorage.setItem('hydroPro_matrix_old_1','{"x":1}');localStorage.setItem('hydroPro_v33_notes','["n1"]'); },
   run:async()=>{await sleep(4000);const nat=k=>(window.__hnxNG||Storage.prototype.getItem).call(localStorage,k);
-    return {manual:(nat('hydroPro_backup_manual_2026-10-08')||'').length>1000,bak:nat('hydroPro_issues_bak_v2')!=null,old:nat('hydroPro_matrix_old_1')!=null,v33:nat('hydroPro_v33_notes')!=null};},
-  expect:{manual:true,bak:true,old:true,v33:true} },
+    return {manual:(nat('hydroPro_backup_manual_2026-10-08')||'').length>1000,bak:nat('hydroPro_issues_bak_v2')!=null,old:nat('hydroPro_matrix_old_1')!=null,v33:nat('hydroPro_v33_notes')!=null,deletedBy:window.__who};}, /* deletedBy names the code that removed a backup key (it happened only on the CI runners) */
+  expect:{manual:true,bak:true,old:true,v33:true,deletedBy:[]} },
 
 { name:'🗄 Daily backup v22.17: attendance (300 K) and payroll runs (200 K) kept in the device database ARE in the daily backup, read through the vault (not the 7-char placeholder); HR scans (400 K PDF) and the QuickBooks cache are still left out (v21.19 dropped all four) (v22.17)',
   seed:VSEED,
@@ -80,7 +80,7 @@ module.exports=[
     return {vaulted:c.vaulted>=4,attWhere:att.where,attBig:(att.k_db||0)>=290,browserNum:typeof c.browserK==='number'&&c.browserK<c.limitK,hasLimit:c.limitK>2000,health:/device db/.test(mine.census||'')};},
   expect:{vaulted:true,attWhere:'device-db',attBig:true,browserNum:true,hasLimit:true,health:true} },
 { name:'🚑 Backups v22.17: manual backups still held whole in the browser store are MOVED to the device database, not deleted — a 9-day-old one by the start-up janitor (it deleted every backup older than 7 days at every start) and today’s one by the storage rescue; the older of two pre-action backups is not deleted by the 10-minute pruner, and the backup INDEX survives (the pruner deleted it — it sorts before the pre-action keys); the browser keeps a pointer under 1 K for each and 💾 Backups reads all back whole (v22.17)',
-  seed:function(){ localStorage.setItem('hnx_v285_cleanup_done','1');
+  seed:function(){ localStorage.setItem('hnx_v285_cleanup_done','1'); window.__who=[];try{var __R=Storage.prototype.removeItem;Storage.prototype.removeItem=function(k){ if(/^hydroPro_backup_/.test(String(k))) window.__who.push(String(k).slice(16,40)+' @'+(performance.now()|0)+'ms: '+(new Error().stack||'').split('\n').slice(2,6).map(function(x){return x.trim().slice(0,90);}).join(' < ')); return __R.call(this,k); };}catch(e){}
     var td=new Date().toISOString().slice(0,10), mk=function(id){ return {meta:{id:id,reason:'manual',label:'Manual backup by admin',createdAt:new Date().toISOString()},data:{hydroPro_employees:JSON.stringify([{id:'QA',name:'Qa Tester',pad:new Array(900000).join('e')}])}}; };
     var a=mk('manual_2026-09-29T08'), b=mk('manual_'+td+'T01');
     var c=mk('pre-action_'+td+'T00-00-01'), d=mk('pre-action_'+td+'T00-00-02'); c.meta.reason=d.meta.reason='pre-action';
@@ -88,8 +88,10 @@ module.exports=[
     localStorage.setItem('hydroPro_backup_pre-action_'+td+'T00-00-01',JSON.stringify(c));localStorage.setItem('hydroPro_backup_pre-action_'+td+'T00-00-02',JSON.stringify(d));
     localStorage.setItem('hydroPro_backup_index',JSON.stringify([a.meta,b.meta,c.meta,d.meta])); },
   run:async()=>{await sleep(2000);const nat=k=>(window.__hnxNG||Storage.prototype.getItem).call(localStorage,k)||'';const td=new Date().toISOString().slice(0,10);
-    const r=window.hnxStorageRescue();await sleep(2500);const pOld=nat('hydroPro_backup_manual_2026-09-29T08'),pNew=nat('hydroPro_backup_manual_'+td+'T01');window._bkMem={};
+    const r=window.hnxStorageRescue();const isPtr=(p)=>p.length>0&&p.length<1000&&p.indexOf('"idb":1')>=0;
+    for(let i=0;i<40;i++){ if(isPtr(nat('hydroPro_backup_manual_'+td+'T01'))&&isPtr(nat('hydroPro_backup_manual_2026-09-29T08')))break; await sleep(500); } /* the move is device-database write → read back → pointer (async) */
+    const pOld=nat('hydroPro_backup_manual_2026-09-29T08'),pNew=nat('hydroPro_backup_manual_'+td+'T01');window._bkMem={};
     const wOld=await getBackupAsync('manual_2026-09-29T08'),wNew=await getBackupAsync('manual_'+td+'T01'),wPre=await getBackupAsync('pre-action_'+td+'T00-00-01');const ok=(p)=>p.length>0&&p.length<1000&&p.indexOf('"idb":1')>=0;const whole=(w)=>!!(w&&w.data&&w.data.hydroPro_employees&&w.data.hydroPro_employees.length>899000);
-    return {ran:!!r&&!r.skipped,oldPointer:ok(pOld),newPointer:ok(pNew),oldWhole:whole(wOld),newWhole:whole(wNew),preWhole:whole(wPre),index:loadBackupIndex().length};},
-  expect:{ran:true,oldPointer:true,newPointer:true,oldWhole:true,newWhole:true,preWhole:true,index:4} },
+    return {ran:!!r&&!r.skipped,oldPointer:ok(pOld),newPointer:ok(pNew),oldWhole:whole(wOld),newWhole:whole(wNew),preWhole:whole(wPre),index:loadBackupIndex().length,deletedBy:window.__who};},
+  expect:{ran:true,oldPointer:true,newPointer:true,oldWhole:true,newWhole:true,preWhole:true,index:4,deletedBy:[]} },
 ];
