@@ -38,35 +38,42 @@ module.exports=[
       label:cat&&cat[1],office:SAL_CAT_OFFICE.indexOf('project_contractor')>=0};},
   expect:{why:true,st:[0,0],label:'19. GH15 & GH16 Project Contractor Labor',office:false} },
 
-{ name:'💾 Jinky (accounting) moves a labourer with NO job title from Production Regular to 19. GH15 & GH16 Project Contractor Labor and presses Save → saved (was silently refused: "Job Title required") (v21.03)',
+/* v21.69 made every user except the admins, Eyal and Dr Amy STRICT BY DEFAULT: an accounting login no longer gets HR & People /
+   Payroll from the role defaults, so a Jinky with no grant was refused at openEmployeeModal ("Only Admin and Supervisor can edit
+   employees") and nothing was saved. The two cards below seed Jinky the way she works today: an admin's per-user Edit grant on
+   HR & People and Payroll (Administration ▸ Users ▸ Permissions), Strict left on. 'opened' proves the card really opened. */
+{ name:'💾 Jinky (accounting, HR & People + Payroll Edit grant — strict by default since v21.69) moves a labourer with NO job title from Production Regular to 19. GH15 & GH16 Project Contractor Labor and presses Save → card opened, saved as project_contractor, card closed (was silently refused: "Job Title required") (v21.03)',
   seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Jinky',passwordHash:'x',role:'accounting',active:true}]));
+    localStorage.setItem('hydroPro_user_perms',JSON.stringify({tester:{strict:true,overrides:{'module:hr':'edit','module:payroll':'edit'}}}));
     localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'L1',name:'LAB, JUAN',status:'Active',salaryCategory:'production_regular',dept:'APTI_REGULAR',payType:'weekly',employmentType:'Regular',type:'Regular',dailyRate:600,dateHired:'2025-01-01'}]));},
   run:async()=>{
     const cat=()=>JSON.parse(localStorage.getItem('hydroPro_employees')).find(e=>e.id==='L1').salaryCategory;
     openEmployeeModal('L1');await sleep(1500);
+    const opened=document.getElementById('empModal').classList.contains('open');
     const s=document.getElementById('empSalaryCategory');s.value='project_contractor';s.dispatchEvent(new Event('change',{bubbles:true}));
     saveEmployee();await sleep(1200);
-    return {cat:cat(),open:document.getElementById('empModal').classList.contains('open')};},
-  expect:{cat:'project_contractor',open:false} },
+    return {opened,cat:cat(),open:document.getElementById('empModal').classList.contains('open')};},
+  expect:{opened:true,cat:'project_contractor',open:false} },
 
-{ name:'🚪 closing a changed employee card asks Save / Don\'t save: ✕ + OK saves the new group; ✕ + Cancel leaves the card exactly as it was (production_regular) and closes it; an unchanged card closes with no question (v21.03)',
+{ name:'🚪 Jinky (HR & People + Payroll Edit grant — strict by default since v21.69) closing a changed employee card is asked Save / Don\'t save: all 3 cards open; ✕ + OK saves the new group (project_contractor); ✕ + Cancel leaves the card exactly as it was (production_regular) and closes it; an unchanged card closes with no question (v21.03)',
   seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Jinky',passwordHash:'x',role:'accounting',active:true}]));
+    localStorage.setItem('hydroPro_user_perms',JSON.stringify({tester:{strict:true,overrides:{'module:hr':'edit','module:payroll':'edit'}}}));
     localStorage.setItem('hydroPro_employees',JSON.stringify([
       {id:'L1',name:'LAB, JUAN',status:'Active',salaryCategory:'production_regular',dept:'APTI_REGULAR',payType:'weekly',employmentType:'Regular',type:'Regular',dailyRate:600,dateHired:'2025-01-01'},
       {id:'L2',name:'LAB, PEDRO',status:'Active',salaryCategory:'production_regular',dept:'APTI_REGULAR',payType:'weekly',employmentType:'Regular',type:'Regular',dailyRate:600,dateHired:'2025-01-01'}]));},
   run:async()=>{
     const cat=id=>JSON.parse(localStorage.getItem('hydroPro_employees')).find(e=>e.id===id).salaryCategory;
     const isOpen=()=>document.getElementById('empModal').classList.contains('open');
-    let asked=0;
-    const change=async(id,ans)=>{openEmployeeModal(id);await sleep(1500);
+    let asked=0,opened=0;
+    const change=async(id,ans)=>{openEmployeeModal(id);await sleep(1500);if(isOpen())opened++;
       const s=document.getElementById('empSalaryCategory');s.value='project_contractor';s.dispatchEvent(new Event('change',{bubbles:true}));s.dispatchEvent(new Event('input',{bubbles:true}));
       await sleep(2500);window.confirm=()=>{asked++;return ans;};
       document.querySelector('#empModal .modal-close').click();await sleep(1200);};
     await change('L1',true);const a=[cat('L1'),isOpen()];const aq=asked;
     await change('L2',false);const b=[cat('L2'),isOpen()];const bq=asked-aq;
-    const before=asked;openEmployeeModal('L1');await sleep(1500);document.querySelector('#empModal .modal-close').click();await sleep(500);
-    return {save:a,discard:b,askedSave:aq>=1,askedDiscard:bq,noChangeAsked:asked-before,noChangeOpen:isOpen()};},
-  expect:{save:['project_contractor',false],discard:['production_regular',false],askedSave:true,askedDiscard:1,noChangeAsked:0,noChangeOpen:false} },
+    const before=asked;openEmployeeModal('L1');await sleep(1500);if(isOpen())opened++;document.querySelector('#empModal .modal-close').click();await sleep(500);
+    return {opened,save:a,discard:b,askedSave:aq>=1,askedDiscard:bq,noChangeAsked:asked-before,noChangeOpen:isOpen()};},
+  expect:{opened:3,save:['project_contractor',false],discard:['production_regular',false],askedSave:true,askedDiscard:1,noChangeAsked:0,noChangeOpen:false} },
 
 { name:'⏰ GH15/16 project contractor ₱600/day, paid 08:00–12:00 + 13:00–17:00: Thu 08:30–17:00 = 30 min ₱37.50 · Fri 06:30–19:30 = 0 (no overtime, nothing added) · Sat 08:00–16:00 = 60 min ₱75.00 · Mon 07:00–12:00 = 240 min ₱300.00 (lunch not charged) · Tue 09:00–(no out) = 60 min ₱75.00 → ₱487.50 deducted automatically, nothing pending; net 5 × 600 − 487.50 = ₱2,512.50 (v21.03)',
   run:async()=>{
