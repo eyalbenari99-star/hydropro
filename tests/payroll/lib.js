@@ -12,7 +12,8 @@ function get(o,path){return path.split('.').reduce((a,k)=>(a==null?undefined:a[k
 function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
 async function runCase(t){
   const b=await chromium.launch({executablePath:CHROME,args:['--no-sandbox']});
-  const pg=await b.newPage({viewport:{width:1600,height:1000}});
+  /* v22.20: optional t.viewport, t.tz (timezoneId, e.g. 'Asia/Manila') */
+  const pg=await b.newPage(Object.assign({viewport:t.viewport||{width:1600,height:1000}},t.tz?{timezoneId:t.tz}:{}));
   const errs=[];pg.on('pageerror',e=>{const s=String(e);if(!/NotSupportedError/.test(s))errs.push(s.slice(0,160));});
   pg.on('dialog',d=>d.accept());
   await pg.addInitScript((extra)=>{
@@ -35,7 +36,12 @@ async function runCase(t){
   }
   await pg.waitForTimeout(BOOT_MS);
   let out;
-  try{ out=await pg.evaluate('(async()=>{'+PAGE_HELPERS+' return ('+t.run.toString()+')();})()'); }catch(e){ out={__threw:String(e.message).slice(0,200)}; }
+  /* v22.20: optional t.drive(pg) runs in Node with the real keyboard and mouse (page.keyboard) before t.run; its result is out.drive */
+  let drove;
+  if(t.drive){ try{ drove=await t.drive(pg); }catch(e){ drove={__threw:String(e.message).slice(0,200)}; } }
+  if(t.run){ try{ out=await pg.evaluate('(async()=>{'+PAGE_HELPERS+' return ('+t.run.toString()+')();})()'); }catch(e){ out={__threw:String(e.message).slice(0,200)}; } }
+  else out={};
+  if(t.drive){ if(!out||typeof out!=='object') out={value:out}; out.drive=drove; }
   await b.close();
   const fails=[];
   for(const [path,exp] of Object.entries(t.expect||{})){
