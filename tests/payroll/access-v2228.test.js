@@ -13,6 +13,14 @@ module.exports=[
     if(h!=null)localStorage.setItem('hnx_test_harness',h);return {r,m};},
   expect:{r:{admin:true,eyal:true,amy:true,mea:false,jinky:false,amylyn:false,gone:false},m:{admin:true,eyal:true,amy:true,mea:false,jinky:false,amylyn:false,gone:false}} },
 
+{ name:'🔐 Payroll gate first: Mea (an admin-role account) → managePayroll NO, viewSalaries NO; the System Admin login → yes, yes; Eyal (admin role) → yes, yes (v22.28)',
+  requires:"typeof window.hnxIsOwnerDecider==='function'",
+  run:async()=>{const h=localStorage.getItem('hnx_test_harness');localStorage.removeItem('hnx_test_harness');const g=window.getCurrentUser;
+    const as=u=>{window.getCurrentUser=()=>u;return [can('managePayroll'),can('viewSalaries')];};
+    const r={mea:as({username:'mea',fullname:'Mea Magracia',role:'admin',active:true}),admin:as({username:'admin',fullname:'System Admin',role:'admin',active:true}),eyal:as({username:'eyal',fullname:'Eyal Ben Ari',role:'admin',active:true})};
+    window.getCurrentUser=g;if(h!=null)localStorage.setItem('hnx_test_harness',h);return r;},
+  expect:{mea:[false,false],admin:[true,true],eyal:[true,true]} },
+
 { name:'💰 Memo final approval: a −₱200 memo of 8 Oct for Juan, signed by Supervisor + HR Manager and CREATED 11 Oct (rule from 10 Oct) → payroll 5–11 Oct deducts ₱0 and lists it as not approved yet; after the FINAL approval it deducts ₱200; the same memo created 5 Oct (old rule) is deducted ₱200 at once (v22.28)',
   requires:"typeof window.hnxMemoNeedsFinal==='function'",
   run:async()=>{localStorage.setItem('hnx_memo_final_from','2026-10-10');
