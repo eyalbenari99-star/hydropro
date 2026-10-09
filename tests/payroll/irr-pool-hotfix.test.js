@@ -39,18 +39,18 @@ const CLOUD=function(firstDelayMs,cloudInit){
 const LOCAL_TODAY='const __d=new Date();const T=__d.getFullYear()+"-"+String(__d.getMonth()+1).padStart(2,"0")+"-"+String(__d.getDate()).padStart(2,"0");';
 
 module.exports=[
-{ name:'⌨ Half-typed EC: Pool 1 EC (08:00) type "1" and wait 6 s → nothing stored, the cursor is still in EC, no CRIT, 0 irrigation issues / 0 pool tasks / 0 pool calls; then ".65" + Tab → EC "1.65" saved by ONE save, still 0 issues / 0 calls, the cursor moves on to Pool 1 man EC (v13.81 save-while-typing saved "1" after a 1-s pause)',
+{ name:'⌨ Half-typed EC: Pool 1 EC (08:00) type "1" and wait 6 s → nothing stored, the cursor is still in EC, no CRIT, 0 irrigation issues / 0 pool tasks / 0 pool calls; then ".75" + Tab → EC "1.75" (OK on Eyal’s 1.70–1.90) saved by ONE save, still 0 issues / 0 calls, the cursor moves on to Pool 1 man EC (v13.81 save-while-typing saved "1" after a 1-s pause)',
   drive:async pg=>{
     await openPool(pg);
     await pg.locator(rowSel(0)).locator('input[placeholder="EC"]').click();
     await pg.keyboard.type('1');await pg.waitForTimeout(6000);
     const mid=await st(pg,'P01');
-    await pg.keyboard.type('.65');await pg.keyboard.press('Tab');await pg.waitForTimeout(1500);
+    await pg.keyboard.type('.75');await pg.keyboard.press('Tab');await pg.waitForTimeout(1500);
     const end=await st(pg,'P01');
     return {mid:{EC:mid.EC,inEC:/'P01','EC'/.test(mid.focus),crit:mid.crit,issues:mid.issues,tasks:mid.tasks,calls:mid.calls},
       end:{EC:end.EC,saves:end.saves,issues:end.issues,calls:end.calls,onManEC:/'P01','manualEC'/.test(end.focus)}};
   },
-  expect:{'drive.mid':{EC:null,inEC:true,crit:false,issues:0,tasks:0,calls:0},'drive.end':{EC:'1.65',saves:['EC=1.65'],issues:0,calls:0,onManEC:true}} },
+  expect:{'drive.mid':{EC:null,inEC:true,crit:false,issues:0,tasks:0,calls:0},'drive.end':{EC:'1.75',saves:['EC=1.75'],issues:0,calls:0,onManEC:true}} },
 
 { name:'⌨ Fast typing: Pool 2 EC "1.7" Tab "1.71" Tab → EC 1.7 and man EC 1.71 both stored with one save each, the cursor ends on Pool 2 pH; 🔢 a click on a blank area after the save and "1" "6" typed → the view stays irr_nutrients (digits no longer switch module on the pool screen)',
   drive:async pg=>{
@@ -111,12 +111,12 @@ module.exports=[
     return {bad,p1,p2,p3,cancel,ok:{EC:rec('11:00').EC,issues:iss('EC').length,openCalls:calls.length,ec:calls.map(c=>/EC LOW/.test(c.subject||''))}};`),
   expect:{bad:{EC:'1.68',toasts:2},p1:1,p2:1,p3:['resolved'],cancel:{EC:null,asked:true,issues:0},ok:{EC:'1',issues:1,openCalls:1,ec:[true]}} },
 
-{ name:'🎯 Dose = Eyal’s workbook with the DAILY target: Pool 1 (GH1) 08:00 level 54, EC 1 → daily 60, gap 6 → 121 L, A 2100 cc, B 2100 cc, C 30 cc, "Add 121 L pure water · A 2100 cc · B 2100 cc · C 30 cc", level ok (no FILL pill; 35 cm would be critical_min), same at 11:00; Pool 2 level 45, EC 1.62/1.66 → 1.64 → row 1.65, pH 6.50/6.44 → 303 L, A/B 3600 cc, C 95 cc, no CALIBRATE; Pool 7 (×0.67, daily 100) level 85, EC 1.75 → 322 L, A/B 1876 cc, C 75 cc',
+{ name:'🎯 Dose = Eyal’s workbook with the DAILY target: Pool 1 (GH1) 08:00 level 54, EC 1 → daily 60, gap 6 → 121 L, A 2100 cc, B 2100 cc, C 30 cc, "Add 121 L pure water · A 2100 cc · B 2100 cc · C 30 cc", level GOOD (no FILL pill; 35 cm is GOOD too, 29 cm warning, 19 cm critical on the GH1 bands 20/30/60/70), same at 11:00; Pool 2 level 45, EC 1.62/1.66 → 1.64 → row 1.65, pH 6.50/6.44 → 303 L, A/B 3600 cc, C 95 cc, no CALIBRATE; Pool 7 (×0.67, daily 100) level 85, EC 1.75 → 322 L, A/B 1876 cc, C 75 cc',
   run:fn(OPEN+`window.confirm=()=>true;const rec=(id,t)=>((loadIrrPool()[_irrDate]||{})[id]||{})[t||_irrCurrentPoolTime]||{};const P=id=>IRR_POOLS.find(p=>p.id===id);
     const pick=r=>({gap:r._dose.gap,water:r._dose.waterL,a:r._dose.aCC,b:r._dose.bCC,c:r._dose.cCC,A:r.A,B:r.B,C:r.C,W:r.waterAdded});
     irrSavePool('P01','water','54');irrSavePool('P01','EC','1');await sleep(300);renderIrrPoolMonitor();await sleep(300);
     const row=document.querySelector('#stubIrrNutrientsBody tbody tr:not(.irr-nexi-row)');
-    const p1={...pick(rec('P01')),instr:irrInstruction(P('P01'),rec('P01')),lvl:waterLevelStatus(P('P01'),54),lvl35:waterLevelStatus(P('P01'),35),fill:/FILL/.test(row.innerText),
+    const p1={...pick(rec('P01')),instr:irrInstruction(P('P01'),rec('P01')),lvl:waterLevelStatus(P('P01'),54),lvl35:waterLevelStatus(P('P01'),35),lvl29:waterLevelStatus(P('P01'),29),lvl19:waterLevelStatus(P('P01'),19),fill:/FILL/.test(row.innerText),
       says:/Nexi says: Add 121 L pure water · A 2100 cc · B 2100 cc · C 30 cc/.test(document.getElementById('stubIrrNutrientsBody').innerText)};
     window.irrSetPoolTime('11:00');irrSavePool('P01','water','54');irrSavePool('P01','EC','1');await sleep(300);const p1b=pick(rec('P01'));
     window.irrSetPoolTime('08:00');
@@ -124,7 +124,7 @@ module.exports=[
     const r2=rec('P02');const p2={...pick(r2),ec:r2._dose.ec,row:r2._dose.row,ph:r2._dose.ph,cal:r2._calibrate||'',instr:/^Add 303 L pure water · A 3600 cc · B 3600 cc · C 95 cc/.test(irrInstruction(P('P02'),r2))};
     irrSavePool('P07','water','85');irrSavePool('P07','EC','1.75');await sleep(300);const p7=pick(rec('P07'));
     return {p1,p1b,p2,p7};`),
-  expect:{p1:{gap:6,water:121,a:2100,b:2100,c:30,A:2.1,B:2.1,C:0.03,W:121,instr:'Add 121 L pure water · A 2100 cc · B 2100 cc · C 30 cc',lvl:'ok',lvl35:'critical_min',fill:false,says:true},
+  expect:{p1:{gap:6,water:121,a:2100,b:2100,c:30,A:2.1,B:2.1,C:0.03,W:121,instr:'Add 121 L pure water · A 2100 cc · B 2100 cc · C 30 cc',lvl:'ok',lvl35:'ok',lvl29:'warning',lvl19:'critical_min',fill:false,says:true},
     p1b:{gap:6,water:121,a:2100,b:2100,c:30,A:2.1,B:2.1,C:0.03,W:121},
     p2:{gap:15,water:303,a:3600,b:3600,c:95,A:3.6,B:3.6,C:0.1,W:303,ec:1.64,row:'1.65',ph:6.47,cal:'',instr:true},
     p7:{gap:15,water:322,a:1876,b:1876,c:75,A:1.88,B:1.88,C:0.08,W:322}} },
@@ -249,5 +249,60 @@ module.exports=[
     back=cloudDay().includes('P04');await sleep(1500);
     for(let i=0;i<40;i++){if(!HNX_Cloud.state.syncing)break;await sleep(250);}try{await HNX_Cloud.pull();}catch(e){}await sleep(1200);
     return {a,b,back,c:cloudDay(),local:day(),dirtyAfter:dirtyK()};`),
-  expect:{a:['P01','P02'],b:['P01','P02','P03','P04'],back:true,c:['P01','P02','P03','P04','P05'],local:['P01','P02','P03','P04','P05'],dirtyAfter:false} }
+  expect:{a:['P01','P02'],b:['P01','P02','P03','P04'],back:true,c:['P01','P02','P03','P04','P05'],local:['P01','P02','P03','P04','P05'],dirtyAfter:false} },
+{ name:'🎨 Eyal’s ranges (9 Oct): EC 1.49 → critical, 1.50 → warning, 1.69 → warning, 1.70 → ok, 1.90 → ok, 1.91 → warning, 2.00 → warning, 2.01 → critical; pH 5.49 → critical, 5.50 → warning, 5.79 → warning, 5.80 → ok, 6.50 → ok, 6.60 → warning, 6.80 → warning, 6.81 → critical; GH1 level 19 → critical, 20 → warning, 29 → warning, 30 → ok, 60 → ok, 61 → warning, 70 → warning, 71 → critical; GH7 level 29 → critical, 30 → warning, 40 → ok, 100 → ok, 101 → warning, 110 → warning, 111 → critical; GH9 level 19 → critical, 20 → warning, 30 → ok, 50 → ok, 51 → warning, 60 → warning, 61 → critical; PRJ11-A (no bands) keeps ±10/±20 around 100; old saved bands (EC 1.6–1.8; per-pool 1.8–2.0 dropped so the pool uses the global bands) replaced, an admin edit after it (PRJ11-A EC OK from 1.65) sticks; daily fill target = top of GOOD (60 / 100 / 50); the "Target ranges" line, the colours, the HIGH / DRAIN hints and ⚙️ Pool & Drum Setup show them',
+  seed:()=>{['_v2_46_101_zone_migration_done','_v2_46_104_drift_migration_done','_v2_46_115_zone_resync_done','_v2_46_109_structure_migration_done'].forEach(k=>localStorage.setItem(k,'1')); /* a computer that has run Nexi before */
+    localStorage.setItem('hydroProIrrSettings',JSON.stringify({bandsV:2171,EC:{min:1.6,max:1.8,criticalMin:1.5,criticalMax:2.0,label:'mS/cm'},pH:{min:5.6,max:6.5,criticalMin:5.4,criticalMax:6.8,label:''}}));
+    const oldEc={criticalMin:1.7,min:1.8,max:2.0,criticalMax:2.2},oldPh={criticalMin:5.6,min:5.8,max:6.6,criticalMax:6.8};
+    localStorage.setItem('hydroPro_pool_dimensions',JSON.stringify([
+      {id:'P01',label:'Pool 1',room:'Room 1&2',roomId:'FR1_2',greenhouse:'GH1',dim:{L:238,W:85,H:138,target:130},ec:oldEc,ph:oldPh},
+      {id:'P07',label:'Pool 7',room:'Room 7&8',roomId:'FR7_8',greenhouse:'GH7',dim:{L:150,W:143,H:218,target:100},ec:oldEc,ph:oldPh},
+      {id:'P09',label:'Pool 9',room:'Room 9',roomId:'FR9',greenhouse:'GH9',dim:{L:236,W:142,H:205,target:100}},
+      {id:'P11A',label:'PRJ11-A',room:'Room PRJ11',roomId:'PRJ11',greenhouse:'PRJ11',dim:{L:110,W:123,H:199,target:100},bandsV:2220,ec:{criticalMin:1.5,min:1.65,max:1.9,criticalMax:2.0},ph:{criticalMin:5.5,min:5.8,max:6.5,criticalMax:6.8}}]));
+    localStorage.removeItem('hydroPro_irr_pool');},
+  run:fn(`window.showToast=()=>{};window.confirm=()=>true;const ps=loadIrrPools();const g=id=>ps.find(p=>p.id===id);
+    const sh=s=>/^critical/.test(s)?'crit':/^warn/.test(s)?'warn':s;
+    const M=(id,k,vals)=>{const o={};vals.forEach(v=>{o[v]=sh(poolMetricStatus(g(id),k,v));});return o;};
+    const W=(id,vals)=>{const o={};vals.forEach(v=>{o[v]=sh(waterLevelStatus(g(id),v));});return o;};
+    const ec=M('P01','ec',['1.49','1.50','1.69','1.70','1.90','1.91','2.00','2.01']);
+    const ph=M('P07','ph',['5.49','5.50','5.79','5.80','6.50','6.60','6.80','6.81']);
+    const gh1=W('P01',['19','20','29','30','60','61','70','71']),gh7=W('P07',['29','30','40','100','101','110','111']),gh9=W('P09',['19','20','30','50','51','60','61']),prj=W('P11A',['100','85','75']);
+    const glob={EC:[IRR_RANGES.EC.criticalMin,IRR_RANGES.EC.min,IRR_RANGES.EC.max,IRR_RANGES.EC.criticalMax].join('/'),pH:[IRR_RANGES.pH.criticalMin,IRR_RANGES.pH.min,IRR_RANGES.pH.max,IRR_RANGES.pH.criticalMax].join('/'),bandsV:JSON.parse(localStorage.getItem('hydroProIrrSettings')).bandsV};
+    const B1=irrBand(g('P01'),'EC');const mig={p1ec:[B1.criticalMin,B1.min,B1.max,B1.criticalMax].join('/'),p1own:g('P01').ec.min===undefined,p1lvl:[g('P01').dim.lvlCritBelow,g('P01').dim.lvlGoodMin,g('P01').dim.lvlGoodMax,g('P01').dim.lvlCritAbove].join('/'),
+      p11ec166:sh(poolMetricStatus(g('P11A'),'ec',1.66)),p1ec166:sh(poolMetricStatus(g('P01'),'ec',1.66)),daily:[irrDailyTarget(g('P01')),irrDailyTarget(g('P07')),irrDailyTarget(g('P09'))].join('/')};
+    switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('08:00');irrSavePool('P01','EC','1.69');irrSavePool('P07','water','111');irrSavePool('P09','water','51');await sleep(500);renderIrrPoolMonitor();await sleep(300);
+    const body=document.getElementById('stubIrrNutrientsBody');const q=c=>{const e=body.querySelector(c);return e?e.innerText.trim():'';};
+    const rows=[...body.querySelectorAll('tbody tr:not(.irr-nexi-row)')];const R=l=>{const id={'Pool 1':'P01','Pool 7':'P07','Pool 9':'P09'}[l];return rows.find(r=>r.querySelector('[onchange*="irrSavePool(\\''+id+'\\'"]'))||{innerText:'',querySelector:()=>null};};
+    const ecIn=R('Pool 1').querySelector('input[onchange*="\\'EC\\'"]');
+    const screen={ec:q('.irr-range-ec'),ph:q('.irr-range-ph'),gh1:/GH1: GOOD 30–60 cm · warning 20–29 or 61–70 cm · critical below 20 or above 70 cm/.test(q('.irr-range-water')),
+      gh7:/GH7: GOOD 40–100 cm · warning 30–39 or 101–110 cm · critical below 30 or above 110 cm/.test(q('.irr-range-water')),gh9:/GH9: GOOD 30–50 cm · warning 20–29 or 51–60 cm · critical below 20 or above 60 cm/.test(q('.irr-range-water')),
+      ec169:ecIn?ecIn.getAttribute('data-status'):null,p7:/DRAIN \\+11cm/.test(R('Pool 7').innerText)&&/CRIT/.test(R('Pool 7').innerText),p9:/HIGH \\+1cm/.test(R('Pool 9').innerText)&&!/FILL/.test(R('Pool 9').innerText)};
+    switchView('pool_setup');await sleep(1200);const v=document.getElementById('view-pool_setup');const val=(id,k)=>{const i=v&&v.querySelector('input[onchange*="\\''+id+'\\',\\''+k+'\\'"]');return i?i.value:null;};
+    const setup={p7goodTo:val('P07','lvlGoodMax'),p7critAbove:val('P07','lvlCritAbove'),p9critAbove:val('P09','lvlCritAbove'),p1critBelow:val('P01','lvlCritBelow'),label:/LEVEL BANDS/.test(v?v.innerText:'')};
+    try{updatePoolDim('P01','lvlGoodMax','65');}catch(e){}
+    const p1=loadIrrPools().find(p=>p.id==='P01');const raw=JSON.parse(localStorage.getItem('hydroPro_pool_dimensions')).find(p=>p.id==='P01');
+    const edit={l63:waterLevelStatus(p1,63),l66:waterLevelStatus(p1,66),stored:raw.dim.lvlGoodMax,storedV:raw.bandsV,p11Kept:JSON.parse(localStorage.getItem('hydroPro_pool_dimensions')).find(p=>p.id==='P11A').ec.min};
+    return {ec,ph,gh1,gh7,gh9,prj,glob,mig,screen,setup,edit};`),
+  expect:{ec:{'1.49':'crit','1.50':'warn','1.69':'warn','1.70':'ok','1.90':'ok','1.91':'warn','2.00':'warn','2.01':'crit'},
+    ph:{'5.49':'crit','5.50':'warn','5.79':'warn','5.80':'ok','6.50':'ok','6.60':'warn','6.80':'warn','6.81':'crit'},
+    gh1:{'19':'crit','20':'warn','29':'warn','30':'ok','60':'ok','61':'warn','70':'warn','71':'crit'},
+    gh7:{'29':'crit','30':'warn','40':'ok','100':'ok','101':'warn','110':'warn','111':'crit'},
+    gh9:{'19':'crit','20':'warn','30':'ok','50':'ok','51':'warn','60':'warn','61':'crit'},prj:{'100':'ok','85':'warn','75':'crit'},
+    glob:{EC:'1.5/1.7/1.9/2',pH:'5.5/5.8/6.5/6.8',bandsV:2220},
+    mig:{p1ec:'1.5/1.7/1.9/2',p1own:true,p1lvl:'20/30/60/70',p11ec166:'ok',p1ec166:'warn',daily:'60/100/50'},
+    screen:{ec:'EC: OK 1.70–1.90 · warning 1.50–1.69 or 1.91–2.00 · critical below 1.50 or above 2.00 mS/cm',ph:'pH: OK 5.80–6.50 · warning 5.50–5.79 or 6.51–6.80 · critical below 5.50 or above 6.80',gh1:true,gh7:true,gh9:true,ec169:'warning',p7:true,p9:true},
+    setup:{p7goodTo:'100',p7critAbove:'110',p9critAbove:'60',p1critBelow:'20',label:true},
+    edit:{l63:'ok',l66:'warning_max',stored:65,storedV:2220,p11Kept:1.65}} },
+
+{ name:'🚨 Calls and issues follow Eyal’s ranges: latest EC 1.65 (warning) → no call, EC 2.01 (critical) → 1 open call "EC HIGH", pH 6.60 (warning) → no call, pH 6.81 (critical) → 1 open call; a saved EC 1.49 → issue priority critical, pH 6.60 → issue priority warning, EC corrected to 1.80 → its issue resolved',
+  seed:new Function(LOCAL_TODAY+`localStorage.setItem('hydroPro_irr_pool',JSON.stringify({[T]:{P01:{'08:00':{EC:'1.65'}},P02:{'08:00':{EC:'2.01'}},P03:{'08:00':{pH:'6.60'}},P04:{'08:00':{pH:'6.81'}}}}));
+    localStorage.removeItem('hydroPro_it_auto_tasks');`),
+  run:fn(`window.showToast=()=>{};window.confirm=()=>true;await sleep(7000);
+    const open=(loadCalls()||[]).filter(c=>c.sourceModule==='irr_pools'&&!CLOSED(c)).map(c=>c.areaText+' '+(/EC HIGH/.test(c.subject)?'EC HIGH':/pH HIGH/.test(c.subject)?'pH HIGH':c.subject)).sort();
+    switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('11:00');
+    const iss=f=>(loadIssues()||[]).filter(i=>i.title===f+' out of range in Pool P05 at 11:00');
+    irrSavePool('P05','EC','1.49');irrSavePool('P05','pH','6.60');await sleep(300);const pr={ec:iss('EC').map(i=>i.priority),ph:iss('pH').map(i=>i.priority)};
+    irrSavePool('P05','EC','1.80');await sleep(300);
+    return {open,pr,resolved:iss('EC').map(i=>i.status)};`),
+  expect:{open:['Pool 2 EC HIGH','Pool 4 pH HIGH'],pr:{ec:['critical'],ph:['warning']},resolved:['resolved']} }
 ];
