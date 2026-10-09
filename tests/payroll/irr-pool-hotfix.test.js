@@ -1,8 +1,13 @@
 /* v22.20 irrigation pool monitor hotfix (Eyal, 9 Oct 2026: "why irrigation there is bugs can't insert input and save and Nexi didn't
    recommend what to add as i guid matrix before" + "Target cm wrong. That's when cleaning, not daily.").
    Keyboard cases type with the real keyboard (t.drive), the others call the app in the page. */
-const OPEN=`window.showToast=(m)=>{(window.__toasts=window.__toasts||[]).push(String(m));};switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('08:00');renderIrrPoolMonitor();await sleep(300);`;
-const fn=body=>new Function('return (async()=>{const CLOSED=c=>{try{if(typeof window.isCallClosed==="function")return window.isCallClosed(c);}catch(e){}return !!(c&&(c.closedAt||String(c.status||"").indexOf("closed")===0));};'+body+'})();');
+const OPEN=`window.__hnxPulledOk=true;window.showToast=(m)=>{(window.__toasts=window.__toasts||[]).push(String(m));};switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('08:00');renderIrrPoolMonitor();await sleep(300);`;
+const fn=body=>new Function('return (async()=>{const CLOSED=c=>{try{if(typeof window.isCallClosed==="function")return window.isCallClosed(c);}catch(e){}return !!(c&&(c.closedAt||String(c.status||"").indexOf("closed")===0));};'
+  +'const waitFor=async(f,ms)=>{const t0=Date.now();while(Date.now()-t0<ms){if(f())return true;await sleep(300);}return f();};'+body+'})();');
+/* v22.22 round 2: the pool engine closes nothing before this session's first cloud download has landed (a computer that opens with
+   yesterday's copy must not close a live alarm). The harness is not signed in, so a case that expects a CLOSE marks the download as
+   landed (PULLED) - exactly what a signed-in computer sees once its first pull is in. */
+const PULLED='window.__hnxPulledOk=true;';
 async function openPool(pg){
   await pg.evaluate(async()=>{const sleep=ms=>new Promise(r=>setTimeout(r,ms));
     window.showToast=(m)=>{(window.__toasts=window.__toasts||[]).push(String(m));};
@@ -191,17 +196,19 @@ module.exports=[
   expect:{p1:['121L','2.1L','2.1L','0.03L'],p2:{cal:true,apply:false},p3:{wait:true,cfg:false}} },
 
 { name:'🚨 Pool calls: P01 08:00 EC 1 + 11:00 EC 1.7 (rounds disagree) → 0 calls ever; P03 08:00 EC 1.7 + 11:00 EC 1 (latest out) → exactly 1 open call, key pool::P03::EC, still 1 after 30 s (it was ~1 new call per 5 s); corrected to 1.65 → task done, call closed_fixed by system; yesterday’s open P02 pH call (key <yesterday>::pool::P02::pH) + today’s pH 7.3 → still that 1 call, key folded to pool::P02::pH',
-  seed:new Function(LOCAL_TODAY+`const y=new Date(__d.getTime()-864e5);const Y=y.getFullYear()+'-'+String(y.getMonth()+1).padStart(2,'0')+'-'+String(y.getDate()).padStart(2,'0');
+  seed:new Function(LOCAL_TODAY+PULLED+`const y=new Date(__d.getTime()-864e5);const Y=y.getFullYear()+'-'+String(y.getMonth()+1).padStart(2,'0')+'-'+String(y.getDate()).padStart(2,'0');
     localStorage.setItem('hydroPro_irr_pool',JSON.stringify({[T]:{P01:{'08:00':{EC:'1'},'11:00':{EC:'1.7'}},P03:{'08:00':{EC:'1.7'},'11:00':{EC:'1'}},P02:{'08:00':{pH:'7.3'}}}}));
     const now=Date.now();
     localStorage.setItem('hydroPro_maint_tasks',JSON.stringify([{id:'TASK_Y1',title:'💧 Pool Pool 2 · pH HIGH (7.30 )',status:'not_started',priority:'priority',createdAt:now-864e5,createdBy:'system',category:'auto_pool_sensor',sourceModule:'irr_pools',scheduledDate:Y,durationDays:1,gantt:[],materials:[]}]));
     localStorage.setItem('hydroPro_calls',JSON.stringify([{id:'CALL_Y1',subject:'💧 Pool Pool 2 · pH HIGH (7.30 )',description:'x',priority:'priority',status:'new_call',group:'operations',department:'irrigation',areaText:'Pool 2',sourceModule:'irr_pools',raisedBy:'system',maintTaskId:'TASK_Y1',createdAt:now-864e5,updatedAt:now-864e5,automatic:true}]));
     localStorage.setItem('hydroPro_it_auto_tasks',JSON.stringify({[Y+'::pool::P02::pH']:{maintTaskId:'TASK_Y1',callId:'CALL_Y1',status:'oor',createdAt:now-864e5}}));`),
-  run:fn(`window.showToast=()=>{};await sleep(6000);const C=()=>(loadCalls()||[]).filter(c=>c.sourceModule==='irr_pools');const A=()=>JSON.parse(localStorage.getItem('hydroPro_it_auto_tasks')||'{}');
+  run:fn(`window.showToast=()=>{};const C=()=>(loadCalls()||[]).filter(c=>c.sourceModule==='irr_pools');const A=()=>JSON.parse(localStorage.getItem('hydroPro_it_auto_tasks')||'{}');
+    await waitFor(()=>C().some(c=>c.areaText==='Pool 3')&&!!A()['pool::P02::pH'],15000);await sleep(1500);
     const snap=()=>({p1:C().filter(c=>c.areaText==='Pool 1').length,p3open:C().filter(c=>c.areaText==='Pool 3'&&!CLOSED(c)).length,p3all:C().filter(c=>c.areaText==='Pool 3').length,p2open:C().filter(c=>c.areaText==='Pool 2'&&!CLOSED(c)).map(c=>c.id),
       keys:Object.keys(A()).filter(k=>/pool::/.test(k)).sort()});
     const s1=snap();await sleep(30000);const s2=snap();
-    switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('11:00');irrSavePool('P03','EC','1.65');await sleep(7000);
+    switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('11:00');irrSavePool('P03','EC','1.65');
+    await waitFor(()=>C().filter(c=>c.areaText==='Pool 3').every(c=>CLOSED(c)),15000);await sleep(1500);
     const c3=C().filter(c=>c.areaText==='Pool 3');const t3=(loadMaintTasks()||[]).filter(t=>t.category==='auto_pool_sensor'&&/Pool 3/.test(t.title||''));
     return {s1,s2,fixed:{calls:c3.map(c=>c.status+'/'+c.closedBy),tasks:t3.map(t=>t.status),key:Object.keys(A()).includes('pool::P03::EC')}};`),
   expect:{s1:{p1:0,p3open:1,p3all:1,p2open:['CALL_Y1'],keys:['pool::P02::pH','pool::P03::EC']},s2:{p1:0,p3open:1,p3all:1,p2open:['CALL_Y1'],keys:['pool::P02::pH','pool::P03::EC']},
@@ -295,9 +302,10 @@ module.exports=[
     edit:{l63:'ok',l66:'warning_max',stored:65,storedV:2220,p11Kept:1.65}} },
 
 { name:'🚨 Calls and issues follow Eyal’s ranges: latest EC 1.65 (warning) → no call, EC 2.01 (critical) → 1 open call "EC HIGH", pH 6.60 (warning) → no call, pH 6.81 (critical) → 1 open call; a saved EC 1.49 → issue priority critical, pH 6.60 → issue priority warning, EC corrected to 1.80 → its issue resolved',
-  seed:new Function(LOCAL_TODAY+`localStorage.setItem('hydroPro_irr_pool',JSON.stringify({[T]:{P01:{'08:00':{EC:'1.65'}},P02:{'08:00':{EC:'2.01'}},P03:{'08:00':{pH:'6.60'}},P04:{'08:00':{pH:'6.81'}}}}));
+  seed:new Function(LOCAL_TODAY+PULLED+`localStorage.setItem('hydroPro_irr_pool',JSON.stringify({[T]:{P01:{'08:00':{EC:'1.65'}},P02:{'08:00':{EC:'2.01'}},P03:{'08:00':{pH:'6.60'}},P04:{'08:00':{pH:'6.81'}}}}));
     localStorage.removeItem('hydroPro_it_auto_tasks');`),
-  run:fn(`window.showToast=()=>{};window.confirm=()=>true;await sleep(7000);
+  run:fn(`window.showToast=()=>{};window.confirm=()=>true;const openN=()=>(loadCalls()||[]).filter(c=>c.sourceModule==='irr_pools'&&!CLOSED(c)).length;
+    await waitFor(()=>openN()>=2,15000);await sleep(6000);
     const open=(loadCalls()||[]).filter(c=>c.sourceModule==='irr_pools'&&!CLOSED(c)).map(c=>c.areaText+' '+(/EC HIGH/.test(c.subject)?'EC HIGH':/pH HIGH/.test(c.subject)?'pH HIGH':c.subject)).sort();
     switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('11:00');
     const iss=f=>(loadIssues()||[]).filter(i=>i.title===f+' out of range in Pool P05 at 11:00');
@@ -306,22 +314,21 @@ module.exports=[
     return {open,pr,resolved:iss('EC').map(i=>i.status)};`),
   expect:{open:['Pool 2 EC HIGH','Pool 4 pH HIGH'],pr:{ec:['critical'],ph:['warning']},resolved:['resolved']} },
 /* ---- v22.22 / v22.23: the gauges, one range table, the latest-reading rule (Eyal 9 Oct) ---- */
-{ name:'🎛 Gauges (Eyal: "where are the motion graphics?"): every pool row has a tank + fill valve above Water level, a pH column above pH (meter) and an EC column above EC (meter) (4 gauges × 24 pools = 96, legend above the table); pH 4.0 → yellow marker at 50% of the 0–8 column ("4.00 CRIT LOW"); EC 1.75 → level at 35% of 0–5 + bolt visible ("1.75 OK"); level 54 / target 60 → valve FILLING +121 L; 60 → CLOSED; the gauge elements are KEPT across the table rebuild (tank after a level save, EC + pH after EC 1.75 → 1.8); ⚡ Lite → animation none (static), Lite off → ivZap; typing "1.2" in Pool 2 EC does not touch the gauge ("— NO VALUE") until Tab ("1.20 CRIT LOW"), the cursor is never stolen',
+{ name:'🎛 Gauges (Eyal: "where are the motion graphics?"): every pool row has a tank + fill valve above Water level, a pH column above pH (meter) and an EC column above EC (meter) (4 gauges × 24 pools = 96, legend above the table); pH 4.0 → yellow marker at 50% of the 0–8 column ("4.00 CRIT LOW"); EC 1.75 → level at 35% of 0–5 + bolt visible ("1.75 OK"); level 54 / target 60 → valve FILLING +121 L; 60 → CLOSED; the gauge elements are KEPT across the table rebuild (the same tank element from level 54 to level 60, EC + pH after EC 1.75 → 1.8); ⚡ Lite → animation none (static), Lite off → ivZap; typing "1.2" in Pool 2 EC does not touch the gauge ("— NO VALUE") until Tab ("1.20 CRIT LOW"), the cursor is never stolen',
   drive:async pg=>{
     await openPool(pg);
     const a=await pg.evaluate(async()=>{const sleep=ms=>new Promise(r=>setTimeout(r,ms));window.confirm=()=>true;
       const host=document.getElementById('stubIrrNutrientsBody');const q=k=>host.querySelector('.irr-viz[data-ivkey="P01:'+k+'"] .hnx-iv');
       const g0={viz:!!window.hnxIrrViz,n:host.querySelectorAll('.hnx-iv').length,perPool:4*IRR_POOLS.length,legend:!!host.querySelector('.iv-legend')};
-      const tank0=q('tank'),ec0=q('ec');
       irrSavePool('P01','water','54');irrSavePool('P01','EC','1.75');irrSavePool('P01','pH','4.0');await sleep(600);
       const top=el=>parseFloat(el.style.top);const pct=g=>Math.round((112-top(g.querySelector('.iv-ptr')))/100*100)/100;
       const ph=q('ph'),ec=q('ec'),valve=q('valve'),tank=q('tank');
-      const o={g0,kept:tank0===tank,ph:{pct:pct(ph),tag:ph.querySelector('.iv-tag').innerText.replace(/\s+/g,' '),crit:/iv-g-crit/.test(ph.className)},
+      const o={g0,ph:{pct:pct(ph),tag:ph.querySelector('.iv-tag').innerText.replace(/\s+/g,' '),crit:/iv-g-crit/.test(ph.className)},
         ec:{pct:pct(ec),bolt:!ec.querySelector('.iv-bolt').hasAttribute('hidden'),tag:ec.querySelector('.iv-tag').innerText.replace(/\s+/g,' '),ok:/iv-g-ok/.test(ec.className)},
         valve:{filling:/iv-v-filling/.test(valve.className),txt:valve.innerText.replace(/\s+/g,' ')},tankAct:tank.querySelector('.iv-act').innerText.replace(/\s+/g,' '),
         anim:getComputedStyle(ec.querySelector('.iv-bolt')).animationName};
       document.documentElement.classList.add('hnx-lite');await sleep(50);o.animLite=getComputedStyle(q('ec').querySelector('.iv-bolt')).animationName;document.documentElement.classList.remove('hnx-lite');
-      irrSavePool('P01','water','60');await sleep(600);o.valve60={closed:/iv-v-closed/.test(q('valve').className),txt:q('valve').innerText.replace(/\s+/g,' ')};
+      irrSavePool('P01','water','60');await sleep(600);o.valve60={closed:/iv-v-closed/.test(q('valve').className),txt:q('valve').innerText.replace(/\s+/g,' ')};o.kept=tank===q('tank');
       /* kept: a gauge whose value changes (EC 1.75 → 1.8) is patched in place, the untouched pH gauge is the same element */
       const ec1=q('ec'),ph1=q('ph');irrSavePool('P01','EC','1.8');await sleep(600);o.kept2={ec:ec1===q('ec'),ph:ph1===q('ph'),tag:q('ec').querySelector('.iv-tag').innerText.replace(/\s+/g,' ')};
       return o;});
@@ -341,7 +348,6 @@ module.exports=[
     const cards=()=>[...document.querySelectorAll('#notifToastHost > div')].filter(c=>!['hnxClearAllBtn','hnxOldCritBtn','hnxMoreAlerts'].includes(c.id));
     const more=()=>{const m=document.getElementById('hnxMoreAlerts');return m?m.textContent:'';};
     const C=()=>(loadCalls()||[]).filter(c=>c.sourceModule==='irr_pools');const openC=()=>C().filter(c=>!CLOSED(c)).length;
-    const waitFor=async(f,ms)=>{const t0=Date.now();while(Date.now()-t0<ms){if(f())return true;await sleep(500);}return f();};
     const panel=(filter)=>{try{window._hnxAlertsState={filter};window._hnxRefreshAlertsNow();window._hnxOpenAlertsPanel();const t=(document.querySelector('#hnxAlertsPanel .hnx-alerts-list')||{}).innerText||'';window._hnxCloseAlertsPanel();const a=(JSON.parse(localStorage.getItem('hydroPro_alerts_v1')||'[]')).find(x=>x.id==='alrt_pool_crit_P06_pH');if(!a)return 'no entry';const inList=/💧 Pool 6 · pH HIGH \\(7\\.10\\)/.test(t);return (a.resolvedAt?'resolved':'active')+(inList?' listed':'');}catch(e){return 'threw '+e.message;}};
     irrSavePool('P06','pH','7.1');
     await waitFor(()=>cards().length>=1,25000);await sleep(3000);
@@ -366,17 +372,17 @@ module.exports=[
 
 { name:'🚨 Latest reading only (Eyal: "why does it keep coming from other days?"): Pool 1 08:00 EC 1.2 (critical) → 1 open call + its Issues Board entry; 11:00 EC 1.75 (ok) → that call auto-resolved (closed_fixed by system, task done, the 08:00 issue resolved by the system), 0 open; 30 s of auto-sync cycles → still 0 open and still only 1 call ever (it was 5 → 10 before)',
   run:fn(OPEN+`window.confirm=()=>true;const C=()=>(loadCalls()||[]).filter(c=>c.sourceModule==='irr_pools'&&c.areaText==='Pool 1');const iss=()=>(loadIssues()||[]).filter(i=>i.module==='irrigation'&&/^EC out of range in Pool P01/.test(i.title));
-    irrSavePool('P01','EC','1.2');await sleep(6500);
+    irrSavePool('P01','EC','1.2');await waitFor(()=>C().length>=1,15000);await sleep(1500);
     const s1={open:C().filter(c=>!CLOSED(c)).length,all:C().length,subj:C().map(c=>/EC LOW \\(1\\.20 mS\\/cm\\)/.test(c.subject)),issues:iss().map(i=>i.status)};
-    window.irrSetPoolTime('11:00');irrSavePool('P01','EC','1.75');await sleep(6500);
+    window.irrSetPoolTime('11:00');irrSavePool('P01','EC','1.75');await waitFor(()=>C().every(c=>CLOSED(c)),15000);await sleep(1500);
     const s2={open:C().filter(c=>!CLOSED(c)).length,all:C().length,st:C().map(c=>c.status+'/'+c.closedBy),note:C().map(c=>/back in range/.test(c.closeNote||'')),tasks:(loadMaintTasks()||[]).filter(t=>t.category==='auto_pool_sensor'&&/Pool 1/.test(t.title)).map(t=>t.status),
       issues:iss().map(i=>i.status+'/'+((i.history||[]).slice(-1)[0]||{}).by)};
     await sleep(30000);const s3={open:C().filter(c=>!CLOSED(c)).length,all:C().length};
     return {s1,s2,s3};`),
   expect:{s1:{open:1,all:1,subj:[true],issues:['open']},s2:{open:0,all:1,st:['closed_fixed/system'],note:[true],tasks:['done'],issues:['resolved/system']},s3:{open:0,all:1}} },
 
-{ name:'🗓 Older days never alarm: yesterday Pool 2 pH 7.3 critical (open call + task + key) and today no reading yet → closed by the system after load ("superseded by the new day"), 0 open; yesterday Pool 3 EC 1.2 critical + today 08:00 EC 1.8 ok → closed ("back in range"); an auto-raised pool call of an older day with no key → swept ("superseded by a newer reading"); a HAND-raised irrigation call stays open; yesterday’s Issues Board entry resolved by the system; no key left',
-  seed:new Function(LOCAL_TODAY+`const y=new Date(__d.getTime()-864e5);const Y=y.getFullYear()+'-'+String(y.getMonth()+1).padStart(2,'0')+'-'+String(y.getDate()).padStart(2,'0');
+{ name:'🗓 Older days never alarm: yesterday Pool 2 pH 7.3 critical (open call + task + key) and today no reading yet → closed by the system after load ("superseded by the new day"), 0 open; yesterday Pool 3 EC 1.2 critical + today 08:00 EC 1.8 ok → closed ("back in range"); an auto-raised pool call of an older day with no key → swept ("superseded by a newer reading"); a HAND-raised irrigation call stays open; yesterday’s Issues Board entry resolved by the system; no key left; the sweep of the SAME cycle never closes them a second time: exactly ONE "🤖 Underlying issue appears resolved" line on each of the 3 calls and ONE "[Auto-closed:" line on each task, the specific notes kept',
+  seed:new Function(LOCAL_TODAY+PULLED+`const y=new Date(__d.getTime()-864e5);const Y=y.getFullYear()+'-'+String(y.getMonth()+1).padStart(2,'0')+'-'+String(y.getDate()).padStart(2,'0');
     localStorage.setItem('hydroPro_irr_pool',JSON.stringify({[Y]:{P02:{'08:00':{pH:'7.3'}},P03:{'08:00':{EC:'1.2'}}},[T]:{P03:{'08:00':{EC:'1.8'}}}}));
     const now=Date.now(),old=now-864e5;const task=(id,t)=>({id,title:t,status:'not_started',priority:'priority',createdAt:old,createdBy:'system',category:'auto_pool_sensor',sourceModule:'irr_pools',scheduledDate:Y,durationDays:1,gantt:[],materials:[]});
     const call=(id,t,area,by,extra)=>Object.assign({id,subject:t,description:'x',priority:'priority',status:'new_call',group:'operations',department:'irrigation',areaText:area,sourceModule:'irr_pools',raisedBy:by,createdAt:old,updatedAt:old},extra||{});
@@ -385,21 +391,69 @@ module.exports=[
       call('CALL_OLD','💧 Pool Pool 5 · EC LOW (1.10 mS/cm)','Pool 5','system',{maintTaskId:'TASK_OLD',automatic:true}),call('CALL_HAND','Pool 6 pump noisy','Pool 6','tester')]));
     localStorage.setItem('hydroPro_it_auto_tasks',JSON.stringify({[Y+'::pool::P02::pH']:{maintTaskId:'TASK_Y2',callId:'CALL_Y2',status:'oor',createdAt:old},['pool::P03::EC']:{maintTaskId:'TASK_Y3',callId:'CALL_Y3',status:'oor',createdAt:old,sig:Y+'|08:00|1.2'}}));
     localStorage.setItem('hydroPro_issues_v2',JSON.stringify([{id:'ISS_Y',module:'irrigation',title:'pH out of range in Pool P02 at 08:00',description:'Value: 7.3\\nDate: '+Y+'\\nTime: 08:00',priority:'critical',status:'open',createdAt:old}]));`),
-  run:fn(`window.showToast=()=>{};await sleep(7000);const C=id=>(loadCalls()||[]).find(c=>c.id===id)||{};const st=id=>{const c=C(id);return (CLOSED(c)?'closed':'open')+'/'+(c.closedBy||'-')+'/'+String(c.closeNote||'').replace(/^Auto-closed: /,'').replace(/\\d{4}-\\d{2}-\\d{2}/,'DATE').slice(0,40);};
+  run:fn(`window.showToast=()=>{};const C=id=>(loadCalls()||[]).find(c=>c.id===id)||{};
+    await waitFor(()=>CLOSED(C('CALL_OLD'))&&CLOSED(C('CALL_Y2'))&&CLOSED(C('CALL_Y3')),15000);await sleep(6000);
+    const lines=id=>((C(id).updates)||[]).filter(u=>/Underlying issue appears resolved/.test(String(u.note||''))).length;
+    const tlines=id=>(String(((loadMaintTasks()||[]).find(t=>t.id===id)||{}).description||'').match(/\\[Auto-closed:/g)||[]).length;const st=id=>{const c=C(id);return (CLOSED(c)?'closed':'open')+'/'+(c.closedBy||'-')+'/'+String(c.closeNote||'').replace(/^Auto-closed: /,'').replace(/\\d{4}-\\d{2}-\\d{2}/,'DATE').slice(0,40);};
     const T=id=>((loadMaintTasks()||[]).find(t=>t.id===id)||{}).status;
     const open=(loadCalls()||[]).filter(c=>c.sourceModule==='irr_pools'&&!CLOSED(c)).map(c=>c.id);
     const keys=Object.keys(JSON.parse(localStorage.getItem('hydroPro_it_auto_tasks')||'{}')).filter(k=>/pool::/.test(k));
     const iss=(loadIssues()||[]).find(i=>i.id==='ISS_Y')||{};
-    return {y2:st('CALL_Y2'),y3:st('CALL_Y3'),old:st('CALL_OLD'),hand:st('CALL_HAND'),tasks:[T('TASK_Y2'),T('TASK_Y3'),T('TASK_OLD')],open,keys,issue:iss.status+'/'+(((iss.history||[]).slice(-1)[0])||{}).by};`),
-  expect:{y2:'closed/system/no pH reading yet today (DATE) - superse',y3:'closed/system/next EC reading 1.80 mS/cm (08:00) is ba',old:'closed/system/superseded by a newer reading',hand:'open/-/',tasks:['done','done','done'],open:['CALL_HAND'],keys:[],issue:'resolved/system'} },
+    return {y2:st('CALL_Y2'),y3:st('CALL_Y3'),old:st('CALL_OLD'),hand:st('CALL_HAND'),tasks:[T('TASK_Y2'),T('TASK_Y3'),T('TASK_OLD')],open,keys,issue:iss.status+'/'+(((iss.history||[]).slice(-1)[0])||{}).by,
+      once:{calls:[lines('CALL_Y2'),lines('CALL_Y3'),lines('CALL_OLD')],tasks:[tlines('TASK_Y2'),tlines('TASK_Y3'),tlines('TASK_OLD')]},mode:window.__hnxPoolEngineMode};`),
+  expect:{y2:'closed/system/no pH reading yet today (DATE) - superse',y3:'closed/system/next EC reading 1.80 mS/cm (08:00) is ba',old:'closed/system/superseded by a newer reading',hand:'open/-/',tasks:['done','done','done'],open:['CALL_HAND'],keys:[],issue:'resolved/system',
+    once:{calls:[1,1,1],tasks:[1,1,1]},mode:'full'} },
 
 { name:'💧 Water level alarms on Eyal’s bands: Pool 9 (GH9, critical below 20) level 15 cm → 1 open call "Level LOW (15 cm)"; Pool 7 (GH7, critical above 110) level 111 → "Level HIGH (111 cm)"; Pool 1 level 25 (warning) → no call; Pool 9 corrected to 35 → its call closed_fixed by the system and the task done, Pool 7 still open',
-  seed:new Function(LOCAL_TODAY+`localStorage.setItem('hydroPro_irr_pool',JSON.stringify({[T]:{P09:{'08:00':{water:'15'}},P07:{'08:00':{water:'111'}},P01:{'08:00':{water:'25'}}}}));localStorage.removeItem('hydroPro_it_auto_tasks');`),
-  run:fn(`window.showToast=()=>{};window.confirm=()=>true;await sleep(6500);const C=()=>(loadCalls()||[]).filter(c=>c.sourceModule==='irr_pools');
+  seed:new Function(LOCAL_TODAY+PULLED+`localStorage.setItem('hydroPro_irr_pool',JSON.stringify({[T]:{P09:{'08:00':{water:'15'}},P07:{'08:00':{water:'111'}},P01:{'08:00':{water:'25'}}}}));localStorage.removeItem('hydroPro_it_auto_tasks');`),
+  run:fn(`window.showToast=()=>{};window.confirm=()=>true;const C=()=>(loadCalls()||[]).filter(c=>c.sourceModule==='irr_pools');
+    await waitFor(()=>C().length>=2,15000);await sleep(6000);
     const s1=C().filter(c=>!CLOSED(c)).map(c=>c.areaText+' '+(/Level (LOW|HIGH) \\((\\d+) cm\\)/.exec(c.subject)||[]).slice(1).join(' ')).sort();
-    switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('08:00');irrSavePool('P09','water','35');await sleep(6500);
+    switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('08:00');irrSavePool('P09','water','35');await waitFor(()=>C().filter(c=>c.areaText==='Pool 9').every(c=>CLOSED(c)),15000);await sleep(1500);
     const s2=C().filter(c=>!CLOSED(c)).map(c=>c.areaText).sort();const p9=C().filter(c=>c.areaText==='Pool 9').map(c=>c.status+'/'+c.closedBy);
     const t9=(loadMaintTasks()||[]).filter(t=>t.category==='auto_pool_sensor'&&/Pool 9/.test(t.title)).map(t=>t.status);
     return {s1,s2,p9,t9};`),
-  expect:{s1:['Pool 7 HIGH 111','Pool 9 LOW 15'],s2:['Pool 7'],p9:['closed_fixed/system'],t9:['done']} }
+  expect:{s1:['Pool 7 HIGH 111','Pool 9 LOW 15'],s2:['Pool 7'],p9:['closed_fixed/system'],t9:['done']} },
+/* ---- round-2 review: the stale-computer race and the offline rule ---- */
+{ name:'☁ Stale computer (round-2 review): a computer with yesterday’s copy opens while the cloud holds today’s 08:00 pH 7.20 critical of Pool 2 with the same open call CALL_C → before the first download lands (mode "hold") the call stays open, nothing is swept, no duplicate; after it lands (mode "full") → still 1 open call, 1 call ever, the 08:00 7.20 reading is here, the key kept; 11:00 pH 6.50 saved → CALL_C closed_fixed by the system "next pH reading 6.50 (11:00) is back in range", TASK_C done',
+  seed:new Function(LOCAL_TODAY+CLOUD(30000,{})+`const y=new Date(__d.getTime()-864e5);const Y=y.getFullYear()+'-'+String(y.getMonth()+1).padStart(2,'0')+'-'+String(y.getDate()).padStart(2,'0');
+    const now=Date.now(),h=now-3600e3;const t0=h-120e3,t1=h-60e3;
+    const task={id:'TASK_C',title:'💧 Pool Pool 2 · pH HIGH (7.20)',description:'x',status:'not_started',priority:'urgent',createdAt:t1,createdBy:'system',category:'auto_pool_sensor',sourceModule:'irr_pools',autoKey:'pool::P02::pH',scheduledDate:T,durationDays:1,gantt:[],materials:[]};
+    const call={id:'CALL_C',subject:'💧 Pool Pool 2 · pH HIGH (7.20)',description:'x',priority:'urgent',status:'new_call',group:'operations',department:'irrigation',areaText:'Pool 2',sourceModule:'irr_pools',raisedBy:'system',maintTaskId:'TASK_C',raisedAt:t1,createdAt:t1,updatedAt:t1,automatic:true,updates:[{ts:t1,date:T,by:'system',note:'🤖 Auto-created'}],closedAt:null,closedBy:'',closeNote:''};
+    const key={'pool::P02::pH':{maintTaskId:'TASK_C',callId:'CALL_C',status:'oor',createdAt:t1,sig:T+'|08:00|7.2'}};
+    localStorage.setItem('hydroPro_irr_pool',JSON.stringify({[Y]:{P02:{'08:00':{pH:'6.2',_fieldTimestamps:{pH:t0-864e5},updatedAt:t0-864e5}}}}));
+    localStorage.setItem('hydroPro_maint_tasks',JSON.stringify([task]));localStorage.setItem('hydroPro_calls',JSON.stringify([call]));localStorage.setItem('hydroPro_it_auto_tasks',JSON.stringify(key));
+    window.__cloud.hydroPro_irr_pool=JSON.stringify({[Y]:{P02:{'08:00':{pH:'6.2',_fieldTimestamps:{pH:t0-864e5},updatedAt:t0-864e5}}},[T]:{P02:{'08:00':{pH:'7.2',_fieldTimestamps:{pH:t0},updatedAt:t0,finishTime:'08:10'}}}});
+    window.__cloud.hydroPro_maint_tasks=JSON.stringify([task]);window.__cloud.hydroPro_calls=JSON.stringify([call]);window.__cloud.hydroPro_it_auto_tasks=JSON.stringify(key);`),
+  run:fn(`window.showToast=()=>{};window.confirm=()=>true;const C=()=>(loadCalls()||[]).filter(c=>c.sourceModule==='irr_pools');const openC=()=>C().filter(c=>!CLOSED(c)).length;
+    const s0={mode:window.__hnxPoolEngineMode,pulled:!!window.__hnxPulledOk,open:openC(),all:C().length,swept:!!window.__hnxPoolSweepDone};
+    await waitFor(()=>!!window.__hnxPulledOk,90000);await sleep(8000);
+    try{delete window._perfCache._irrPool;}catch(e){}const rd=((loadIrrPool()[today]||{}).P02||{})['08:00']||{};
+    const s1={mode:window.__hnxPoolEngineMode,open:openC(),all:C().length,ph:rd.pH,key:!!JSON.parse(localStorage.getItem('hydroPro_it_auto_tasks')||'{}')['pool::P02::pH']};
+    switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('11:00');irrSavePool('P02','pH','6.5');
+    await waitFor(()=>openC()===0,15000);await sleep(1000);
+    const c=C().find(x=>x.id==='CALL_C')||{};
+    const s2={open:openC(),all:C().length,st:c.status+'/'+c.closedBy,note:String(c.closeNote||'').replace(/^Auto-closed: /,''),task:((loadMaintTasks()||[]).find(t=>t.id==='TASK_C')||{}).status};
+    return {s0,s1,s2};`),
+  expect:{s0:{mode:'hold',pulled:false,open:1,all:1,swept:false},s1:{mode:'full',open:1,all:1,ph:'7.2',key:true},s2:{open:0,all:1,st:'closed_fixed/system',note:'next pH reading 6.50 (11:00) is back in range',task:'done'}} },
+
+{ name:'📴 Signed in but offline (no download this session): after 60 s the engine is in mode "newer" — yesterday’s Pool 2 pH 7.20 alarm with no reading today stays OPEN (never closed on "no reading here"), an older unowned auto call is NOT swept, the key stays; today 08:00 pH 6.50 saved here → CALL_C closed_fixed by the system "next pH reading 6.50 (08:00) is back in range", the unowned call still open, no sweep',
+  seed:new Function(LOCAL_TODAY+`localStorage.setItem('hnx_cloud_token','t');try{Object.defineProperty(navigator,'onLine',{get:()=>false,configurable:true});}catch(e){}
+    const of=window.fetch;window.fetch=function(u){u=String(u);if(u.indexOf('/sync/')>=0||u.indexOf('hnx-sync')>=0)return Promise.resolve(new Response('{"ok":false,"error":"offline"}',{status:503}));return of.apply(this,arguments);};
+    const y=new Date(__d.getTime()-864e5);const Y=y.getFullYear()+'-'+String(y.getMonth()+1).padStart(2,'0')+'-'+String(y.getDate()).padStart(2,'0');
+    const old=Date.now()-864e5;const task=(id,t)=>({id,title:t,status:'not_started',priority:'urgent',createdAt:old,createdBy:'system',category:'auto_pool_sensor',sourceModule:'irr_pools',scheduledDate:Y,durationDays:1,gantt:[],materials:[]});
+    const call=(id,t,area,tid)=>({id,subject:t,description:'x',priority:'urgent',status:'new_call',group:'operations',department:'irrigation',areaText:area,sourceModule:'irr_pools',raisedBy:'system',maintTaskId:tid,createdAt:old,updatedAt:old,automatic:true});
+    localStorage.setItem('hydroPro_irr_pool',JSON.stringify({[Y]:{P02:{'08:00':{pH:'7.2'}}}}));
+    localStorage.setItem('hydroPro_maint_tasks',JSON.stringify([task('TASK_C','💧 Pool Pool 2 · pH HIGH (7.20)'),task('TASK_OLD','💧 Pool Pool 5 · EC LOW (1.10 mS/cm)')]));
+    localStorage.setItem('hydroPro_calls',JSON.stringify([call('CALL_C','💧 Pool Pool 2 · pH HIGH (7.20)','Pool 2','TASK_C'),call('CALL_OLD','💧 Pool Pool 5 · EC LOW (1.10 mS/cm)','Pool 5','TASK_OLD')]));
+    localStorage.setItem('hydroPro_it_auto_tasks',JSON.stringify({'pool::P02::pH':{maintTaskId:'TASK_C',callId:'CALL_C',status:'oor',createdAt:old,sig:Y+'|08:00|7.2'}}));`),
+  run:fn(`window.showToast=()=>{};window.confirm=()=>true;const C=id=>(loadCalls()||[]).find(c=>c.id===id)||{};const K=()=>Object.keys(JSON.parse(localStorage.getItem('hydroPro_it_auto_tasks')||'{}')).filter(k=>/pool::/.test(k));
+    const s0={mode:window.__hnxPoolEngineMode,pulled:!!window.__hnxPulledOk,c:CLOSED(C('CALL_C')),old:CLOSED(C('CALL_OLD'))};
+    window.__hnxPoolEngineBootAt=Date.now()-70000;await sleep(12000);
+    const s1={mode:window.__hnxPoolEngineMode,c:CLOSED(C('CALL_C')),old:CLOSED(C('CALL_OLD')),keys:K(),swept:!!window.__hnxPoolSweepDone};
+    switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('08:00');irrSavePool('P02','pH','6.5');
+    await waitFor(()=>CLOSED(C('CALL_C')),15000);await sleep(1000);
+    const c=C('CALL_C');const s2={st:c.status+'/'+c.closedBy,note:String(c.closeNote||'').replace(/^Auto-closed: /,''),task:((loadMaintTasks()||[]).find(t=>t.id==='TASK_C')||{}).status,old:CLOSED(C('CALL_OLD')),keys:K(),swept:!!window.__hnxPoolSweepDone,mode:window.__hnxPoolEngineMode};
+    return {s0,s1,s2};`),
+  expect:{s0:{mode:'hold',pulled:false,c:false,old:false},s1:{mode:'newer',c:false,old:false,keys:['pool::P02::pH'],swept:false},s2:{st:'closed_fixed/system',note:'next pH reading 6.50 (08:00) is back in range',task:'done',old:false,keys:[],swept:false,mode:'newer'}} }
 ];
