@@ -38,6 +38,7 @@ module.exports=[
     return {audit:J('hydroPro_audit').filter(x=>/^AU/.test(x.id)).length,studies:J('hydroPro_seed_studies').filter(x=>/^SS/.test(x.id)).length,recurring:J('hydroPro_recurring_instances').filter(x=>/^RI/.test(x.id)).length,backup:(localStorage.getItem('hydroPro_backup_manual_2026-10-08')||'').length>100,pointer:nat('hydroPro_autobackup_2026-10-07').length>5};},
   expect:{audit:300,studies:80,recurring:60,backup:true,pointer:true} },
 { name:'🛟 Snapshots v22.15: the automatic rescue snapshots (~1 MB each) no longer sit in the browser store — the 2 old ones found there are moved to the device database (v22.17: neither is deleted any more) and removed from the browser, a new one is written there too, and 🛟 Data Rescue lists all 3 (Dr Amy’s Mac: the snapshots alone filled Safari’s store) (v22.15 · v22.17)',
+  requires:"typeof window.__hnxMoveBackupToDb==='function'", /* v22.18: the v22.17 'never deleted' rule; the stable copy keeps v22.16's pruner */
   seed:function(){ var pad=new Array(500000).join('s'); localStorage.setItem('hydroPro_rescue_2026-10-07T01',JSON.stringify({hydroPro_employees:pad})); localStorage.setItem('hydroPro_rescue_2026-10-07T07',JSON.stringify({hydroPro_employees:pad})); },
   run:async()=>{await sleep(24000);const nat=k=>(window.__hnxNG||Storage.prototype.getItem).call(localStorage,k);
     const inBrowser=Object.keys(localStorage).filter(k=>k.indexOf('hydroPro_rescue_20')===0).length;

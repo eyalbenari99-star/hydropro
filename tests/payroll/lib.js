@@ -26,6 +26,13 @@ async function runCase(t){
     if(extra)eval('('+extra+')()');
   }, t.seed?t.seed.toString():null);
   await pg.goto('http://127.0.0.1:'+PORT+'/'+(process.env.NEXI_PAGE||'index.html')+'?cb='+Date.now(),{waitUntil:'domcontentloaded',timeout:180000});
+  /* v22.18: `requires` = a JS expression naming the app feature a case tests (e.g. "typeof hnxStoreCensus==='function'").
+     A copy of Nexi without that feature (the stable index.html while next.html carries a trial) reports the case as
+     SKIPPED, not failed — so CI can test both copies with one suite. A copy that HAS the feature always runs it. */
+  if(t.requires){
+    let has=false;try{has=await pg.evaluate('(()=>{try{return !!('+t.requires+');}catch(e){return false;}})()');}catch(e){has=false;}
+    if(!has){await b.close();return {name:t.name,ok:true,skipped:t.requires,fails:[],out:null};}
+  }
   await pg.waitForTimeout(BOOT_MS);
   let out;
   try{ out=await pg.evaluate('(async()=>{'+PAGE_HELPERS+' return ('+t.run.toString()+')();})()'); }catch(e){ out={__threw:String(e.message).slice(0,200)}; }

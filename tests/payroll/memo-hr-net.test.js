@@ -210,3 +210,6 @@ module.exports=[
     closeMemoModal();return out;},
   expect:{counted:300,afterSwitch:250,amount:300,field:'300',impact:[['T1',300]]} },
 ];
+
+/* v22.18: these cases test the v22.17 HR memo count, which lives in next.html (trial) until it is promoted — the stable copy skips them (lib.js requires) */
+module.exports.forEach(function(t){ if(t&&!t.requires) t.requires="typeof hnxMemoHrSource==='function'"; });
