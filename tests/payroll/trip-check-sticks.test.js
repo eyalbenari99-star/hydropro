@@ -97,6 +97,32 @@ const H4=`
 const run4=fn=>new Function('return (async()=>{'+H+H2+H3+H4+' try{ return await ('+fn.toString()+')(); } finally { Date.now=realNow; } })();');
 const THREE=`window.__hnxTestRows=function(row,DAY){return [row('dl3',DAY,'07:02',{areaId:'clark',trip:3,destination:'Clark'}),row('dl2',DAY,'07:01'),row('dl1',DAY,'07:00')];};`;
 
+/* (v22.18, final review) a v22.16 tab still open after the deploy (uploads paused by its stale check) re-opens a day IN
+   PLACE after Syra's computer restored it - the restore flag stays on the record, and when that tab reloads into v22.18
+   its newer local copy wins and is uploaded. oldReopen() is the v22.16 bridge's re-open, line for line: a computer
+   without the GPS trace sees 1 trip where the day holds 2. */
+const H6=`
+  const GK='hydroPro_fleet_gps_positions',AK='hydroPro_audit',A0=localStorage.getItem(AK)||'[]';
+  const IDS=[idOf(DAY),idOf(DAY2)];
+  const mk=(gps,audit)=>({L:getL(),gps:gps,audit:audit,old:false,paused:false});
+  const PC={S:mk(GPS,A0),J:mk('{}','[]')},CL={L:getL()};
+  const load=k=>{const w=PC[k];w.L=mergeL(w.L,CL.L);setL(w.L);localStorage.setItem(GK,w.gps);localStorage.setItem(AK,w.audit);};
+  const save=k=>{const w=PC[k];w.L=getL();w.audit=localStorage.getItem(AK)||'[]';if(!w.paused)CL.L=mergeL(CL.L,w.L);};
+  const hash=(trips,helperId)=>{const s=JSON.stringify([trips||[],String(helperId||'')]);let h=5381;for(let i=0;i<s.length;i++)h=((h*33)^s.charCodeAt(i))>>>0;return h.toString(36);};
+  const p2=n=>(n<10?'0':'')+n,T=(d=>d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate()))(new Date());
+  const oldReopen=()=>{const L=getL(),now=Date.now();let n=0;L.forEach(ex=>{
+    if(!ex||IDS.indexOf(ex.id)<0||(ex.trips||[]).length===1)return;
+    const summary=['trips '+(ex.trips||[]).length+'→1 [MANILA, PASAY, BGC, MAKATI, MANDALUYONG]'];
+    ex.trips=['manila'];ex.rounds=[{no:1,areaId:'manila',other:false,drops:(ex.deliveryIds||[]).slice()}];ex.bridgedAt=now;ex.bridgeHash=hash(ex.trips,ex.helperId);ex.updatedAt=now;
+    if(ex.status!=='pending'){ex.prevStatus=ex.status;ex.status='pending';delete ex.checkedBy;delete ex.checkedAt;delete ex.approvedBy;delete ex.approvedAt;
+      ex.reapproveReason='deliveries changed ('+summary.join(', ')+') on '+T+' by Jinky';n++;}});setL(L);return n;};
+  const P=k=>{load(k);skew+=61000;const r=PC[k].old?{reopened:oldReopen()}:(hnxTripBridge.sync({force:true})||{});save(k);return r;};
+  const st=(L,id)=>{const d=L.filter(x=>x&&x.id===id)[0]||{};return (d.status||'-')+'/'+(d.trips||[]).length;};
+  const snap=k=>IDS.map(id=>st(k==='C'?CL.L:PC[k].L,id)).join(' | ');
+  const payK=k=>{load(k);return pay(DAY);};
+`;
+const run6=fn=>new Function('return (async()=>{'+H+H2+H6+' try{ return await ('+fn.toString()+')(); } finally { Date.now=realNow; } })();');
+
 module.exports=[
 { name:'✔ check sticks (v22.18): a day Syra checked with 2 GPS rounds (MANILA 1st ₱0 → MANILA 2nd D ₱200 / H ₱75) stays checked by her, 2 trips, untouched, when the other computer without the GPS trace runs its bridge — and that computer never rewrites the pending day either',
   seed:seedWith(''),
@@ -450,5 +476,43 @@ module.exports=[
     return {a:[ra.reopened||0,sum(a)],b:[rb.reopened||0,b.status,b.trips],final:[fa.status+'/'+fa.checkedBy,fa.trips,sum(fb),fa.updatedAt===fb.updatedAt],
       ids:(fb.deliveryIds||[]).slice().sort(),quiet:quiet(P1)&&quiet(P2),priced:[ap.status,ap.pricedD,ap.pricedH],payA:payOn('A',DAY),payB:payOn('B',DAY)};}),
   expect:{a:[0,'checked/manila,manila,clark'],b:[1,'pending',['manila','manila','clark']],final:['checked/Tester',['manila','manila','clark'],'checked/manila,manila,clark',true],
-    ids:['dl1','dl2','dl3','dl4'],quiet:true,priced:['approved',700,275],payA:{E1:700,E2:275},payB:{E1:700,E2:275}} }
+    ids:['dl1','dl2','dl3','dl4'],quiet:true,priced:['approved',700,275],payA:{E1:700,E2:275},payB:{E1:700,E2:275}} },
+
+{ name:'🔁 restore survives an open v22.16 tab (v22.18, final review B2): Syra’s computer restores two days v22.16 re-opened "trips 2→1" (checked/2, GPS); Jinky’s v22.16 tab, still open with uploads paused, re-opens both again in its own store (restore flag kept) and on reload into v22.18 its newer copy wins the cloud (pending/1 everywhere) — Syra’s computer restores them AGAIN: checked/2 by Syra on both computers, quiet, and approved they pay OLAZO ₱400 / MANALO ₱150 for the week (₱200 / ₱75 a day), not ₱0 / ₱0',
+  seed:seedWith(`
+    window.__hnxTestStartNoGps=true;
+    window.__hnxTestRows=function(row,DAY,DAY2){return [row('dl2',DAY,'07:01'),row('dl1',DAY,'07:00'),row('dl5',DAY2,'07:01'),row('dl4',DAY2,'07:00')];};
+    window.__hnxTestLog=function(DAY,DAY2){
+      var R=Date.now()-2*3600000;
+      var mk=function(date,ids){return {id:'dlvday_'+date+'_e1',date:date,truck:'NIF-6891',trucks:['NIF-6891'],driverId:'E1',driverName:'OLAZO, ARCADIO JR',helperId:'E2',helperName:'MANALO, LIMUEL',
+        trips:['manila'],rounds:[{no:1,areaId:'manila',other:false,drops:ids}],
+        deliveryIds:ids,status:'pending',prevStatus:'checked',reapproveReason:'deliveries changed (trips 2→1 [MANILA, PASAY, BGC, MAKATI, MANDALUYONG]) on '+DAY+' by Jinky',
+        source:'deliveries',createdBy:'bridge/Syra',createdAt:R-5*3600000,updatedAt:R,bridgedAt:R};};
+      localStorage.setItem('hydroPro_audit',JSON.stringify([
+        {ts:new Date(R-1800000).toISOString(),u:'syra',r:'operator',a:'payroll',d:'Trip day CHECKED by logistics: '+DAY+' truck NIF-6891 by Syra',gh:''},
+        {ts:new Date(R-1700000).toISOString(),u:'syra',r:'operator',a:'payroll',d:'Trip day CHECKED by logistics: '+DAY2+' truck NIF-6891 by Syra',gh:''}]));
+      return [mk(DAY,['dl1','dl2']),mk(DAY2,['dl4','dl5'])];
+    };`),
+  run:run6(async()=>{
+    await sleep(1500);
+    P('S');const restored=snap('C');                                      /* Syra's computer (v22.18) restores both from its GPS */
+    PC.J.old=true;PC.J.paused=true;
+    const ro=P('J');const jOld=snap('J');                                 /* Jinky's v22.16 tab: re-opens both locally, uploads paused */
+    const flagKept=IDS.every(id=>!!(PC.J.L.filter(d=>d.id===id)[0]||{}).checkRestoredAt);
+    P('S');
+    PC.J.old=false;PC.J.paused=false;load('J');save('J');const cloudAfterReload=snap('C'); /* reload into v22.18: its newer copy wins */
+    P('J');P('S');P('J');
+    const at=k=>IDS.map(id=>(PC[k].L.filter(d=>d.id===id)[0]||{}).updatedAt).join(',');
+    const a0=at('S');P('S');P('J');P('S');P('J');
+    const quiet=at('S')===a0&&at('J')===a0;
+    const fin={S:snap('S'),J:snap('J')};
+    const by=IDS.map(id=>(PC.J.L.filter(d=>d.id===id)[0]||{}).checkedBy);
+    load('J');IDS.forEach(id=>hnxTripLogApprove(id));save('J');P('S');P('J');
+    const pr=IDS.map(id=>PC.J.L.filter(d=>d.id===id)[0]||{});
+    const apS=IDS.map(id=>(PC.S.L.filter(d=>d.id===id)[0]||{}).status);
+    return {restored,oldReopened:[ro.reopened,jOld,flagKept],cloudAfterReload,fin,by,quiet,
+      priced:[pr[0].pricedD,pr[0].pricedH,pr[1].pricedD,pr[1].pricedH],approvedOnSyra:apS,payJ:payK('J'),payS:payK('S')};}),
+  expect:{restored:'checked/2 | checked/2',oldReopened:[2,'pending/1 | pending/1',true],cloudAfterReload:'pending/1 | pending/1',
+    fin:{S:'checked/2 | checked/2',J:'checked/2 | checked/2'},by:['Syra','Syra'],quiet:true,priced:[200,75,200,75],approvedOnSyra:['approved','approved'],
+    payJ:{E1:400,E2:150},payS:{E1:400,E2:150}} }
 ];
