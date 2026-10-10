@@ -163,9 +163,10 @@ module.exports=[
       window.__hnxMarkDirtyKey(OK2);window.__hnxMarkDirtyKey(MK);(window.__hnxMergeOwed=window.__hnxMergeOwed||{})[OK2]=Date.now();
       let i0=sent.length;await C.push();const first=sent.slice(i0).join('|');await sleep(500);const d1=!!JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}')[OK2];
       delete window.__hnxMergeOwed[OK2];C.state.syncing=false;i0=sent.length;await C.push();const second=sent.slice(i0).join('|');await sleep(500);
-      return {first,owedStillUnsent:d1,second};
+      const has=(t,k)=>t.split(/[|,]/).indexOf(k)>=0; /* the first upload may be the 30-minute full one (every store) */
+      return {owedInFirst:has(first,OK2),smallInFirst:has(first,MK),owedStillUnsent:d1,owedInSecond:has(second,OK2)};
     }finally{window.fetch=of;localStorage.removeItem('hnx_cloud_token');}}),
-  expect:{first:'hydroPro_zz_small_v1',owedStillUnsent:true,second:'hydroPro_zz_owed_v1'} },
+  expect:{owedInFirst:false,smallInFirst:true,owedStillUnsent:true,owedInSecond:true} },
 
 { name:'📞 v22.32 a call list merged in by the sync is seen at once (the 2-second read cache is dropped): read 2 calls → sync writes 3 → the next read gives 3 (was 2 for up to 2 s; an edit in that window wrote the old list back)',
   requires:"typeof window.__hnxRawSetSuppressed==='function'&&typeof window.loadCalls==='function'",
