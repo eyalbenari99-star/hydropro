@@ -40,5 +40,17 @@ module.exports=[
     const oa=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){};
     try{window.hnxBankFile();}finally{URL.createObjectURL=oc;HTMLAnchorElement.prototype.click=oa;window.loadPayrollRuns=ol;}
     const t=blob?await blob.text():'';const last=t.trim().split('\n').pop();return {last,lines:t.trim().split('\n').length};},
-  expect:{last:'"TOTAL (2 employees)","","3500.35"',lines:4} }
+  expect:{last:'"TOTAL (2 employees)","","3500.35"',lines:4} },
+
+{ name:'🗂 PAY-057: office cut-off 26 Sep–10 Oct with drafts under both ids — when the other draft is stamped as a real cut-off it is KEPT (2 runs) with an audit line; an old unstamped one is removed with an audit line "time-zone duplicate" (1 run), never in silence (v22.28)',
+  requires:"typeof window.hnxEwtFixedMigrate==='function'",
+  run:async()=>{const nid='office_2026-09-26_2026-10-10',lid='office_2026-09-25_2026-10-09';
+    const run=(id,extra)=>Object.assign({id,type:'semi',status:'draft',periodStart:id.split('_')[1],periodEnd:id.split('_')[2],lines:[]},extra||{});
+    const go=async list=>{localStorage.setItem('hydroPro_payroll_runs',JSON.stringify(list));window._payOfficeCurrentPeriod={start:'2026-09-26',end:'2026-10-10',half:2};
+      try{renderPayrollOffice();}catch(e){}await sleep(200);return loadPayrollRuns().map(r=>r.id).sort();};
+    const a=await go([run(nid,{cutoffRule:1}),run(lid,{cutoffRule:1})]);
+    const b=await go([run(nid),run(lid)]);
+    const au=JSON.parse(localStorage.getItem('hydroPro_audit')||'[]').map(x=>String(x.d||''));
+    return {kept:a.length,dropped:b.length,auditKeep:au.some(t=>/kept — it is a real cut-off draft/.test(t)),auditDrop:au.some(t=>/time-zone duplicate/.test(t))};},
+  expect:{kept:2,dropped:1,auditKeep:true,auditDrop:true} }
 ];
