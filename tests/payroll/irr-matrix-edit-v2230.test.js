@@ -100,9 +100,30 @@ module.exports=[
   run:fn(`const T=[],realToast=window.__realToast;window.showToast=(m)=>T.push(String(m));const inbox=()=>(JSON.parse(localStorage.getItem('hydroPro_pa_inbox_v1')||'[]')||[]).filter(x=>x.itemId==='storage').length;
     const i0=inbox();const r1=window.__hnxStorageRescue('quota');const i1=inbox();const auto=T.length;
     const r2=window.hnxStorageRescue();const i2=inbox();const manual=T.slice(auto).join('|');
-    window.showToast=realToast;const t=document.getElementById('toast');showToast('long message','ok',6000);await sleep(3500);const at35=t.classList.contains('show');await sleep(3000);const at65=t.classList.contains('show');
+    window.showToast=(m,k,d)=>{if(m==='long message')return realToast(m,k,d);}; /* other app messages (the greeting card) held back while this one is timed */const t=document.getElementById('toast');showToast('long message','ok',6000);await sleep(3500);const at35=t.classList.contains('show');await sleep(3000);const at65=t.classList.contains('show');
     return {ran:!!(r1&&!r1.skipped),auto,inbox1:i1-i0,inbox2:i2-i1,manual:/^🧹 This computer was cleaned — storage \\d+% → \\d+%$/.test(manual),at35,at65,maxW:getComputedStyle(t).maxWidth!=='none'};`),
   expect:{ran:true,auto:0,inbox1:2,inbox2:0,manual:true,at35:true,at65:false,maxW:true} }
+,
+{ name:'🌙 A box opened at 23:59:58 and saved after midnight saves NOTHING (no 2026-10-11 entry, 16:00 of 10 Oct unchanged) and says "The day changed at midnight"; the Pool Monitor date is not stuck (it still rolls to 2026-10-11)',
+  tz:'Asia/Manila', requires:NEW, seed:CLOCK_AND_STORE('2026-10-10T08:30:00Z',{[D]:{P01:{'16:00':{water:'50',updatedAt:1}}}}),
+  run:fn(`{const RD=Object.getPrototypeOf(new Date()).constructor,base=Date.now(),off=Date.parse('2026-10-10T15:59:57Z')-base,real0=performance.now(); /* jump the clock to 23:59:57 Manila */
+      const FD=function(){const a=[].slice.call(arguments);const now=base+off+(performance.now()-real0);if(!(this instanceof FD))return new RD(now).toString();return a.length?new (Function.prototype.bind.apply(RD,[null].concat(a)))():new RD(now);};
+      FD.prototype=RD.prototype;FD.now=function(){return base+off+(performance.now()-real0);};FD.UTC=RD.UTC;FD.parse=RD.parse;window.Date=FD;}
+    const t0=hnxLocalToday();switchView('irr_matrix');for(let i=0;i<30&&!document.querySelector('#irrMatrixBody td[data-edit-pool]');i++)await sleep(100);
+    const td=cellOf('P01','water');td.click();const opened=hnxLocalToday();while(hnxLocalToday()===opened)await sleep(200);
+    typeIn(td,'40');td.querySelector('.irr-mx-save').click();await sleep(300);
+    try{delete window._perfCache._irrPool;}catch(e){}const all=loadIrrPool();irrRollDate();
+    return {t0,opened,keys:Object.keys(all).sort(),w16:((all['${D}']||{}).P01||{})['16:00'].water,msg:(td.querySelector('.irr-mx-msg')||{}).textContent,poolDate:_irrDate};`),
+  expect:{t0:D,opened:D,keys:[D],w16:'50',msg:'The day changed at midnight — nothing was saved. Press ✕, then click the cell again.',poolDate:'2026-10-11'} },
+
+{ name:'🏊 Pool Monitor 💾 Save while a matrix box under it holds "1,8": no "Everything on this screen is saved" — the box stays open with "Use a dot, not a comma: 1.8" and EC stays 1.75',
+  tz:'Asia/Manila', requires:NEW, seed:CLOCK_AND_STORE('2026-10-10T04:30:00Z',STORE),
+  run:fn(`switchView('irr_nutrients');for(let i=0;i<30&&!document.querySelector('#irrMatrixEmbed td[data-edit-pool]');i++)await sleep(200);
+    const td=cellOf('P02','EC','#irrMatrixEmbed');td.click();typeIn(td,'1,8');window.__toasts=[];
+    irrSaveNow({type:'pointerdown'});await sleep(400);const td2=cellOf('P02','EC','#irrMatrixEmbed');
+    return {everything:(window.__toasts||[]).some(m=>/Everything/.test(m)),open:!!document.querySelector('#irrMatrixEmbed .irr-mx-ed'),
+      msg:((document.querySelector('#irrMatrixEmbed .irr-mx-msg'))||{}).textContent,EC:(pool('P02')['11:00']||{}).EC};`),
+  expect:{everything:false,open:true,msg:'Use a dot, not a comma: 1.8',EC:'1.75'} }
 ];
 module.exports.push(
 { name:'⌨ Real mouse + keyboard at 1366×768: click Pool 2 water level, type 44 over the selected 47, click 💾 Save with the mouse → 44 stored in the current round (11:00 at 12:30), the cell shows 44cm and ✓ saved',
