@@ -136,5 +136,65 @@ module.exports=[
       report:body.scrollWidth<=body.clientWidth+1,page:document.documentElement.scrollWidth<=innerWidth+1};
     body.querySelector('button[data-act="back"]').click();await sleep(900);r.back=window.currentView;
     return r;`),
-  expect:{label:'📒 Readings report',opened:'irr_readings',inBox:true,rowDisplay:'table-cell',report:true,page:true,back:'irr_nutrients'} }
+  expect:{label:'📒 Readings report',opened:'irr_readings',inBox:true,rowDisplay:'table-cell',report:true,page:true,back:'irr_nutrients'} },
+
+/* review fixes (v22.40 candidate) */
+{ name:'📒 Readings report "Saved at" is when it was typed, not a clock pushed ahead: a device 26 h fast raised the shared stamp clock, then Pool 1’s 08:00 level 40 + EC 1.8 typed at 10:00 → Saved at "10:00" (as the Pool Monitor ⏱ shows), chip "Last reading Sat 10 Oct · 08:00 round · saved 10:00", CSV "2026-10-10 10:00" — not "Sun 11 Oct 12:00"; Pool 3’s 9 Oct 14:00 round typed late today at 10:00 (clock right) still says "Sat 10 Oct 10:00"',
+  requires:NEW, tz:'Asia/Manila', seed,
+  run:fn(`at(Y,'14:00','P03','water','45');
+    window.__hnxMonoLearn(Date.now()+26*3600e3); /* a synced reading from a phone whose clock runs 26 h ahead */
+    at(T,'08:00','P01','water','40');at(T,'08:00','P01','EC','1.8');
+    await back();
+    try{delete window._perfCache._irrPool;}catch(e){}
+    const r=loadIrrPool()[T].P01['08:00'];
+    const ahead=(+r._fieldTimestamps.water-Date.now())>25*3600e3&&(+r.updatedAt-Date.now())>25*3600e3,ft=/^10:0\\d$/.test(r._fieldTimes.water);
+    await REP('7d');
+    const parse=l=>{const o=[];let c='',q=false;for(let i=0;i<l.length;i++){const ch=l[i];if(q){if(ch==='"'){if(l[i+1]==='"'){c+='"';i++;}else q=false;}else c+=ch;}else if(ch===','){o.push(c);c='';}else if(ch==='"')q=true;else c+=ch;}o.push(c);return o;};
+    const lines=hnxIrrReadingsCsv({from:T,to:T,pools:['P01']}).split('\\n'),H=parse(lines[0]),i=H.indexOf('Saved at');
+    const line=lines.slice(1).map(parse).find(v=>v[3]===T&&v[4]==='08:00')||[];
+    return {ahead,ft,p1:CELL('P01',T,'08:00','saved').v.replace(/\\d$/,'x'),p3:CELL('P03',Y,'14:00','saved').v.replace(/\\d$/,'x'),
+      last:(CHIP('P01','last')||'').replace(/\\d$/,'x'),csv:String(line[i]||'').replace(/\\d$/,'x')};`),
+  expect:{ahead:true,ft:true,p1:'10:0x',p3:'Sat 10 Oct 10:0x',last:'Last reading Sat 10 Oct · 08:00 round · saved 10:0x',csv:'2026-10-10 10:0x'} },
+
+{ name:'📒 Readings report counts only rounds a person filled in: Pool 2’s 08:00 level typed 40 and then cleared leaves Nexi’s ⚡ water added / A / B / C and the stamped finish time behind → "Rounds entered 0 of 1", one "— not entered —" row, "No reading in this period", CSV status "not entered"; Pool 4 with only A 1.5 L typed by hand → "Rounds entered 1 of 1"',
+  requires:NEW, tz:'Asia/Manila', seed,
+  run:fn(`at(T,'08:00','P02','water','40');at(T,'08:00','P02','water','');at(T,'08:00','P04','A','1.5');
+    await back();
+    try{delete window._perfCache._irrPool;}catch(e){}
+    const r=loadIrrPool()[T].P02['08:00'],af=r._autoFilled||{};
+    const left={water:r.water,finish:!!r.finishTime,auto:['waterAdded','A','B'].every(k=>af[k]===true&&r[k]!==''&&r[k]!=null)};
+    await REP('today');
+    const p2=ROWS('P02'),csv=hnxIrrReadingsCsv({from:T,to:T,pools:['P02','P04']}).split('\\n');
+    return {left,r2:CHIP('P02','rounds'),p2rows:p2.length,p2missing:p2.length===1&&p2[0].classList.contains('hnx-rr-missing')&&p2[0].textContent.indexOf('— not entered —')>=0,
+      last2:CHIP('P02','last'),r4:CHIP('P04','rounds'),a4:CELL('P04',T,'08:00','A'),
+      status:csv.slice(1).map(l=>l.split(',').slice(0,1).concat(l.split(',')[5]).join(':'))};`),
+  expect:{left:{water:'',finish:true,auto:true},r2:'Rounds entered 0 of 1',p2rows:1,p2missing:true,last2:'No reading in this period',
+    r4:'Rounds entered 1 of 1',a4:{v:'1.5',sev:'',auto:false},status:['Pool 2:not entered','Pool 4:entered']} },
+
+{ name:'⌨ Readings report Custom dates typed with the keyboard: From typed 09/01/2026 → 1 Sep, Pool 1 "Rounds entered 0 of 157" (39 days × 4 + 1); To day ArrowDown ×2 → 8 Oct, "Rounds entered 0 of 152"; the field keeps the focus between keys and no page error',
+  requires:NEW, tz:'Asia/Manila', seed,
+  drive:async pg=>{
+    const sleep=ms=>pg.waitForTimeout(ms);
+    await pg.evaluate(`(async()=>{window.__hnxPulledOk=true;localStorage.setItem('_v2_46_97_dose_migration_done','1');window.showToast=()=>{};
+      switchView('irr_readings');await new Promise(r=>setTimeout(r,800));hnxIrrReadings.setPeriod('today');await new Promise(r=>setTimeout(r,200));})()`);
+    const read=()=>pg.evaluate(`(()=>{const c=document.querySelector('#irrReadingsBody .hnx-rr-sec[data-pool="P01"] .hnx-rr-chip[data-k="rounds"]');
+      return {from:(document.getElementById('hnxRrFrom')||{}).value,to:(document.getElementById('hnxRrTo')||{}).value,focus:(document.activeElement||{}).id||'',
+        r1:c?c.textContent:'',on:((document.querySelector('#irrReadingsBody .hnx-rr-seg button.on')||{}).textContent)||''};})()`);
+    const box=await pg.$('#hnxRrFrom'),bb=await box.boundingBox();
+    await pg.mouse.click(bb.x+12,bb.y+bb.height/2);await sleep(150);
+    await pg.keyboard.type('09',{delay:150});await sleep(700); /* a pause: the report redraws while the field still has the focus */
+    await pg.keyboard.type('012026',{delay:150});await sleep(900);
+    const a=await read();
+    const box2=await pg.$('#hnxRrTo'),bb2=await box2.boundingBox();
+    await pg.mouse.click(bb2.x+12,bb2.y+bb2.height/2);await sleep(150);
+    await pg.keyboard.press('ArrowRight');await sleep(150);
+    await pg.keyboard.press('ArrowDown');await sleep(700);await pg.keyboard.press('ArrowDown');await sleep(900);
+    const b=await read();
+    return {a,b};
+  },
+  run:new Function(`return (async()=>({errs:(window.__hnxErrs||[]).map(e=>String(e&&e.msg||e)).filter(s=>/NotFoundError|innerHTML/.test(s)).length,
+    period:JSON.parse(localStorage.getItem('hnxlocal_irr_readings_period_v1')||'{}')}))();`),
+  expect:{'drive.__threw':undefined,'drive.a.from':'2026-09-01','drive.a.focus':'hnxRrFrom','drive.a.r1':'Rounds entered 0 of 157','drive.a.on':'Custom',
+    'drive.b.from':'2026-09-01','drive.b.to':'2026-10-08','drive.b.focus':'hnxRrTo','drive.b.r1':'Rounds entered 0 of 152',
+    errs:0,period:{preset:'custom',from:'2026-09-01',to:'2026-10-08'}} }
 ];
