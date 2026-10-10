@@ -147,7 +147,7 @@ module.exports=[
     return {restamped:(r0._fts||{}).dept>T1&&r0.dept==='A',empHeld:h1&&!(EK in o1),empChanged:s1.changed,empFwd:s1.fwd,tieHeld:h2&&!(LK in o2),tieChanged:s2.changed,tieFwd:s2.fwd};}),
   expect:{restamped:true,empHeld:true,empChanged:110,empFwd:0,tieHeld:true,tieChanged:40,tieFwd:0} },
 
-{ name:'🛡 (h) a bulk RE-OPEN is never newer work: 61 approved trip days sent back to pending with fresh stamps (the v22.16 bridge storm) → HELD (61 changed, 0 forward); a v22.16 hold of it is weighed again at load, takes nothing in (this copy is newer) and STAYS held (0 released, rule 2, still 61 pending here)',
+{ name:'🛡 (h) a bulk RE-OPEN is never newer work: 61 approved trip days sent back to pending with fresh stamps (the v22.16 bridge storm) → HELD (61 changed, 0 forward); a v22.16 hold of it is weighed again at load, takes nothing in (this copy is newer) and STAYS held (0 released, re-weighed under rule 4 — v22.32 calls/issues, still 61 pending here)',
   run:run(async()=>{await sleep(3000);reset();
     const appr=(i,t)=>tday(i,t,{status:'approved',checkedBy:'Syra',checkedAt:t,approvedBy:'Jinky',approvedAt:t});
     const cloud=log(61,i=>appr(i,T0)),storm=log(61,i=>tday(i,T1));
@@ -159,7 +159,7 @@ module.exports=[
     const here=JSON.parse(localStorage.getItem(LK)||'[]');
     reset();
     return {held:h1&&!(LK in o),changed:st.changed,fwd:st.fwd,released:n,stays:!!e2.at,rule:e2.rv,herePending:here.filter(d=>d.status==='pending').length};}),
-  expect:{held:true,changed:61,fwd:0,released:0,stays:true,rule:2,herePending:61} },
+  expect:{held:true,changed:61,fwd:0,released:0,stays:true,rule:4,herePending:61} },
 
 { name:'🛡 (i) Syra\'s OLD hold where the cloud moved on is released: her v22.16 hold (25 days checked at T1) while another computer rewrote the other 36 days in the cloud at T2 → the load-time sweep takes in the 36 newer days first, then 25 changed / 25 forward → 1 released, marked for upload; what goes up carries her 25 checks and the 36 T2 days (v22.18 part 2 before this fix: 0 released, 61 changed / 25 forward)',
   run:run(async()=>{await sleep(3000);reset();
