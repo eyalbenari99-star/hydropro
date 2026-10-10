@@ -111,8 +111,12 @@ module.exports=[
     irrSavePool('P01','pH','5.9');await sleep(200);const p3=iss('pH').map(i=>i.status);
     window.irrSetPoolTime('11:00');const msgs=[];window.confirm=m=>{msgs.push(m);return false;};
     irrSavePool('P01','EC','1');await sleep(300);const cancel={EC:rec('11:00').EC===undefined?null:rec('11:00').EC,asked:/far from the last reading \\(1\\.68\\)/.test(msgs[0]||''),issues:iss('EC').length};
-    window.confirm=m=>{msgs.push(m);return true;};irrSavePool('P01','EC','1');await sleep(7000);
-    const calls=(loadCalls()||[]).filter(c=>c.sourceModule==='irr_pools'&&c.areaText==='Pool 1'&&!CLOSED(c));
+    window.confirm=m=>{msgs.push(m);return true;};irrSavePool('P01','EC','1');
+    /* the call engine runs every 5 s; on a slow runner a tick can land late — wait for it (up to 15 s), then one more tick so a
+       duplicate would show */
+    const open=()=>{try{if(window._perfCache)delete window._perfCache._calls;}catch(e){}return (loadCalls()||[]).filter(c=>c.sourceModule==='irr_pools'&&c.areaText==='Pool 1'&&!CLOSED(c));};
+    for(let w=0;w<30&&!open().length;w++)await sleep(500);await sleep(5500);
+    const calls=open();
     return {bad,p1,p2,p3,cancel,ok:{EC:rec('11:00').EC,issues:iss('EC').length,openCalls:calls.length,ec:calls.map(c=>/EC LOW/.test(c.subject||''))}};`),
   expect:{bad:{EC:'1.68',toasts:2},p1:1,p2:1,p3:['resolved'],cancel:{EC:null,asked:true,issues:0},ok:{EC:'1',issues:1,openCalls:1,ec:[true]}} },
 
