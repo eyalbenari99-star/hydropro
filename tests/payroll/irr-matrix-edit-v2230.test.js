@@ -7,7 +7,7 @@ const CLOCK_AND_STORE=(isoUtc,store,extra)=>new Function(
   function FD(){const a=[].slice.call(arguments);if(!(this instanceof FD))return new RD(RD.now()+off).toString();
     return a.length?new (Function.prototype.bind.apply(RD,[null].concat(a)))():new RD(RD.now()+off);}
   FD.prototype=RD.prototype;FD.now=function(){return RD.now()+off;};FD.UTC=RD.UTC;FD.parse=RD.parse;window.Date=FD;
-  window.__hnxPulledOk=true;
+  window.__hnxPulledOk=true;localStorage.setItem('_v2_46_97_dose_migration_done','1'); /* every real computer ran this 2024 one-time A/B clean-up long ago */
   localStorage.setItem('hydroPro_irr_pool',${JSON.stringify(JSON.stringify(store))});${extra||''}`);
 const D='2026-10-10';
 const NEW='typeof window.irrSaveStateText==="function"';
@@ -17,7 +17,7 @@ const STORE={[D]:{
        '11:00':{water:'54',EC:'1',waterAdded:121,A:2.1,B:2.1,C:0.03,_autoFilled:{waterAdded:true,A:true,B:true,C:true},_dose:DOSE_54_EC1,updatedAt:2}},
   P02:{'08:00':{water:'45',EC:'1.7',updatedAt:1},'11:00':{water:'47',EC:'1.75',updatedAt:2}}}};
 /* page helpers: open the matrix, click a cell, type, then 💾 / Enter / click away */
-const H=`window.showToast=(m)=>{(window.__toasts=window.__toasts||[]).push(String(m));};window.confirm=()=>true;
+const H=`window.__realToast=window.__realToast||window.showToast;window.showToast=(m)=>{(window.__toasts=window.__toasts||[]).push(String(m));};window.confirm=()=>true;
   const openMatrix=async()=>{switchView('irr_matrix');for(let i=0;i<30&&!document.querySelector('#irrMatrixBody td[data-edit-pool]');i++)await sleep(200);};
   const cellOf=(pid,f,root)=>document.querySelector((root||'#irrMatrixBody')+' td[data-edit-pool="'+pid+'"][data-edit-field="'+f+'"]');
   const typeIn=(td,val)=>{const inp=td&&td.querySelector('.irr-mx-ed input');if(!inp)return null;inp.value=String(val);inp.dispatchEvent(new Event('input',{bubbles:true}));return inp;};
@@ -97,10 +97,10 @@ module.exports=[
 
 { name:'🚑 An automatic storage rescue puts nothing on screen (quota / deferred / timer) and writes the owner inbox (2 notes) at most once a day; 🚑 Clean this computer now shows "🧹 This computer was cleaned"; a message stays its full duration (6 s) and is at most one card wide',
   tz:'Asia/Manila', requires:NEW,
-  run:fn(`const T=[];window.showToast=(m)=>T.push(String(m));const inbox=()=>(JSON.parse(localStorage.getItem('hydroPro_pa_inbox_v1')||'[]')||[]).filter(x=>x.itemId==='storage').length;
+  run:fn(`const T=[],realToast=window.__realToast;window.showToast=(m)=>T.push(String(m));const inbox=()=>(JSON.parse(localStorage.getItem('hydroPro_pa_inbox_v1')||'[]')||[]).filter(x=>x.itemId==='storage').length;
     const i0=inbox();const r1=window.__hnxStorageRescue('quota');const i1=inbox();const auto=T.length;
     const r2=window.hnxStorageRescue();const i2=inbox();const manual=T.slice(auto).join('|');
-    delete window.showToast;const t=document.getElementById('toast');showToast('long message','ok',6000);await sleep(3500);const at35=t.classList.contains('show');await sleep(3000);const at65=t.classList.contains('show');
+    window.showToast=realToast;const t=document.getElementById('toast');showToast('long message','ok',6000);await sleep(3500);const at35=t.classList.contains('show');await sleep(3000);const at65=t.classList.contains('show');
     return {ran:!!(r1&&!r1.skipped),auto,inbox1:i1-i0,inbox2:i2-i1,manual:/^🧹 This computer was cleaned — storage \\d+% → \\d+%$/.test(manual),at35,at65,maxW:getComputedStyle(t).maxWidth!=='none'};`),
   expect:{ran:true,auto:0,inbox1:2,inbox2:0,manual:true,at35:true,at65:false,maxW:true} }
 ];
