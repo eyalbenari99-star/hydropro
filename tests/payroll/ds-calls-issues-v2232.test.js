@@ -43,6 +43,14 @@ module.exports=[
     return {stale:{up:IK in o1,held:!!e1.at,fwd:(e1.stats||{}).fwd},reopen:{up:IK in o2,held:!!e2.at,fwd:(e2.stats||{}).fwd},removed:{up:CK in o3,held:!!e3.at,removed:(e3.stats||{}).removed},reopenCalls:{up:CK in o4,held:!!e4.at,fwd:(e4.stats||{}).fwd}};}),
   expect:{stale:{up:false,held:true,fwd:0},reopen:{up:false,held:true,fwd:0},removed:{up:false,held:true,removed:150},reopenCalls:{up:false,held:true,fwd:0}} },
 
+{ name:'🛡 v22.32 key order alone is no change for calls and issues: 40 calls with the same values written with their fields in another order → 0 changed, uploads (v22.30 counted 40 of 40 changed)',
+  requires:"typeof window.__hnxDsStats==='function'",
+  run:run(async()=>{await sleep(3000);reset();
+    const a=Array.from({length:40},(_,i)=>call(i)),cloud=JSON.stringify(a),here=JSON.stringify(a.map(r=>{const o={};Object.keys(r).reverse().forEach(k=>o[k]=r[k]);return o;}));
+    window.__hnxCloudRaw[CK]=cloud;const o=window.__hnxPushGuard({[CK]:here});const st=window.__hnxDsStats(cloud,here,CK,true)||{};const held=!!HNXDS.held()[CK];reset();
+    return {up:CK in o,held,changed:st.changed};}),
+  expect:{up:true,held:false,changed:0} },
+
 { name:'⏰ v22.32 the daily approval reminder touches only issues a PERSON resolved: 300 issues = 225 resolved by Nexi (no awaiting_approval_since) + 3 resolved by a person 2 days ago + 72 open → 3 reminded (was 228), the 225 unchanged, the 3 stamped updatedAt; an issue already holding 9 reminder lines keeps the last 7',
   requires:"/autoResolved/.test(String(window.hnxCheckDailyReminders))",
   run:run(async()=>{await sleep(3000);
