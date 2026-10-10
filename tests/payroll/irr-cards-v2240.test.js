@@ -14,7 +14,7 @@ const OPEN=`window.__hnxPulledOk=true;localStorage.setItem('_v2_46_97_dose_migra
 const fn=body=>new Function('return (async()=>{'+OPEN+body+'})();');
 const TEXT120=new Function(`localStorage.setItem('hydroPro_ui_textscale','1.2');`);
 module.exports=[
-{ name:'▦ One card per pool (Eyal 10 Oct) at a 1512×982 laptop with text 120 %: no sideways scrolling (frame 0 px wider than the screen), Pool 1 (32 cm, EC 1.62, pH 6.3, 24.5 °C, air OK, ozone 55 s) has all its pictures inside its own card — 4 gauges (EC, pH, tank, fill valve) + 3 reading pictures (temp, air, ozone) + Nexi\'s drawing, which is what to add (v22.42: the source / water / A / B / C boxes no longer repeat it — 5 pictures hidden) — and the card is shorter than the window',
+{ name:'▦ One card per pool (Eyal 10 Oct) at a 1512×982 laptop with text 120 %: no sideways scrolling (frame 0 px wider than the screen), Pool 1 (32 cm, EC 1.62, pH 6.3, 24.5 °C, air OK, ozone 55 s) has all its pictures inside its own card — 4 gauges (EC, pH, tank, fill valve) + a picture in every other box (v22.46: 12 — finish clock, hand EC and pH meters, temp, air, ozone, source, water, A, B, C, checked-by clipboard; none hidden, Nexi\'s drawing split into the water / A / B / C boxes) — and the card is shorter than the window',
   requires:NEW, viewport:{width:1512,height:982}, seed:TEXT120,
   run:fn(`fill('P01');await sleep(400);renderIrrPoolMonitor();await sleep(600);
     const w=host().querySelector('.irr-pool-table-wrap');const c=card('P01');
@@ -22,7 +22,7 @@ module.exports=[
     return {cards:w.classList.contains('irr-pc'),extra:Math.max(0,w.scrollWidth-w.clientWidth),thead:getComputedStyle(host().querySelector('.irr-pool-table thead')).display,
       nexiRows:host().querySelectorAll('tr.irr-nexi-row').length,pics:pics.length,hidden,picsIn:pics.every(p=>inside(p,c)),gauges:gauges.map(g=>g.getAttribute('data-ivkey').split(':').pop()).sort().join(','),gaugesIn:gauges.every(g=>inside(g,c)),
       drawingIn:!!rx&&inside(rx,c),saysIn:!!c.querySelector('.irr-nexi-says'),fits:c.getBoundingClientRect().height<=innerHeight,local:localStorage.getItem('hydroPro_irr_layout_v1')===null};`),
-  expect:{cards:true,extra:0,thead:'none',nexiRows:0,pics:3,hidden:5,picsIn:true,gauges:'ec,ph,tank,valve',gaugesIn:true,drawingIn:true,saysIn:true,fits:true,local:true} },
+  expect:{cards:true,extra:0,thead:'none',nexiRows:0,pics:12,hidden:0,picsIn:true,gauges:'ec,ph,tank,valve',gaugesIn:true,drawingIn:true,saysIn:true,fits:true,local:true} },
 
 { name:'▦ The cards also hold on a 390 px phone: 0 px sideways scroll (frame and page), every tile of Pools 1–3 inside its card',
   requires:NEW, viewport:{width:390,height:844},
