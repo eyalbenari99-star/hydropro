@@ -173,7 +173,7 @@ module.exports.push(
 { name:'🏊 Pool Monitor 💾 Save after Cancel on the "is this right?" question (Pool 1 EC 9 typed over 1.7): says "Not saved — …", never "Everything on this screen is saved"; EC stays 1.7',
   tz:'Asia/Manila', requires:NEW, seed:CLOCK_AND_STORE('2026-10-10T04:30:00Z',STORE),
   run:fn(`switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('08:00');renderIrrPoolMonitor();await sleep(400);window.confirm=()=>false;
-    const inp=document.querySelector('#stubIrrNutrientsBody input[onchange^="irrSavePool(\'P01\',\'EC\'"]');inp.focus();inp.value='9';window.__toasts=[];
+    const inp=document.querySelector('#stubIrrNutrientsBody input[onchange^="irrSavePool(\\'P01\\',\\'EC\\'"]');inp.focus();inp.value='9';window.__toasts=[];
     irrSaveNow({type:'pointerdown'});await sleep(300);
     return {toasts:(window.__toasts||[]).filter(m=>/saved|Saved/.test(m)),EC:(pool('P01')['08:00']||{}).EC};`),
   expect:{toasts:['Not saved — that reading was not kept. Type it again and press 💾 Save.'],EC:'1.7'} });
