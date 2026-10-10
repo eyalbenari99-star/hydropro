@@ -17,7 +17,7 @@ const fn=body=>new Function('return (async()=>{'+H+body+'})();');
 const TEXT120=new Function(`localStorage.setItem('hydroPro_ui_textscale','1.2');`);
 const FULL=`put('P02',{water:'32',EC:'1.62',manualEC:'1.60',pH:'6.3',manualPH:'6.28',waterTemp:'24.5',airPump:'working',ozoneSec:'55',finishTime:'10:45',checkedBy:'Reven'});`;
 module.exports=[
-{ name:'🖼 Every box of a card has its own 3-D picture (Eyal 10 Oct: "should be each one"): Pool 2 at 32 cm, EC 1.62 / hand 1.60, pH 6.3 / hand 6.28, 24.5 °C, air OK, ozone 55 s, finished 10:45, checked by Reven → finish time = a clock "Finished at 10:45", hand EC = a pen meter "Hand EC meter 1.60", hand pH "6.28", temperature, air, ozone, source, ① water "+566 L", ② A and ③ B "2.8 L = 3 jugs", ④ C "153 cc", checked by = a clipboard "Checked by Reven" — every one shown, in 3-D gradients; the EC, pH and tank gauges too',
+{ name:'🖼 Every box of a card has its own 3-D picture (Eyal 10 Oct: "should be each one"): Pool 2 at 32 cm, EC 1.62 / hand 1.60, pH 6.3 / hand 6.28, 24.5 °C, air OK, ozone 55 s, finished 10:45, checked by Reven → finish time = a clock "Finished at 10:45", hand EC = a pen meter "Hand EC meter 1.60", hand pH "6.28", temperature, air, ozone, source, ① water "+566 L", ② A and ③ B "2.8 L = 3 jugs", ④ C "153 cc", checked by = a clipboard "Checked by Reven", and beside "Nexi says" the proportion "Every 10 cm of water (≈ 202 L) takes 1 L of A and 1 L of B" — every one shown, in 3-D gradients; the EC, pH and tank gauges too',
   requires:NEW, viewport:{width:1512,height:982}, seed:TEXT120,
   run:fn(FULL+`await sleep(400);renderIrrPoolMonitor();await sleep(700);
     const c=card('P02'),td=i=>c.children[i-1];
@@ -25,18 +25,21 @@ module.exports=[
     const missing=boxes.filter(i=>!shown(pic(td(i))));
     const flat=boxes.filter(i=>!/url\\(#cv/.test((pic(td(i))||{}).innerHTML||''));
     const gauges=[3,5,7].filter(i=>!shown(td(i).querySelector('.irr-viz,.iv-water,[data-ivkey]')));
-    return {missing,flat,gauges,clock:lab(pic(td(2))),hand:lab(pic(td(4))),handPh:lab(pic(td(6))),water:/add 566 L/.test(lab(pic(td(12)))),a:lab(pic(td(13))),b:lab(pic(td(14))),c:lab(pic(td(15))),check:lab(pic(td(16)))};`),
-  expect:{missing:[],flat:[],gauges:[],clock:'Finished at 10:45',hand:'Hand EC meter 1.60',handPh:'Hand pH meter 6.28',water:true,a:'A 2.8 L = 3 jugs (the last one 0.8 L)',b:'B 2.8 L = 3 jugs (the last one 0.8 L)',c:'C 153 cc',check:'Checked by Reven'} },
+    return {missing,flat,gauges,clock:lab(pic(td(2))),hand:lab(pic(td(4))),handPh:lab(pic(td(6))),water:/add 566 L/.test(lab(pic(td(12)))),a:lab(pic(td(13))),b:lab(pic(td(14))),c:lab(pic(td(15))),check:lab(pic(td(16))),says:shown(pic(td(17)))?lab(pic(td(17))):'none'};`),
+  expect:{says:'Every 10 cm of water (≈ 202 L) takes 1 L of A and 1 L of B',missing:[],flat:[],gauges:[],clock:'Finished at 10:45',hand:'Hand EC meter 1.60',handPh:'Hand pH meter 6.28',water:true,a:'A 2.8 L = 3 jugs (the last one 0.8 L)',b:'B 2.8 L = 3 jugs (the last one 0.8 L)',c:'C 153 cc',check:'Checked by Reven'} },
 
-{ name:'📏 No empty space (Eyal 10 Oct: "so much empty space which I don\'t want"): at 1512×982 with text 120 % Pool 2\'s card is under 45 % of the window, no box holds less than 60 % of its own height (v22.44 had the hand EC box at 42 % and the level box at 57 %), Nexi\'s drawing is not drawn twice in the card (its pictures are the ① water / ② A / ③ B / ④ C boxes; "Nexi says" and the proportion stay) and nothing scrolls sideways',
+{ name:'📏 No empty space (Eyal 10 Oct: "so much empty space which I don\'t want"): at 1512×982 with text 120 % Pool 2\'s card is under 45 % of the window, no box holds less than 60 % of its own height (v22.44 had the hand EC box at 42 % and the level box at 57 %), nothing is drawn twice — the drawing\'s pictures are the ① water / ② A / ③ B / ④ C boxes ("Nexi says" and the proportion stay), the level box has no fill valve, take pills or "+566 L → 60 cm" — the EC band reads "OK 1.7–1.9" whole and nothing scrolls sideways',
   requires:NEW, viewport:{width:1512,height:982}, seed:TEXT120,
   run:fn(FULL+`await sleep(400);renderIrrPoolMonitor();await sleep(700);
     const c=card('P02'),w=host().querySelector('.irr-pool-table-wrap');
-    const loose=[...c.children].map((td,i)=>{const r=td.getBoundingClientRect();let top=1e9,bot=-1e9;[...td.children].forEach(k=>{const q=k.getBoundingClientRect();if(q.height>0){top=Math.min(top,q.top);bot=Math.max(bot,q.bottom);}});
+    const loose=[...c.children].slice(1).map((td,i0)=>{const i=i0+1;return [td,i];}).map(([td,i])=>{const r=td.getBoundingClientRect();let top=1e9,bot=-1e9;[...td.children].forEach(k=>{const q=k.getBoundingClientRect();if(q.height>0){top=Math.min(top,q.top);bot=Math.max(bot,q.bottom);}});
       const lbl=getComputedStyle(td,'::before').content;const used=(bot-top)+(lbl&&lbl!=='none'&&lbl!=='normal'?14:0);return {i:i+1,f:r.height>0?used/r.height:1};}).filter(x=>x.f<0.6).map(x=>x.i+':'+x.f.toFixed(2));
     const rx=c.querySelector('.irr-pc-rx');const steps=[...rx.querySelectorAll('.irr-rx-step')];
-    return {third:c.getBoundingClientRect().height<=innerHeight*0.45,loose,stepsHidden:steps.length>0&&steps.every(s=>s.offsetParent===null),says:shown(rx.querySelector('.irr-nexi-says')),ratio:shown(rx.querySelector('.irr-rx-ratio')),extra:Math.max(0,w.scrollWidth-w.clientWidth)};`),
-  expect:{third:true,loose:[],stepsHidden:true,says:true,ratio:true,extra:0} },
+    const lv=c.children[6],vis=sel=>[...lv.querySelectorAll(sel)].some(e=>e.offsetParent!==null&&e.getBoundingClientRect().width>0);
+    const hd=c.children[2].querySelector('.iv-hd'),hdR=hd?hd.getBoundingClientRect():null,band=hd?[...hd.querySelectorAll('span')].find(x=>/OK/.test(x.textContent)):null;
+    return {third:c.getBoundingClientRect().height<=innerHeight*0.45,loose,stepsHidden:steps.length>0&&steps.every(s=>s.offsetParent===null),says:shown(rx.querySelector('.irr-nexi-says')),ratio:shown(rx.querySelector('.irr-rx-ratio')),
+      valve:vis('[data-ivkey$=":valve"]'),takes:vis('.ivx-tk'),act:vis('.iv-act'),tank:vis('[data-ivkey$=":tank"]'),bandWhole:!!band&&band.getBoundingClientRect().right<=hdR.right+1,extra:Math.max(0,w.scrollWidth-w.clientWidth)};`),
+  expect:{third:true,loose:[],stepsHidden:true,says:true,ratio:true,valve:false,takes:false,act:false,tank:true,bandWhole:true,extra:0} },
 
 { name:'≈ Before this round\'s level the pictures show the LAST reading\'s dose (as the greyed ≈ boxes): Pool 1 read yesterday 16:00 at 57 cm, EC 1.676, pH 6.2 → this morning, nothing typed yet, the water picture is dimmed "57 cm at the last reading, fill to 60 cm, add ≈61 L", A and B "≈0.3 L = 1 jug", C "≈15 cc — from the last reading"; nothing is saved from it',
   requires:NEW,
@@ -66,8 +69,8 @@ module.exports=[
 { name:'🎞 The new pictures move with 🎞 Motion: "always" → the pen meter bobs (cvDip), the clock\'s second hand runs (cvSpin), the clipboard\'s tick draws itself (cvDraw); "off" → all still',
   requires:NEW,
   run:fn(FULL+`await sleep(400);hnxIrrViz.setMotion('always');renderIrrPoolMonitor();await sleep(500);
-    const c=card('P02'),td=i=>c.children[i-1];try{c.scrollIntoView({block:'center'});}catch(e){}await sleep(400);
-    const an=(i,sel)=>{const e=td(i).querySelector('.irr-cv '+sel);return e?getComputedStyle(e).animationName:'none';};
+    const c=card('P02'),td=i=>c.children[i-1];try{c.scrollIntoView({block:'center'});}catch(e){}for(let k=0;k<30&&c.querySelector('.irr-cv.iv-off');k++)await sleep(100); /* off screen a picture stands still (iv-off) */
+    const an=(i,sel)=>{const e=td(i).querySelector('.irr-cv '+sel);return e?getComputedStyle(e).animationName:'missing';};
     const on={dip:an(4,'.cv-dip'),spin:an(2,'.cv-spin'),draw:an(16,'.cv-draw')};
     hnxIrrViz.setMotion('off');await sleep(300);const off={dip:an(4,'.cv-dip'),spin:an(2,'.cv-spin'),draw:an(16,'.cv-draw')};
     hnxIrrViz.setMotion('always');return {on,off};`),
@@ -80,6 +83,26 @@ module.exports=[
     const t={steps:steps.length,shown:steps.every(s=>s.offsetParent!==null),handPic:shown(pic(row.children[3]))};
     hnxIrrLayout('cards');await sleep(500);return t;`),
   expect:{steps:4,shown:true,handPic:true} },
+
+{ name:'✍ What a person types wins over the last reading: Pool 1 read yesterday at 57 cm, today no level yet but "200" typed in ① water → the water picture says "add 200 L", not dimmed, not ≈',
+  requires:NEW,
+  run:fn(`const T=_irrDate;const d=new Date(T+'T12:00:00');d.setDate(d.getDate()-1);const Y=d.toISOString().slice(0,10);
+    _irrDate=Y;window.irrSetPoolTime('16:00');put('P01',{water:'57',EC:'1.676',pH:'6.2'});_irrDate=T;window.irrSetPoolTime('08:00');put('P01',{waterAdded:'200'});
+    await sleep(2300);renderIrrPoolMonitor();await sleep(600);const W=pic(card('P01').children[11]);
+    return {typed:/add 200 L$/.test(lab(W)),prev:!!W&&W.classList.contains('prev'),approx:/≈/.test(lab(W))};`),
+  expect:{typed:true,prev:false,approx:false} },
+
+{ name:'🛡 A name typed in "Checked by" stays text: Pool 2 checked by \'Ana "B" <i>x</i>\' → the box shows exactly that, the clipboard says "Checked by Ana \"B\" <i>x</i>", no <i> element appears in the card',
+  requires:NEW,
+  run:fn(`put('P02',{checkedBy:'Ana "B" <i>x</i>'});await sleep(300);renderIrrPoolMonitor();await sleep(500);const c=card('P02');
+    return {value:c.children[15].querySelector('input').value,label:lab(pic(c.children[15])),injected:!!c.querySelector('td:nth-child(16) i')};`),
+  expect:{value:'Ana "B" <i>x</i>',label:'Checked by Ana "B" <i>x</i>',injected:false} },
+
+{ name:'💡 The proportion picture follows Nexi: Pool 3 with the two EC meters 0.07 apart → "Calibrate: the two EC meters disagree"; Pool 5 with nothing read → "Nothing read yet: enter the water level and EC"; Pool 4 at its daily target → "At the daily target: nothing to add this round"',
+  requires:NEW,
+  run:fn(`put('P03',{water:'41',EC:'1.95',manualEC:'2.02',pH:'6.4'});const P4=(IRR_POOLS||[]).find(x=>x.id==='P04');const t4=irrDailyTarget(P4);put('P04',{water:String(t4),EC:'1.8',pH:'6.2'});await sleep(400);renderIrrPoolMonitor();await sleep(600);
+    const rx=id=>lab(pic(card(id).children[16]));return {p3:rx('P03'),p5:rx('P05'),p4:rx('P04')};`),
+  expect:{p3:'Calibrate: the two EC meters disagree — no dose until they agree',p5:'Nothing read yet: enter the water level and EC',p4:'At the daily target: nothing to add this round'} },
 
 { name:'📱 On a 390 px phone every card holds: the hand EC box (pen meter beside it) is at least 56 px wide, every tile inside its card, 0 px sideways scroll',
   requires:NEW, viewport:{width:390,height:844},
