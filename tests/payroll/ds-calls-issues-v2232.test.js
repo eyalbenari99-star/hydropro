@@ -73,15 +73,15 @@ module.exports=[
     const here=[0,1,2].map(i=>iss(i,{status:'resolved',resolvedAt:D2,updatedAt:D2,awaiting_approval_since:D2,history:[{action:'resolved',by:'Jomel',at:D2}]}));
     const cloud=here.map(r=>Object.assign({},r,{status:'approved',approvedAt:D2+3600e3,updatedAt:D2+3600e3}));
     localStorage.setItem(IK,JSON.stringify(here));const n=window.hnxCheckDailyReminders();
-    const m=JSON.parse(window.__hnxMergeGeneric(localStorage.getItem(IK),JSON.stringify(cloud),IK)||'[]');
+    const m=JSON.parse(window.__hnxMergeGeneric(IK,localStorage.getItem(IK),JSON.stringify(cloud))||'[]');
     return {n,approved:m.filter(r=>r.status==='approved').length};}),
   expect:{n:3,approved:3} },
 
-{ name:'🛡 v22.32 moving records BACK is held even with newer stamps: 100 issues APPROVED in the cloud, "resolved" here with a newer stamp (a bulk un-approve) → HELD, 0 newer here; 225 issues resolved here stamped 2 h in the FUTURE (a clock running ahead) → HELD, 0 newer here',
+{ name:'🛡 v22.32 moving records BACK is held even with newer stamps: 225 of 300 issues APPROVED in the cloud, "resolved" here with a newer stamp (a bulk un-approve) → HELD, 0 newer here; 225 issues resolved here stamped 2 h in the FUTURE (a clock running ahead) → HELD, 0 newer here',
   requires:"typeof window.__hnxDsStats==='function'",
   run:run(async()=>{await sleep(3000);reset();
     const now=Date.now();
-    const cloudA=arr(300,i=>i<100?iss(i,{status:'approved',updatedAt:T1}):iss(i)),unap=arr(300,i=>i<100?iss(i,{status:'resolved',updatedAt:T1+60e3}):iss(i));
+    const cloudA=arr(300,i=>i<225?iss(i,{status:'approved',updatedAt:T1}):iss(i)),unap=arr(300,i=>i<225?iss(i,{status:'resolved',updatedAt:T1+60e3}):iss(i));
     window.__hnxCloudRaw[IK]=cloudA;const o1=window.__hnxPushGuard({[IK]:unap});const e1=HNXDS.held()[IK]||{};reset();
     const cloudI=arr(300,i=>iss(i)),ahead=arr(300,i=>i<225?resolvedBySystem(i,now+2*3600e3):iss(i));
     window.__hnxCloudRaw[IK]=cloudI;const o2=window.__hnxPushGuard({[IK]:ahead});const e2=HNXDS.held()[IK]||{};reset();
@@ -121,9 +121,9 @@ module.exports=[
     try{
       localStorage.setItem(BK,arr(5,i=>call(i,{updatedAt:Date.now()})));localStorage.setItem(MK,JSON.stringify([{id:'m1',title:'stored'}]));
       window.__hnxMarkDirtyKey(BK);window.__hnxMarkDirtyKey(MK);
-      await window.HNX_Cloud.push();await sleep(900);
+      await window.HNX_Cloud.push();const error=String(C.state.error||'');await sleep(900); /* read at once: a background download that ends later clears the line */
       const dirty=JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}');
-      return {sentCalls:sent.includes(BK),callsDirty:!!dirty[BK],memosDirty:!!dirty[MK],skipped:(window.__hnxPushSkipped||[]).map(x=>x.k),error:String(C.state.error||'')};
+      return {sentCalls:sent.includes(BK),callsDirty:!!dirty[BK],memosDirty:!!dirty[MK],skipped:(window.__hnxPushSkipped||[]).map(x=>x.k),error};
     }finally{window.fetch=of;localStorage.removeItem('hnx_cloud_token');}}),
   expect:{sentCalls:true,callsDirty:true,memosDirty:false,skipped:['hydroPro_zz_bigstore_v1'],error:'not stored by the cloud (too big): zz_bigstore_v1 — kept on this computer'} },
 
@@ -138,13 +138,13 @@ module.exports=[
       if(u.indexOf('/sync/push')>=0){let d={};try{d=JSON.parse(o.body).data||{};}catch(e){}const ks=Object.keys(d);sent.push(ks.includes(BK));const keys=ks.filter(k=>k!==BK);return Promise.resolve(new Response(JSON.stringify({ok:true,written:keys.length,keys}),{status:200}));}
       if(u.indexOf('/sync/pull')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,data:{}}),{status:200}));
       return of.apply(this,arguments);};
-    const push=async()=>{C.state.syncing=false;window.__hnxMarkDirtyKey(BK);window.__hnxMarkDirtyKey('hydroPro_zz_small_v1');localStorage.setItem('hydroPro_zz_small_v1',JSON.stringify([{id:'m'+Math.random(),t:1}]));await window.HNX_Cloud.push();await sleep(500);};
+    const push=async()=>{C.state.syncing=false;window.__hnxMarkDirtyKey(BK);window.__hnxMarkDirtyKey('hydroPro_zz_small_v1');localStorage.setItem('hydroPro_zz_small_v1',JSON.stringify([{id:'m'+Math.random(),t:1}]));const i0=sent.length;await window.HNX_Cloud.push();const r={e:String(C.state.error||''),bk:sent.slice(i0).some(Boolean)};await sleep(500);return r;}; /* judged by its own request (an auto-upload may run in between) */
     try{
       localStorage.setItem(BK,arr(5,i=>call(i,{updatedAt:T1})));
-      await push();const e1=String(C.state.error||'');await push();const e2=String(C.state.error||'');
+      const p1=await push(),p2=await push();
       const d2=!!JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}')[BK];
-      localStorage.setItem(BK,arr(5,i=>call(i,{updatedAt:T1+(i===0?60e3:0),status:i===0?'closed_fixed':'new'})));await push();
-      return {sent:sent.slice(0,3),stillUnsent:d2,line:/zz_bigstore_v1/.test(e1)&&/zz_bigstore_v1/.test(e2)};
+      localStorage.setItem(BK,arr(5,i=>call(i,{updatedAt:T1+(i===0?60e3:0),status:i===0?'closed_fixed':'new'})));const p3=await push();
+      return {sent:[p1.bk,p2.bk,p3.bk],stillUnsent:d2,line:/zz_bigstore_v1/.test(p1.e)&&/zz_bigstore_v1/.test(p2.e)};
     }finally{window.fetch=of;localStorage.removeItem('hnx_cloud_token');}}),
   expect:{sent:[true,false,true],stillUnsent:true,line:true} },
 
@@ -161,9 +161,9 @@ module.exports=[
     try{
       localStorage.setItem(OK2,JSON.stringify([{id:'o1',t:1}]));localStorage.setItem(MK,JSON.stringify([{id:'m1',t:1}]));
       window.__hnxMarkDirtyKey(OK2);window.__hnxMarkDirtyKey(MK);(window.__hnxMergeOwed=window.__hnxMergeOwed||{})[OK2]=Date.now();
-      await C.push();await sleep(500);const d1=!!JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}')[OK2];
-      delete window.__hnxMergeOwed[OK2];C.state.syncing=false;await C.push();await sleep(500);
-      return {first:sent[0],owedStillUnsent:d1,second:sent[1]};
+      let i0=sent.length;await C.push();const first=sent.slice(i0).join('|');await sleep(500);const d1=!!JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}')[OK2];
+      delete window.__hnxMergeOwed[OK2];C.state.syncing=false;i0=sent.length;await C.push();const second=sent.slice(i0).join('|');await sleep(500);
+      return {first,owedStillUnsent:d1,second};
     }finally{window.fetch=of;localStorage.removeItem('hnx_cloud_token');}}),
   expect:{first:'hydroPro_zz_small_v1',owedStillUnsent:true,second:'hydroPro_zz_owed_v1'} },
 
