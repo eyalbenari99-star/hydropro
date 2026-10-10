@@ -183,7 +183,7 @@ module.exports=[
     const pick=raw=>{const o=JSON.parse(raw)[_irrDate].P01['08:00'];return {A:o.A,tgt:(o._dose||{}).target};};
     const m1=window.__hnxMergeIrrPool(local,oldCloud),m2=window.__hnxMergeIrrPool(oldCloud,local);
     const a=pick(m1.out||local),b=pick(m2.out||oldCloud);
-    const typed=JSON.parse(oldCloud);const rec=typed[_irrDate].P01['08:00'];rec.A=5;rec._autoFilled=Object.assign({},rec._autoFilled,{A:false});rec._fieldTimestamps=Object.assign({},rec._fieldTimestamps,{A:1});
+    const typed=JSON.parse(oldCloud);const tr=typed[_irrDate].P01['08:00'];tr.A=5;tr._autoFilled=Object.assign({},tr._autoFilled,{A:false});tr._fieldTimestamps=Object.assign({},tr._fieldTimestamps,{A:1});
     const m3=window.__hnxMergeIrrPool(local,JSON.stringify(typed));const c=pick(m3.out||local);
     return {local:pick(local),keep1:a,keep2:b,typedWins:c.A};`),
   expect:{local:{A:1,tgt:50},keep1:{A:1,tgt:50},keep2:{A:1,tgt:50},typedWins:5} }

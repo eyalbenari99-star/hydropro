@@ -302,7 +302,7 @@ module.exports=[
       if(u.indexOf('/sync/pull')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,data:{}}),{status:200}));
       return of.apply(this,arguments);};
     try{
-      localStorage.setItem(K,JSON.stringify([{id:'r1'}]));window.__hnxMarkDirtyKey(K);C.state.syncing=false;await C.push();await sleep(200);
+      localStorage.setItem(K,JSON.stringify([{id:'r1'}]));window.__hnxMarkDirtyKey(K);C.state.syncing=false;await C.push();await sleep(900); /* the dirty list is persisted 500 ms after its last change */
       const dirty=!!JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}')[K];
       const i0=sent.length;C.state.syncing=false;await C.push();const again=sent.slice(i0).some(ks=>ks.includes(K));
       /* re-open */
