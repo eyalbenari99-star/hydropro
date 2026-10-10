@@ -170,10 +170,17 @@ module.exports.push(
       return {p1:(r['11:00']||{}).water,p2open:!!(b&&b.querySelector('.irr-mx-ed')),open:document.querySelectorAll('.irr-mx-ed').length};});
   },
   expect:{'drive.p1':'41','drive.p2open':true,'drive.open':1} },
-{ name:'🏊 Pool Monitor 💾 Save after Cancel on the "is this right?" question (Pool 1 EC 9 typed over 1.7): says "Not saved — …", never "Everything on this screen is saved"; EC stays 1.7',
-  tz:'Asia/Manila', requires:NEW, seed:CLOCK_AND_STORE('2026-10-10T04:30:00Z',STORE),
-  run:fn(`switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('08:00');renderIrrPoolMonitor();await sleep(400);window.confirm=()=>false;
-    const inp=document.querySelector('#stubIrrNutrientsBody input[onchange^="irrSavePool(\\'P01\\',\\'EC\\'"]');inp.focus();inp.value='9';window.__toasts=[];
-    irrSaveNow({type:'pointerdown'});await sleep(300);
-    return {toasts:(window.__toasts||[]).filter(m=>/saved|Saved/.test(m)),EC:(pool('P01')['08:00']||{}).EC};`),
-  expect:{toasts:['Not saved — that reading was not kept. Type it again and press 💾 Save.'],EC:'1.7'} });
+{ name:'🏊 Pool Monitor 💾 Save (real keyboard + mouse) after Cancel on the "is this right?" question (Pool 1 EC 9 typed over 1.7): says "Not saved — …", never "Everything on this screen is saved"; EC stays 1.7',
+  tz:'Asia/Manila', requires:NEW, viewport:{width:1366,height:768}, seed:CLOCK_AND_STORE('2026-10-10T04:30:00Z',STORE),
+  drive:async pg=>{
+    await pg.evaluate(async()=>{const sleep=ms=>new Promise(r=>setTimeout(r,ms));window.__toasts=[];window.showToast=(m)=>window.__toasts.push(String(m));window.confirm=()=>false;
+      switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('08:00');renderIrrPoolMonitor();await sleep(400);});
+    const inp='#stubIrrNutrientsBody input[onchange^="irrSavePool(\'P01\',\'EC\'"]';
+    let err='';try{await pg.locator(inp).click({timeout:5000});await pg.keyboard.press('Control+A');await pg.keyboard.type('9');
+      await pg.evaluate(()=>{window.__toasts=[];});
+      await pg.locator('#stubIrrNutrientsBody button:has-text("💾 Save")').click({timeout:5000});}catch(e){err=String(e.message).split('\n')[0].slice(0,160);}
+    await pg.waitForTimeout(500);
+    return pg.evaluate(()=>{try{delete window._perfCache._irrPool;}catch(e){}const r=(((loadIrrPool()['2026-10-10']||{}).P01||{})['08:00'])||{};
+      return {EC:r.EC,toasts:(window.__toasts||[]).filter(m=>/saved|Saved/.test(m))};}).then(o=>Object.assign(o,{err}));
+  },
+  expect:{'drive.err':'','drive.EC':'1.7','drive.toasts':['Not saved — that reading was not kept. Type it again and press 💾 Save.']} });
