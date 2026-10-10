@@ -1,7 +1,7 @@
 /* v22.29 trial (memo of 9 Oct 2026, rebuilt after the reset): a person's own work schedule is proposed by HR and APPROVED by Jinky
    (or Eyal / Dr Amy) before late and undertime are judged against it; nobody approves their own proposal. */
 module.exports=[
-{ name:'🕐 Work schedule: Mea (HR) proposes 06:00–15:00 for Juan (Production, department 07:00–17:30) → still 07:00 until approved; Mea cannot approve her own proposal; Jinky approves → Juan is judged on 06:00–15:00; a schedule from a later day waits for that day; "back to department hours" clears it (v22.29)',
+{ name:'🕐 Work schedule: Mea (HR) proposes 06:00–15:00 for Juan (Production & Packaging, 9 Oct memo 06:45–17:00) → still 06:45 until approved; Mea cannot approve her own proposal; Jinky approves → Juan is judged on 06:00–15:00; a schedule from a later day waits for that day; "back to department hours" clears it; the memo: 8 Oct keeps 07:00–17:30, Lee Borreta Thu 15 Oct 08:00–17:00, a 06:55 scan on Wed 14 Oct is 10 min late and on 8 Oct is on time (v22.29)',
   requires:"!!(window.hnxSched&&typeof hnxWorkSchedule==='function')",
   run:async()=>{
     window.showToast=()=>{};window.alert=()=>{};window.confirm=()=>true;
@@ -24,7 +24,12 @@ module.exports=[
     window.getCurrentUser=()=>U.jinky;window.hnxSched.decide(r2.id,true);const waits=[sch(),window.hnxSched.list().find(x=>x.id===r2.id).status];
     window.getCurrentUser=()=>U.mea;const r3=window.hnxSched.propose('E1','','','','back to the department hours');
     window.getCurrentUser=()=>U.jinky;window.hnxSched.decide(r3.id,true);const back=sch();
+    /* the 9 Oct memo: Production & Packaging 06:45–17:00 from 9 Oct; 8 Oct keeps 07:00–17:30 (no pay already earned changes);
+       Lee Borreta on Thursdays 08:00–17:00 */
+    const L=labour('L1','BORRETA, LEE',{dept:'PROD_TRAINEES'});
+    const ws=(e,d)=>{const x=hnxWorkSchedule(e,d);return x.start+'-'+x.end;};
+    const memo=[ws(e,'2026-10-08'),ws(L,'2026-10-15'),ws(L,'2026-10-14'),computeStatusFromTimeIn('06:55',L,'2026-10-14').lateMinutes,computeStatusFromTimeIn('06:55',L,'2026-10-08').lateMinutes];
     window.getCurrentUser=g;window.getEffectiveModuleAccess=ge;
-    return {d0,pending,own,ok,after,waits,back};},
-  expect:{d0:'07:00-17:30',pending:['pending','07:00-17:30'],own:false,ok:true,after:'06:00-15:00',waits:['06:00-15:00','approved'],back:'07:00-17:30'} }
+    return {d0,pending,own,ok,after,waits,back,memo};},
+  expect:{d0:'06:45-17:00',pending:['pending','06:45-17:00'],own:false,ok:true,after:'06:00-15:00',waits:['06:00-15:00','approved'],back:'06:45-17:00',memo:['07:00-17:30','08:00-17:00','06:45-17:00',10,0]} }
 ];
