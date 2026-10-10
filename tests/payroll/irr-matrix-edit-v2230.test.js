@@ -95,14 +95,14 @@ module.exports=[
     return {p1,stillOpen,p2:(pool('P02')['11:00']||{}).water,open:document.querySelectorAll('.irr-mx-ed').length};`),
   expect:{p1:'41',stillOpen:true,p2:'44',open:0} },
 
-{ name:'🚑 An automatic storage rescue puts nothing on screen (quota / deferred / timer) and writes the owner inbox (2 notes) at most once a day; 🚑 Clean this computer now shows "🧹 This computer was cleaned"; a message stays its full duration (6 s) and is at most one card wide',
+{ name:'🚑 An automatic storage rescue puts nothing on screen (quota / deferred / timer) and writes the owner inbox (2 notes) at most once a day; 🚑 Clean this computer now shows "🧹 This computer was cleaned" above the Health window and still files its 2 notes; a message stays its full duration (6 s) and is at most one card wide',
   tz:'Asia/Manila', requires:NEW,
-  run:fn(`const T=[],realToast=window.__realToast;window.showToast=(m)=>T.push(String(m));const inbox=()=>(JSON.parse(localStorage.getItem('hydroPro_pa_inbox_v1')||'[]')||[]).filter(x=>x.itemId==='storage').length;
+  run:fn(`const T=[],K=[],realToast=window.__realToast;window.showToast=(m,k)=>{T.push(String(m));K.push(String(k||''));};const inbox=()=>(JSON.parse(localStorage.getItem('hydroPro_pa_inbox_v1')||'[]')||[]).filter(x=>x.itemId==='storage').length;
     const i0=inbox();const r1=window.__hnxStorageRescue('quota');const i1=inbox();const auto=T.length;
-    const r2=window.hnxStorageRescue();const i2=inbox();const manual=T.slice(auto).join('|');
+    const r2=window.hnxStorageRescue();const i2=inbox();const manual=T.slice(auto).join('|'),manualKind=K.slice(auto).join('|');
     window.showToast=(m,k,d)=>{if(m==='long message')return realToast(m,k,d);}; /* other app messages (the greeting card) held back while this one is timed */const t=document.getElementById('toast');showToast('long message','ok',6000);await sleep(3500);const at35=t.classList.contains('show');await sleep(3000);const at65=t.classList.contains('show');
-    return {ran:!!(r1&&!r1.skipped),auto,inbox1:i1-i0,inbox2:i2-i1,manual:/^🧹 This computer was cleaned — storage \\d+% → \\d+%$/.test(manual),at35,at65,maxW:getComputedStyle(t).maxWidth!=='none'};`),
-  expect:{ran:true,auto:0,inbox1:2,inbox2:0,manual:true,at35:true,at65:false,maxW:true} }
+    return {ran:!!(r1&&!r1.skipped),auto,inbox1:i1-i0,inbox2:i2-i1,manual:/^🧹 This computer was cleaned — storage \\d+% → \\d+%$/.test(manual),manualKind,at35,at65,maxW:getComputedStyle(t).maxWidth!=='none'};`),
+  expect:{ran:true,auto:0,inbox1:2,inbox2:2,manual:true,manualKind:'ok top',at35:true,at65:false,maxW:true} }
 ,
 { name:'🌙 A box opened at 23:59:58 and saved after midnight saves NOTHING (no 2026-10-11 entry, 16:00 of 10 Oct unchanged) and says "The day changed at midnight"; the Pool Monitor date is not stuck (it still rolls to 2026-10-11)',
   tz:'Asia/Manila', requires:NEW, seed:CLOCK_AND_STORE('2026-10-10T08:30:00Z',{[D]:{P01:{'16:00':{water:'50',updatedAt:1}}}}),
