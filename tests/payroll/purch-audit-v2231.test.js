@@ -89,7 +89,7 @@ module.exports=[
     return {asked,to,needed,closed,can,still,edit:[e.title,e.items[0].qty,e.revision,J('hydroPro_purch_prs').length]};})()`),
   expect:{asked:['AI Validation',true],to:['amy','eyal'],needed:['Department Approval',null],closed:'Completed',can:['Cancelled','Cancelled','Supplier no longer needed — stock arrived from GH2'],still:'Cancelled',edit:['Fertilizer — 12 bags',12,2,4]} },
 
-{ name:'📨 QT-01/QT-02/LV-02/IV-04: an RFQ e-mail through mailto shows DRAFT OPENED (not SENT) until ✓ Sent; SMS on this computer is refused; Supplier 360° closes with Escape and with a click outside and sits above every banner; FERT-01 has 20 on a draft engine PO + 50 − 30 received on an issued PO = 40 on order (v22.31)',
+{ name:'📨 QT-01/QT-02/LV-02/IV-04: an RFQ e-mail through mailto shows DRAFT OPENED (not SENT) until ✓ Sent; SMS on this computer is refused; Supplier 360°, the outreach and the location modals close with Escape / a click outside and sit above every banner; FERT-01 has 20 on a draft engine PO + 50 − 30 received on an issued PO = 40 on order (v22.31)',
   requires:NEED,seed:SEED,
   run:new Function(`return (async()=>{${PRE}as('joshane');await sleep(4000);window.open=()=>null;
     put('hydroPro_purch_prs',[{id:'q1',number:'PR-Q1',title:'Seeds',status:'RFQ',rfqId:'rq1',items:[{desc:'Lettuce seed',qty:2}],createdBy:'maria',workflow:[]}]);
@@ -102,13 +102,16 @@ module.exports=[
     __PURPRO.sup360N('Verisem');await sleep(50);let m=document.getElementById('ppSup360');const z=m?Number(m.style.zIndex):0;
     document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));await sleep(20);const esc=!document.getElementById('ppSup360');
     __PURPRO.sup360N('Verisem');await sleep(50);m=document.getElementById('ppSup360');m.dispatchEvent(new MouseEvent('click',{bubbles:true}));await sleep(20);const bd=!document.getElementById('ppSup360');
+    try{window._purchOpenOutreach({product:'Lettuce seed'});}catch(e){}await sleep(50);m=document.getElementById('purchOutreachModal');const oz=m?Number(m.style.zIndex):0;
+    document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));await sleep(20);const oesc=!!m&&!document.getElementById('purchOutreachModal');
+    try{window._purchOpenLocationSettings();}catch(e){}await sleep(50);m=document.getElementById('purchLocSettingsModal');const lz=m?Number(m.style.zIndex):0;if(m)m.dispatchEvent(new MouseEvent('click',{bubbles:true}));await sleep(20);const lbd=!!m&&!document.getElementById('purchLocSettingsModal');
     put('hydroPro_inv_draft_pos_v1',[{id:'d1',ref:'PO261010-001',supplier:'Yara',status:'draft',lines:[{sku:'FERT-01',name:'Calcium nitrate',qty:20}]},{id:'d2',ref:'PO261010-002',supplier:'Yara',status:'received',lines:[{sku:'FERT-01',qty:99}]}]);
     put('hydroPro_purch_pos',[{id:'pp1',number:'PO-9',status:'Issued',items:[{desc:'Calcium nitrate',code:'FERT-01',qty:50}]},{id:'pp2',number:'PO-10',status:'Cancelled',items:[{desc:'Calcium nitrate',code:'FERT-01',qty:70}]}]);
     put('hydroPro_purch_grns',[{id:'gg',poId:'pp1',lines:[{line:0,accepted:30}]}]);
     const oo=typeof window.hnxLocalOnOrder==='function'?window.hnxLocalOnOrder({sku:'FERT-01',name:'Calcium nitrate'}):-1;
     window.getCurrentUser=g0;
-    return {mail,sms,sent,z:z>=2147483000,esc,bd,oo};})()`),
-  expect:{mail:[true,false],sms:false,sent:true,z:true,esc:true,bd:true,oo:40} },
+    return {mail,sms,sent,z:z>=2147483000,esc,bd,oo,other:[oz>=2147483000,oesc,lz>=2147483000,lbd]};})()`),
+  expect:{mail:[true,false],sms:false,sent:true,z:true,esc:true,bd:true,oo:40,other:[true,true,true,true]} },
 
 { name:'🔒 QT-14: Maria (Production, no Purchasing edit) cannot delete a manual purchase record (3 rows stay); Joshane (Purchasing) cannot clear the 2 SOS-imported rows (only Eyal or Dr Amy); Dr Amy clears them → 1 manual row left (v22.31)',
   requires:NEED,seed:SEED,
@@ -118,5 +121,95 @@ module.exports=[
     as('joshane');window._purchClearSOSHistory();await sleep(20);const j=J('hydroPro_acct_purch_history').length;
     as('amy');window._purchClearSOSHistory();await sleep(20);const a=J('hydroPro_acct_purch_history').map(x=>x.id);
     window.getCurrentUser=g0;return {m,j,a};})()`),
-  expect:{m:3,j:3,a:['h1']} }
+  expect:{m:3,j:3,a:['h1']} },
+
+{ name:'📦 IV-06: Warehouse ▸ Reorder of "PVC Pipe 25mm" (8 left, min 12) opens a PURCHASE request for 12 pcs — not a Stock Issue that books a negative adjustment (v22.31)',
+  requires:NEED,seed:SEED,
+  run:new Function(`return (async()=>{${PRE}as('eyal');await sleep(4000);
+    put('hydroPro_wh_stock',[{id:'w1',sku:'PVC-25-3',name:'PVC Pipe 25mm',unit:'pc',qty:8,minQty:12,unitCost:6}]);
+    let got=null;const R=window.__hnxInvReq,pf=R&&R.prefill;if(R)R.prefill=f=>{got=f;};try{window.switchView=()=>{};}catch(e){}
+    try{window._whReorder('w1',12);}catch(e){}if(R)R.prefill=pf;
+    window.getCurrentUser=g0;return {type:got&&got.type,qty:got&&got.qty,item:got&&got.itemName};})()`),
+  expect:{type:'purchase',qty:12,item:'PVC Pipe 25mm'} },
+
+{ name:'🧤 IV-02/IV-11/PW-18/QT-17/LV-05/LV-06: an approved Inventory PURCHASE of 20 gloves cannot be "confirmed issued" (no stock out); Purchasing makes PR from it with Maria Santos as the requester and the request shows Ordered; receiving all 20 closes it as Completed; completing a PR whose PO has nothing received is refused for Joshane and, for Dr Amy with a reason, closes the PO short; a quote row is not a past purchase (1× not 2×); a stage move says so; no PO → "Issue a purchase order first" (v22.31)',
+  requires:NEED,seed:SEED,
+  run:new Function(`return (async()=>{${PRE}await sleep(4000);const TS=[];window.showToast=m=>TS.push(String(m));
+    put('hydroPro_inv_requests_v1',[{id:'ir1',no:'IR-20261010-001',type:'purchase',status:'approved',itemName:'Nitrile gloves',itemSku:'GLV-01',qty:20,unit:'box',unitCost:250,createdBy:'Maria Santos',needDept:'Production',history:[]}]);
+    as('eyal');__hnxInvReq.confirmIssue('ir1');await sleep(30);const IR=()=>J('hydroPro_inv_requests_v1')[0];const noOut=[IR().status,!!IR().issuedAt];
+    as('joshane');__PURPRO.fromInv('req','ir1');await sleep(50);const pr=J('hydroPro_purch_prs').find(x=>x.id===IR().prId)||{};const maria=U.find(u=>u.username==='maria');
+    const conv=[IR().status,pr.requestedBy,__PURPRO.isRequesterOf(pr,maria)];
+    put('hydroPro_purch_pos',[{id:'pg',number:'PO-G',prId:pr.id,supplier:'Medline',status:'Issued',total:5000,items:[{desc:'Nitrile gloves',code:'GLV-01',qty:20,unit:'box',unitCost:250}]}]);
+    const P=J('hydroPro_purch_prs');const P0=P.find(x=>x.id===pr.id);P0.poId='pg';P0.status='Receiving';put('hydroPro_purch_prs',P);
+    as('amy');clr();inp('ppGacc0','20');inp('ppGrej0','0');inp('ppGdate',ymd(new Date()));__PURPRO.recordGRN(pr.id);await sleep(50);const recv=IR().status;
+    put('hydroPro_purch_prs',[{id:'pz',number:'PR-Z',title:'Bolts',status:'Receiving',poId:'pz1',items:[{desc:'Bolt',qty:50}],createdBy:'maria',workflow:[]}]);
+    put('hydroPro_purch_pos',[{id:'pz1',number:'PO-Z',prId:'pz',supplier:'Wilcon',status:'Issued',total:500,items:[{desc:'Bolt',qty:50,unitCost:10}]}]);
+    as('joshane');AL.length=0;__PURPRO.completePR('pz');await sleep(20);const josh=[J('hydroPro_purch_prs')[0].status,AL.some(m=>/goods are still missing/.test(m))];
+    as('amy');PR_ANS='Supplier closed — buying the rest elsewhere';__PURPRO.completePR('pz');await sleep(20);const amy=[J('hydroPro_purch_prs')[0].status,J('hydroPro_purch_pos')[0].status];
+    put('hydroPro_acct_purch_history',[{id:'x1',source:'grn',product:'Bolt',supplier:'Wilcon',qty:50,unitCost:10,date:'2026-10-01'},{id:'x2',source:'rfq-quote',product:'Bolt',supplier:'Wilcon',qty:0,unitCost:9,date:'2026-10-05'}]);
+    const hist=window.__purchLookupHistory('Bolt','Wilcon').times;
+    put('hydroPro_purch_prs',[{id:'pa',number:'PR-A',title:'x',status:'Purchasing Review',items:[{desc:'a',qty:1}],createdBy:'maria',workflow:[]}]);
+    TS.length=0;__PURPRO.simpleAdvance('pa','Purchasing review complete','Purchasing Review');await sleep(20);const said=TS.some(m=>/PR-A → Inventory Verification/.test(m));
+    put('hydroPro_purch_pos',[]);__PURPRO.tab('invs');await sleep(150);const v=document.getElementById('view-acct_purch_pro');const nopo=!!v&&/Issue a purchase order first/.test(v.innerText);
+    clr();window.getCurrentUser=g0;
+    return {noOut,conv,recv,josh,amy,hist,said,nopo};})()`),
+  expect:{noOut:['approved',false],conv:['ordered','Maria Santos',true],recv:'completed',josh:['Receiving',true],amy:['Completed','Closed (short)'],hist:1,said:true,nopo:true} },
+
+{ name:'🔎 PW-16/PW-17: SOS has "Filter housing 10in" (500) and "Cement 40kg" C40 (30) — a request for 5 "Filter" stays a PURCHASE (possible match only, a person confirms); 10 "Cement 40kg" (exact name) and 10 "cement" with code C40 are covered by stock; Purchasing Review keeps buyer joshane and who reviewed; Inventory Verification keeps the SOS snapshot "Cement 40kg 30 on hand (name)" (v22.31)',
+  requires:NEED,seed:SEED,
+  run:new Function(`return (async()=>{${PRE}as('joshane');await sleep(4000);const S0=window.__hnxSos;
+    window.__hnxSos={getItems:()=>[{name:'Filter housing 10in',sku:'FH-10',quantityOnHand:500},{name:'Cement 40kg',sku:'C40',quantityOnHand:30}],getMeta:()=>({connected:true})};
+    const mk=(id,items,st)=>({id,number:'PR-'+id,title:id,status:st||'Submitted',items,createdBy:'maria',workflow:[],overrides:[]});
+    put('hydroPro_purch_prs',[mk('f1',[{desc:'Filter',qty:5}]),mk('f2',[{desc:'Cement 40kg',qty:10}]),mk('f3',[{desc:'cement',code:'C40',qty:10}]),mk('f4',[{desc:'Cement 40kg',qty:4}],'Purchasing Review')]);
+    ['f1','f2','f3'].forEach(id=>__PURPRO.runAI(id));await sleep(30);const P=id=>J('hydroPro_purch_prs').find(x=>x.id===id);
+    const ai=[P('f1').aiAnalysis.purchaseRequired,/Possible stock/.test(P('f1').aiAnalysis.items[0].rec),P('f2').aiAnalysis.purchaseRequired,P('f3').aiAnalysis.purchaseRequired];
+    let sel=document.getElementById('ppBuyer');if(!sel){sel=document.createElement('input');sel.id='ppBuyer';sel.style.display='none';document.body.appendChild(sel);}sel.value='joshane';
+    __PURPRO.reviewPR('f4');await sleep(20);const rv=[P('f4').status,P('f4').buyer,!!P('f4').reviewedBy];
+    __PURPRO.verifyPR('f4');await sleep(20);const sc=P('f4').stockCheck||{};const l=(sc.lines||[])[0]||{};
+    try{sel.remove();}catch(e){}window.__hnxSos=S0;window.getCurrentUser=g0;
+    return {ai,rv,snap:[P('f4').status,l.sosItem,l.onHand,l.match]};})()`),
+  expect:{ai:[true,true,false,false],rv:['Inventory Verification','joshane',true],snap:['Supplier Sourcing','Cement 40kg',30,'name']} },
+
+{ name:'📥 QT-04: SOS import of 3 POs — PO-100 CANCELLED ₱180,000 (and its row from an earlier import) is dropped, PO-101 open with 0 received is not history yet, PO-102 closed with 8 of 10 received → one row, qty 8 @ ₱50 (v22.31)',
+  requires:NEED,seed:SEED,
+  run:new Function(`return (async()=>{${PRE}as('eyal');await sleep(4000);try{window._renderAcctPurchasing=()=>{};}catch(e){}const A0=window.__hnxApi;
+    put('hydroPro_acct_purch_history',[{id:'ph_sos_PO100_0',source:'sos',poNumber:'PO-100',lineIdx:0,product:'Tractor tyre',supplier:'Goodyear',qty:4,unitCost:45000}]);
+    window.__hnxApi=()=>Promise.resolve({purchaseorders:[
+      {number:'PO-100',status:'Cancelled',vendor:{name:'Goodyear'},date:'2026-09-01',lines:[{item:{name:'Tractor tyre'},quantity:4,unitprice:45000,received:0}]},
+      {number:'PO-101',status:'Open',vendor:{name:'Wilcon'},date:'2026-10-01',lines:[{item:{name:'Cement'},quantity:20,unitprice:300,received:0}]},
+      {number:'PO-102',status:'Closed',vendor:{name:'Netafim'},date:'2026-10-03',lines:[{item:{name:'Dripper'},quantity:10,unitprice:50,received:8}]}]});
+    let res=null;window._purchSyncFromSOS(r=>{res=r;});await sleep(300);window.__hnxApi=A0;
+    const H=J('hydroPro_acct_purch_history');window.getCurrentUser=g0;
+    return {n:H.length,rows:H.map(h=>[h.poNumber,h.product,h.qty,h.unitCost])};})()`),
+  expect:{n:1,rows:[['PO-102','Dripper',8,50]]} },
+
+{ name:'✍ IV-05: Eyal raised IR-7 (2 approval levels) — he cannot approve it, nor push it through with the executive override; Dr Amy approves level 1, and level 2 only after saying yes to "You already approved …" (written in the history) (v22.31)',
+  requires:NEED,seed:SEED,
+  run:new Function(`return (async()=>{${PRE}await sleep(4000);const TS=[];window.showToast=m=>TS.push(String(m));
+    put('hydroPro_inv_requests_v1',[{id:'r7',no:'IR-7',type:'issue',status:'submitted',itemName:'Gloves',qty:2,createdBy:'eyal',chain:[{role:'Dept Manager',status:'pending'},{role:'Division Head',status:'pending'}],history:[]}]);
+    const R=()=>J('hydroPro_inv_requests_v1')[0];
+    as('eyal');__hnxInvReq.approve('r7');try{__hnxInvReq.execApprove('r7');}catch(e){}await sleep(20);const eyal=[R().chain.filter(s=>s.status==='approved').length,TS.some(m=>/You raised IR-7/.test(m))];
+    as('amy');__hnxInvReq.approve('r7');await sleep(20);let ask=0;window.confirm=()=>{ask++;return true;};__hnxInvReq.approve('r7');await sleep(20);
+    const h=(R().history||[]).map(x=>x.act);window.getCurrentUser=g0;
+    return {eyal,amy:[R().status,ask],same:h.some(a=>/same person as Dept Manager/.test(a))};})()`),
+  expect:{eyal:[0,true],amy:['approved',1],same:true} },
+
+{ name:'⏱ PW-20: PO issued 1 Oct with a 5-day promise, delivered in two parts 3 Oct and 7 Oct → late (due 6 Oct, judged on the last delivery, 1 sample not 2); a PO with no promise uses the need-by 10 Oct and a 9 Oct delivery is on time (v22.31)',
+  requires:NEED,seed:SEED,
+  run:new Function(`return (async()=>{${PRE}await sleep(4000);
+    put('hydroPro_purch_prs',[{id:'t1',number:'PR-T1',needBy:'2026-10-20',items:[]},{id:'t2',number:'PR-T2',needBy:'2026-10-10',items:[]}]);
+    const iss=new Date('2026-10-01T02:00:00Z').getTime();
+    put('hydroPro_purch_pos',[{id:'o1',prId:'t1',supplier:'Holcim',status:'Fully Delivered',issuedAt:iss,deliveryDays:5,items:[{qty:10}]},{id:'o2',prId:'t2',supplier:'Holcim',status:'Fully Delivered',items:[{qty:5}]}]);
+    put('hydroPro_purch_grns',[{id:'a',poId:'o1',date:'2026-10-03',lines:[{line:0,accepted:4}]},{id:'b',poId:'o1',date:'2026-10-07',lines:[{line:0,accepted:6}]},{id:'c',poId:'o2',date:'2026-10-09',lines:[{line:0,accepted:5}]}]);
+    const a=__PURPRO.poOnTime(J('hydroPro_purch_pos')[0]),b=__PURPRO.poOnTime(J('hydroPro_purch_pos')[1]);
+    return {a:[a.ok,a.due,a.last,a.basis],b:[b.ok,b.due,b.basis]};})()`),
+  expect:{a:[false,'2026-10-06','2026-10-07','promised'],b:[true,'2026-10-10','need-by']} },
+
+{ name:'📦 QT-13: the 📦 Vendors view belongs to the Accounting module (hidden), so following a Vendors link keeps the Accounting header (v22.31)',
+  requires:NEED,seed:SEED,
+  run:new Function(`return (async()=>{${PRE}await sleep(4000);
+    const acc=(window.MODULES&&MODULES.accounting&&MODULES.accounting.views)||[];const v=acc.find(x=>x.id==='acct_vendors');
+    const owners=Object.keys(window.MODULES||{}).filter(k=>((MODULES[k].views)||[]).some(x=>x.id==='acct_vendors'));
+    return {v:!!v,hidden:!!(v&&v.hidden),owners};})()`),
+  expect:{v:true,hidden:true,owners:['accounting']} }
 ];
