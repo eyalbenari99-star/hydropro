@@ -173,5 +173,17 @@ module.exports=[
     localStorage.setItem(CK,arr(2,i=>call(i)));if(window._perfCache)delete window._perfCache._calls;
     const a=window.loadCalls().length;window.__hnxRawSetSuppressed(CK,arr(3,i=>call(i)));const b=window.loadCalls().length;
     return {a,b};}),
-  expect:{a:2,b:3} }
+  expect:{a:2,b:3} },
+
+{ name:'✍ v22.32 a person\'s action is dated so the newest copy wins everywhere: accept a call → updatedAt stamped; approve 1 resolved issue and reject another → both stamped; against the cloud copy the approval counts as newer work (fwd 1), the rejection (a move back) does not (2 changed, fwd 1)',
+  requires:"typeof acceptCall==='function'&&String(window.hnxApproveIssue).indexOf('v22.32: stamped')>=0",
+  run:run(async()=>{await sleep(3000);window.confirm=()=>true;window.showToast=()=>{};
+    const t0=Date.now();
+    localStorage.setItem(CK,arr(2,i=>call(i,{status:'new_call'})));if(window._perfCache)delete window._perfCache._calls;
+    acceptCall('CALL-0');const c0=(loadCalls()||[]).find(c=>c.id==='CALL-0')||{};
+    const before=arr(2,i=>iss(i,{status:'resolved',resolvedAt:T0,awaiting_approval_since:T0}));localStorage.setItem(IK,before);
+    window.hnxApproveIssue('ISS-0','Eyal');window.hnxRejectIssue('ISS-1','not done','Eyal');
+    const after=localStorage.getItem(IK),a=JSON.parse(after);const st=window.__hnxDsStats(before,after,IK,true)||{};
+    return {call:c0.status==='accepted'&&c0.updatedAt>=t0,approved:a[0].status==='approved'&&a[0].updatedAt>=t0,rejected:a[1].status==='in_progress'&&a[1].updatedAt>=t0,changed:st.changed,fwd:st.fwd};}),
+  expect:{call:true,approved:true,rejected:true,changed:2,fwd:1} }
 ];
