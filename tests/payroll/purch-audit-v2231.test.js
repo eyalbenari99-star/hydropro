@@ -211,5 +211,18 @@ module.exports=[
     const acc=(window.MODULES&&MODULES.accounting&&MODULES.accounting.views)||[];const v=acc.find(x=>x.id==='acct_vendors');
     const owners=Object.keys(window.MODULES||{}).filter(k=>((MODULES[k].views)||[]).some(x=>x.id==='acct_vendors'));
     return {v:!!v,hidden:!!(v&&v.hidden),owners};})()`),
-  expect:{v:true,hidden:true,owners:['accounting']} }
+  expect:{v:true,hidden:true,owners:['accounting']} },
+
+{ name:'📇 QT-12: Vendors — adding "Holcim Philippines" twice keeps 1 row (the second fills its phone 0917 000 1111 after a yes); ✏ fills the form with the row and "Save changes" writes the new e-mail onto the same row (still 1) (v22.31)',
+  requires:NEED,seed:SEED,
+  run:new Function(`return (async()=>{${PRE}as('eyal');await sleep(4000);put('hydroPro_acct_vendors',[]);
+    window._renderAcctVendors();await sleep(50);const set=(k,v)=>{const e=document.getElementById('ae_'+k);if(e)e.value=v;};
+    const F=JSON.stringify([{key:'name',label:'Name',required:true},{key:'contact',label:'Contact'},{key:'phone',label:'Phone'},{key:'email',label:'Email'},{key:'tin',label:'TIN'}]);
+    set('name','Holcim Philippines');window._acctEntityAdd('hydroPro_acct_vendors','acct_vendors',F);await sleep(30);
+    set('name','holcim philippines ');set('phone','0917 000 1111');window._acctEntityAdd('hydroPro_acct_vendors','acct_vendors',F);await sleep(30);
+    const V=()=>J('hydroPro_acct_vendors');const a=[V().length,V()[0].phone];
+    window._acctEntityEdit('hydroPro_acct_vendors',V()[0].id,'acct_vendors');await sleep(30);const filled=(document.getElementById('ae_name')||{}).value;
+    set('email','sales@holcim.ph');window._acctEntityAdd('hydroPro_acct_vendors','acct_vendors',F);await sleep(30);
+    window.getCurrentUser=g0;return {a,filled,b:[V().length,V()[0].email,V()[0].phone]};})()`),
+  expect:{a:[1,'0917 000 1111'],filled:'Holcim Philippines',b:[1,'sales@holcim.ph','0917 000 1111']} }
 ];
