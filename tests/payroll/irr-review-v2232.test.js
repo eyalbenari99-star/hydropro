@@ -76,7 +76,8 @@ module.exports=[
   requires:NEW,
   run:fn(`irrSavePool('P01','water','30');irrSavePool('P01','EC','1.7');await sleep(300);hnxIrrViz.setMotion('always');renderIrrPoolMonitor();await sleep(400);
     const rx=()=>RX('P01');const fills=()=>[...rx().querySelectorAll('.fill')];
-    const inView=async()=>{try{rx().scrollIntoView({block:'center'});}catch(e){}await sleep(250);}; /* a drawing out of view stops moving (iv-off) */
+    const seen=async(id)=>{for(let i=0;i<25;i++){const x=document.querySelector('.irr-rx[data-rxpool="'+(id||'P01')+'"]');if(x){try{x.scrollIntoView({block:'center'});}catch(e){}if(!x.classList.contains('iv-off'))return true;}await new Promise(r=>setTimeout(r,100));}return false;};
+    const inView=async()=>{await seen();}; /* a drawing out of view stops moving (iv-off): bring it into view and wait until it is seen */
     await inView();
     const delay=getComputedStyle(fills()[1]).animationDelay;
     rx().classList.add('iv-off');const off=getComputedStyle(fills()[0]).animationName;rx().classList.remove('iv-off');
@@ -94,7 +95,9 @@ module.exports=[
   requires:NEW,
   drive:async pg=>{
     const r=await pg.evaluate(async()=>{const sleep=ms=>new Promise(r=>setTimeout(r,ms));localStorage.setItem('_v2_46_97_dose_migration_done','1');window.showToast=()=>{};window.__hnxPulledOk=true;
-      switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('08:00');irrSavePool('P01','water','30');irrSavePool('P01','EC','1.7');await sleep(300);hnxIrrViz.setMotion('always');renderIrrPoolMonitor();await sleep(400);return !!document.querySelector('.irr-rx[data-rxpool="P01"] .fill');});
+      switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('08:00');irrSavePool('P01','water','30');irrSavePool('P01','EC','1.7');await sleep(300);hnxIrrViz.setMotion('always');renderIrrPoolMonitor();await sleep(400);
+      const seen=async(id)=>{for(let i=0;i<25;i++){const x=document.querySelector('.irr-rx[data-rxpool="'+(id||'P01')+'"]');if(x){try{x.scrollIntoView({block:'center'});}catch(e){}if(!x.classList.contains('iv-off'))return true;}await new Promise(r=>setTimeout(r,100));}return false;};await seen(); /* on screen it must be in view to move (iv-off) */
+      return !!document.querySelector('.irr-rx[data-rxpool="P01"] .fill');});
     await pg.emulateMedia({media:'print'});
     const a=await pg.evaluate(()=>{const el=document.querySelector('.irr-rx[data-rxpool="P01"] .fill');return el?getComputedStyle(el).animationName:'no drawing';});
     await pg.emulateMedia({media:'screen'});

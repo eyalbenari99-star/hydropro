@@ -120,7 +120,7 @@ module.exports=[
       line:/A WORKER: ₱3,600\.00 → ₱3,900\.00 \(\+₱300\.00\)/.test(diffMsg),rate:/rate ₱600\.00 → ₱650\.00/.test(diffMsg),afterCancel:r1.status,afterOk:r2.status,total:r2.reapproveDiff&&r2.reapproveDiff.total};},
   expect:{reopenSaysRates:true,snapNet:3600,newNet:3900,line:true,rate:true,afterCancel:'draft',afterOk:'approved',total:300} },
 
-{ name:'↻ RECALCULATE on a paid week says it goes back to DRAFT (not "Status stays approved"), keeps B — paid ₱3,948 though his card has moved to office since — on the run (also after the 8-second active-only scrub, v22.44), and 🔄 Recalculate keeps the paid ₱3,948 on record (audit D rates-master-other-02)',
+{ name:'↻ RECALCULATE on a paid week says it goes back to DRAFT (not "Status stays approved"), keeps B — paid ₱3,948 though his card has moved to office since — on the run (also after the 8-second active-only scrub, v22.42), and 🔄 Recalculate keeps the paid ₱3,948 on record (audit D rates-master-other-02)',
   run:async()=>{
     const B=labour('B','B MOVED',{salaryCategory:'accounting',dept:'Accounting',employmentType:'Probationary'}),K=labour('K','K STAYS',{employmentType:'Probationary'});setE([B,K]);if(typeof loadEmployees==='function')loadEmployees();
     const a={};['2026-09-03','2026-09-04','2026-09-05','2026-09-07','2026-09-08','2026-09-09'].forEach(d=>{a[d]={B:rec('present','07:00','17:00'),K:rec('present','07:00','17:00')};});setA(a);
@@ -131,7 +131,7 @@ module.exports=[
     const asked=[];window.confirm=m=>{asked.push(String(m));return true;};window.alert=()=>{};
     window.hnxPayRecalc('ops');await sleep(800);
     renderPayrollOps();await sleep(800);
-    if(typeof window.__hnxPayActiveScrub==='function')window.__hnxPayActiveScrub(); /* v22.44: the 8 s scrub ran at a random moment (1 CI run in 5 lost B) */
+    if(typeof window.__hnxPayActiveScrub==='function')window.__hnxPayActiveScrub(); /* v22.42: the 8 s scrub ran at a random moment (1 CI run in 5 lost B) */
     const r1=get();
     payOpsRecalc();await sleep(800);
     if(typeof window.__hnxPayActiveScrub==='function')window.__hnxPayActiveScrub();
@@ -140,7 +140,7 @@ module.exports=[
       bInAfter:(r2.lines||[]).some(l=>l.empId==='B'),paidB:((last.paidLines||[]).find(p=>p.empId==='B')||{}).netPay,status:r2.status};},
   expect:{msgDraft:true,msgStays:false,bIn:true,bInAfter:true,paidB:3948,status:'draft'} },
 
-{ name:'🧹 the 8-second active-only scrub and a REOPENED 3–9 Sep week: B (paid ₱3,948 there, card moved to office since) and K stay on the stored draft — 2 lines, ₱3,948 for B; X (card on office, NOT in the paid run) is still taken off; a second pass writes nothing (v22.44, audit D rates-master-other-02)',
+{ name:'🧹 the 8-second active-only scrub and a REOPENED 3–9 Sep week: B (paid ₱3,948 there, card moved to office since) and K stay on the stored draft — 2 lines, ₱3,948 for B; X (card on office, NOT in the paid run) is still taken off; a second pass writes nothing (v22.42, audit D rates-master-other-02)',
   requires:"typeof window.__hnxPayActiveScrub==='function'",
   run:async()=>{
     const B=labour('B','B MOVED',{salaryCategory:'accounting',dept:'Accounting',employmentType:'Probationary'}),K=labour('K','K STAYS',{employmentType:'Probationary'}),
@@ -163,7 +163,7 @@ module.exports=[
       paidB:(((r1.approvalHistory||[]).slice(-1)[0]||{}).paidLines||[]).filter(p=>p.empId==='B').map(p=>p.netPay)[0]};},
   expect:{ids:['B','K'],bNet:3948,status:'draft',secondPassWrites:false,paidB:3948} },
 
-{ name:'🧹 a 3–9 Sep week already REOPENED when Nexi loads (paid B ₱3,948 + K ₱3,948, B\'s card moved to office since) still holds B and K — 2 lines — after start-up and the first active-only scrub passes, with no payroll screen opened (v22.44, audit D rates-master-other-02)',
+{ name:'🧹 a 3–9 Sep week already REOPENED when Nexi loads (paid B ₱3,948 + K ₱3,948, B\'s card moved to office since) still holds B and K — 2 lines — after start-up and the first active-only scrub passes, with no payroll screen opened (v22.42, audit D rates-master-other-02)',
   seed:()=>{
     const E=(id,name,x)=>Object.assign({id,name,status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',employmentType:'Probationary',dailyRate:658,dateHired:'2025-01-01',hireDate:'2025-01-01'},x||{});
     localStorage.setItem('hydroPro_employees',JSON.stringify([E('B','B MOVED',{salaryCategory:'accounting',dept:'Accounting'}),E('K','K STAYS')]));
