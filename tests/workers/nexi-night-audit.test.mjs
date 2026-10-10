@@ -1,0 +1,31 @@
+// nexi-night-audit v2.0.0 (fleet audit L34): the Night Auditor reported 0 findings every night. Run: node tests/workers/nexi-night-audit.test.mjs
+import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+const here = dirname(fileURLToPath(import.meta.url));
+const dir = mkdtempSync(join(tmpdir(), 'nna-'));
+const file = join(dir, 'na.mjs');
+writeFileSync(file, readFileSync(join(here, '../../workers/nexi-night-audit.js'), 'utf8'));
+const mod = await import(pathToFileURL(file).href);
+const worker = mod.default;
+let fails = 0;
+const check = (name, ok, got) => { console.log((ok ? '  ✓ ' : '  ✗ ') + name + (ok ? '' : '  got: ' + JSON.stringify(got).slice(0, 300))); if (!ok) fails++; };
+const D = mod.totalDistFromStops;
+check('distance = the app rule: odometer KM 12039.2 / 12060 / 12080.4 after ODO OUT 12000 → 39.2 + 20.8 + 20.4 = 80.4 km', D([{ km: null }, { km: 12039.2 }, { km: 12060 }, { km: 12080.4 }], undefined, 12000) === 80.4, D([{ km: null }, { km: 12039.2 }, { km: 12060 }, { km: 12080.4 }], undefined, 12000));
+check('tracker counting from 0 at the base: 39.2 then 80.4 → 80.4 km (first leg = the first KM, v21.58)', D([{ km: null }, { km: 39.2 }, { km: 80.4 }], undefined, 12000) === 80.4, D([{ km: null }, { km: 39.2 }, { km: 80.4 }], undefined, 12000));
+check('per-leg KM mode: 17 then 4 → 21 km (was −13)', D([{ km: 17 }, { km: 4 }], 'trip') === 21, D([{ km: 17 }, { km: 4 }], 'trip'));
+const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+const reports = { [today + '::V1']: { vehicleId: 'V1', date: today, odoOut: 1000, odoIn: 1100, stops: [{ km: null }, { km: 60 }, { km: 140 }] } };
+let publicCalls = 0; const realFetch = globalThis.fetch; globalThis.fetch = async () => { publicCalls++; return new Response('nope', { status: 404 }); };
+const seen = [];
+const env = { HNX_SYNC_USER: 'nexi-audit', HNX_SYNC_PASS_HASH: 'h', AUDIT_KV: { m: new Map(), async get(k) { return this.m.get(k) || null; }, async put(k, v) { this.m.set(k, v); } },
+  HNX_SYNC: { fetch: async (r) => { const u = new URL(r.url); seen.push(u.pathname);
+    if (u.pathname === '/auth/app-login') return new Response(JSON.stringify({ token: 'T' }), { status: 200 });
+    if (u.pathname === '/sync/pull') return new Response(JSON.stringify({ ok: true, data: { hydroPro_gps_reports: JSON.stringify(reports) } }), { status: 200 });
+    return new Response('{}', { status: 404 }); } } };
+const res = await (await worker.fetch(new Request('https://na.test/audit/run', { method: 'POST' }), env, {})).json();
+globalThis.fetch = realFetch;
+check('a wrapped /sync/pull answer {data:{key:"<JSON>"}} with odometer 100 km vs GPS 140 km (+40 %) → 1 danger finding (was 0); hnx-sync through the binding, 0 public calls', Array.isArray(res.findings) && res.findings.length === 1 && res.findings[0].severity === 'danger' && publicCalls === 0 && seen.join(',') === '/auth/app-login,/sync/pull', { res, publicCalls, seen });
+console.log(fails ? fails + ' failed' : '4/4 passed');
+process.exit(fails ? 1 : 0);
