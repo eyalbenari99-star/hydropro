@@ -42,20 +42,20 @@ module.exports=[
     return {seeBefore,listBefore,priv,notListed,shared,seeAfter,assignedVis:A.visibility,mandatory:A.mandatory,madePersonal,stillVis:A.visibility,benSees};})()`),
   expect:{seeBefore:false,listBefore:false,priv:true,notListed:true,shared:true,seeAfter:true,assignedVis:'team',mandatory:true,madePersonal:false,stillVis:'team',benSees:false} },
 
-{ name:'☐ A required open subtask blocks the parent from Done (“1 required subtask(s) still open”); an optional one does not; the department head waives it → Done goes through (v21.17)',
+{ name:'☐ A required open subtask blocks the parent from Done (“1 required subtask(s) still open”); an optional one does not (from the v22.29 trial an open optional one also blocks: “1 optional subtask still open — close or cancel it”, R11 S01); the department head waives it → Done goes through (v21.17)',
   seed:SEED,
   run:new Function(`return (async()=>{${AS}
     await sleep(6000);as('maria');
     const p=HNXTASKS.create({title:'Obtain buyer approval and first release',due:today,visibility:'team'});
     const r=HNXTASKS.create({title:'Confirm available kg',parentId:p.id,required:true,owner:'maria'});
     const o=HNXTASKS.create({title:'Nice-to-have photo',parentId:p.id,required:false,owner:'maria'});
-    const why=HNXTASKS.doneCheck(p);const first=HNXTASKS.setStatus(p.id,'done');
+    const why0=HNXTASKS.doneCheck(p),why=why0.filter(w=>!/optional subtask/.test(w)),optRule=(why0.length-why.length)===(window.__hnxTasksRules>=1?1:0);const first=HNXTASKS.setStatus(p.id,'done');
     as('jinky');HNXTASKS.setStatus(o.id,'done');const w=window.HNXTASKS;
     const waived=(function(){try{return !!(w.load().find(x=>x.id===r.id));}catch(e){return false;}})();
     window.confirm=()=>true;w.waive(p.id,r.id);await sleep(100);const R=w.load().find(x=>x.id===r.id);
     as('maria');const second=w.setStatus(p.id,'done');const P=w.load().find(x=>x.id===p.id);
-    return {why,first,waived,waivedBy:R.waived&&R.waived.by,second,status:P.status};})()`),
-  expect:{why:['1 required subtask(s) still open'],first:false,waived:true,waivedBy:'jinky',second:true,status:'done'} },
+    return {why,optRule,first,waived,waivedBy:R.waived&&R.waived.by,second,status:P.status};})()`),
+  expect:{why:['1 required subtask(s) still open'],optRule:true,first:false,waived:true,waivedBy:'jinky',second:true,status:'done'} },
 
 { name:'📎 Evidence required refuses Done until a note or link is added; an approval task goes To do → Pending review, the owner cannot approve it, the reviewer can return it (owner back In progress with the note) and then approve it → Done stamped by the reviewer (v21.17)',
   seed:SEED,
