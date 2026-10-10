@@ -187,5 +187,102 @@ module.exports=[
     window.hnxApproveIssue('ISS-0','Eyal');window.hnxRejectIssue('ISS-1','not done','Eyal');
     const after=localStorage.getItem(IK),a=JSON.parse(after);const st=window.__hnxDsStats(before,after,IK,true)||{};
     return {call:c0.status==='accepted'&&c0.updatedAt>=t0,approved:a[0].status==='approved'&&a[0].updatedAt>=t0,rejected:a[1].status==='in_progress'&&a[1].updatedAt>=t0,changed:st.changed,fwd:st.fwd};}),
-  expect:{call:true,approved:true,rejected:true,changed:2,fwd:1} }
+  expect:{call:true,approved:true,rejected:true,changed:2,fwd:1} },
+
+{ name:'☁ (review 2) This computer’s own upload is what the cloud holds: a 1.2 MB store goes up, the next download returns the same copy (5-minute merge pace running) → NOT held as "waiting for its merge", the next edit goes up at once (it waited up to 5 min); the "too big" line stays through a download and an empty upload',
+  requires:"/__hnxSkNotice/.test(String(window.HNX_Cloud&&window.HNX_Cloud.push))",
+  run:run(async()=>{await sleep(4000);
+    const GK='hydroPro_zz_big12_v1',BK='hydroPro_zz_bigstore_v1';
+    localStorage.setItem('hnx_cloud_token','t');window.__hnxPulledOk=true;window.__hnxStaleApp=null;const C=window.HNX_Cloud;C.state.online=true;C.state.syncing=false;C.state.error=null;
+    window.__hnxPushSkipped=[];localStorage.removeItem('hnxlocal_push_skipped_v1');
+    const of=window.fetch;let cloud={};const sent=[];
+    window.fetch=function(u,o){u=String(u);
+      if(u.indexOf('/sync/push')>=0){let d={};try{d=JSON.parse(o.body).data||{};}catch(e){}const ks=Object.keys(d);sent.push(ks);const keys=ks.filter(k=>k!==BK);keys.forEach(k=>cloud[k]=d[k]);return Promise.resolve(new Response(JSON.stringify({ok:true,written:keys.length,keys}),{status:200}));}
+      if(u.indexOf('/sync/pull')>=0){const m=/keys=([^&]+)/.exec(u);const want=m?decodeURIComponent(m[1]).split(','):Object.keys(cloud);const data={};want.forEach(k=>{if(cloud[k]!=null)data[k]=cloud[k];});return Promise.resolve(new Response(JSON.stringify({ok:true,data}),{status:200}));}
+      return of.apply(this,arguments);};
+    try{
+      const big=n=>JSON.stringify(Array.from({length:6000},(_,i)=>({id:'G'+i,v:'x'.repeat(180),n})));
+      localStorage.setItem(GK,big(1));window.__hnxMarkDirtyKey(GK);C.state.syncing=false;await C.push();
+      (window.__hnxBigMerged=window.__hnxBigMerged||{})[GK]=Date.now(); /* the 5-minute pace is running */
+      C.state.syncing=false;await C.pull([GK]);const owed=!!(window.__hnxMergeOwed&&window.__hnxMergeOwed[GK]);
+      localStorage.setItem(GK,big(2));window.__hnxMarkDirtyKey(GK);const i0=sent.length;C.state.syncing=false;await C.push();const second=sent.slice(i0).some(ks=>ks.includes(GK));
+      /* the notice */
+      localStorage.setItem(BK,arr(5,i=>call(i,{updatedAt:T1})));window.__hnxMarkDirtyKey(BK);C.state.syncing=false;await C.push();const e1=String(C.state.error||'');
+      C.state.syncing=false;await C.pull([GK]);const e2=String(C.state.error||'');
+      C.state.syncing=false;await C.push();const e3=String(C.state.error||'');
+      return {size:big(1).length>1000000,owed,second,notice:[/zz_bigstore_v1/.test(e1),/zz_bigstore_v1/.test(e2),/zz_bigstore_v1/.test(e3)]};
+    }finally{window.fetch=of;localStorage.removeItem('hnx_cloud_token');}}),
+  expect:{size:true,owed:false,second:true,notice:[true,true,true]} },
+
+{ name:'☁ (review 2) After an edit, the quick upload does not re-download a refused store it is holding back; a refusal stamped by a clock that ran a day ahead does not hold the store',
+  requires:"/__hnxSkNotice/.test(String(window.HNX_Cloud&&window.HNX_Cloud.push))&&typeof window.__hnxSyncPushSoon==='function'",
+  run:run(async()=>{await sleep(4000);
+    const BK='hydroPro_zz_bigstore_v1',MK='hydroPro_zz_small_v1';
+    localStorage.setItem('hnx_cloud_token','t');window.__hnxPulledOk=true;window.__hnxStaleApp=null;const C=window.HNX_Cloud;C.state.online=true;C.state.syncing=false;C.state.error=null;
+    window.__hnxPushSkipped=[];localStorage.removeItem('hnxlocal_push_skipped_v1');
+    const of=window.fetch;const pulls=[],pushes=[];
+    window.fetch=function(u,o){u=String(u);
+      if(u.indexOf('/sync/push')>=0){let d={};try{d=JSON.parse(o.body).data||{};}catch(e){}const ks=Object.keys(d);pushes.push(ks);const keys=ks.filter(k=>k!==BK);return Promise.resolve(new Response(JSON.stringify({ok:true,written:keys.length,keys}),{status:200}));}
+      if(u.indexOf('/sync/pull')>=0){pulls.push(u);return Promise.resolve(new Response(JSON.stringify({ok:true,data:{}}),{status:200}));}
+      return of.apply(this,arguments);};
+    try{
+      localStorage.setItem(BK,arr(5,i=>call(i,{updatedAt:T1})));window.__hnxMarkDirtyKey(BK);C.state.syncing=false;await C.push();
+      const p0=pulls.length;localStorage.setItem(MK,JSON.stringify([{id:'m'+Date.now()}]));window.__hnxMarkDirtyKey(MK);window.__hnxSyncPushSoon(MK);await sleep(5200);
+      const quickPulls=pulls.slice(p0);const bkPulled=quickPulls.some(u=>decodeURIComponent(u).indexOf(BK)>=0);
+      /* a refusal stamped a day in the future */
+      (window.__hnxPushSkipped||[]).forEach(x=>{if(x.k===BK)x.at=Date.now()+864e5;});
+      const i0=pushes.length;C.state.syncing=false;await C.push();const sentAgain=pushes.slice(i0).some(ks=>ks.includes(BK));
+      return {quickPulled:quickPulls.length>0,bkPulled,sentAgain};
+    }finally{window.fetch=of;localStorage.removeItem('hnx_cloud_token');}}),
+  expect:{quickPulled:true,bkPulled:false,sentAgain:true} },
+
+{ name:'🗂 (review 2) The issue window never writes a status that changed while it was open: ISS-0 resolved, window opened, the caller approves on another computer → Save "resolved" + a note → nothing saved (still approved, a warning); a fresh window with the same status + a note → only the note is added (resolvedAt and the approval clock unchanged)',
+  requires:"/data-was/.test(String(window.openIssueDetail||''))||/data-was/.test(String(window.saveIssueStatus||''))",
+  run:run(async()=>{await sleep(3000);let warn='';window.showToast=(m,k)=>{if(k==='warn')warn=m;};
+    const D2=Date.now()-2*864e5;
+    localStorage.setItem(IK,JSON.stringify([iss(0,{status:'resolved',resolvedAt:D2,awaiting_approval_since:D2,updatedAt:D2}),iss(1,{status:'resolved',resolvedAt:D2,awaiting_approval_since:D2,updatedAt:D2})]));
+    openIssueDetail('ISS-0');await sleep(200);
+    window.hnxApproveIssue('ISS-0','Eyal'); /* arrives from another computer while the window is open */
+    document.getElementById('issueStatusSelect').value='resolved';document.getElementById('issueStatusNote').value='done here';saveIssueStatus('ISS-0');await sleep(200);
+    const a=JSON.parse(localStorage.getItem(IK)).find(x=>x.id==='ISS-0');
+    try{document.getElementById('issueDetailModal').classList.remove('open');}catch(e){}
+    openIssueDetail('ISS-1');await sleep(200);document.getElementById('issueStatusSelect').value='resolved';document.getElementById('issueStatusNote').value='checked again';saveIssueStatus('ISS-1');await sleep(200);
+    const b=JSON.parse(localStorage.getItem(IK)).find(x=>x.id==='ISS-1');
+    return {kept:a.status,warned:/changed since you opened it/.test(warn),noteOnly:{status:b.status,resolvedAt:b.resolvedAt===D2,clock:b.awaiting_approval_since===D2,note:(b.history||[]).some(h=>h.action==='note'&&h.note==='checked again')}};}),
+  expect:{kept:'approved',warned:true,noteOnly:{status:'resolved',resolvedAt:true,clock:true,note:true}} },
+
+{ name:'📞 (review 2) A refused submit never auto-assigns an existing call: routing maintenance → tester, the last call C-OLD is closed and unassigned, Submit with an empty subject → C-OLD unchanged (it was re-opened as "accepted" by tester with a new stamp)',
+  requires:"typeof window.submitCall==='function'&&!!window.submitCall.__autoassign&&/before\\.has/.test(String(window.submitCall))",
+  run:run(async()=>{await sleep(3000);window._toast=()=>{};window.showToast=()=>{};
+    saveCallRouting({maintenance:{primary:['tester']}});
+    const old=call('OLD',{status:'closed_finalize',acceptedBy:'',department:'maintenance',closedBy:'system',closedAt:T0,updatedAt:T0});
+    localStorage.setItem(CK,JSON.stringify([call(1),old]));if(window._perfCache)delete window._perfCache._calls;
+    ['callSubject','callDesc'].forEach(id=>{if(!document.getElementById(id)){const el=document.createElement('input');el.id=id;el.style.display='none';document.body.appendChild(el);}document.getElementById(id).value='';});
+    try{window.submitCall();}catch(e){}
+    if(window._perfCache)delete window._perfCache._calls;const c=(loadCalls()||[]).find(x=>x.id==='CALL-OLD')||{};
+    return {status:c.status,acceptedBy:c.acceptedBy||'',stamp:c.updatedAt};}),
+  expect:{status:'closed_finalize',acceptedBy:'',stamp:1790000000000} },
+
+{ name:'✅ (review 2) A Daily Check-in never moves an approved or cancelled issue back: "working" on an approved issue and "fixed" on a cancelled one → statuses kept, a "status kept" line added; "fixed" on a resolved issue keeps its resolvedAt',
+  requires:"typeof _tt_applyCheckinToSource==='function'&&/checkin_kept/.test(String(_tt_applyCheckinToSource))",
+  run:run(async()=>{await sleep(3000);
+    localStorage.setItem(IK,JSON.stringify([iss(0,{status:'approved',updatedAt:T1}),iss(1,{status:'cancelled',updatedAt:T1}),iss(2,{status:'resolved',resolvedAt:T0,updatedAt:T0})]));
+    _tt_applyCheckinToSource('iss:ISS-0','working','on it',{username:'jomel'});_tt_applyCheckinToSource('iss:ISS-1','fixed','',{username:'jomel'});_tt_applyCheckinToSource('iss:ISS-2','fixed','',{username:'jomel'});
+    const a=JSON.parse(localStorage.getItem(IK));
+    return {s:a.map(x=>x.status),lines:a.map(x=>(x.history||[]).filter(h=>h.action==='checkin_kept').length),resolvedAt:a[2].resolvedAt===T0};}),
+  expect:{s:['approved','cancelled','resolved'],lines:[1,1,1],resolvedAt:true} },
+
+{ name:'⏰ (review 2) The approval clock starts at the LAST resolve: board resolve (clock set), then in progress (clock cleared), then resolve again → the clock is this resolve, not the first; a reopened call that Nexi had closed is no longer "closed by Nexi" and its done task goes back to started',
+  requires:"/awaiting_approval_since=null/.test(String(window.updateIssueStatus||updateIssueStatus))",
+  run:run(async()=>{await sleep(3000);window.confirm=()=>true;
+    const D4=Date.now()-4*864e5;localStorage.setItem(IK,JSON.stringify([iss(0,{status:'resolved',resolvedAt:D4,awaiting_approval_since:D4,updatedAt:D4})]));
+    updateIssueStatus('ISS-0','in_progress','');const mid=JSON.parse(localStorage.getItem(IK))[0].awaiting_approval_since;
+    const t0=Date.now();updateIssueStatus('ISS-0','resolved','');const fin=JSON.parse(localStorage.getItem(IK))[0].awaiting_approval_since;
+    /* re-open */
+    const tasks=loadMaintTasks()||[];tasks.push({id:'MT-R2',title:'pool alarm',status:'done',doneDate:'2026-10-09'});saveMaintTasks(tasks);
+    localStorage.setItem(CK,JSON.stringify([call('R',{status:'closed_fixed',closedAt:T1,closedBy:'system',autoResolved:true,autoResolvedAt:T1,autoResolvedReason:'back in range',maintTaskId:'MT-R2',updatedAt:T1})]));if(window._perfCache)delete window._perfCache._calls;
+    try{reopenCall('CALL-R');}catch(e){}
+    if(window._perfCache)delete window._perfCache._calls;const c=(loadCalls()||[]).find(x=>x.id==='CALL-R')||{};const t=(loadMaintTasks()||[]).find(x=>x.id==='MT-R2')||{};
+    return {mid,fresh:fin>=t0,reopened:{autoResolved:!!c.autoResolved,closed:typeof isCallClosed==='function'?isCallClosed(c):null,task:t.status}};}),
+  expect:{mid:null,fresh:true,reopened:{autoResolved:false,closed:false,task:'started'}} }
 ];
