@@ -173,5 +173,18 @@ module.exports=[
     const ecT=[...document.querySelectorAll('.hnx-iv[data-ivk="ec"][data-pool="P01"] .ivx-tgtl')].map(e=>e.textContent).join('|');
     const phT=[...document.querySelectorAll('.hnx-iv[data-ivk="ph"][data-pool="P01"] .ivx-tgtl')].map(e=>e.textContent).join('|');
     return {temp:has(/Water temperature 24.5/),air:has(/Air pump working/),ozone:has(/Ozone 55 s/),src:has(/Water source pure/),water:has(/fill to 60 cm, add 607 L/),a:has(/^A 3 L = 3 jugs/),b:has(/^B 3 L = 3 jugs/),c:has(/^C 165 cc/),ecT,phT};`),
-  expect:{temp:true,air:true,ozone:true,src:true,water:true,a:true,b:true,c:true,ecT:'→1.80',phT:'→6.20'} }
+  expect:{temp:true,air:true,ozone:true,src:true,water:true,a:true,b:true,c:true,ecT:'→1.80',phT:'→6.20'} },
+
+{ name:'☁ (review 3) A LOWERED dose is not undone by the cloud: Pool 1 at 40 cm, EC 1.7 → A 2 L; the daily target 50 → A 1 L (dated by Nexi); merging with the old cloud copy either way keeps A 1 L and the 50 cm dose (it went back to 2 L — the merge kept the larger undated number); a value a PERSON typed (5 L, older) beats Nexi\'s newer automatic 1 L',
+  requires:"typeof window.__hnxMergeIrrPool==='function'&&/_fieldTimestamps\\[k\\]=now/.test(String(window.autoFillRecommendations))",
+  run:fn(`irrSavePool('P01','water','40');irrSavePool('P01','EC','1.7');await sleep(300);
+    try{delete window._perfCache._irrPool;}catch(e){}const oldCloud=localStorage.getItem('hydroPro_irr_pool');
+    updatePoolDim('P01','dailyTarget','50');await sleep(300);try{delete window._perfCache._irrPool;}catch(e){}const local=localStorage.getItem('hydroPro_irr_pool');
+    const pick=raw=>{const o=JSON.parse(raw)[_irrDate].P01['08:00'];return {A:o.A,tgt:(o._dose||{}).target};};
+    const m1=window.__hnxMergeIrrPool(local,oldCloud),m2=window.__hnxMergeIrrPool(oldCloud,local);
+    const a=pick(m1.out||local),b=pick(m2.out||oldCloud);
+    const typed=JSON.parse(oldCloud);const rec=typed[_irrDate].P01['08:00'];rec.A=5;rec._autoFilled=Object.assign({},rec._autoFilled,{A:false});rec._fieldTimestamps=Object.assign({},rec._fieldTimestamps,{A:1});
+    const m3=window.__hnxMergeIrrPool(local,JSON.stringify(typed));const c=pick(m3.out||local);
+    return {local:pick(local),keep1:a,keep2:b,typedWins:c.A};`),
+  expect:{local:{A:1,tgt:50},keep1:{A:1,tgt:50},keep2:{A:1,tgt:50},typedWins:5} }
 ];

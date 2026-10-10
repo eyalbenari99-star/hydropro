@@ -253,8 +253,10 @@ module.exports=[
   expect:{kept:'approved',warned:true,noteOnly:{status:'resolved',resolvedAt:true,clock:true,note:true}} },
 
 { name:'📞 (review 2) A refused submit never auto-assigns an existing call: routing maintenance → tester, the last call C-OLD is closed and unassigned, Submit with an empty subject → C-OLD unchanged (it was re-opened as "accepted" by tester with a new stamp)',
-  requires:"typeof window.submitCall==='function'&&!!window.submitCall.__autoassign&&/before\\.has/.test(String(window.submitCall))",
+  requires:"typeof window.submitCall==='function'",
   run:run(async()=>{await sleep(3000);window._toast=()=>{};window.showToast=()=>{};
+    for(let w=0;w<20&&!(window.submitCall.__autoassign&&/before\.has/.test(String(window.submitCall)));w++)await sleep(500); /* the auto-assign wrapper is added a few seconds after load (review 3: the case used to be skipped) */
+    if(!(window.submitCall.__autoassign&&/before\.has/.test(String(window.submitCall))))return {status:'wrapper missing'};
     localStorage.setItem('hydroPro_call_routing',JSON.stringify({maintenance:{primary:['tester']}}));
     const old=call('OLD',{status:'closed_finalize',acceptedBy:'',department:'maintenance',closedBy:'system',closedAt:T0,updatedAt:T0});
     localStorage.setItem(CK,JSON.stringify([call(1),old]));if(window._perfCache)delete window._perfCache._calls;
@@ -285,5 +287,30 @@ module.exports=[
     try{reopenCall('CALL-R');}catch(e){}
     if(window._perfCache)delete window._perfCache._calls;const c=(loadCalls()||[]).find(x=>x.id==='CALL-R')||{};const t=(loadMaintTasks()||[]).find(x=>x.id==='MT-R2')||{};
     return {mid,fresh:fin>=t0,reopened:{autoResolved:!!c.autoResolved,status:c.status,task:t.status}};}),
-  expect:{mid:null,fresh:true,reopened:{autoResolved:false,status:'accepted',task:'started'}} }
+  expect:{mid:null,fresh:true,reopened:{autoResolved:false,status:'accepted',task:'started'}} },
+
+{ name:'☁ (review 3) A store edited WHILE it uploads stays unsent and goes up next (it was cleared and waited up to 30 min); a call a person re-opened is left alone by the alert janitor (an old pre-1 Oct alarm re-opened → not planned for closing)',
+  requires:"/__lsRawGet\\(k\\)===data\\[k\\]/.test(String(window.HNX_Cloud&&window.HNX_Cloud.push))",
+  run:run(async()=>{await sleep(4000);
+    const K='hydroPro_zz_live_v1';
+    localStorage.setItem('hnx_cloud_token','t');window.__hnxPulledOk=true;window.__hnxStaleApp=null;const C=window.HNX_Cloud;C.state.online=true;C.state.syncing=false;C.state.error=null;
+    const of=window.fetch;const sent=[];
+    window.fetch=function(u,o){u=String(u);
+      if(u.indexOf('/sync/push')>=0){let d={};try{d=JSON.parse(o.body).data||{};}catch(e){}const ks=Object.keys(d);sent.push(ks);
+        if(ks.includes(K))localStorage.setItem(K,JSON.stringify([{id:'r1'},{id:'r2-typed-during-upload'}])); /* an edit lands while the upload is on the way */
+        return new Promise(res=>setTimeout(()=>res(new Response(JSON.stringify({ok:true,written:ks.length,keys:ks}),{status:200})),300));}
+      if(u.indexOf('/sync/pull')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,data:{}}),{status:200}));
+      return of.apply(this,arguments);};
+    try{
+      localStorage.setItem(K,JSON.stringify([{id:'r1'}]));window.__hnxMarkDirtyKey(K);C.state.syncing=false;await C.push();await sleep(200);
+      const dirty=!!JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}')[K];
+      const i0=sent.length;C.state.syncing=false;await C.push();const again=sent.slice(i0).some(ks=>ks.includes(K));
+      /* re-open */
+      localStorage.removeItem('hnx_janitor_sept_v2226');
+      localStorage.setItem(CK,JSON.stringify([call('SEPT',{priority:'urgent',raisedAt:Date.parse('2026-09-20T02:00:00Z'),status:'closed_fixed',closedAt:T1,closedBy:'system',autoResolved:true,raisedBy:'system',automatic:true})]));if(window._perfCache)delete window._perfCache._calls;
+      window.confirm=()=>true;try{reopenCall('CALL-SEPT');}catch(e){}
+      const plan=window.hnxAlertJanitor?window.hnxAlertJanitor.plan():{};
+      return {dirty,again,reopened:!!((loadCalls()||[]).find(c=>c.id==='CALL-SEPT')||{}).reopenedAt,sept:plan.sept,auto:plan.auto};
+    }finally{window.fetch=of;localStorage.removeItem('hnx_cloud_token');}}),
+  expect:{dirty:true,again:true,reopened:true,sept:0,auto:0} }
 ];
