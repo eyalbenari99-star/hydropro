@@ -127,7 +127,7 @@ module.exports=[
     }finally{window.fetch=of;localStorage.removeItem('hnx_cloud_token');}}),
   expect:{sentCalls:true,callsDirty:true,memosDirty:false,skipped:['hydroPro_zz_bigstore_v1'],error:'not stored by the cloud (too big): zz_bigstore_v1 — kept on this computer'} },
 
-{ name:'☁ v22.32 a store the cloud refused is not re-sent unchanged for 30 min: push 1 sends the 5-call store (refused) → push 2 with the same store sends NOTHING (still unsent, still in the sync line) → one call changed → push 3 sends it again',
+{ name:'☁ v22.32 a store the cloud refused is not re-sent unchanged for 30 min: push 1 sends the 5-call store (refused) → push 2 with the same store sends NOTHING and the Data Safety gate does not re-weigh it (still unsent, still in the sync line) → one call changed → push 3 sends it again',
   requires:"/__hnxSkHash/.test(String(window.HNX_Cloud&&window.HNX_Cloud.push))",
   run:run(async()=>{await sleep(4000);
     const BK='hydroPro_zz_bigstore_v1';
@@ -138,15 +138,16 @@ module.exports=[
       if(u.indexOf('/sync/push')>=0){let d={};try{d=JSON.parse(o.body).data||{};}catch(e){}const ks=Object.keys(d);sent.push(ks.includes(BK));const keys=ks.filter(k=>k!==BK);return Promise.resolve(new Response(JSON.stringify({ok:true,written:keys.length,keys}),{status:200}));}
       if(u.indexOf('/sync/pull')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,data:{}}),{status:200}));
       return of.apply(this,arguments);};
-    const push=async()=>{C.state.syncing=false;window.__hnxMarkDirtyKey(BK);window.__hnxMarkDirtyKey('hydroPro_zz_small_v1');localStorage.setItem('hydroPro_zz_small_v1',JSON.stringify([{id:'m'+Math.random(),t:1}]));const i0=sent.length;await window.HNX_Cloud.push();const r={e:String(C.state.error||''),bk:sent.slice(i0).some(Boolean)};await sleep(500);return r;}; /* judged by its own request (an auto-upload may run in between) */
+    const og=window.__hnxPushGuard,gate=[];window.__hnxPushGuard=function(d){gate.push(Object.keys(d||{}).indexOf(BK)>=0);return og.apply(this,arguments);}; /* (review) the gate must not re-weigh a held-back store */
+    const push=async()=>{C.state.syncing=false;window.__hnxMarkDirtyKey(BK);window.__hnxMarkDirtyKey('hydroPro_zz_small_v1');localStorage.setItem('hydroPro_zz_small_v1',JSON.stringify([{id:'m'+Math.random(),t:1}]));const i0=sent.length,g0=gate.length;await window.HNX_Cloud.push();const r={e:String(C.state.error||''),bk:sent.slice(i0).some(Boolean),gate:gate.slice(g0).some(Boolean)};await sleep(500);return r;}; /* judged by its own request (an auto-upload may run in between) */
     try{
       localStorage.setItem(BK,arr(5,i=>call(i,{updatedAt:T1})));
       const p1=await push(),p2=await push();
       const d2=!!JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}')[BK];
       localStorage.setItem(BK,arr(5,i=>call(i,{updatedAt:T1+(i===0?60e3:0),status:i===0?'closed_fixed':'new'})));const p3=await push();
-      return {sent:[p1.bk,p2.bk,p3.bk],stillUnsent:d2,line:/zz_bigstore_v1/.test(p1.e)&&/zz_bigstore_v1/.test(p2.e)};
-    }finally{window.fetch=of;localStorage.removeItem('hnx_cloud_token');}}),
-  expect:{sent:[true,false,true],stillUnsent:true,line:true} },
+      return {sent:[p1.bk,p2.bk,p3.bk],gate:[p1.gate,p2.gate,p3.gate],stillUnsent:d2,line:/zz_bigstore_v1/.test(p1.e)&&/zz_bigstore_v1/.test(p2.e)};
+    }finally{window.fetch=of;window.__hnxPushGuard=og;localStorage.removeItem('hnx_cloud_token');}}),
+  expect:{sent:[true,false,true],gate:[true,false,true],stillUnsent:true,line:true} },
 
 { name:'☁ v22.32 a store still waiting for its merge (big store, 5-minute pace) is not uploaded until merged: owed → push sends the other store only, the owed one stays unsent; merged → it goes up',
   requires:"/__hnxMergeOwed/.test(String(window.HNX_Cloud&&window.HNX_Cloud.push))",

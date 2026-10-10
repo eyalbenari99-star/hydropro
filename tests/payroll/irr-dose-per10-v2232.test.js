@@ -105,6 +105,7 @@ module.exports=[
   requires:NEW,
   run:fn(`irrSavePool('P01','water','40');irrSavePool('P01','EC','1.7');await sleep(300);renderIrrPoolMonitor();await sleep(300);
     const f=()=>{const el=RX('P01')&&RX('P01').querySelector('.fill');const cs=el?getComputedStyle(el):null;return cs?cs.animationName+'/'+cs.animationIterationCount:'none';};
+    try{RX('P01').scrollIntoView({block:'center'});}catch(e){}await sleep(250); /* a drawing out of view stops moving */
     hnxIrrViz.setMotion('always');await sleep(100);const always=f();hnxIrrViz.setMotion('off');await sleep(100);const off=f();hnxIrrViz.setMotion('always');
     return {always,off};`),
   expect:{always:'irrRxFill/infinite',off:'none/1'} },
