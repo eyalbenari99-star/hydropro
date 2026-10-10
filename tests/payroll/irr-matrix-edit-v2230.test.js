@@ -156,4 +156,24 @@ module.exports.push(
       return {EC:r.EC,toast:(window.__toasts||[]).filter(m=>/Saved/.test(m)).map(m=>m.replace(/Saved \d\d:\d\d by \S+/,'Saved hh:mm by X')).pop()||'',
         line:line.replace(/Saved \d\d:\d\d by \S+/,'Saved hh:mm by X')};}).then(o=>Object.assign(o,{err}));
   },
-  expect:{'drive.err':'','drive.EC':'1.82','drive.toast':'✓ Saved hh:mm by X — Pool 1 · EC 1.82 (08:00 round)','drive.line':'✓ Saved hh:mm by X — Pool 1 · EC 1.82 (08:00 round)'} });
+  expect:{'drive.err':'','drive.EC':'1.82','drive.toast':'✓ Saved hh:mm by X — Pool 1 · EC 1.82 (08:00 round)','drive.line':'✓ Saved hh:mm by X — Pool 1 · EC 1.82 (08:00 round)'} },
+{ name:'🖱 A human click (80 ms press) on the cell to the RIGHT of an open box lands: Pool 1 water 41 is saved and Pool 2 water opens (the 150 px box used to close on mousedown and slide Pool 2 out from under the pointer)',
+  tz:'Asia/Manila', requires:NEW, viewport:{width:1366,height:768}, seed:CLOCK_AND_STORE('2026-10-10T04:30:00Z',STORE),
+  drive:async pg=>{
+    await pg.evaluate(()=>{window.showToast=()=>{};switchView('irr_matrix');});
+    const A='#irrMatrixBody td[data-edit-pool="P01"][data-edit-field="water"]',B='#irrMatrixBody td[data-edit-pool="P02"][data-edit-field="water"]';
+    await pg.waitForSelector(A,{timeout:10000});await pg.locator(A).click();await pg.keyboard.press('Control+A');await pg.keyboard.type('41');
+    const bb=await pg.locator(B).boundingBox();const x=bb.x+bb.width*0.7,y=bb.y+bb.height/2;
+    await pg.mouse.move(x,y);await pg.mouse.down();await pg.waitForTimeout(80);await pg.mouse.up();await pg.waitForTimeout(500);
+    return pg.evaluate(()=>{try{delete window._perfCache._irrPool;}catch(e){}const r=((loadIrrPool()['2026-10-10']||{}).P01||{});
+      const b=document.querySelector('#irrMatrixBody td[data-edit-pool="P02"][data-edit-field="water"]');
+      return {p1:(r['11:00']||{}).water,p2open:!!(b&&b.querySelector('.irr-mx-ed')),open:document.querySelectorAll('.irr-mx-ed').length};});
+  },
+  expect:{'drive.p1':'41','drive.p2open':true,'drive.open':1} },
+{ name:'🏊 Pool Monitor 💾 Save after Cancel on the "is this right?" question (Pool 1 EC 9 typed over 1.7): says "Not saved — …", never "Everything on this screen is saved"; EC stays 1.7',
+  tz:'Asia/Manila', requires:NEW, seed:CLOCK_AND_STORE('2026-10-10T04:30:00Z',STORE),
+  run:fn(`switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('08:00');renderIrrPoolMonitor();await sleep(400);window.confirm=()=>false;
+    const inp=document.querySelector('#stubIrrNutrientsBody input[onchange^="irrSavePool(\'P01\',\'EC\'"]');inp.focus();inp.value='9';window.__toasts=[];
+    irrSaveNow({type:'pointerdown'});await sleep(300);
+    return {toasts:(window.__toasts||[]).filter(m=>/saved|Saved/.test(m)),EC:(pool('P01')['08:00']||{}).EC};`),
+  expect:{toasts:['Not saved — that reading was not kept. Type it again and press 💾 Save.'],EC:'1.7'} });
