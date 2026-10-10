@@ -21,6 +21,21 @@ module.exports=[
     window.getCurrentUser=g;if(h!=null)localStorage.setItem('hnx_test_harness',h);return r;},
   expect:{mea:[false,false],admin:[true,true],eyal:[true,true]} },
 
+{ name:'📋 Job descriptions: Mea (admin role) sees only "🔒 kept by Jinky, Eyal and Dr Amy"; Jinky sees the form with NO Print JD button; Print refuses; two saves ("Grower" → "Senior Grower") keep 1 earlier version (v22.28)',
+  requires:"typeof window._hrJDAllowed==='function'",
+  run:async()=>{const h=localStorage.getItem('hnx_test_harness');localStorage.removeItem('hnx_test_harness');const g=window.getCurrentUser;window.showToast=()=>{};
+    const emp={id:'E1',name:'CRUZ, JUAN',dept:'Production'};
+    window.getCurrentUser=()=>({username:'mea',fullname:'Mea Magracia',role:'admin',active:true});
+    const mea=window._hr201JDSection(emp);const meaOk=window._hrJDAllowed();
+    window.getCurrentUser=()=>({username:'jinky',fullname:'Jinky Pagtama',role:'accounting',active:true});
+    const jin=window._hr201JDSection(emp);const host=document.createElement('div');host.innerHTML=jin;document.body.appendChild(host);
+    const save=t=>{document.getElementById('hrJDTitle_E1').value=t;try{window._hr201JDSave('E1');}catch(e){}};
+    save('Grower');save('Senior Grower');const jd=JSON.parse(localStorage.getItem('hydroPro_hr_201_jd_v1')||'{}').E1||{};
+    let printed=false;const ow=window.open;window.open=()=>{printed=true;return null;};try{window._hr201JDPrint('E1');}catch(e){}window.open=ow;
+    host.remove();window.getCurrentUser=g;if(h!=null)localStorage.setItem('hnx_test_harness',h);
+    return {meaLocked:/kept by Jinky, Eyal and Dr Amy/.test(mea)&&!/hrJDTitle_/.test(mea),meaOk,jinkyForm:/hrJDTitle_E1/.test(jin),printBtn:/Print JD/.test(jin),printed,title:jd.title,hist:(jd.history||[]).map(x=>x.title)};},
+  expect:{meaLocked:true,meaOk:false,jinkyForm:true,printBtn:false,printed:false,title:'Senior Grower',hist:['Grower']} },
+
 { name:'💰 Memo final approval: a −₱200 memo of 8 Oct for Juan, signed by Supervisor + HR Manager and CREATED 11 Oct (rule from 10 Oct) → payroll 5–11 Oct deducts ₱0 and lists it as not approved yet; after the FINAL approval it deducts ₱200; the same memo created 5 Oct (old rule) is deducted ₱200 at once (v22.28)',
   requires:"typeof window.hnxMemoNeedsFinal==='function'",
   run:async()=>{localStorage.setItem('hnx_memo_final_from','2026-10-10');
