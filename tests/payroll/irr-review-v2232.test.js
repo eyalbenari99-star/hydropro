@@ -148,11 +148,12 @@ module.exports=[
     return {past,today};`),
   expect:{past:false,today:true} },
 
-{ name:'🎞 (review 2) A jug waits EMPTY for its turn (no full jug that snaps empty): A 3.1 L in "always" → 150 ms after drawing, the 3rd jug is at scale 0 (a matrix, not "none"); the screen-reader label of a project pool with no EC says "A/B: enter EC first"; a fill-rule pool on 15% mix says "whole litres before ×1.15"; on a phone the Nexi row has no "Pool" card label',
+{ name:'🎞 (review 2) A jug waits EMPTY for its turn (no full jug that snaps empty): A 3.1 L in "always" → 150 ms after drawing, the 3rd jug is at scale 0 (a matrix, not "none") — v22.46: the jugs in the A box, where the card draws them; the screen-reader label of a project pool with no EC says "A/B: enter EC first"; a fill-rule pool on 15% mix says "whole litres before ×1.15"; on a phone the Nexi row has no "Pool" card label',
   requires:NEW,
   run:fn(`irrSavePool('P01','water','29');irrSavePool('P01','EC','1.7');await sleep(300);hnxIrrViz.setMotion('always');renderIrrPoolMonitor();
     try{RX('P01').scrollIntoView({block:'center'});}catch(e){}await sleep(150);
-    const f=[...RX('P01').querySelectorAll('.irr-rx-step')[1].querySelectorAll('.fill')];const tr=f[2]?getComputedStyle(f[2]).transform:'none';
+    const aBox=[...document.querySelectorAll('#stubIrrNutrientsBody .irr-cv')].find(e=>/^A 3.1 L/.test(e.getAttribute('aria-label')||'')); /* v22.46: on the cards the drawing's jugs are the A box's */
+    const f=(aBox&&aBox.offsetParent!==null)?[...aBox.querySelectorAll('.cv-fill')]:[...RX('P01').querySelectorAll('.irr-rx-step')[1].querySelectorAll('.fill')];const tr=f[2]?getComputedStyle(f[2]).transform:'none';
     const waits=/^matrix\\(/.test(tr)&&Math.abs(+(tr.match(/matrix\\(([^,]+),[^,]+,[^,]+,\\s*([^,]+)/)||[0,1,1])[2])<0.05;
     const h=hnxIrrRecipe({id:'PRJ_T',label:'Test pool',dim:{L:200,W:100}},{water:'40'},{gap:20,target:60,waterL:400,aCC:0,bCC:0,cCC:100,ec:'',mode:'matrix'});
     const aria=(/aria-label="([^"]*)"/.exec(h)||[])[1]||'';
