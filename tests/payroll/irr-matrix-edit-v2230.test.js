@@ -45,7 +45,7 @@ module.exports=[
     p2:{r08:{water:'45',EC:'1.7'},r11:{water:'47',EC:'1.75'},r14:null},toast:'✓ Pool 1 · Water level 40 cm saved in the 14:00 round',
     editorLeft:false,badge:'✓ saved hh:mm · 14:00',state:'✓ Saved hh:mm by X — Pool 1 · Water level 40 cm (14:00 round)'} },
 
-{ name:'💧 Matrix water edit recomputes the dose like the Pool Monitor: 12:30 (round 11:00), Pool 1 11:00 54 cm / EC 1 (gap 6 → 121 L, A 2.1 L) → matrix water 40 + click away → 11:00 water 40, dose gap 20 → 405 L, A/B 2000 cc (2 L — 1 L per 10 cm, v22.32), C 100 cc (0.1 L), Water Added 405; "Nexi says" Add 405 L pure water · A 2000 cc · B 2000 cc · C 100 cc',
+{ name:'💧 Matrix water edit recomputes the dose like the Pool Monitor: 12:30 (round 11:00), Pool 1 11:00 54 cm / EC 1 (stored by the old engine: gap 6 → 121 L, A 2.1 L) → matrix water 40 + click away → 11:00 water 40, dose gap 20 → 405 L, A/B 2000 cc (2 L — 1 L per 10 cm, v22.32), C 100 cc (0.1 L), Water Added 405; "Nexi says" Add 405 L pure water · A 2000 cc · B 2000 cc · C 100 cc',
   tz:'Asia/Manila', requires:NEW, seed:CLOCK_AND_STORE('2026-10-10T04:30:00Z',STORE),
   run:fn(`await openMatrix();const how=await editCell('P01','water','40','away');await sleep(400);const r=pool('P01')['11:00']||{};const d=r._dose||{};
     const P=IRR_POOLS.find(p=>p.id==='P01');
