@@ -120,7 +120,7 @@ module.exports=[
       line:/A WORKER: ₱3,600\.00 → ₱3,900\.00 \(\+₱300\.00\)/.test(diffMsg),rate:/rate ₱600\.00 → ₱650\.00/.test(diffMsg),afterCancel:r1.status,afterOk:r2.status,total:r2.reapproveDiff&&r2.reapproveDiff.total};},
   expect:{reopenSaysRates:true,snapNet:3600,newNet:3900,line:true,rate:true,afterCancel:'draft',afterOk:'approved',total:300} },
 
-{ name:'↻ RECALCULATE on a paid week says it goes back to DRAFT (not "Status stays approved"), keeps B — paid ₱3,948 though his card has moved to office since — on the run, and 🔄 Recalculate keeps the paid ₱3,948 on record (audit D rates-master-other-02)',
+{ name:'↻ RECALCULATE on a paid week says it goes back to DRAFT (not "Status stays approved"), keeps B — paid ₱3,948 though his card has moved to office since — on the run (also after the 8-second active-only scrub, v22.42), and 🔄 Recalculate keeps the paid ₱3,948 on record (audit D rates-master-other-02)',
   run:async()=>{
     const B=labour('B','B MOVED',{salaryCategory:'accounting',dept:'Accounting',employmentType:'Probationary'}),K=labour('K','K STAYS',{employmentType:'Probationary'});setE([B,K]);if(typeof loadEmployees==='function')loadEmployees();
     const a={};['2026-09-03','2026-09-04','2026-09-05','2026-09-07','2026-09-08','2026-09-09'].forEach(d=>{a[d]={B:rec('present','07:00','17:00'),K:rec('present','07:00','17:00')};});setA(a);
@@ -131,12 +131,52 @@ module.exports=[
     const asked=[];window.confirm=m=>{asked.push(String(m));return true;};window.alert=()=>{};
     window.hnxPayRecalc('ops');await sleep(800);
     renderPayrollOps();await sleep(800);
+    if(typeof window.__hnxPayActiveScrub==='function')window.__hnxPayActiveScrub(); /* v22.42: the 8 s scrub ran at a random moment (1 CI run in 5 lost B) */
     const r1=get();
     payOpsRecalc();await sleep(800);
+    if(typeof window.__hnxPayActiveScrub==='function')window.__hnxPayActiveScrub();
     const r2=get();const last=(r2.approvalHistory||[]).slice(-1)[0]||{};
     return {msgDraft:asked.some(m=>/goes back to DRAFT/.test(m)),msgStays:asked.some(m=>/Status stays/.test(m)),bIn:(r1.lines||[]).some(l=>l.empId==='B'),
       bInAfter:(r2.lines||[]).some(l=>l.empId==='B'),paidB:((last.paidLines||[]).find(p=>p.empId==='B')||{}).netPay,status:r2.status};},
   expect:{msgDraft:true,msgStays:false,bIn:true,bInAfter:true,paidB:3948,status:'draft'} },
+
+{ name:'🧹 the 8-second active-only scrub and a REOPENED 3–9 Sep week: B (paid ₱3,948 there, card moved to office since) and K stay on the stored draft — 2 lines, ₱3,948 for B; X (card on office, NOT in the paid run) is still taken off; a second pass writes nothing (v22.42, audit D rates-master-other-02)',
+  requires:"typeof window.__hnxPayActiveScrub==='function'",
+  run:async()=>{
+    const B=labour('B','B MOVED',{salaryCategory:'accounting',dept:'Accounting',employmentType:'Probationary'}),K=labour('K','K STAYS',{employmentType:'Probationary'}),
+      X=labour('X','X OFFICE',{salaryCategory:'accounting',dept:'Accounting',employmentType:'Probationary'});setE([B,K,X]);if(typeof loadEmployees==='function')loadEmployees();
+    const a={};['2026-09-03','2026-09-04','2026-09-05','2026-09-07','2026-09-08','2026-09-09'].forEach(d=>{a[d]={B:rec('present','07:00','17:00'),K:rec('present','07:00','17:00')};});setA(a);
+    const LN=(id,n)=>({empId:id,name:n,dailyRate:658,daysWorked:6,basicPay:3948,grossPay:3948,grossEarnings:3948,netPay:3948});
+    const RID='ops_2026-09-03_2026-09-09',get=()=>JSON.parse(localStorage.getItem('hydroPro_payroll_runs')).find(x=>x.id===RID);
+    localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:RID,type:'weekly',periodStart:'2026-09-03',periodEnd:'2026-09-09',status:'approved',approvedAt:Date.now()-86400000,approvedBy:'eyal',lines:[LN('B','B MOVED'),LN('K','K STAYS')],totals:{netPay:7896}}]));
+    window._payOpsCurrentPeriod={start:'2026-09-03',end:'2026-09-09',payday:'2026-09-11',label:'3–9 Sep'};
+    window.confirm=()=>true;window.alert=()=>{};
+    window.hnxPayRecalc('ops');await sleep(300);
+    const runs=JSON.parse(localStorage.getItem('hydroPro_payroll_runs'));const r=runs.find(x=>x.id===RID);
+    r.lines.push(Object.assign({},LN('X','X OFFICE')));localStorage.setItem('hydroPro_payroll_runs',JSON.stringify(runs));
+    window.__hnxPayActiveScrub();
+    const r1=get();const u1=r1.updatedAt;
+    window.__hnxPayActiveScrub();
+    const r2=get();
+    const bl=(r1.lines||[]).find(l=>l.empId==='B')||{};
+    return {ids:(r1.lines||[]).map(l=>l.empId).sort(),bNet:Math.round(+bl.netPay||0),status:r1.status,secondPassWrites:r2.updatedAt!==u1,
+      paidB:(((r1.approvalHistory||[]).slice(-1)[0]||{}).paidLines||[]).filter(p=>p.empId==='B').map(p=>p.netPay)[0]};},
+  expect:{ids:['B','K'],bNet:3948,status:'draft',secondPassWrites:false,paidB:3948} },
+
+{ name:'🧹 a 3–9 Sep week already REOPENED when Nexi loads (paid B ₱3,948 + K ₱3,948, B\'s card moved to office since) still holds B and K — 2 lines — after start-up and the first active-only scrub passes, with no payroll screen opened (v22.42, audit D rates-master-other-02)',
+  seed:()=>{
+    const E=(id,name,x)=>Object.assign({id,name,status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',employmentType:'Probationary',dailyRate:658,dateHired:'2025-01-01',hireDate:'2025-01-01'},x||{});
+    localStorage.setItem('hydroPro_employees',JSON.stringify([E('B','B MOVED',{salaryCategory:'accounting',dept:'Accounting'}),E('K','K STAYS')]));
+    const LN=(id,n)=>({empId:id,name:n,dailyRate:658,daysWorked:6,basicPay:3948,grossPay:3948,grossEarnings:3948,netPay:3948});
+    localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:'ops_2026-09-03_2026-09-09',type:'weekly',periodStart:'2026-09-03',periodEnd:'2026-09-09',status:'draft',
+      approvedAt:Date.now()-86400000,approvedBy:'eyal',lines:[LN('B','B MOVED'),LN('K','K STAYS')],totals:{netPay:7896},
+      approvalHistory:[{action:'reopened',reason:'reopened',at:Date.now()-3600000,by:'eyal',paidLines:[LN('B','B MOVED'),LN('K','K STAYS')]}]}]));},
+  run:async()=>{
+    await sleep(9000); /* one 8 s scrub period after the app is up */
+    if(typeof window.__hnxPayActiveScrub==='function')window.__hnxPayActiveScrub();
+    const r=JSON.parse(localStorage.getItem('hydroPro_payroll_runs')).find(x=>x.id==='ops_2026-09-03_2026-09-09')||{};
+    return {ids:(r.lines||[]).map(l=>l.empId).sort(),status:r.status};},
+  expect:{ids:['B','K'],status:'draft'} },
 
 { name:'referral ₱1,500 paid in 3–9 Sep, run reopened while 10–16 Sep is open: 3–9 still carries ₱1,500, 10–16 carries ₱0 and cannot mark it paid — paid once; re-approving 3–9 marks it there (audit D rates-master-other-14; the HR bonus loader is wired in here because this build never exposes it to payroll)',
   seed:()=>{localStorage.setItem('hydroPro_hr_payroll_bonuses',JSON.stringify([{id:'B1',employeeId:'R1',type:'referral',amount:1500,paidInPayroll:true,payrollRunId:'ops_2026-09-03_2026-09-09',addedAt:Date.parse('2026-09-05T10:00:00')}]));},
