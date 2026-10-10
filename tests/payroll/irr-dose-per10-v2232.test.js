@@ -105,8 +105,8 @@ module.exports=[
   requires:NEW,
   run:fn(`irrSavePool('P01','water','40');irrSavePool('P01','EC','1.7');await sleep(300);renderIrrPoolMonitor();await sleep(300);
     const f=()=>{const el=RX('P01')&&RX('P01').querySelector('.fill');const cs=el?getComputedStyle(el):null;return cs?cs.animationName+'/'+cs.animationIterationCount:'none';};
-    try{RX('P01').scrollIntoView({block:'center'});}catch(e){}await sleep(250); /* a drawing out of view stops moving */
-    hnxIrrViz.setMotion('always');await sleep(100);const always=f();hnxIrrViz.setMotion('off');await sleep(100);const off=f();hnxIrrViz.setMotion('always');
+    const seen=async(id)=>{for(let i=0;i<25;i++){const x=document.querySelector('.irr-rx[data-rxpool="'+(id||'P01')+'"]');if(x){try{x.scrollIntoView({block:'center'});}catch(e){}if(!x.classList.contains('iv-off'))return true;}await new Promise(r=>setTimeout(r,100));}return false;}; /* a drawing out of view stops moving (iv-off): bring it into view and wait until it is seen */
+    await seen();hnxIrrViz.setMotion('always');await sleep(100);await seen();const always=f();hnxIrrViz.setMotion('off');await sleep(100);const off=f();hnxIrrViz.setMotion('always');
     return {always,off};`),
   expect:{always:'irrRxFill/infinite',off:'none/1'} },
 { name:'🎞 Reduce motion (prefers-reduced-motion) keeps the drawing still even with Motion "always"',
