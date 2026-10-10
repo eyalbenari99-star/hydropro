@@ -314,7 +314,7 @@ module.exports=[
     return {open,pr,resolved:iss('EC').map(i=>i.status)};`),
   expect:{open:['Pool 2 EC HIGH','Pool 4 pH HIGH'],pr:{ec:['critical'],ph:['warning']},resolved:['resolved']} },
 /* ---- v22.22 / v22.23: the gauges, one range table, the latest-reading rule (Eyal 9 Oct) ---- */
-{ name:'🎛 Gauges (Eyal: "where are the motion graphics?"): every pool row has a tank + fill valve above Water level, a pH column above pH (meter) and an EC column above EC (meter) (4 gauges × 24 pools = 96, legend above the table); pH 4.0 → yellow marker at 50% of the 0–8 column ("4.00 CRIT LOW"); EC 1.75 → level at 35% of 0–5 + bolt visible ("1.75 OK"); level 54 / target 60 → valve FILLING +121 L; 60 → CLOSED; the gauge elements are KEPT across the table rebuild (the same tank element from level 54 to level 60, EC + pH after EC 1.75 → 1.8); ⚡ Lite → animation none (static), Lite off → ivZap; typing "1.2" in Pool 2 EC does not touch the gauge ("— NO VALUE") until Tab ("1.20 CRIT LOW"), the cursor is never stolen',
+{ name:'🎛 Gauges (Eyal: "where are the motion graphics?"): every pool row has a tank + fill valve above Water level, a pH column above pH (meter) and an EC column above EC (meter) (4 gauges × 24 pools = 96, legend above the table); pH 4.0 → yellow marker at 50% of the 0–8 column ("4.00 CRIT LOW"); EC 1.75 → level at 35% of 0–5 + bolt visible ("1.75 OK"); level 54 / target 60 → valve FILLING +121 L; 60 → CLOSED; the gauge elements are KEPT across the table rebuild (the same tank element from level 54 to level 60, EC + pH after EC 1.75 → 1.8); ⚡ Lite → still moving (v22.26, Eyal 10 Oct: “moving water motion” — the gauges move by default, also under Lite), Lite off → ivZap; typing "1.2" in Pool 2 EC does not touch the gauge ("— NO VALUE") until Tab ("1.20 CRIT LOW"), the cursor is never stolen',
   drive:async pg=>{
     await openPool(pg);
     const a=await pg.evaluate(async()=>{const sleep=ms=>new Promise(r=>setTimeout(r,ms));window.confirm=()=>true;
@@ -340,7 +340,7 @@ module.exports=[
     return Object.assign(a,{mid,end});
   },
   expect:{'drive.g0':{viz:true,n:96,perPool:96,legend:true},'drive.kept':true,'drive.kept2':{ec:true,ph:true,tag:'1.80 OK'},'drive.ph':{pct:0.5,tag:'4.00 CRIT LOW',crit:true},'drive.ec':{pct:0.35,bolt:true,tag:'1.75 OK',ok:true},
-    'drive.valve':{filling:true,txt:'FILLING +121 L'},'drive.tankAct':'+121 L → 60 cm','drive.anim':'ivZap','drive.animLite':'none','drive.valve60':{closed:true,txt:'CLOSED at target ✓'},
+    'drive.valve':{filling:true,txt:'FILLING +121 L'},'drive.tankAct':'+121 L → 60 cm','drive.anim':'ivZap','drive.animLite':'ivZap','drive.valve60':{closed:true,txt:'CLOSED at target ✓'},
     'drive.mid':{tag:'— NO VALUE',inEC:true},'drive.end':{tag:'1.20 CRIT LOW',crit:true,onManEC:true}} },
 
 { name:'🃏 Stale cards (Eyal’s 07:55 screenshot: three "Pool 6 · pH HIGH (7.10)" cards still on screen while the table showed 6.7): Pool 6 08:00 pH 7.1 (critical) → exactly 1 red card (the call; no second card for its task) and the 🔔 Alerts panel lists "Pool 6 · pH HIGH (7.10)" as active; 11:00 pH 6.7 → 0 cards, 0 open pool calls, the panel lists it under Resolved; 4 pools critical → 3 cards + "+1 more alerts"; the hidden one resolved → the "+N more" card is gone (count 0); a visible one resolved → 2 cards; _fireNotification for an already closed call → no card',
