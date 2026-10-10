@@ -161,5 +161,17 @@ module.exports=[
   requires:NEW, viewport:{width:375,height:800},
   run:fn(`irrSavePool('P01','water','30');irrSavePool('P01','EC','1.7');await sleep(300);renderIrrPoolMonitor();await sleep(3000); /* the v13.88 card labeller runs every 2.5 s */
     const td=RX('P01')?RX('P01').closest('td'):null;return {label:td?getComputedStyle(td,'::before').content:'no row'};`),
-  expect:{label:'none'} }
+  expect:{label:'none'} },
+
+{ name:'🎨 v22.36 every parameter has its own coloured picture in its cell (Eyal: "each parameter should be with colored image in motion 3d"): Pool 1 at 29.9 cm, EC 1.62, pH 6.3, 24.5 °C, air pump working, ozone 55 s → thermometer 24.5°, pump with bubbles, ozone ring 55s, a pure drop, the tank +607L, 3 A jugs, 3 B jugs, C beaker 165cc; the EC meter shows the target →1.80 and the pH meter →6.20; Pool 2 with a drum log shows the A/B/C take pills (3.1L, 3.1L)',
+  requires:"typeof window.hnxIrrCellViz==='function'",
+  run:fn(`irrSavePool('P01','water','29.9');irrSavePool('P01','EC','1.62');irrSavePool('P01','pH','6.3');irrSavePool('P01','waterTemp','24.5');irrSavePool('P01','airPump','working');irrSavePool('P01','ozoneSec','55');
+    await sleep(400);renderIrrPoolMonitor();await sleep(1200);
+    const row=[...document.querySelectorAll('#stubIrrNutrientsBody tr')].find(tr=>tr.querySelector('.irr-cv')&&/Pool 1\\b/.test(tr.textContent));
+    const labels=row?[...row.querySelectorAll('.irr-cv')].map(e=>e.getAttribute('aria-label')):[];
+    const has=re=>labels.some(l=>re.test(l));
+    const ecT=[...document.querySelectorAll('.hnx-iv[data-ivk="ec"][data-pool="P01"] .ivx-tgtl')].map(e=>e.textContent).join('|');
+    const phT=[...document.querySelectorAll('.hnx-iv[data-ivk="ph"][data-pool="P01"] .ivx-tgtl')].map(e=>e.textContent).join('|');
+    return {temp:has(/Water temperature 24.5/),air:has(/Air pump working/),ozone:has(/Ozone 55 s/),src:has(/Water source pure/),water:has(/fill to 60 cm, add 607 L/),a:has(/^A 3 L = 3 jugs/),b:has(/^B 3 L = 3 jugs/),c:has(/^C 165 cc/),ecT,phT};`),
+  expect:{temp:true,air:true,ozone:true,src:true,water:true,a:true,b:true,c:true,ecT:'→1.80',phT:'→6.20'} }
 ];
