@@ -17,5 +17,18 @@ module.exports=[
     const n=window.hnxEwtFixedMigrate(true);const E=JSON.parse(localStorage.getItem('hydroPro_employees'));const f=id=>(E.find(e=>e.id===id)||{}).ewtFixed||null;
     loadEmployees();const tax=id=>calcEmployeePayroll(E.find(e=>e.id===id),'2026-09-26','2026-10-10','semi').withholdingTax;
     return {moved:n,amy:f('A'),eyal:f('E'),irish:f('I'),juan:f('J'),taxAmy:tax('A'),taxEyal:tax('E'),taxJuan:tax('J')};},
-  expect:{moved:2,amy:2604.17,eyal:4270.83,irish:null,juan:1000,taxAmy:2604.17,taxEyal:4270.83,taxJuan:1000} }
+  expect:{moved:2,amy:2604.17,eyal:4270.83,irish:null,juan:1000,taxAmy:2604.17,taxEyal:4270.83,taxJuan:1000} },
+
+{ name:'🕘 PAY-067: Juan hired 6 Oct — a late on 5 Oct (before the hire date) is not queued (1 counted as ignored), his enrolment day 7 Oct is not queued, the late of 8 Oct is (1 row); Mea (admin role) cannot decide lates, the System Admin can (v22.28)',
+  requires:"window.hnxLate&&typeof window.hnxEwtFixedMigrate==='function'",
+  run:async()=>{setE([labour('W1','CRUZ, JUAN',{dateHired:'2026-10-06',hireDate:'2026-10-06'})]);loadEmployees();
+    setA({'2026-10-05':{W1:rec('late','08:00','17:00')},'2026-10-07':{W1:rec('present','07:00','17:00')},'2026-10-08':{W1:rec('late','08:00','17:00')}});
+    try{const c=window.hnxLate.cfg();if(!c.on||c.minMinutes){window.hnxLate.setCfg(Object.assign({},c,{on:true,minMinutes:0}));}}catch(e){}
+    const rows=window.hnxLate.scan('2026-10-05','2026-10-10').filter(r=>r.empId==='W1').map(r=>r.date);const ign=window.__hnxLateBeforeHire;
+    const h=localStorage.getItem('hnx_test_harness');localStorage.removeItem('hnx_test_harness');const g=window.getCurrentUser;
+    window.getCurrentUser=()=>({username:'mea',fullname:'Mea Magracia',role:'admin',active:true});const mea=window.hnxLate.canDecide();
+    window.getCurrentUser=()=>({username:'admin',fullname:'System Admin',role:'admin',active:true});const adm=window.hnxLate.canDecide();
+    window.getCurrentUser=g;if(h!=null)localStorage.setItem('hnx_test_harness',h);
+    return {rows,ign,mea,adm};},
+  expect:{rows:['2026-10-08'],ign:1,mea:false,adm:true} }
 ];
