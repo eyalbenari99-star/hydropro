@@ -121,8 +121,8 @@ module.exports=[
 { name:'⚙ (review 2) The pH target and the recipe C change today’s C at once: Pool 1 at 40 cm, EC 1.7, pH 6.5 (target 6.2) → C 130 cc; pH target 6.0 → C 150 cc (0.15 L); recipe C 10 cc/cm → C 300 cc (0.3 L) — Smart Dosing shows the same',
   requires:NEW,
   run:fn(`irrSavePool('P01','water','40');irrSavePool('P01','EC','1.7');irrSavePool('P01','pH','6.5');await sleep(300);const c0=(rec('P01')._dose||{}).cCC;
-    updatePoolEcPh('P01','ph','target','6.0');await sleep(300);const r1=rec('P01');
-    updatePoolRecipe('P01','C','10');await sleep(300);const r2=rec('P01');
+    updatePoolEcPh('P01','ph','target','6.0');await sleep(300);const r1=JSON.parse(JSON.stringify(rec('P01'))); /* a copy: the stored round object is updated in place later */
+    updatePoolRecipe('P01','C','10');await sleep(300);const r2=JSON.parse(JSON.stringify(rec('P01')));
     return {c0,c1:(r1._dose||{}).cCC,C1:r1.C,c2:(r2._dose||{}).cCC,C2:r2.C};`),
   expect:{c0:130,c1:150,C1:0.15,c2:300,C2:0.3} },
 

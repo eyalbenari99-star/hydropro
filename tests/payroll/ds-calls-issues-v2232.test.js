@@ -205,7 +205,8 @@ module.exports=[
       localStorage.setItem(GK,big(1));window.__hnxMarkDirtyKey(GK);C.state.syncing=false;await C.push();
       (window.__hnxBigMerged=window.__hnxBigMerged||{})[GK]=Date.now(); /* the 5-minute pace is running */
       C.state.syncing=false;await C.pull([GK]);const owed=!!(window.__hnxMergeOwed&&window.__hnxMergeOwed[GK]);
-      localStorage.setItem(GK,big(2));window.__hnxMarkDirtyKey(GK);const i0=sent.length;C.state.syncing=false;await C.push();const second=sent.slice(i0).some(ks=>ks.includes(GK));
+      {const a=JSON.parse(big(1));a[0].v='edited here';localStorage.setItem(GK,JSON.stringify(a));} /* one record edited — an ordinary edit, not a bulk change */
+      window.__hnxMarkDirtyKey(GK);const i0=sent.length;C.state.syncing=false;await C.push();const second=sent.slice(i0).some(ks=>ks.includes(GK));
       /* the notice */
       localStorage.setItem(BK,arr(5,i=>call(i,{updatedAt:T1})));window.__hnxMarkDirtyKey(BK);C.state.syncing=false;await C.push();const e1=String(C.state.error||'');
       C.state.syncing=false;await C.pull([GK]);const e2=String(C.state.error||'');
@@ -254,7 +255,7 @@ module.exports=[
 { name:'📞 (review 2) A refused submit never auto-assigns an existing call: routing maintenance → tester, the last call C-OLD is closed and unassigned, Submit with an empty subject → C-OLD unchanged (it was re-opened as "accepted" by tester with a new stamp)',
   requires:"typeof window.submitCall==='function'&&!!window.submitCall.__autoassign&&/before\\.has/.test(String(window.submitCall))",
   run:run(async()=>{await sleep(3000);window._toast=()=>{};window.showToast=()=>{};
-    saveCallRouting({maintenance:{primary:['tester']}});
+    localStorage.setItem('hydroPro_call_routing',JSON.stringify({maintenance:{primary:['tester']}}));
     const old=call('OLD',{status:'closed_finalize',acceptedBy:'',department:'maintenance',closedBy:'system',closedAt:T0,updatedAt:T0});
     localStorage.setItem(CK,JSON.stringify([call(1),old]));if(window._perfCache)delete window._perfCache._calls;
     ['callSubject','callDesc'].forEach(id=>{if(!document.getElementById(id)){const el=document.createElement('input');el.id=id;el.style.display='none';document.body.appendChild(el);}document.getElementById(id).value='';});
@@ -283,6 +284,6 @@ module.exports=[
     localStorage.setItem(CK,JSON.stringify([call('R',{status:'closed_fixed',closedAt:T1,closedBy:'system',autoResolved:true,autoResolvedAt:T1,autoResolvedReason:'back in range',maintTaskId:'MT-R2',updatedAt:T1})]));if(window._perfCache)delete window._perfCache._calls;
     try{reopenCall('CALL-R');}catch(e){}
     if(window._perfCache)delete window._perfCache._calls;const c=(loadCalls()||[]).find(x=>x.id==='CALL-R')||{};const t=(loadMaintTasks()||[]).find(x=>x.id==='MT-R2')||{};
-    return {mid,fresh:fin>=t0,reopened:{autoResolved:!!c.autoResolved,closed:typeof isCallClosed==='function'?isCallClosed(c):null,task:t.status}};}),
-  expect:{mid:null,fresh:true,reopened:{autoResolved:false,closed:false,task:'started'}} }
+    return {mid,fresh:fin>=t0,reopened:{autoResolved:!!c.autoResolved,status:c.status,task:t.status}};}),
+  expect:{mid:null,fresh:true,reopened:{autoResolved:false,status:'accepted',task:'started'}} }
 ];
