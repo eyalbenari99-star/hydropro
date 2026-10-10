@@ -116,25 +116,25 @@ module.exports=[
     return {bad,p1,p2,p3,cancel,ok:{EC:rec('11:00').EC,issues:iss('EC').length,openCalls:calls.length,ec:calls.map(c=>/EC LOW/.test(c.subject||''))}};`),
   expect:{bad:{EC:'1.68',toasts:2},p1:1,p2:1,p3:['resolved'],cancel:{EC:null,asked:true,issues:0},ok:{EC:'1',issues:1,openCalls:1,ec:[true]}} },
 
-{ name:'🎯 Dose = Eyal’s workbook with the DAILY target: Pool 1 (GH1) 08:00 level 54, EC 1 → daily 60, gap 6 → 121 L, A 2100 cc, B 2100 cc, C 30 cc, "Add 121 L pure water · A 2100 cc · B 2100 cc · C 30 cc", level GOOD (no FILL pill — the valve gauge may say FILLING; 35 cm is GOOD too, 29 cm warning, 19 cm critical on the GH1 bands 20/30/60/70), same at 11:00; Pool 2 level 45, EC 1.62/1.66 → 1.64 → row 1.65, pH 6.50/6.44 → 303 L, A/B 3600 cc, C 95 cc, no CALIBRATE; Pool 7 (×0.67, daily 100) level 85, EC 1.75 → 322 L, A/B 1876 cc, C 75 cc',
+{ name:'🎯 Dose with the DAILY target and the v22.32 rule (Eyal 10 Oct: 1 L of A and B per 10 cm): Pool 1 (GH1) 08:00 level 54, EC 1 → daily 60, gap 6 → 121 L, A 600 cc, B 600 cc, C 30 cc, "Add 121 L pure water · A 600 cc · B 600 cc · C 30 cc", level GOOD (no FILL pill — the valve gauge may say FILLING; 35 cm is GOOD too, 29 cm warning, 19 cm critical on the GH1 bands 20/30/60/70), same at 11:00; Pool 2 level 45, EC 1.62/1.66 → 1.64, pH 6.50/6.44 → gap 15 → 303 L, A/B 1500 cc, C 95 cc, no CALIBRATE; Pool 7 (daily 100; 1 L per 10 cm, was 0.67 × matrix) level 85, EC 1.75 → gap 15 → 322 L, A/B 1500 cc, C 75 cc',
   run:fn(OPEN+`window.confirm=()=>true;const rec=(id,t)=>((loadIrrPool()[_irrDate]||{})[id]||{})[t||_irrCurrentPoolTime]||{};const P=id=>IRR_POOLS.find(p=>p.id===id);
     const pick=r=>({gap:r._dose.gap,water:r._dose.waterL,a:r._dose.aCC,b:r._dose.bCC,c:r._dose.cCC,A:r.A,B:r.B,C:r.C,W:r.waterAdded});
     irrSavePool('P01','water','54');irrSavePool('P01','EC','1');await sleep(300);renderIrrPoolMonitor();await sleep(300);
     const row=document.querySelector('#stubIrrNutrientsBody tbody tr:not(.irr-nexi-row)');
     const p1={...pick(rec('P01')),instr:irrInstruction(P('P01'),rec('P01')),lvl:waterLevelStatus(P('P01'),54),lvl35:waterLevelStatus(P('P01'),35),lvl29:waterLevelStatus(P('P01'),29),lvl19:waterLevelStatus(P('P01'),19),fill:/FILL \d/.test(row.innerText),
-      says:/Nexi says: Add 121 L pure water · A 2100 cc · B 2100 cc · C 30 cc/.test(document.getElementById('stubIrrNutrientsBody').innerText)};
+      says:/Nexi says: Add 121 L pure water · A 600 cc · B 600 cc · C 30 cc/.test(document.getElementById('stubIrrNutrientsBody').innerText)};
     window.irrSetPoolTime('11:00');irrSavePool('P01','water','54');irrSavePool('P01','EC','1');await sleep(300);const p1b=pick(rec('P01'));
     window.irrSetPoolTime('08:00');
     irrSavePool('P02','water','45');irrSavePool('P02','EC','1.62');irrSavePool('P02','manualEC','1.66');irrSavePool('P02','pH','6.50');irrSavePool('P02','manualPH','6.44');await sleep(300);
-    const r2=rec('P02');const p2={...pick(r2),ec:r2._dose.ec,row:r2._dose.row,ph:r2._dose.ph,cal:r2._calibrate||'',instr:/^Add 303 L pure water · A 3600 cc · B 3600 cc · C 95 cc/.test(irrInstruction(P('P02'),r2))};
+    const r2=rec('P02');const p2={...pick(r2),ec:r2._dose.ec,row:r2._dose.row,ph:r2._dose.ph,cal:r2._calibrate||'',instr:/^Add 303 L pure water · A 1500 cc · B 1500 cc · C 95 cc/.test(irrInstruction(P('P02'),r2))};
     irrSavePool('P07','water','85');irrSavePool('P07','EC','1.75');await sleep(300);const p7=pick(rec('P07'));
     return {p1,p1b,p2,p7};`),
-  expect:{p1:{gap:6,water:121,a:2100,b:2100,c:30,A:2.1,B:2.1,C:0.03,W:121,instr:'Add 121 L pure water · A 2100 cc · B 2100 cc · C 30 cc',lvl:'ok',lvl35:'ok',lvl29:'warning',lvl19:'critical_min',fill:false,says:true},
-    p1b:{gap:6,water:121,a:2100,b:2100,c:30,A:2.1,B:2.1,C:0.03,W:121},
-    p2:{gap:15,water:303,a:3600,b:3600,c:95,A:3.6,B:3.6,C:0.1,W:303,ec:1.64,row:'1.65',ph:6.47,cal:'',instr:true},
-    p7:{gap:15,water:322,a:1876,b:1876,c:75,A:1.88,B:1.88,C:0.08,W:322}} },
+  expect:{p1:{gap:6,water:121,a:600,b:600,c:30,A:0.6,B:0.6,C:0.03,W:121,instr:'Add 121 L pure water · A 600 cc · B 600 cc · C 30 cc',lvl:'ok',lvl35:'ok',lvl29:'warning',lvl19:'critical_min',fill:false,says:true},
+    p1b:{gap:6,water:121,a:600,b:600,c:30,A:0.6,B:0.6,C:0.03,W:121},
+    p2:{gap:15,water:303,a:1500,b:1500,c:95,A:1.5,B:1.5,C:0.1,W:303,ec:1.64,row:'',ph:6.47,cal:'',instr:true},
+    p7:{gap:15,water:322,a:1500,b:1500,c:75,A:1.5,B:1.5,C:0.08,W:322}} },
 
-{ name:'🎯 Two meters and edge rows: Pool 1 level 40, EC 1.30/1.38 (Δ 0.08 > 0.05) → CALIBRATE EC, A/B/C empty, water 405 L kept; Pool 2 pH 6.90/6.78 (Δ 0.12 > 0.10) → CALIBRATE pH; Pool 1 level 50, EC 2.36 → "EC 2.36 too high — add 202 L water only, no A/B", A = B = 0 (not the 2.35 row); half-cent rounding: EC 1.67/1.68 → 1.68 → row 1.70 → A 2200 cc (level 50), EC 2.02/2.03 → 2.03 → row 2.05 → A 900 cc (level 40)',
+{ name:'🎯 Two meters and edge rows: Pool 1 level 40, EC 1.30/1.38 (Δ 0.08 > 0.05) → CALIBRATE EC, A/B/C empty, water 405 L kept; Pool 2 pH 6.90/6.78 (Δ 0.12 > 0.10) → CALIBRATE pH; Pool 1 level 50, EC 2.36 → "EC 2.36 too high — add 202 L water only, no A/B", A = B = 0 (not the 2.35 row); half-cent rounding of the used EC: 1.67/1.68 → 1.68 and 2.02/2.03 → 2.03; A follows the v22.32 rule (1 L per 10 cm): level 50 → gap 10 → A 1000 cc, level 40 → gap 20 → A 2000 cc',
   run:fn(OPEN+`window.confirm=()=>true;const rec=(id)=>((loadIrrPool()[_irrDate]||{})[id]||{})[_irrCurrentPoolTime]||{};const P=id=>IRR_POOLS.find(p=>p.id===id);
     irrSavePool('P01','water','40');irrSavePool('P01','EC','1.30');irrSavePool('P01','manualEC','1.38');await sleep(300);let r=rec('P01');
     const cal={cal:/^CALIBRATE EC meters/.test(r._calibrate||''),A:r.A===undefined?'':r.A,B:r.B===undefined?'':r.B,C:r.C===undefined?'':r.C,W:r.waterAdded,instr:/^⚠ CALIBRATE EC meters/.test(irrInstruction(P('P01'),r))};
@@ -145,7 +145,7 @@ module.exports=[
     window.irrSetPoolTime('14:00');irrSavePool('P01','water','50');irrSavePool('P01','EC','1.67');irrSavePool('P01','manualEC','1.68');await sleep(300);r=rec('P01');const h1={ec:r._dose.ec,row:r._dose.row,a:r._dose.aCC};
     window.irrSetPoolTime('16:00');irrSavePool('P01','water','40');irrSavePool('P01','EC','2.02');irrSavePool('P01','manualEC','2.03');await sleep(300);r=rec('P01');const h2={ec:r._dose.ec,row:r._dose.row,a:r._dose.aCC};
     return {cal,calPh,high,h1,h2};`),
-  expect:{cal:{cal:true,A:'',B:'',C:'',W:405,instr:true},calPh:{cal:true,W:405,a:0},high:{a:0,b:0,high:true,A:'',instr:true},h1:{ec:1.68,row:'1.70',a:2200},h2:{ec:2.03,row:'2.05',a:900}} },
+  expect:{cal:{cal:true,A:'',B:'',C:'',W:405,instr:true},calPh:{cal:true,W:405,a:0},high:{a:0,b:0,high:true,A:'',instr:true},h1:{ec:1.68,row:'',a:1000},h2:{ec:2.03,row:'',a:2000}} },
 
 { name:'🎯 Daily vs cleaning target: stored pool settings without a daily target → Pool 1 60, GH7 100, GH9 50, GH10 60 (not its cleaning 120), cleaning 130 kept; ⚙️ Pool & Drum Setup shows "DAILY target" 60 and "CLEANING target" 130 for Pool 1; an admin sets Pool 1 daily 70 → level 54 → gap 16 → 324 L',
   seed:()=>{localStorage.setItem('hydroPro_pool_dimensions',JSON.stringify([
@@ -165,13 +165,13 @@ module.exports=[
     return {t,setup,after:{daily:irrDailyTarget(IRR_POOLS.find(p=>p.id==='P01')),gap:r._dose.gap,water:r._dose.waterL,stored:JSON.parse(localStorage.getItem('hydroPro_pool_dimensions'))[0].dim.dailyTarget}};`),
   expect:{t:{p1:60,p7:100,p9:50,p10:60,clean1:130,clean10:120,rawOk:true},setup:{daily:true,cleaning:true,dailyVal:'60',cleanVal:'130'},after:{daily:70,gap:16,water:324,stored:70}} },
 
-{ name:'🎯 A round last computed by the v21.71 fill rule (A 1 L auto) is recomputed by the matrix when the screen opens → A 2.1 L, _dose.v 22.20; a manually typed A 3 L stays 3 L (B auto → 2.1 L)',
+{ name:'🎯 A round last computed by an older dose engine (A 1 L auto) is recomputed when the screen opens → gap 6 → A 0.6 L (1 L per 10 cm), _dose.v 22.32; a manually typed A 3 L stays 3 L (B auto → 0.6 L)',
   seed:new Function(LOCAL_TODAY+`const old={gap:6,waterL:121,aCC:1000,bCC:1000,cCC:0,rule:'morning fill to 60 cm'};
     localStorage.setItem('hydroPro_irr_pool',JSON.stringify({[T]:{P01:{'08:00':{water:'54',EC:'1',A:1,B:1,waterAdded:121,_autoFilled:{A:true,B:true,waterAdded:true},_dose:old,updatedAt:1}},
       P02:{'08:00':{water:'54',EC:'1',A:'3',B:1,waterAdded:121,_autoFilled:{A:false,B:true,waterAdded:true},_dose:old,updatedAt:1}}}}));`),
   run:fn(OPEN+`await sleep(400);const d=loadIrrPool()[_irrDate]||{};const a=(d.P01||{})['08:00']||{},b=(d.P02||{})['08:00']||{};
     return {p1:{A:a.A,B:a.B,v:(a._dose||{}).v,aCC:(a._dose||{}).aCC},p2:{A:b.A,B:b.B,v:(b._dose||{}).v}};`),
-  expect:{p1:{A:2.1,B:2.1,v:'22.20',aCC:2100},p2:{A:'3',B:2.1,v:'22.20'}} },
+  expect:{p1:{A:0.6,B:0.6,v:'22.32',aCC:600},p2:{A:'3',B:0.6,v:'22.32'}} },
 
 { name:'👁 At 1366×768 the "💡 Nexi says" line for Pool 1 is fully inside the table frame at scroll 0 (it was the 17th column, ~1100 px to the right); 🔤 placeholders EC, man EC, pH, man pH, cm, °C, opt., A (L), B (L), C (L) fit their boxes (text width ≤ box width)',
   viewport:{width:1366,height:768},
@@ -186,14 +186,14 @@ module.exports=[
     return {vis,fit};`),
   expect:{vis:{scroll:0,inside:true,text:true},fit:{'EC':true,'man EC':true,'pH':true,'man pH':true,'cm':true,'°C':true,'opt.':true,'A (L)':true,'B (L)':true,'C (L)':true}} },
 
-{ name:'🎯 Smart Dosing shows the monitor’s numbers: Pool 1 (level 54, EC 1) → 121 L, A 2.1 L, B 2.1 L, C 0.03 L; Pool 2 EC 1.30/1.38 → CALIBRATE and no APPLY ALL; Pool 3 without a level → "Awaiting water level reading" (not "Configure pool dimensions")',
+{ name:'🎯 Smart Dosing shows the monitor’s numbers: Pool 1 (level 54, EC 1) → 121 L, A 0.6 L, B 0.6 L, C 0.03 L (1 L per 10 cm, v22.32); Pool 2 EC 1.30/1.38 → CALIBRATE and no APPLY ALL; Pool 3 without a level → "Awaiting water level reading" (not "Configure pool dimensions")',
   run:fn(OPEN+`window.confirm=()=>true;irrSavePool('P01','water','54');irrSavePool('P01','EC','1');irrSavePool('P02','water','40');irrSavePool('P02','EC','1.30');irrSavePool('P02','manualEC','1.38');irrSavePool('P03','EC','1.7');await sleep(300);
     switchView('irr_smart_dose');await sleep(900);renderIrrSmartDose();await sleep(300);
     const rows=[...document.querySelectorAll('#stubIrrSmartDoseBody tbody tr')];const R=l=>rows.find(r=>(r.cells[0]||{}).innerText&&r.cells[0].innerText.split('\\n')[0].trim()===l);
     const r1=R('Pool 1'),r2=R('Pool 2'),r3=R('Pool 3');
     const btn=r=>[...r.querySelectorAll('button')].map(b=>b.innerText.trim());
     return {p1:btn(r1).slice(0,4),p2:{cal:/CALIBRATE EC meters/.test(r2.innerText),apply:/APPLY/.test(r2.innerText)},p3:{wait:/Awaiting water level reading/.test(r3.innerText),cfg:/Configure pool dimensions/.test(r3.innerText)}};`),
-  expect:{p1:['121L','2.1L','2.1L','0.03L'],p2:{cal:true,apply:false},p3:{wait:true,cfg:false}} },
+  expect:{p1:['121L','0.6L','0.6L','0.03L'],p2:{cal:true,apply:false},p3:{wait:true,cfg:false}} },
 
 { name:'🚨 Pool calls: P01 08:00 EC 1 + 11:00 EC 1.7 (rounds disagree) → 0 calls ever; P03 08:00 EC 1.7 + 11:00 EC 1 (latest out) → exactly 1 open call, key pool::P03::EC, still 1 after 30 s (it was ~1 new call per 5 s); corrected to 1.65 → task done, call closed_fixed by system; yesterday’s open P02 pH call (key <yesterday>::pool::P02::pH) + today’s pH 7.3 → still that 1 call, key folded to pool::P02::pH',
   seed:new Function(LOCAL_TODAY+PULLED+`const y=new Date(__d.getTime()-864e5);const Y=y.getFullYear()+'-'+String(y.getMonth()+1).padStart(2,'0')+'-'+String(y.getDate()).padStart(2,'0');
