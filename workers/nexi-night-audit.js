@@ -1,4 +1,8 @@
 /* nexi-night-audit — Cloudflare Worker: nightly anomaly scan (v20.90, phase 1 of the Night Auditor
+ * v2.0.0 (fleet audit L34, 10 Oct 2026): it reported 0 findings EVERY night — /sync/pull answers {data:{key:"<JSON string>"}} and
+ * the rule read the stores at the top level (undefined). Now unwrapped and parsed like nexi-gov-watch v21.12; hnx-sync is called through
+ * the Service binding HNX_SYNC when bound (a worker cannot fetch another worker of the same account over workers.dev), and the GPS
+ * distance follows the app's own rule (_computeGpsStops: odometer KM or per-leg KM mode, first leg from the base / ODO OUT).
  * work plan). Runs once a night (Cloudflare Cron Trigger), pulls the same synced data the app itself
  * reads, checks it against the rules below, and stores the findings so the app can show them at
  * 06:00 before anyone opens a screen.
@@ -34,6 +38,11 @@
 
 const HNX_SYNC_BASE = 'https://hnx-sync.eyalbenari99.workers.dev';
 const KV_PREFIX = 'audit:';
+/* v2.0.0: through the Service binding when bound (Settings → Bindings → Service binding HNX_SYNC → hnx-sync), else over the URL */
+function syncFetch(env, path, init) {
+  const base = String(env.SYNC_URL || HNX_SYNC_BASE).replace(/\/$/, '');
+  return env.HNX_SYNC && typeof env.HNX_SYNC.fetch === 'function' ? env.HNX_SYNC.fetch(new Request(base + path, init)) : fetch(base + path, init);
+}
 const KV_TTL_SECONDS = 90 * 24 * 60 * 60; // 90 days
 
 function cors(env, req) {
@@ -67,22 +76,30 @@ function _gpsOdoGap(odoKm, totalDist) {
   return { gapKm, gapPct, flag };
 }
 
-/* Mirrors _computeGpsStops()'s totalDist definition closely enough for the audit's purpose: sum of
- * consecutive stop-to-stop leg distances recorded on the report (the 'km' field on each stop), which
- * is exactly what totalDist means to _gpsOdoGap. A report with fewer than 2 stops has no legs to sum. */
-function totalDistFromStops(stops) {
-  if (!Array.isArray(stops) || stops.length < 2) return null;
+/* v2.0.0: an exact port of index.html's _computeGpsStops() distance (v19.99 + v21.58) — kmMode 'trip': the KM typed on a stop IS that
+ * leg's distance; otherwise KM is the odometer and a leg = this KM − the previous KM; the FIRST leg out of the base (no KM on the base
+ * row) is the first KM itself, or KM − ODO OUT when the readings are odometer values (≥ ODO OUT). totalDist = the sum of the legs. */
+function totalDistFromStops(stops, kmMode, odoOut) {
+  if (!Array.isArray(stops) || !stops.length) return null;
+  const num = v => (v == null || v === '' || isNaN(Number(v))) ? null : Number(v);
   let sum = 0, any = false;
-  for (let i = 1; i < stops.length; i++) {
-    const a = +stops[i - 1].km, b = +stops[i].km;
-    if (isNaN(a) || isNaN(b)) continue;
-    sum += Math.abs(b - a); any = true;
+  if (kmMode === 'trip') {
+    for (const s of stops) { const k = num(s && s.km); if (k != null) { sum += k; any = true; } }
+    return any ? Math.round(sum * 100) / 100 : null;
   }
-  return any ? sum : null;
+  for (let i = 1; i < stops.length; i++) {
+    const prev = num(stops[i - 1] && stops[i - 1].km), cur = num(stops[i] && stops[i].km);
+    if (prev != null && cur != null) { sum += cur - prev; any = true; }
+    else if (prev == null && cur != null && stops.slice(0, i).every(p => num(p && p.km) == null)) {
+      const o = num(odoOut), base = (o != null && o > 0 && cur >= o) ? o : 0;
+      if (cur >= base) { sum += cur - base; any = true; }
+    }
+  }
+  return any ? Math.round(sum * 100) / 100 : null;
 }
 
 async function hnxSyncToken(env) {
-  const r = await fetch(HNX_SYNC_BASE + '/auth/app-login', {
+  const r = await syncFetch(env, '/auth/app-login', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: String(env.HNX_SYNC_USER || '').toLowerCase(), hash: env.HNX_SYNC_PASS_HASH })
   });
@@ -94,9 +111,14 @@ async function hnxSyncToken(env) {
 
 async function pullSyncedData(env) {
   const token = await hnxSyncToken(env);
-  const r = await fetch(HNX_SYNC_BASE + '/sync/pull', { headers: { Authorization: 'Bearer ' + token } });
+  const r = await syncFetch(env, '/sync/pull?keys=' + encodeURIComponent('hydroPro_gps_reports'), { headers: { Authorization: 'Bearer ' + token } });
   if (!r.ok) throw new Error('hnx-sync pull failed: ' + r.status);
-  return r.json();
+  /* v2.0.0: /sync/pull answers { data: { key: "<JSON string>" } } — unwrap and parse (the rule read undefined before) */
+  const j = await r.json();
+  const raw = (j && j.data && typeof j.data === 'object') ? j.data : (j || {});
+  const out = {};
+  for (const k of Object.keys(raw)) { const v = raw[k]; if (typeof v === 'string') { try { out[k] = JSON.parse(v); } catch (e) { out[k] = v; } } else out[k] = v; }
+  return out;
 }
 
 /* Rule 1: GPS-vs-odometer gap, last 3 Manila days. A 'warn' only becomes a finding when the SAME
@@ -112,7 +134,7 @@ function runRule1GpsGap(data) {
     if (days.indexOf(rep.date) === -1) continue;
     const odoOut = +rep.odoOut, odoIn = +rep.odoIn;
     const odoKm = (!isNaN(odoOut) && !isNaN(odoIn) && odoIn > odoOut) ? (odoIn - odoOut) : null;
-    const totalDist = totalDistFromStops(rep.stops);
+    const totalDist = totalDistFromStops(rep.stops, rep.kmMode, rep.odoOut);
     const gap = _gpsOdoGap(odoKm, totalDist);
     if (!gap || gap.flag === 'ok') continue;
     byVehicleDay[rep.vehicleId] = byVehicleDay[rep.vehicleId] || {};
@@ -150,6 +172,7 @@ function checkAuth(env, req) {
   return a === 'Bearer ' + env.NIGHT_AUDIT_TOKEN;
 }
 
+export { totalDistFromStops, runRule1GpsGap }; /* v2.0.0: for tests/workers */
 export default {
   async fetch(req, env) {
     const h = cors(env, req);

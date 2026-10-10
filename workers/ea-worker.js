@@ -1,5 +1,7 @@
 /**
- * HydroNexis-AI — Executive Assistant Worker (Phase 4b) · v2.2.1 CORS + auth reason · v2.0 per-user mailboxes (Oct 2026, Eyal: "each user
+ * HydroNexis-AI — Executive Assistant Worker (Phase 4b) · v2.2.2 Service bindings (a worker cannot fetch another worker of the same
+ *   account over *.workers.dev — Cloudflare answers 404: bind HNX_SYNC → hnx-sync, NEXI_NOTIFY → nexi-notify, NEXI_WA → nexi-wa in
+ *   Settings → Bindings → Service binding; without a binding the URL is used as before) · v2.2.1 CORS + auth reason · v2.0 per-user mailboxes (Oct 2026, Eyal: "each user
  * should connect his work email that Nexi follows up daily, or each hour, or whatever the user asks")
  *   Session: besides the HMAC token, a Nexi cloud token (the same Bearer the app sends to hnx-sync) is accepted and
  *   verified through SYNC_URL + /auth/me (cached 10 min in KV). Email tokens are stored PER USER; each user has
@@ -83,6 +85,10 @@ async function verifySession(req, env) {
 }
 /* v2.0: the app's own cloud session (hnx_cloud_token) — verified against hnx-sync /auth/me, cached 10 min */
 let lastAuthWhy = ''; /* v2.2.1: surfaced in the 401 so the app can show WHY the cloud token was refused */
+/* v2.2.2: through the Service binding when one is set, else over the public URL */
+function viaService(binding, url, init) {
+  return (binding && typeof binding.fetch === 'function') ? binding.fetch(new Request(url, init)) : fetch(url, init);
+}
 async function verifyCloudToken(req, env, tok) {
   lastAuthWhy = '';
   if (!tok || tok.length < 8) { lastAuthWhy = 'no cloud token sent'; return null; }
@@ -92,8 +98,8 @@ async function verifyCloudToken(req, env, tok) {
   if (cached) { try { return JSON.parse(cached); } catch (e) { /* fall through */ } }
   const base = (env.SYNC_URL || 'https://hnx-sync.eyalbenari99.workers.dev').replace(/\/$/, '');
   let r;
-  try { r = await fetch(base + '/auth/me', { headers: { Authorization: 'Bearer ' + tok } }); } catch (e) { lastAuthWhy = 'hnx-sync unreachable: ' + (e && e.message); return null; }
-  if (!r.ok) { lastAuthWhy = 'hnx-sync ' + r.status + ' ' + String(await r.text().catch(() => '')).slice(0, 120); return null; }
+  try { r = await viaService(env.HNX_SYNC, base + '/auth/me', { headers: { Authorization: 'Bearer ' + tok } }); } catch (e) { lastAuthWhy = 'hnx-sync unreachable: ' + (e && e.message); return null; }
+  if (!r.ok) { lastAuthWhy = 'hnx-sync ' + r.status + ' ' + String(await r.text().catch(() => '')).slice(0, 120) + (r.status === 404 && !env.HNX_SYNC ? ' — add the Service binding HNX_SYNC → hnx-sync to this worker (Settings → Bindings)' : ''); return null; }
   const j = await r.json().catch(() => null);
   if (!j || !j.username) { lastAuthWhy = 'hnx-sync reply had no username'; return null; }
   const sess = { tenant: env.TENANT || 'aba', user: String(j.username).toLowerCase(), isAdmin: !!j.isAdmin };
@@ -580,14 +586,14 @@ function briefText(user, prefs, r, slot, drafts) {
 async function notifyMail(env, to, subject, text) {
   if (!env.NOTIFY_URL || !env.NOTIFY_TOKEN || !to) return false;
   try {
-    const r = await fetch(env.NOTIFY_URL.replace(/\/$/, '') + '/notify/mail', { method: 'POST', headers: { Authorization: 'Bearer ' + env.NOTIFY_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ to: [to], subject, text }) });
+    const r = await viaService(env.NEXI_NOTIFY, env.NOTIFY_URL.replace(/\/$/, '') + '/notify/mail', { method: 'POST', headers: { Authorization: 'Bearer ' + env.NOTIFY_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ to: [to], subject, text }) });
     return r.ok;
   } catch (e) { return false; }
 }
 async function waPing(env, text) {
   if (!env.WA_URL || !env.WA_TOKEN || !env.WA_COMPANY_PHONE) return false;
   try {
-    const r = await fetch(env.WA_URL.replace(/\/$/, '') + '/wa/send', { method: 'POST', headers: { Authorization: 'Bearer ' + env.WA_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ to: env.WA_COMPANY_PHONE, text }) });
+    const r = await viaService(env.NEXI_WA, env.WA_URL.replace(/\/$/, '') + '/wa/send', { method: 'POST', headers: { Authorization: 'Bearer ' + env.WA_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ to: env.WA_COMPANY_PHONE, text }) });
     return r.ok;
   } catch (e) { return false; }
 }
