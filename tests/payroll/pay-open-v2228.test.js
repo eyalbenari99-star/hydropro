@@ -30,5 +30,15 @@ module.exports=[
     window.getCurrentUser=()=>({username:'admin',fullname:'System Admin',role:'admin',active:true});const adm=window.hnxLate.canDecide();
     window.getCurrentUser=g;if(h!=null)localStorage.setItem('hnx_test_harness',h);
     return {rows,ign,mea,adm};},
-  expect:{rows:['2026-10-08'],ign:1,mea:false,adm:true} }
+  expect:{rows:['2026-10-08'],ign:1,mea:false,adm:true} },
+
+{ name:'🏦 PAY-002: the bank file of run R1 (Ana ₱1,000.10 + Ben ₱2,500.25 by bank, Cora ₱0 left out) ends with "TOTAL (2 employees)" ₱3,500.35 (v22.28)',
+  requires:"typeof window.hnxEwtFixedMigrate==='function'",
+  run:async()=>{setE([office('A','ANA',{payMethod:'bank',bankAccount:'111'}),office('B','BEN',{payMethod:'bank',bankAccount:'222'}),office('C','CORA',{payMethod:'bank',bankAccount:'333'})]);
+    const ol=window.loadPayrollRuns;window.loadPayrollRuns=()=>[{id:'R1',type:'semi',status:'approved',approvedAt:1,periodStart:'2026-09-26',periodEnd:'2026-10-10',lines:[{empId:'A',name:'ANA',netPay:1000.10},{empId:'B',name:'BEN',netPay:2500.25},{empId:'C',name:'CORA',netPay:0}]}];
+    window.confirm=()=>true;window.showToast=()=>{};let blob=null;const oc=URL.createObjectURL;URL.createObjectURL=b=>{blob=b;return 'blob:x';};
+    const oa=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){};
+    try{window.hnxBankFile();}finally{URL.createObjectURL=oc;HTMLAnchorElement.prototype.click=oa;window.loadPayrollRuns=ol;}
+    const t=blob?await blob.text():'';const last=t.trim().split('\n').pop();return {last,lines:t.trim().split('\n').length};},
+  expect:{last:'"TOTAL (2 employees)","","3500.35"',lines:4} }
 ];
