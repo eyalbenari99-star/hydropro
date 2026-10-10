@@ -3,8 +3,10 @@
    · the daily approval reminder rewrote EVERY resolved issue once a day, also the pool alarms Nexi resolved by itself, with no stamp;
    · the pool alarm auto-resolve closed hundreds of issues in one save, with no stamp;
    · two computers never converged (a tie keeps the local copy), so each one's copy differed from the cloud in 225 of 300 records.
-   Now those writers stamp updatedAt and, for calls and issues, the gate counts a record changed here with a NEWER stamp (and no
-   re-open) as ordinary work. Stale copies, re-opens and removals are held exactly as before. Also: stable now keeps a store the cloud
+   Now those writers stamp updatedAt and, for calls and issues, the gate counts a record changed here with a NEWER stamp (one the
+   merge itself would take, never more than 10 min in the future) that does not move it BACK (re-open, un-approve) as ordinary work.
+   Stale copies, re-opens, un-approvals and removals are held exactly as before. The daily approval reminder is kept on each
+   computer (hnxlocal_issue_reminders_v1) and never writes the synced issue, so it can no longer undo an approval. Also: stable now keeps a store the cloud
    did not take (the deployed worker drops anything over 5 MB) as unsent, instead of treating it as sent. */
 const H=`
   const IK='hydroPro_issues_v2',CK='hydroPro_calls',HK='hnxlocal_push_held_v1';
@@ -51,16 +53,49 @@ module.exports=[
     return {up:CK in o,held,changed:st.changed};}),
   expect:{up:true,held:false,changed:0} },
 
-{ name:'⏰ v22.32 the daily approval reminder touches only issues a PERSON resolved: 300 issues = 225 resolved by Nexi (no awaiting_approval_since) + 3 resolved by a person 2 days ago + 72 open → 3 reminded (was 228), the 225 unchanged, the 3 stamped updatedAt; an issue already holding 9 reminder lines keeps the last 7',
-  requires:"/autoResolved/.test(String(window.hnxCheckDailyReminders))",
+{ name:'⏰ v22.32 the daily approval reminder never writes the synced issue: 300 issues = 225 resolved by Nexi (autoResolved) + 2 resolved by "system" with no flag (older builds) + 3 resolved by a person 2 days ago (1 with no awaiting_approval_since) + 70 open → 3 reminded (was 228), all 300 records byte-identical, the reminders kept on this computer (hnxlocal_issue_reminders_v1, an issue with 9 old entries keeps the last 7); a second check the same day → 0',
+  requires:"/hnxlocal_issue_reminders_v1/.test(String(window.hnxCheckDailyReminders))",
   run:run(async()=>{await sleep(3000);
+    const now=Date.now(),D2=now-2*864e5,RK='hnxlocal_issue_reminders_v1';
+    const person=(i,x)=>iss(i,Object.assign({status:'resolved',resolvedAt:D2,awaiting_approval_since:D2,history:[{action:'resolved',by:'Jomel',at:D2}]},x||{}));
+    const list=Array.from({length:300},(_,i)=>i<225?resolvedBySystem(i,T1):i<227?iss(i,{status:'resolved',resolvedAt:D2,history:[{action:'resolved',by:'system',at:D2}]}):i<229?person(i):i===229?person(i,{awaiting_approval_since:null}):iss(i));
+    const raw=JSON.stringify(list);localStorage.setItem(IK,raw);
+    localStorage.setItem(RK,JSON.stringify({'ISS-227':Array.from({length:9},(_,k)=>D2-(9-k)*864e5)}));
+    const n=window.hnxCheckDailyReminders();const same=localStorage.getItem(IK)===raw;
+    const rem=JSON.parse(localStorage.getItem(RK)||'{}');const n2=window.hnxCheckDailyReminders();
+    return {n,same,ids:Object.keys(rem).sort(),kept:rem['ISS-227'].length,last:rem['ISS-227'][6]>=now,n2};}),
+  expect:{n:3,same:true,ids:['ISS-227','ISS-228','ISS-229'],kept:7,last:true,n2:0} },
+
+{ name:'✅ v22.32 an approval given on another computer survives this computer\'s reminder: 3 issues resolved here 2 days ago, approved in the cloud 1 h later → reminder runs here (3 reminded, record untouched) → the merge keeps APPROVED for all 3 (v22.32 first cut stamped the reminder as newer and undid the approval)',
+  requires:"typeof window.__hnxMergeGeneric==='function'&&/hnxlocal_issue_reminders_v1/.test(String(window.hnxCheckDailyReminders))",
+  run:run(async()=>{await sleep(3000);localStorage.removeItem('hnxlocal_issue_reminders_v1');
     const now=Date.now(),D2=now-2*864e5;
-    const list=Array.from({length:300},(_,i)=>i<225?resolvedBySystem(i,T1):i<228?iss(i,{status:'resolved',resolvedAt:D2,awaiting_approval_since:D2,daily_reminder_last_sent:null,approval_history:i===225?Array.from({length:9},(_,k)=>({type:'reminder_sent',at:D2-k*864e5})):[]}):iss(i));
-    localStorage.setItem(IK,JSON.stringify(list));const before=JSON.stringify(list.slice(0,225));
-    const n=window.hnxCheckDailyReminders();const after=JSON.parse(localStorage.getItem(IK)||'[]');
-    const three=after.slice(225,228);
-    return {n,sysSame:JSON.stringify(after.slice(0,225))===before,stamped:three.every(x=>x.updatedAt>=now&&x.daily_reminder_last_sent>=now),lines:three[0].approval_history.filter(h=>h.type==='reminder_sent').length};}),
-  expect:{n:3,sysSame:true,stamped:true,lines:7} },
+    const here=[0,1,2].map(i=>iss(i,{status:'resolved',resolvedAt:D2,updatedAt:D2,awaiting_approval_since:D2,history:[{action:'resolved',by:'Jomel',at:D2}]}));
+    const cloud=here.map(r=>Object.assign({},r,{status:'approved',approvedAt:D2+3600e3,updatedAt:D2+3600e3}));
+    localStorage.setItem(IK,JSON.stringify(here));const n=window.hnxCheckDailyReminders();
+    const m=JSON.parse(window.__hnxMergeGeneric(localStorage.getItem(IK),JSON.stringify(cloud),IK)||'[]');
+    return {n,approved:m.filter(r=>r.status==='approved').length};}),
+  expect:{n:3,approved:3} },
+
+{ name:'🛡 v22.32 moving records BACK is held even with newer stamps: 100 issues APPROVED in the cloud, "resolved" here with a newer stamp (a bulk un-approve) → HELD, 0 newer here; 225 issues resolved here stamped 2 h in the FUTURE (a clock running ahead) → HELD, 0 newer here',
+  requires:"typeof window.__hnxDsStats==='function'",
+  run:run(async()=>{await sleep(3000);reset();
+    const now=Date.now();
+    const cloudA=arr(300,i=>i<100?iss(i,{status:'approved',updatedAt:T1}):iss(i)),unap=arr(300,i=>i<100?iss(i,{status:'resolved',updatedAt:T1+60e3}):iss(i));
+    window.__hnxCloudRaw[IK]=cloudA;const o1=window.__hnxPushGuard({[IK]:unap});const e1=HNXDS.held()[IK]||{};reset();
+    const cloudI=arr(300,i=>iss(i)),ahead=arr(300,i=>i<225?resolvedBySystem(i,now+2*3600e3):iss(i));
+    window.__hnxCloudRaw[IK]=cloudI;const o2=window.__hnxPushGuard({[IK]:ahead});const e2=HNXDS.held()[IK]||{};reset();
+    return {unapprove:{up:IK in o1,held:!!e1.at,fwd:(e1.stats||{}).fwd},clockAhead:{up:IK in o2,held:!!e2.at,fwd:(e2.stats||{}).fwd}};}),
+  expect:{unapprove:{up:false,held:true,fwd:0},clockAhead:{up:false,held:true,fwd:0}} },
+
+{ name:'🛡 v22.32 reminder lines older builds wrote into 225 issues (daily_reminder_last_sent, reminder_sent history) are no change: 225 of 300 differ only there → 0 changed, uploads',
+  requires:"typeof window.__hnxDsStats==='function'",
+  run:run(async()=>{await sleep(3000);reset();
+    const base=i=>iss(i,{status:'resolved',resolvedAt:T0,awaiting_approval_since:T0,approval_history:[{type:'resolved',at:T0}]});
+    const cloud=arr(300,base),here=arr(300,i=>i<225?Object.assign(base(i),{daily_reminder_last_sent:T1,approval_history:[{type:'resolved',at:T0},{type:'reminder_sent',at:T1}]}):base(i));
+    window.__hnxCloudRaw[IK]=cloud;const o=window.__hnxPushGuard({[IK]:here});const st=window.__hnxDsStats(cloud,here,IK,true)||{};const held=!!HNXDS.held()[IK];reset();
+    return {up:IK in o,held,changed:st.changed};}),
+  expect:{up:true,held:false,changed:0} },
 
 { name:'💧 v22.32 an EC/pH issue that Nexi resolves when the reading is back in range is stamped (updatedAt, autoResolved): Pool 1 EC 1.0 (critical) at 08:00 → 1 open issue; EC 1.8 → resolved with updatedAt and autoResolved',
   requires:"/autoResolved=true/.test(String(window.irrSavePool||''))||true",
@@ -90,5 +125,53 @@ module.exports=[
       const dirty=JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}');
       return {sentCalls:sent.includes(BK),callsDirty:!!dirty[BK],memosDirty:!!dirty[MK],skipped:(window.__hnxPushSkipped||[]).map(x=>x.k),error:String(C.state.error||'')};
     }finally{window.fetch=of;localStorage.removeItem('hnx_cloud_token');}}),
-  expect:{sentCalls:true,callsDirty:true,memosDirty:false,skipped:['hydroPro_zz_bigstore_v1'],error:'not stored by the cloud (too big): zz_bigstore_v1 — kept on this computer'} }
+  expect:{sentCalls:true,callsDirty:true,memosDirty:false,skipped:['hydroPro_zz_bigstore_v1'],error:'not stored by the cloud (too big): zz_bigstore_v1 — kept on this computer'} },
+
+{ name:'☁ v22.32 a store the cloud refused is not re-sent unchanged for 30 min: push 1 sends the 5-call store (refused) → push 2 with the same store sends NOTHING (still unsent, still in the sync line) → one call changed → push 3 sends it again',
+  requires:"/__hnxSkHash/.test(String(window.HNX_Cloud&&window.HNX_Cloud.push))",
+  run:run(async()=>{await sleep(4000);
+    const BK='hydroPro_zz_bigstore_v1';
+    localStorage.setItem('hnx_cloud_token','t');window.__hnxPulledOk=true;window.__hnxStaleApp=null;const C=window.HNX_Cloud;C.state.online=true;C.state.syncing=false;C.state.error=null;
+    window.__hnxPushSkipped=[];localStorage.removeItem('hnxlocal_push_skipped_v1');
+    const of=window.fetch;const sent=[];
+    window.fetch=function(u,o){u=String(u);
+      if(u.indexOf('/sync/push')>=0){let d={};try{d=JSON.parse(o.body).data||{};}catch(e){}const ks=Object.keys(d);sent.push(ks.includes(BK));const keys=ks.filter(k=>k!==BK);return Promise.resolve(new Response(JSON.stringify({ok:true,written:keys.length,keys}),{status:200}));}
+      if(u.indexOf('/sync/pull')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,data:{}}),{status:200}));
+      return of.apply(this,arguments);};
+    const push=async()=>{C.state.syncing=false;window.__hnxMarkDirtyKey(BK);window.__hnxMarkDirtyKey('hydroPro_zz_small_v1');localStorage.setItem('hydroPro_zz_small_v1',JSON.stringify([{id:'m'+Math.random(),t:1}]));await window.HNX_Cloud.push();await sleep(500);};
+    try{
+      localStorage.setItem(BK,arr(5,i=>call(i,{updatedAt:T1})));
+      await push();const e1=String(C.state.error||'');await push();const e2=String(C.state.error||'');
+      const d2=!!JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}')[BK];
+      localStorage.setItem(BK,arr(5,i=>call(i,{updatedAt:T1+(i===0?60e3:0),status:i===0?'closed_fixed':'new'})));await push();
+      return {sent:sent.slice(0,3),stillUnsent:d2,line:/zz_bigstore_v1/.test(e1)&&/zz_bigstore_v1/.test(e2)};
+    }finally{window.fetch=of;localStorage.removeItem('hnx_cloud_token');}}),
+  expect:{sent:[true,false,true],stillUnsent:true,line:true} },
+
+{ name:'☁ v22.32 a store still waiting for its merge (big store, 5-minute pace) is not uploaded until merged: owed → push sends the other store only, the owed one stays unsent; merged → it goes up',
+  requires:"/__hnxMergeOwed/.test(String(window.HNX_Cloud&&window.HNX_Cloud.push))",
+  run:run(async()=>{await sleep(4000);
+    const OK2='hydroPro_zz_owed_v1',MK='hydroPro_zz_small_v1';
+    localStorage.setItem('hnx_cloud_token','t');window.__hnxPulledOk=true;window.__hnxStaleApp=null;const C=window.HNX_Cloud;C.state.online=true;C.state.syncing=false;C.state.error=null;
+    const of=window.fetch;const sent=[];
+    window.fetch=function(u,o){u=String(u);
+      if(u.indexOf('/sync/push')>=0){let d={};try{d=JSON.parse(o.body).data||{};}catch(e){}const ks=Object.keys(d);sent.push(ks.sort().join(','));return Promise.resolve(new Response(JSON.stringify({ok:true,written:ks.length,keys:ks}),{status:200}));}
+      if(u.indexOf('/sync/pull')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,data:{}}),{status:200}));
+      return of.apply(this,arguments);};
+    try{
+      localStorage.setItem(OK2,JSON.stringify([{id:'o1',t:1}]));localStorage.setItem(MK,JSON.stringify([{id:'m1',t:1}]));
+      window.__hnxMarkDirtyKey(OK2);window.__hnxMarkDirtyKey(MK);(window.__hnxMergeOwed=window.__hnxMergeOwed||{})[OK2]=Date.now();
+      await C.push();await sleep(500);const d1=!!JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}')[OK2];
+      delete window.__hnxMergeOwed[OK2];C.state.syncing=false;await C.push();await sleep(500);
+      return {first:sent[0],owedStillUnsent:d1,second:sent[1]};
+    }finally{window.fetch=of;localStorage.removeItem('hnx_cloud_token');}}),
+  expect:{first:'hydroPro_zz_small_v1',owedStillUnsent:true,second:'hydroPro_zz_owed_v1'} },
+
+{ name:'📞 v22.32 a call list merged in by the sync is seen at once (the 2-second read cache is dropped): read 2 calls → sync writes 3 → the next read gives 3 (was 2 for up to 2 s; an edit in that window wrote the old list back)',
+  requires:"typeof window.__hnxRawSetSuppressed==='function'&&typeof window.loadCalls==='function'",
+  run:run(async()=>{await sleep(3000);
+    localStorage.setItem(CK,arr(2,i=>call(i)));if(window._perfCache)delete window._perfCache._calls;
+    const a=window.loadCalls().length;window.__hnxRawSetSuppressed(CK,arr(3,i=>call(i)));const b=window.loadCalls().length;
+    return {a,b};}),
+  expect:{a:2,b:3} }
 ];
