@@ -320,5 +320,162 @@ module.exports=[
     as('amy');__PURPRO.openPR('PR_GH15_SAND');await sleep(300);document.getElementById('ppAwardSel').value=key;__PURPRO.award('PR_GH15_SAND','','Approval');
     const po=J('hydroPro_purch_pos')[0]||{};window.getCurrentUser=g0;
     return {opt:[o.label,o.spec],refused,gh:!!gh,po:[po.total,(po.option||{}).label,/ — Option B: Washed sand 12 m³$/.test(((po.items||[])[0]||{}).desc||'')],status:P('PR_GH15_SAND').status};`),
-  expect:{opt:['B','Washed sand 12 m³'],refused:[true,0],gh:true,po:[18000,'B',true],status:'Purchase Order'} }
+  expect:{opt:['B','Washed sand 12 m³'],refused:[true,0],gh:true,po:[18000,'B',true],status:'Purchase Order'} },
+
+{ name:'✕ Cancel PO is a step back (trial): with SWCC\'s FINAL Option B in, Dr Amy\'s ✕ Cancel PO on PO-2026-000010 (Issued, ₱8,500) is refused ("only Admin can go back") and nothing moves; Admin cancels it → Approval, PO Cancelled, RFQ Open with the award (Option B and its key) cleared, workflow "↩ Back from Purchase Order to Approval: PO-2026-000010 cancelled: supplier late — award again", audit stage:back; with no final offer Dr Amy cancels PO-2026-000012 (₱10,300) the same way (v22.52)',
+  requires:NEED+"&&!!window.__PURPRO.cancelPO",seed:SEED,
+  run:run(`put('hydroPro_purch_prs',[PR10({status:'Purchase Order',poId:'po10',finalOffer:{at:T,by:'Jinky Pagtama',sup:SW,label:'B',optId:'opt_b1'}}),PR10({id:'pr12',number:'PR-2026-000012',status:'Purchase Order',rfqId:'rfq12',poId:'po12'})]);
+    put('hydroPro_purch_rfqs',[RFQ10({status:'Awarded',awardedTo:SW,awardedTotal:8500,awardedOption:'B',awardedKey:SW+'#opt:opt_b1',suppliers:[{name:SW,email:'swcc@x.ph',sentAt:T,quote:Q(890),options:[OPTB({quote:Q(850,{final:true,finalAt:T,finalBy:'Jinky Pagtama',finalFile:{key:'k',name:'f.pdf',size:9},history:[Q(820)]})})]},{name:TX,email:'triox@x.ph',sentAt:T,quote:Q(1030)}]}),
+      RFQ10({id:'rfq12',number:'RFQ-2026-000012',prId:'pr12',status:'Awarded',awardedTo:TX,awardedTotal:10300,awardedKey:TX})]);
+    put('hydroPro_purch_pos',[{id:'po10',number:'PO-2026-000010',prId:'pr10',rfqId:'rfq10',company:'APTI',supplier:SW,status:'Issued',createdAt:T,issuedAt:T,revisions:[],items:[{desc:'3/4 Phenolic board — Option B: Marine plywood 3/4',qty:10,unit:'pc',unitCost:850}],total:8500},
+      {id:'po12',number:'PO-2026-000012',prId:'pr12',rfqId:'rfq12',company:'APTI',supplier:TX,status:'Issued',createdAt:T,issuedAt:T,revisions:[],items:[{desc:'3/4 Phenolic board',qty:10,unit:'pc',unitCost:1030}],total:10300}]);
+    as('amy');AL.length=0;PR_ANS='supplier late';__PURPRO.cancelPO('pr10');
+    const amy=[P().status,J('hydroPro_purch_pos')[0].status,AL.some(m=>/Final offer received \\(SWCC Hardware & Construction Supplies · Option B\\) — only Admin can go back/.test(m)),R().status,R().awardedOption];
+    as('admin');PR_ANS='supplier late';__PURPRO.cancelPO('pr10');
+    const p=P(),po=J('hydroPro_purch_pos')[0],rf=R(),w=lastWf();
+    as('amy');PR_ANS='Triox cannot deliver';__PURPRO.cancelPO('pr12');const p12=P('pr12'),w12=lastWf('pr12');
+    const au=J('hydroPro_purch_audit').filter(x=>x.action==='stage:back').length;
+    window.getCurrentUser=g0;
+    return {amy,admin:[p.status,p.poId,po.status,rf.status,rf.awardedTo,rf.awardedOption,rf.awardedKey,!!p.finalOffer],
+      note:w.note,back:w.back&&[w.back.from,w.back.to,(w.back.cleared||{}).poId],au,
+      p12:[p12.status,J('hydroPro_purch_pos')[1].status,R('rfq12').status,w12.back&&w12.back.from,/^↩ Back from Purchase Order to Approval: PO-2026-000012 cancelled: Triox cannot deliver — award again/.test(w12.note||'')]};`),
+  expect:{amy:['Purchase Order','Issued',true,'Awarded','B'],admin:['Approval',null,'Cancelled','Open',null,null,null,true],
+    note:'↩ Back from Purchase Order to Approval: PO-2026-000010 cancelled: supplier late — award again · to redo: the award to SWCC Hardware & Construction Supplies (Option B), PO-2026-000010 cancelled',
+    back:['Purchase Order','Approval','po10'],au:2,p12:['Approval','Cancelled','Open','Purchase Order',true]} },
+
+{ name:'🧹 A PO left behind when two computers crossed: PR-2026-000010 back at Quotation Evaluation (no PO link), RFQ Awarded, DRAFT PO-2026-000099 → Jinky\'s ✏ SWCC ₱880 is saved (the draft Cancelled as an orphan, RFQ Open) and Dr Amy awards → PO ₱8,800; PR-2026-000013 at Approval with ISSUED PO-2026-000098 not linked → Dr Amy\'s award refused, the red banner gives Admin ✕ Cancel, Admin cancels it ("supplier never confirmed") → RFQ Open → Dr Amy awards; PR-2026-000014 with 4 of 10 received on unlinked PO-2026-000097 → Admin cannot cancel it, ↩ Mark reopened → Dr Amy still refused, Admin awards after a confirm (v22.52)',
+  requires:NEED,seed:SEED,
+  run:run(`const PO=(id,num,pr,rfq,st,sup,tot)=>({id,number:num,prId:pr,rfqId:rfq,company:'APTI',supplier:sup,status:st,createdAt:T,issuedAt:st==='Draft'?null:T,revisions:[],items:[{desc:'3/4 Phenolic board',qty:10,unit:'pc',unitCost:tot/10}],total:tot});
+    put('hydroPro_purch_prs',[PR10({poId:null}),PR10({id:'pr13',number:'PR-2026-000013',status:'Approval',rfqId:'rfq13',poId:null}),PR10({id:'pr14',number:'PR-2026-000014',status:'Approval',rfqId:'rfq14',poId:null})]);
+    put('hydroPro_purch_rfqs',[RFQ10({status:'Awarded',awardedTo:SW,awardedTotal:8900}),RFQ10({id:'rfq13',number:'RFQ-2026-000013',prId:'pr13',status:'Awarded',awardedTo:TX,awardedTotal:10300}),RFQ10({id:'rfq14',number:'RFQ-2026-000014',prId:'pr14',status:'Awarded',awardedTo:SW,awardedTotal:8900})]);
+    put('hydroPro_purch_pos',[PO('po99','PO-2026-000099','pr10','rfq10','Draft',SW,8900),PO('po98','PO-2026-000098','pr13','rfq13','Issued',TX,10300),PO('po97','PO-2026-000097','pr14','rfq14','Partially Delivered',SW,8900)]);
+    put('hydroPro_purch_grns',[{id:'g97',number:'GRN-2026-000097',poId:'po97',date:'2026-10-09',receiver:'Warehouse',lines:[{line:0,accepted:4,rejected:0}],createdAt:T}]);
+    const pos=()=>J('hydroPro_purch_pos'),po=id=>pos().find(x=>x.id===id)||{},noSel=()=>{const e=document.getElementById('ppAwardSel');if(e)e.remove();};
+    as('jinky');__PURPRO.openPR('pr10');await sleep(200);const staleNote=/RFQ-2026-000010 still says Awarded/.test(view());__PURPRO.quoteToggle('rfq10:0');await sleep(100);val('ppQu','880');AL.length=0;__PURPRO.saveQuote('rfq10',0);await sleep(100);
+    const s1=[AL.length,R().suppliers[0].quote.unitPrice,po('po99').status,/^orphan draft/.test((po('po99').cancelled||{}).reason||''),R().status];
+    __PURPRO.simpleAdvance('pr10','Evaluation complete','Quotation Evaluation');
+    as('amy');__PURPRO.openPR('pr10');await sleep(200);noSel();AL.length=0;__PURPRO.award('pr10','','Approval',R().updatedAt);
+    const nw=pos().filter(x=>x.prId==='pr10'&&x.status==='Draft');const a1=[P().status,nw.length,nw[0]&&nw[0].total,AL.length];
+    __PURPRO.openPR('pr13');await sleep(200);const amyBanner=/🚨 PO-2026-000098 \\(Issued\\)[\\s\\S]*Admin cancels it or marks it reopened here/.test(view())&&!/✕ Cancel PO-2026-000098/.test(view());
+    noSel();AL.length=0;__PURPRO.award('pr13','','Approval',R('rfq13').updatedAt);
+    const a13=[AL.some(m=>/PO-2026-000098 \\(Issued\\) already exists for PR-2026-000013 — Admin cancels it or marks it reopened/.test(m)),P('pr13').status,pos().length];
+    as('admin');__PURPRO.openPR('pr13');await sleep(200);const admBanner=/✕ Cancel PO-2026-000098/.test(view())&&/Mark reopened by admin/.test(view());
+    const c13=__PURPRO.poOrphan('pr13','po98','cancel','supplier never confirmed');
+    const r13=[c13,po('po98').status,R('rfq13').status,lastWf('pr13').note];
+    as('amy');__PURPRO.openPR('pr13');await sleep(200);noSel();__PURPRO.award('pr13','','Approval',R('rfq13').updatedAt);const aw13=P('pr13').status;
+    as('admin');AL.length=0;const c14=__PURPRO.poOrphan('pr14','po97','cancel','x');const c14r=[c14,po('po97').status,AL.some(m=>/PO-2026-000097 has 4 received — it is not cancelled/.test(m))];
+    const o14=__PURPRO.poOrphan('pr14','po97','reopen','wrong spec delivered — reorder');
+    const r14=[o14,po('po97').status,(po('po97').reopenedByAdmin||{}).by,R('rfq14').status,P('pr14').reopenedPOs||[]];
+    as('amy');__PURPRO.openPR('pr14');await sleep(200);noSel();AL.length=0;__PURPRO.award('pr14','','Approval',R('rfq14').updatedAt);
+    const a14=[AL.some(m=>/PO-2026-000097 \\(Partially Delivered\\) already exists for PR-2026-000014 — only Admin awards a new PO next to it/.test(m)),P('pr14').status];
+    as('admin');__PURPRO.openPR('pr14');await sleep(200);noSel();CF.length=0;__PURPRO.award('pr14','','Approval',R('rfq14').updatedAt);
+    const b14=[P('pr14').status,CF.some(m=>/PO-2026-000097 \\(Partially Delivered\\) \\(its receipts and invoices are kept\\) stays as it is/.test(m)),pos().filter(x=>x.prId==='pr14').length];
+    window.getCurrentUser=g0;
+    return {staleNote,s1,a1,amyBanner,a13,admBanner,r13,aw13,c14r,r14,a14,b14};`),
+  expect:{staleNote:true,s1:[0,880,'Cancelled',true,'Open'],a1:['Purchase Order',1,8800,0],amyBanner:true,a13:[true,'Approval',4],admBanner:true,
+    r13:[true,'Cancelled','Open','PO-2026-000098 cancelled by admin: supplier never confirmed'],aw13:'Purchase Order',
+    c14r:[false,'Partially Delivered',true],r14:[true,'Partially Delivered','admin','Open',['po97']],a14:[true,'Approval'],b14:['Purchase Order',true,2]} },
+
+{ name:'🔀 Offer form drawn again after another computer took SWCC off: Jinky\'s open Triox form (row 1) is drawn for Triox (now row 0) with Triox\'s 30 days / 5 years / TriBrand / 20 d — not an empty Rizal form — and her ₱900 goes to Triox (history ₱1,030), Rizal stays without an offer; at the RFQ step the row form follows Triox too; a form whose supplier is taken off closes (v22.52)',
+  requires:NEED,seed:SEED,
+  run:run(`const TXQ=Q(1030,{payTerms:'30 days',warranty:'5 years',brand:'TriBrand',deliveryDays:20}),sups=()=>[{name:SW,email:'swcc@x.ph',sentAt:T,quote:Q(890)},{name:TX,email:'triox@x.ph',sentAt:T,quote:TXQ},{name:RZ,phone:'0917',sentAt:null,quote:null}];
+    put('hydroPro_purch_prs',[PR10()]);put('hydroPro_purch_rfqs',[RFQ10({suppliers:sups()})]);
+    const off=()=>setR('rfq10',r=>{const x=r.suppliers.shift();r.removed=(r.removed||[]).concat([Object.assign(x,{removedBy:'Rea Santos',removedAt:Date.now(),removeReason:'other computer'})]);});
+    as('jinky');__PURPRO.openPR('pr10');await sleep(200);__PURPRO.quoteToggle('rfq10:1');await sleep(100);
+    off();__PURPRO.openPR('pr10');await sleep(200);
+    const t=/^✏ Offer — Triox Enterprise OPC/.test(((document.getElementById('ppQForm')||{}).innerText||'').trim());
+    const pre=['ppQp','ppQw','ppQb','ppQd'].map(id=>(document.getElementById(id)||{}).value);
+    val('ppQu','900');__PURPRO.saveQuote('rfq10',0);await sleep(100);
+    const tx=R().suppliers.find(s=>s.name===TX),rz=R().suppliers.find(s=>s.name===RZ);
+    put('hydroPro_purch_prs',[PR10({status:'RFQ'})]);put('hydroPro_purch_rfqs',[RFQ10({suppliers:sups()})]);
+    __PURPRO.openPR('pr10');await sleep(200);__PURPRO.quoteToggle('rfq10:1');await sleep(100);off();__PURPRO.openPR('pr10');await sleep(200);
+    const rfqForm=/✏ Offer — Triox Enterprise OPC/.test(view())&&!/Offer — Rizal RCP Pipes/.test(view()),rp=(document.getElementById('ppQp')||{}).value;
+    off();__PURPRO.openPR('pr10');await sleep(200);const closed=!document.getElementById('ppQu');
+    window.getCurrentUser=g0;
+    return {t,pre,tx:[tx.quote.unitPrice,tx.quote.payTerms,(tx.quote.history||[]).map(h=>h.unitPrice)],rz:rz.quote,rfqForm,rp,closed};`),
+  expect:{t:true,pre:['30 days','5 years','TriBrand','20'],tx:[900,'30 days',[1030]],rz:null,rfqForm:true,rp:'30 days',closed:true} },
+
+{ name:'✏ Price edit of a FINAL offer: SWCC\'s final ₱850 (f.pdf) → ₱700 asks first; Cancel keeps it final at ₱850; OK → no longer FINAL (editedAfterFinal by jinky, file k1), its history keeps the final ₱850 with f.pdf, the row shows "was ₱850.00" and no 📎 FINAL chip, the award list has no "· FINAL", workflow "final offer edited ₱850.00 → ₱700.00", the request stays "final offer received" (Jinky still cannot go back) (v22.52)',
+  requires:NEED,seed:SEED,
+  run:run(`put('hydroPro_purch_prs',[PR10({finalOffer:{at:T,by:'Rea Santos',sup:SW,label:'A'}})]);
+    put('hydroPro_purch_rfqs',[RFQ10({suppliers:[{name:SW,email:'swcc@x.ph',sentAt:T,quote:Q(850,{final:true,finalAt:T,finalBy:'Rea Santos',finalFile:{key:'k1',name:'f.pdf',size:9},history:[Q(890)]})},{name:TX,email:'triox@x.ph',sentAt:T,quote:Q(1030)}]})]);
+    as('jinky');__PURPRO.openPR('pr10');await sleep(200);__PURPRO.quoteToggle('rfq10:0');await sleep(100);
+    window.confirm=m=>{CF.push(String(m));return false;};val('ppQu','700');__PURPRO.saveQuote('rfq10',0);await sleep(100);
+    const q0=R().suppliers[0].quote,asked=CF.some(m=>/FINAL offer \\(10 × ₱850\\.00, file f\\.pdf\\)[\\s\\S]*NO LONGER count as final/.test(m));
+    window.confirm=m=>{CF.push(String(m));return true;};val('ppQu','700');__PURPRO.saveQuote('rfq10',0);await sleep(100);
+    const q=R().suppliers[0].quote,h=(q.history||[]).slice(-1)[0]||{},wf=lastWf().note||'';
+    __PURPRO.openPR('pr10');await sleep(200);const v=view(),chip=[...document.querySelectorAll('.pp-chip')].some(e=>/📎 FINAL/.test(e.textContent));
+    const A=__PURPRO.a2a('pr10'),sw=A.rows.find(x=>x.name===SW);
+    setP('pr10',x=>{x.status='Approval';});__PURPRO.openPR('pr10');await sleep(200);
+    const listFinal=[...document.querySelectorAll('#ppAwardSel option')].some(o=>/FINAL/.test(o.textContent));
+    const jb=__PURPRO.canGoBack('pr10','RFQ');
+    window.getCurrentUser=g0;
+    return {asked,q0:[q0.final,q0.unitPrice],q:[q.final,q.unitPrice,(q.editedAfterFinal||{}).by,((q.editedAfterFinal||{}).file||{}).key,q.finalFile===undefined],
+      h:[h.final,h.unitPrice,(h.finalFile||{}).name,(h.finalFile||{}).key],hist:(q.history||[]).map(x=>x.unitPrice),chip,was:/was ₱850\\.00/.test(v),a2aFinal:!!sw.q.final,listFinal,
+      wf:/^✏ SWCC Hardware & Construction Supplies: final offer edited ₱850\\.00 → ₱700\\.00 — no longer counts as final/.test(wf),jb};`),
+  expect:{asked:true,q0:[true,850],q:[false,700,'jinky','k1',true],h:[true,850,'f.pdf','k1'],hist:[890,850],chip:false,was:true,a2aFinal:false,listFinal:false,wf:true,
+    jb:'Final offer received (SWCC Hardware & Construction Supplies) — only Admin can go back'} },
+
+{ name:'📎 Final offer through the real api() (fetch stubbed): POST …/r2/upload?key=purchasing%2FPR-2026-000010%2F… with the 1 MB PDF itself as the body, Content-Type application/pdf, the bearer token and its own 180 s limit; the request keeps a copy (file key, ₱850, the final offer); an older copy of RFQ-2026-000010 from another computer overwrites SWCC (₱890, not final) → the evaluation says the final offer is no longer on it, ↺ Restore puts the final ₱850 back with its file and keeps ₱890 in the history; a Triox form opened before Triox re-quoted ₱980 elsewhere is refused once, then saves ₱1,000 (v22.52)',
+  requires:NEED+"&&typeof window.__hnxApi==='function'",seed:SEED,
+  run:run(`put('hydroPro_purch_prs',[PR10()]);put('hydroPro_purch_rfqs',[RFQ10()]);
+    localStorage.setItem('hnx_cloud_token','test-token');const f0=window.fetch,st0=window.setTimeout,calls=[],delays=[];
+    window.fetch=(url,o)=>{url=String(url);if(url.indexOf('/r2/upload')<0)return Promise.reject(new Error('offline in test'));
+      calls.push({url,method:o.method,ct:o.headers['Content-Type'],auth:o.headers['Authorization'],file:o.body instanceof File,size:o.body&&o.body.size,signal:!!o.signal});
+      const k=decodeURIComponent(url.split('key=')[1].split('&')[0]);return Promise.resolve(new Response(JSON.stringify({ok:true,key:k}),{status:200,headers:{'Content-Type':'application/json'}}));};
+    window.setTimeout=function(fn,ms){if(ms>=60000)delays.push(ms);return st0.apply(window,arguments);};
+    as('jinky');__PURPRO.openPR('pr10');await sleep(200);__PURPRO.quoteToggle('rfq10:0:A:final');await sleep(150);
+    pick('ppQff',pdf(1,'SWCC final.pdf'));val('ppQu','850');await __PURPRO.saveQuote('rfq10',0,'A','final');await sleep(100);
+    window.fetch=f0;window.setTimeout=st0;localStorage.removeItem('hnx_cloud_token');
+    const pc=calls.filter(x=>/key=purchasing/.test(x.url)),c=pc[0]||{},key=(R().suppliers[0].quote.finalFile||{}).key||'',fo=P().finalOffer||{},wf=lastWf();
+    setR('rfq10',r=>{r.suppliers[0].quote=Q(890);});
+    __PURPRO.openPR('pr10');await sleep(200);const lost=/The final offer from SWCC Hardware & Construction Supplies \\(₱850\\.00\\)[\\s\\S]*is no longer on RFQ-2026-000010/.test(view())&&/Restore the final offer/.test(view());
+    const fl=__PURPRO.finalLost('pr10');
+    const ok=__PURPRO.finalRestore('pr10');const q=R().suppliers[0].quote,rn=lastWf().note||'';
+    __PURPRO.openPR('pr10');await sleep(200);const gone=!/is no longer on RFQ-2026-000010/.test(view())&&!__PURPRO.finalLost('pr10');
+    __PURPRO.quoteToggle('rfq10:1');await sleep(100);setR('rfq10',r=>{r.suppliers[1].quote=Q(980,{at:Date.now(),by:'Rea Santos'});});
+    AL.length=0;val('ppQu','1000');__PURPRO.saveQuote('rfq10',1);await sleep(150);
+    const refused=[AL.some(m=>/changed on another computer since you opened this form \\(now ₱980\\.00, by Rea Santos\\)/.test(m)),R().suppliers[1].quote.unitPrice,(document.getElementById('ppQu')||{}).value];
+    val('ppQu','1000');__PURPRO.saveQuote('rfq10',1);await sleep(100);const tx=R().suppliers[1].quote;
+    window.getCurrentUser=g0;
+    return {c:[/\\/r2\\/upload\\?key=purchasing%2FPR-2026-000010%2FRFQ-2026-000010%2F/.test(c.url||''),c.method,c.ct,c.auth,c.file,c.size,c.signal,pc.length],d:delays.indexOf(180000)>=0,
+      fo:[!!key&&(fo.file||{}).key===key,fo.unitPrice,fo.sup,fo.label,!!(fo.quote&&fo.quote.final),(fo.quote||{}).unitPrice,!/data:/.test(JSON.stringify(fo))],wf:(wf.finalFile||{}).key===key,
+      lost,fl,ok,q:[q.final,q.unitPrice,(q.finalFile||{}).key===key,(q.history||[]).map(h=>h.unitPrice)],rn:/^↺ Final offer restored: SWCC Hardware & Construction Supplies \\(A\\) ₱850\\.00 · SWCC final\\.pdf/.test(rn),gone,
+      refused,tx:[tx.unitPrice,(tx.history||[]).map(h=>h.unitPrice)]};`),
+  expect:{c:[true,'POST','application/pdf','Bearer test-token',true,1048576,true,1],d:true,fo:[true,850,'SWCC Hardware & Construction Supplies','A',true,850,true],wf:true,
+    lost:true,fl:true,ok:true,q:[true,850,true,[890]],rn:true,gone:true,refused:[true,980,'980'],tx:[1000,[980]]} },
+
+{ name:'🔒 From Receiving back to Purchase Order (no final offer): Jinky and Rea (the buyer) are refused ("This undoes the Receiving step — only Eyal or Dr Amy (or Admin) send it back") and offered no stage; Dr Amy may go back to Purchase Order or Approval (v22.52)',
+  requires:NEED,seed:SEED,
+  run:run(`put('hydroPro_purch_prs',[PR10({status:'Receiving',poId:'po10'})]);put('hydroPro_purch_rfqs',[RFQ10({status:'Awarded',awardedTo:SW,awardedTotal:8900})]);
+    put('hydroPro_purch_pos',[{id:'po10',number:'PO-2026-000010',prId:'pr10',rfqId:'rfq10',company:'APTI',supplier:SW,status:'Issued',createdAt:T,issuedAt:T,revisions:[],items:[{desc:'3/4 Phenolic board',qty:10,unit:'pc',unitCost:890}],total:8900}]);
+    as('jinky');const j=__PURPRO.canGoBack('pr10','Purchase Order'),jt=__PURPRO.backTargets('pr10');TS.length=0;const jg=__PURPRO.goBack('pr10','Receiving','Purchase Order','wrong');
+    as('rea');const r=__PURPRO.canGoBack('pr10','Purchase Order');
+    as('amy');const a=__PURPRO.canGoBack('pr10','Purchase Order'),aa=__PURPRO.canGoBack('pr10','Approval');
+    window.getCurrentUser=g0;
+    return {j,jt,jg:[jg,P().status,TS.some(t=>/only Eyal or Dr Amy/.test(t))],r,a,aa};`),
+  expect:{j:'This undoes the Receiving step — only Eyal or Dr Amy (or Admin) send it back',jt:[],jg:[false,'Receiving',true],r:'This undoes the Receiving step — only Eyal or Dr Amy (or Admin) send it back',a:null,aa:null} },
+
+{ name:'↩ Admin reopens a CANCELLED request: PR-2026-000010 cancelled at Approval ("project on hold", RFQ-2026-000010 Cancelled) — Dr Amy is refused ("only Admin can reopen it"); Admin sees ↩ Reopen…, is offered Approval and every earlier stage and reopens it at Quotation Evaluation ("SWCC can deliver after all") → RFQ Open with both offers, the approvals kept, the cancellation kept in cancelHistory and in the workflow (v22.52)',
+  requires:NEED,seed:SEED,
+  run:run(`put('hydroPro_purch_prs',[PR10({status:'Cancelled',cancelled:{at:T+5000,by:'Jinky Pagtama',reason:'project on hold',fromStage:'Approval'}})]);put('hydroPro_purch_rfqs',[RFQ10({status:'Cancelled'})]);
+    as('amy');const a=__PURPRO.canGoBack('pr10','Approval'),at=__PURPRO.backTargets('pr10');
+    as('admin');const t=__PURPRO.backTargets('pr10');__PURPRO.openPR('pr10');await sleep(200);const btn=/↩ Reopen…/.test(view());
+    const ok=__PURPRO.goBack('pr10','Cancelled','Quotation Evaluation','SWCC can deliver after all');
+    const p=P(),w=lastWf(),rf=R();
+    window.getCurrentUser=g0;
+    return {a,at,t,btn,ok,status:p.status,cancelled:p.cancelled===undefined,hist:(p.cancelHistory||[]).map(x=>x.reason),back:w.back&&[w.back.from,w.back.to,((w.back.cleared||{}).cancelled||{}).reason],
+      note:w.note,rfq:[rf.status,rf.suppliers.filter(s=>s.quote).length,(rf.reopened||[]).length],kept:[p.approvedBy,p.checkedBy]};`),
+  expect:{a:'PR-2026-000010 is cancelled — only Admin can reopen it (or raise a new request)',at:[],
+    t:['Approval','Quotation Evaluation','RFQ','Supplier Sourcing','Inventory Verification','Purchasing Review','Department Approval','AI Validation','Submitted','Draft'],
+    btn:true,ok:true,status:'Quotation Evaluation',cancelled:true,hist:['project on hold'],back:['Cancelled','Quotation Evaluation','project on hold'],
+    note:'↩ Back from Cancelled to Quotation Evaluation: SWCC can deliver after all · to redo: RFQ-2026-000010 opened again',rfq:['Open',2,1],kept:['Dr Amy Patdu','Jinky Pagtama']} },
+
+{ name:'🩺 Nexi Health "Purchase orders & receiving": a Cancelled PO (an award undone by ↩ Go back) is not counted — Issued PO-1 (nothing received), Draft PO-2, Partially Delivered PO-3 and Cancelled PO-4 → 3 POs, 1 with nothing received, 1 partly received, 3 still open, PO-4 nowhere in the box (v22.52)',
+  requires:"!!(window.HNX_COCKPIT_SUBJECTS&&window.HNX_COCKPIT_SUBJECTS.accounting&&window.__PURPRO&&window.__PURPRO.livePO)",seed:SEED,
+  run:run(`const it=(id,n,st,sup)=>({id,number:n,prId:'x',supplier:sup,status:st,issuedAt:st==='Draft'?null:T,createdAt:T,total:100,items:[{desc:'a',qty:1}]});
+    put('hydroPro_purch_pos',[it('a','PO-1','Issued',SW),it('b','PO-2','Draft',SW),it('c','PO-3','Partially Delivered',TX),it('d','PO-4','Cancelled',RZ)]);
+    const box=window.HNX_COCKPIT_SUBJECTS.accounting.find(x=>x.name==='Purchase orders & receiving');const r=box.compute();
+    return {total:r.total,crit:r.crit,warn:r.warn,open:r.open,text:r.text,po4:/PO-4/.test(JSON.stringify(r.items||{}))};`),
+  expect:{total:3,crit:1,warn:1,open:3,text:'1 PO(s) with nothing received yet',po4:false} }
 ];
