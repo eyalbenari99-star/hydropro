@@ -60722,7 +60722,8 @@ function payShowPayslip(runId,empId){
 // ============================================================
 function renderPayrollHistory(){
   const _sal=canViewSalaries(); /* v13.12 PAY-F11 */
-  const runs=loadPayrollRuns().slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const _offOK=(function(){try{return typeof window.hnxCanOfficePay!=='function'||!!window.hnxCanOfficePay();}catch(e){return false;}})(); /* review of v22.52: without 🏢 Office pay only the weekly (labor) runs are listed */
+  const runs=loadPayrollRuns().filter(r=>_offOK||(r&&r.type==='weekly')).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   if(runs.length===0){
     document.getElementById('payrollHistoryBody').innerHTML=`
       <div class="section-title">📊 Payroll History</div>
@@ -62356,14 +62357,17 @@ function hnxSensAllowed(u,area){
 function hnxCanOfficePay(u){if(u===undefined){try{u=getCurrentUser();}catch(e){u=null;}}return hnxSensAllowed(u,'office');}
 function hnxCanLoyalty(u){if(u===undefined){try{u=getCurrentUser();}catch(e){u=null;}}return hnxSensAllowed(u,'loyalty');}
 window.hnxCanOfficePay=hnxCanOfficePay;window.hnxCanLoyalty=hnxCanLoyalty;window.hnxSensNeverLock=hnxSensNeverLock;window.hnxSensGrantOf=hnxSensGrantOf;
-/* which gate a SCREEN needs before a menu, the Accounting flyout or ⌘K lists it: loyalty screens hnxCanLoyalty, the office payroll
-   screens hnxCanOfficePay, every other payroll screen the pay name list (v21.91) */
+/* which gate a SCREEN needs before a menu, the Accounting flyout or ⌘K lists it: loyalty screens hnxCanLoyalty, every other payroll
+   screen the pay name list (v21.91) AND 🏢 Office pay — except the LABOR screens below, which a pay-list person whose office pay the
+   owner took away keeps (📊 History then lists the weekly runs only). Every other payroll screen lists office people: Office, All,
+   QB Recon, Pay Basis Check, BIR / Reports, OT & Premiums, Final Pay, 13th month, the payroll brain. (review of v22.52) */
+var HNX_LABOR_PAYVIEWS={payroll_ops:1,pay_trips:1,payroll_rates:1,payroll_history:1};
 var HNX_PAYVIEW_RX=/(^|_)payroll|payslip|^pay_(basis|trips)$|final_pay|13th|thirteenth|salar|loyalty|acct_loy/i;
 function hnxSensViewAllowed(v,u){try{v=String(v||'');if(!HNX_PAYVIEW_RX.test(v))return true;if(u===undefined)u=getCurrentUser();if(!u)return false;
   if(/loyal|acct_loy/i.test(v))return hnxCanLoyalty(u);
   if(!hnxPaySensitiveAllowed(u))return false;
-  if(/^payroll_(office|all|qbrecon)$/.test(v))return hnxCanOfficePay(u);
-  return true;}catch(e){return false;}}
+  if(hnxCanOfficePay(u))return true;
+  return Object.prototype.hasOwnProperty.call(HNX_LABOR_PAYVIEWS,v);}catch(e){return false;}}
 window.hnxSensViewAllowed=hnxSensViewAllowed;
 /* grant / take away an owner-granted area: only an owner decider, never for himself, never locking out the System Admin login or Eyal */
 window.HNXSENS={areas:HNX_SENS_AREAS,
@@ -62737,7 +62741,7 @@ function renderUserPermsTab(username){
   /* v20.35: copy another user's access wholesale instead of re-ticking it by hand */
   const _others=users.filter(u=>u&&u.username&&u.username!==username&&u.role!=='admin');
   const _copiedFrom=(function(){try{const a=loadUserPerms();return (a[username]&&a[username].copiedFrom)||'';}catch(e){return '';}})();
-  const _mxLink=`<div style="margin:0 0 10px;padding:8px 12px;border:1px solid #5e35b1;border-radius:8px;background:rgba(94,53,177,.12);font-size:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><button class="btn btn-outline" style="padding:4px 12px;font-size:11.5px;" onclick="if(window.HNXMATRIX)HNXMATRIX.open('${escapeHtml(username)}')">🔐 Open in Access matrix</button><span style="color:var(--text3,#9ab);">every module and the owner-granted areas (🏢 Office pay, 💎 Loyalty) for this person, with the reason for each (v22.52)</span></div>`;
+  const _mxLink=`<div style="margin:0 0 10px;padding:8px 12px;border:1px solid #5e35b1;border-radius:8px;background:rgba(94,53,177,.12);font-size:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><button class="btn btn-outline" style="padding:4px 12px;font-size:11.5px;" data-u="${escapeHtml(username)}" onclick="if(window.HNXMATRIX)HNXMATRIX.open(this.getAttribute('data-u'))">🔐 Open in Access matrix</button><span style="color:var(--text3,#9ab);">every module and the owner-granted areas (🏢 Office pay, 💎 Loyalty) for this person, with the reason for each (v22.52)</span></div>`;
   const copyBar=`${_mxLink}<div style="margin:0 0 10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:rgba(0,0,0,.15);">
       <div style="font-size:12px;display:flex;gap:9px;align-items:center;flex-wrap:wrap;">
         <b>\u{1F465} Same access as</b>
@@ -119008,7 +119012,7 @@ window.attachPdfExportButton=function(viewId,title,subtitle){
     const VIEWS = (typeof MODULES === 'object' && MODULES) ?
       Object.entries(MODULES).flatMap(([modKey, mod]) =>
         (mod.views || []).map(v => ({ moduleKey: modKey, moduleName: mod.name || modKey, viewId: v.id, label: v.label || v.id }))
-      ) : [];
+      ).filter(v => typeof window.hnxSensViewAllowed !== 'function' || window.hnxSensViewAllowed(v.viewId)) /* review of v22.52: payroll, office-pay and loyalty screens only for who may open them */ : [];
 
     const STORE_KEY = 'hydroPro_wall_layout_v1';
     let state = { layoutId:'1x3', assignments:{} };
@@ -146642,7 +146646,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 
   // Keys we sync (everything starting with hydroPro_ except sensitive/temp ones)
   var SKIP_PREFIXES=['hydroPro_session','hydroPro_biometric','hydroPro_rescue_','hydroPro_backup_','hydroPro_autobackup_','hydroPro_rnd_items_v1_backup', /* v19.47: device snapshots never sync — the cloud kept re-delivering a 700 KB May backup to every machine after each cleanup */'hydroPro_ea_email_cache','hydroPro_ea_email_drafts','hydroPro_ea_notes_v1','hydroPro_ea_remind_']; /* v13.67 AUDIT-1 · v15.11: 'hydroPro_audit' moved to exact-key skip — the PREFIX silently excluded hydroPro_audit_workflow_v1 (the accounting year-end audit checklist, real shared data) from sync */
-  var SKIP_KEYS=['hnx_cloud_token','hnx_cloud_last','hydroPro_audit','hydroPro_sos_pull_v1','hydroPro_liveSensor_cache','hydroPro_acct_qb_monthly_v1','hydroPro_acct_qb_v1','hydroPro_sos_items_v1','hydroPro_sos_shipments_v1','hydroPro_sos_locations_v1','hydroPro_sos_lots_v1','hydroPro_qb_last_v1'/* v22.52: this computer's own "last QuickBooks read" status line (rewritten every 3 min = an upload every 3 min from every computer; only this computer's ☁ QB Sync screen reads it) */ ,'hydroPro_qbpay_local_v1'/* v22.52: the QuickBooks pay export loaded for the QB Recon audit stays on the computer that loaded it */ /* v21.99: QuickBooks/SOS caches (11.7 MB on the admin PC) are re-read from QuickBooks/SOS on each computer — never synced *//* v21.19: rewritten on every poll — pushed the whole payload from every PC */]; /* v19.39: the SOS pull state describes THIS device's cache */
+  var SKIP_KEYS=['hnx_cloud_token','hnx_cloud_last','hydroPro_audit','hydroPro_sos_pull_v1','hydroPro_liveSensor_cache','hydroPro_acct_qb_monthly_v1','hydroPro_acct_qb_v1','hydroPro_sos_items_v1','hydroPro_sos_shipments_v1','hydroPro_sos_locations_v1','hydroPro_sos_lots_v1','hydroPro_qb_last_v1'/* v22.52: this computer's own "last QuickBooks read" status line (rewritten every 3 min = an upload every 3 min from every computer; only this computer's ☁ QB Sync screen reads it) */,'hydroPro_acct_qb_aging_v1','hydroPro_acct_qb_cashflow_v1'/* v22.52 review: like the two QuickBooks caches beside them, re-read from QuickBooks on each computer — a synced copy carried one person's named or 🔒-masked rows to every other computer */ /* v21.99: QuickBooks/SOS caches (11.7 MB on the admin PC) are re-read from QuickBooks/SOS on each computer — never synced *//* v21.19: rewritten on every poll — pushed the whole payload from every PC */]; /* v19.39: the SOS pull state describes THIS device's cache */
   /* v12.90 SYNC-SCOPE-EXPANSION: operational keys the app writes under legacy
      hn_/hnx_/hydroProIrr* names (not hydroPro_) that were being SILENTLY
      EXCLUDED from cloud sync. Each one holds cross-device data — daily
@@ -243695,6 +243699,10 @@ console.log('[v15.04] IT attendance-uploads verdicts + matrix access ready');
 'use strict';
 if(window.hnxRecon)return;
 var KEY='hydroPro_recon_v1';
+/* review of v22.52: the QuickBooks lines are STORED as QuickBooks sent them (the synced store must keep the real payees for the
+   owner's computers, and the ledger pull below asks the mask to leave it alone: hnxRaw:'recon'); a person without 🏢 Office pay /
+   💎 Loyalty sees a payee or account naming office pay as "🔒 Office payroll" on this screen, in the link list and in the CSV. */
+function _qbN(v){v=v==null?'':String(v);if(!v)return v;try{if(window.HNXMATRIX&&typeof HNXMATRIX.maskText==='function')return HNXMATRIX.maskText(v);if(window.hnxCanOfficePay&&!hnxCanOfficePay())return '🔒';}catch(e){return '🔒';}return v;}
 var RECON_COMPANIES=[
   {id:'APTI',name:'AteretPaz Technologies Inc.',realm:'123145713380624'},
   {id:'APAC',name:'Aba Pardes AgriTech Corp.',realm:'193514687079844'},
@@ -244254,7 +244262,7 @@ function render(){
         +'<td style="padding:5px 8px;font-size:11px;">'+esc((l.cat||'').slice(0,26))+(l.code?'<br><span style="color:var(--text3);font-size:10px;">DR '+esc(l.code)+'</span>':'')+'</td>'
         +'<td style="padding:5px 8px;text-align:center;">'+(l.doc==='yes'?(documentApprovalReady(l)?'📎✓':'📎?'):(l.doc==='no'?'<b style="color:#ef9a9a;">✗</b>':(l.doc==='possible'?'<b style="color:#ffe082;">?</b>':'—')))
           +' <button class="btn btn-outline" style="padding:0 7px;font-size:10px;" onclick="hnxReconDoc('+i+')">✎</button></td>'
-        +'<td style="padding:5px 8px;font-size:11px;">'+(l.qb?('✓ '+esc(l.qb.date)+' · '+esc(l.qb.name||'')+' · ₱'+M(l.qb.amt)
+        +'<td style="padding:5px 8px;font-size:11px;">'+(l.qb?('✓ '+esc(l.qb.date)+' · '+esc(_qbN(l.qb.name))+' · ₱'+M(l.qb.amt)
             +' <button class="btn btn-outline" style="padding:0 7px;font-size:10px;color:#ef9a9a;" onclick="hnxReconUnlink('+i+')">unlink</button>')
           :'<button class="btn btn-outline" style="padding:1px 8px;font-size:10.5px;" onclick="hnxReconLink('+i+')">🔗 link QB line…</button>')+'</td>'
         +'<td style="padding:5px 8px;font-weight:700;white-space:nowrap;color:'+(st[0]==='red'?'#ef9a9a':st[0]==='orange'?'#ffab91':'#81c784')+';">'+st[1]+'</td></tr>';
@@ -244353,7 +244361,7 @@ function render(){
       +(qbOnly.length?('<div style="margin:0 14px 20px;border:1px solid rgba(239,83,80,.5);border-radius:12px;padding:12px 16px;background:rgba(239,83,80,.06);">'
         +'<b style="color:#ef9a9a;">🔴 In the selected QuickBooks file but NOT on the statement ('+qbOnly.length+') — check duplicates / wrong account / wrong cutoff:</b>'
         +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px;">'
-        +qbOnly.slice(0,60).map(function(q){return '<tr style="border-top:1px dashed rgba(239,83,80,.3);"><td style="padding:4px 8px;">'+esc(q.date)+'</td><td style="padding:4px 8px;">'+esc(q.name||'')+'</td><td style="padding:4px 8px;">'+esc(q.acct||'')+'</td><td style="padding:4px 8px;text-align:right;font-family:var(--mono,monospace);">'+M(q.amt)+'</td></tr>';}).join('')
+        +qbOnly.slice(0,60).map(function(q){return '<tr style="border-top:1px dashed rgba(239,83,80,.3);"><td style="padding:4px 8px;">'+esc(q.date)+'</td><td style="padding:4px 8px;">'+esc(_qbN(q.name))+'</td><td style="padding:4px 8px;">'+esc(_qbN(q.acct))+'</td><td style="padding:4px 8px;text-align:right;font-family:var(--mono,monospace);">'+M(q.amt)+'</td></tr>';}).join('')
         +'</table>'+(qbOnly.length>60?'<div style="font-size:11px;color:var(--text3);">…and '+(qbOnly.length-60)+' more (see CSV export).</div>':'')+'</div>'):'');
   }else if(CUR.tab==='je'){
     /* Category Summary (live from lines, like the workbook) + per-line recommended JE */
@@ -244822,9 +244830,9 @@ window.hnxReconRow=function(i){
     +fr('Entity to charge',l.ent)+fr('Business / personal',l.biz)+fr('Cost centre / project',l.cc)
     +fr('Deductible (BIR)',l.ded)+fr('Accountant remarks / action',l.remarks)
     +grp('🔗 QuickBooks matching')
-    +fr('Auto-match',l.qb?(l.qb.date+' · '+(l.qb.name||'')+' · ₱'+M(l.qb.amt)+(l.qb.acct?' · '+l.qb.acct:'')):'NOT LOADED / not matched')
+    +fr('Auto-match',l.qb?(l.qb.date+' · '+_qbN(l.qb.name)+' · ₱'+M(l.qb.amt)+(l.qb.acct?' · '+_qbN(l.qb.acct):'')):'NOT LOADED / not matched')
     +fr('QB matched? (from workbook)',l.qbm)+fr('QB transaction ID',l.qbref)+fr('QB date',l.qbdate)
-    +fr('QB vendor',l.qbven)+fr('QB account used',l.qbacct)+fr('QB amount',l.qbamt?M(l.qbamt):'')
+    +fr('QB vendor',_qbN(l.qbven))+fr('QB account used',_qbN(l.qbacct))+fr('QB amount',l.qbamt?M(l.qbamt):'')
     +fr('Variance PHP',l.qbvar?M(l.qbvar):'')+fr('QB status',l.qbst)
     +fr('Reconciled by',l.recby)+fr('Reconciled date',l.recdt)
     +(l.doc==='yes'&&!documentApprovalReady(l)?('<div style="margin-top:12px;"><button class="btn btn-primary" style="padding:7px 16px;" onclick="hnxReconApproveDoc('+i+')">✓ Validate & approve document</button></div>'):'')
@@ -245025,7 +245033,7 @@ window.hnxReconQBPull=async function(){
       if(co==='apti'||co==='apac'){
         say('\u23f3 Asking QuickBooks via the existing qb-api bridge\u2026');
         var r0=await fetch(QB_API_BASE+'/api/qb/'+co+'/general-ledger?start_date='+ds0[0]+'&end_date='+ds0[ds0.length-1],
-          {headers:{'x-api-key':(typeof QB_API_KEY!=='undefined'?QB_API_KEY:'')}});
+          {headers:{'x-api-key':(typeof QB_API_KEY!=='undefined'?QB_API_KEY:'')},hnxRaw:'recon'});
         if(r0.ok){
           var raw=await r0.json();
           var rows0=_glExtract(raw,A.name,A.chartNo);
@@ -245071,7 +245079,7 @@ window.hnxReconQBPull=async function(){
     var ds=(set.lines||[]).map(function(l){return l.date;}).filter(Boolean).sort();
     if(!ds.length){say('\u2718 Load the bank/card statement first \u2014 its dates define the pull range');return;}
     var qr=await fetch(cfg.url+'/qb/gl?realm='+encodeURIComponent(A.realmId)+'&account='+encodeURIComponent(acctId)
-      +'&start='+ds[0]+'&end='+ds[ds.length-1],{headers:H}).then(function(r){return r.json();});
+      +'&start='+ds[0]+'&end='+ds[ds.length-1],{headers:H,hnxRaw:'recon'}).then(function(r){return r.json();});
     if(!qr.ok){say('\u2718 QuickBooks: '+(qr.error||'ledger pull failed'));return;}
     if(!qr.rows.length){say('\u26a0 QuickBooks returned ZERO entries for this account and period \u2014 the account is genuinely empty in QB for these dates');return;}
     _qbStoreRows(s,set,A,qr.rows,'nexi-qb (direct Intuit API)');
@@ -245228,7 +245236,7 @@ window.hnxReconLink=function(i){
   var l=set.lines[i];
   var free=set.qb.filter(function(q){return !q.used;});
   if(!free.length){try{showToast('No unmatched QB lines left','warn');}catch(e){}return;}
-  var pick=prompt('Unmatched QB lines:\n'+free.slice(0,25).map(function(q,ix){return (ix+1)+') '+q.date+' · '+(q.name||'')+' · ₱'+M(q.amt);}).join('\n')+'\n\nType the number to link to "'+l.desc+'" (₱'+M(l.amt)+'):');
+  var pick=prompt('Unmatched QB lines:\n'+free.slice(0,25).map(function(q,ix){return (ix+1)+') '+q.date+' · '+_qbN(q.name)+' · ₱'+M(q.amt);}).join('\n')+'\n\nType the number to link to "'+l.desc+'" (₱'+M(l.amt)+'):');
   var q=free[(parseInt(pick,10)||0)-1];if(!q)return;
   q.used=true;l.qb={uid:q.uid,date:q.date,name:q.name,amt:q.amt,ref:q.ref,acct:q.acct||''};
   S(s);render();
@@ -245257,9 +245265,9 @@ window.hnxReconCsv=function(){
   var rows=[['Legal company',A.company||'UNASSIGNED',companyLabel(A.company)],['Source class',sourceLabel(A.sourceClass)],['Exact account / facility',A.name||CUR.acct],['Chart no.',A.chartNo||''],['Account currency',A.currency||'Unknown'],['QBO realm',A.realmId||''],['QBO Account.Id',A.qboAccountId||'NOT DISCOVERED'],['QBO active state',A.qboStatus||'unknown'],['Identity control',A.identityControl||'unverified'],['Statement period',set.period],['Statement revision',set.revisionNo||1],['QB file coverage',set.qbCoverage||'unverified'],[],
     ['Ref','Statement Period','Statement Date','Due Date','Txn Date','Post Date','Description','City','Country','Original Currency','FX Amount','Amount PHP','Type','Doc','Document approved','Document N/A approved','Receipt Page','Match Confidence','OR/Invoice No','Invoice Date','VAT','Business Purpose','Expense Category (JE)','JE DEBIT account','Account Code','JE CREDIT account','Entity to charge','Business/Personal','Deductible','Accountant Remarks','QB matched','QB transaction/line UID','QB date','QB name','QB amount','Status']];
   (set.lines||[]).forEach(function(l){var st=lineStatus(l);
-    rows.push([l.ref,l.period,l.stdate,l.due,l.date,l.post,l.desc,l.city,l.country,l.cur,l.fx,l.amt,l.type,l.doc,documentApprovalReady(l)?'YES':'NO',documentNAReady(l)?'YES':'NO',l.page,l.conf,l.orno,l.invdate,l.vat,l.purpose,l.cat,l.acctdr,l.code,l.acctcr,l.ent,l.biz,l.ded,l.remarks,l.qb?'YES':'NO',l.qb?l.qb.uid:'',l.qb?l.qb.date:'',l.qb?l.qb.name:'',l.qb?l.qb.amt:'',st[1]]);});
+    rows.push([l.ref,l.period,l.stdate,l.due,l.date,l.post,l.desc,l.city,l.country,l.cur,l.fx,l.amt,l.type,l.doc,documentApprovalReady(l)?'YES':'NO',documentNAReady(l)?'YES':'NO',l.page,l.conf,l.orno,l.invdate,l.vat,l.purpose,l.cat,l.acctdr,l.code,l.acctcr,l.ent,l.biz,l.ded,l.remarks,l.qb?'YES':'NO',l.qb?l.qb.uid:'',l.qb?l.qb.date:'',l.qb?_qbN(l.qb.name):'',l.qb?l.qb.amt:'',st[1]]);});
   rows.push([]);rows.push(['IN QB BUT NOT ON STATEMENT']);
-  (set.qb||[]).filter(function(q){return !q.used;}).forEach(function(q){rows.push(['',q.date,q.name,q.amt]);});
+  (set.qb||[]).filter(function(q){return !q.used;}).forEach(function(q){rows.push(['',q.date,_qbN(q.name),q.amt]);});
   var csv=rows.map(function(r){return r.map(function(c){return '"'+String(c==null?'':c).replace(/"/g,'""')+'"';}).join(',');}).join('\n');
   var a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv'}));
@@ -259325,8 +259333,8 @@ function tabPast(){
 /* v22.52 (Eyal, 11 Oct: office salaries are owner-granted): the QuickBooks export this audit reads used to be BUILT INTO THE PAGE —
    every employee's pay account with its monthly amounts, readable in View Source by anyone who opened Nexi, even before signing in.
    It is loaded from the file now (📥 Load the QuickBooks export on the 🏛 2026 government JE audit tab), kept on THIS computer only
-   (hydroPro_qbpay_local_v1 is in SKIP_KEYS, never synced) and read only for an office-pay holder (hnxCanOfficePay). */
-var QBPAY_KEY='hydroPro_qbpay_local_v1';
+   (hnxlocal_qbpay_v1: device-local — never synced, never in a backup) and read only for an office-pay holder (hnxCanOfficePay). */
+var QBPAY_KEY='hnxlocal_qbpay_v1'; /* review: the hnxlocal_ prefix keeps it out of the sync AND the daily cloud backup (_collectHydroProData takes every hydroPro_ key) */
 var QBPAY_EMPTY={months:['2026-08'],rows:[],summary:[{}],srcFiles:[]};
 var QBPAY=QBPAY_EMPTY;
 function qbpayLoad(){try{if(!(window.hnxCanOfficePay&&window.hnxCanOfficePay())){QBPAY=QBPAY_EMPTY;return false;}
@@ -259336,7 +259344,7 @@ function qbpayLoad(){try{if(!(window.hnxCanOfficePay&&window.hnxCanOfficePay()))
 function qbpayPanel(){
   if(!(window.hnxCanOfficePay&&window.hnxCanOfficePay()))return '<div style="padding:16px;border:1px dashed var(--border,#2a6);border-radius:11px;font-size:12.5px;">🔒 The 2026 government JE audit reads the per-employee QuickBooks export — office salaries are owner-granted (🏢 Office pay).</div>';
   return '<div style="padding:16px;border:1px dashed var(--border,#2a6);border-radius:11px;font-size:12.5px;line-height:1.6;">'
-    +'<b style="font-size:13.5px;">📥 Load the QuickBooks export</b><br>The 2026 government JE audit compares Nexi payroll with the company\'s QuickBooks Balance Sheet and Profit &amp; Loss per employee account. That export is no longer built into the page (anyone could read it in View Source); load it here once on this computer — it stays on this computer only and is never synced.<br>'
+    +'<b style="font-size:13.5px;">📥 Load the QuickBooks export</b><br>The 2026 government JE audit compares Nexi payroll with the company\'s QuickBooks Balance Sheet and Profit &amp; Loss per employee account. That export is no longer built into the page (anyone could read it in View Source); load it here once on this computer — it stays on this computer only — never synced and never in the daily cloud backup.<br>'
     +'<input type="file" accept=".json,application/json" onchange="hnxQbpayLoadFile(this)" style="margin-top:8px;"> <span style="font-size:11px;color:var(--text3,#9ab);">the JSON export: {"months":[…],"rows":[…],"summary":[…]}</span></div>';}
 window.hnxQbpayLoadFile=function(inp){try{if(!(window.hnxCanOfficePay&&window.hnxCanOfficePay())){toast('🔒 Office salaries are owner-granted','warn');return;}
   var f=inp&&inp.files&&inp.files[0];if(!f)return;var r=new FileReader();
@@ -280631,7 +280639,7 @@ function goRun(r){return function(){try{
 function runNet(r){var t=r.totals||{};return num(t.net||t.netPay||t.totalNet);}
 var PR=[];
 PR.push({name:'Payroll runs',icon:'🧾',go:'payroll_history',title:'Payroll runs — drafts waiting for approval and approved runs',compute:function(){
-  var R=runs().slice();if(!R.length)return {total:0,open:0,pct:100,text:'No payroll run yet',items:{},reds:[]};
+  var R=runs().filter(function(r){try{return r.type==='weekly'||typeof window.hnxCanOfficePay!=='function'||hnxCanOfficePay();}catch(e){return r.type==='weekly';}}); /* review of v22.52: office runs and their net only with 🏢 Office pay */if(!R.length)return {total:0,open:0,pct:100,text:'No payroll run yet',items:{},reds:[]};
   R.sort(function(a,b){return String(b.periodEnd||'').localeCompare(String(a.periodEnd||''));});
   var dr=R.filter(function(r){return r.status!=='approved';}),ap=R.filter(function(r){return r.status==='approved';});
   var mk=function(r,sev){var n=(r.lines||[]).length,t=runNet(r);
@@ -293298,7 +293306,7 @@ window.HNX_HELP_MODULES_B = [
  summary:'The weekly labor run, the semi-monthly office run, the timecards behind them and the rates and tax.',
  sections:[
   {h:'🔁 QB Recon: load the QuickBooks export (v22.52)', p:[
-   'The 🏛 2026 government JE audit tab compares Nexi payroll with the QuickBooks Balance Sheet and Profit & Loss per employee account. That export used to be built into the page, where anyone could read it in View Source; it is loaded from the file now — 📥 Load the QuickBooks export (the JSON export with months, rows and summary). It stays on the computer that loaded it, is never synced, and opens only for people with 🏢 Office pay. The other QB Recon tabs read the live QuickBooks copy as before.']},
+   'The 🏛 2026 government JE audit tab compares Nexi payroll with the QuickBooks Balance Sheet and Profit & Loss per employee account. That export used to be built into the page, where anyone could read it in View Source; it is loaded from the file now — 📥 Load the QuickBooks export (the JSON export with months, rows and summary). It stays on the computer that loaded it — never synced and never in the daily cloud backup — and opens only for people with 🏢 Office pay. The other QB Recon tabs read the live QuickBooks copy as before.']},
   {h:'Payroll audit fixes (v22.28)', p:[
    'HR card: for an office employee paid from the Monthly Basic, the Daily Rate Override box is greyed out with “Not used — pay comes from the Monthly Basic …” (it was ignored in silence). New box “Fixed EWT per cut-off” (accounting only): the exact company-paid BIR for a management member — the management members’ amounts were moved onto it once from the code, pay unchanged; a new management member is set here.',
    'Late approvals never list a late dated before the employee’s hire date. The 🏦 Bank file ends with a TOTAL row (number of employees and the net). “Ask payroll — cost” shows the same gross as the payroll screen (with the non-taxable allowances). An old duplicate office draft (time-zone alias) is removed only when unstamped, and every removal is written in the audit trail.']},
@@ -293727,7 +293735,7 @@ window.HNX_HELP_MODULES_B = [
    '✏ Edit offer on a FINAL offer: new lead days, terms, warranty, brand or notes keep it final. A new price, quantity, VAT or delivery asks first — the offer then no longer counts as final (no file backs the new price), the final offer and its file stay in its history, and the award list no longer marks it FINAL. To record a revised final offer use 📎 Final offer instead. The request stays “final offer received”.',
    'The request keeps its own copy of the last final offer (price, terms and the link to its file). If an older copy of the RFQ, saved on another computer, overwrites the final offer, the evaluation and the RFQ step say “The final offer from … is no longer on RFQ-…” with ↺ Restore the final offer (Buyers): the final offer comes back with its file, and the offer that had replaced it stays in the history.']},
   {h:'🔒 rows in the books (v22.52)', p:[
-   'Office salaries and the Loyalty program are owner-granted (Administration guide). An Accounting user without them sees the QuickBooks reports with one “🔒 Office pay (restricted)” and one “🔒 Loyalty program (restricted)” row per group in place of the named pay and loyalty accounts — the amounts are added together, so totals, the trial balance, the Matrices and the Financial Statements still agree; labor and production wages show as before. Ledger and bank-reconciliation lines keep their amounts (matching still works) but a payee naming an office employee reads “🔒 Office payroll”.',
+   'Office salaries and the Loyalty program are owner-granted (Administration guide). An Accounting user without them sees the QuickBooks reports with one “🔒 Office pay (restricted)” and one “🔒 Loyalty program (restricted)” row per group in place of the named pay and loyalty accounts — the amounts are added together, so totals, the trial balance, the Matrices and the Financial Statements still agree; labor and production wages show as before. Ledger lines keep their amounts, but a payee, memo or split account naming an office employee reads “🔒 Office payroll”. 🏦 Bank & Card Recon keeps the QuickBooks lines exactly as QuickBooks sent them (so matching works the same on every computer) and shows such a payee or account as “🔒 Office payroll” on the screen, in the 🔗 link QB line list and in the CSV. The QuickBooks copies each computer keeps (books, 12-month, aging, cash flow) are never synced: every computer reads them from QuickBooks itself.',
    'Reports ▸ 💰 Payroll Report and 🧾 BIR Alphalist show the labor lines only, with “🔒 Office lines hidden (n)” and the totals marked labor only; the pasted payroll and alphalist tables show 🔒 Restricted; 1601-C and its tile on the Tax Dashboard show 🔒 (the figure covers office and labor together). What such a person pulls from QuickBooks stays in memory for that session only — the computer’s saved copy is never overwritten with masked figures. On a shared computer, signing in as somebody with less access than the person before reloads Nexi once, so nothing the first person pulled stays on screen.']},
   {h:'Who approves a purchase (v22.28)', p:[
    'Eyal and Dr Amy approve purchase requests, award a supplier and issue the purchase order (and the System Admin login). Before v22.28 any admin-role account and anyone with payroll rights approved.',
@@ -293849,8 +293857,9 @@ window.HNX_HELP_MODULES_B = [
    'Changing access: the System Admin login, Eyal and Dr Amy click a module cell to step it none → view → edit → none (a per-user override, written in the audit log); Alt-click or right-click removes the override. Everybody else sees the matrix read-only. The 🔎 Access card now also shows the person’s 🏢 / 💎 / 💰 status.']},
   {h:'🏢 Office pay and 💎 Loyalty are owner-granted (v22.52)', p:[
    'Office salaries — the semi-monthly office payroll, the office lines of the Payroll Report, BIR Alphalist and 1601-C, the Office Payroll card, pasted payroll and alphalist tables, and every QuickBooks account naming an office employee or office pay — and the Loyalty program — Loyalty Savings, its guide, the loyalty card in Government Remittances and the loyalty accounts in QuickBooks — are two areas the owner gives per person. By default they open only for the System Admin login, Jinky, Eyal and Dr Amy (the pay name list), so payroll runs as before.',
-   'The Accounting module, a payroll department, the 💰 labor-rate flag and a secondary-admin role do NOT open them. In the QuickBooks reports (Trial Balance, General Ledger, Chart of Accounts, P&L, Matrices, Financial Statements, the exports and the CFO-AI / ACCOUNTANT-AI questions) such a person sees one “🔒 Office pay (restricted)” and one “🔒 Loyalty program (restricted)” row per group instead of the named accounts; the amounts are added together, so totals and the trial balance still agree, and labor and production wages show as before. Ledger and bank-reconciliation lines keep their amounts, but a payee naming an office employee reads “🔒 Office payroll”.',
+   'The Accounting module, a payroll department, the 💰 labor-rate flag and a secondary-admin role do NOT open them. In the QuickBooks reports (Trial Balance, General Ledger, Chart of Accounts, P&L, Matrices, Financial Statements, the exports and the CFO-AI / ACCOUNTANT-AI questions) such a person sees one “🔒 Office pay (restricted)” and one “🔒 Loyalty program (restricted)” row per group instead of the named accounts; the amounts are added together, so totals and the trial balance still agree, and labor and production wages show as before. Ledger lines keep their amounts, but a payee naming an office employee reads “🔒 Office payroll”; 🏦 Bank & Card Recon stores the real lines and shows such a payee or account as “🔒 Office payroll” on screen and in its CSV.',
    'Granting: in 🔐 Access matrix the owner (System Admin login, Eyal, Dr Amy) clicks a person’s 🏢 or 💎 cell and confirms. The same click takes it away again — also from Jinky or Dr Amy. The System Admin login and Eyal can never be locked out, nobody can change their own, and a grant written by anybody else is ignored. It reaches every computer with the next sync. “Same access as” never copies these grants, and Reset of a person’s overrides keeps them.',
+   'What a 🏢 grant opens for someone outside the pay name list: the office lines of the Accounting payroll reports (Payroll Report, BIR Alphalist, 1601-C, the Office Payroll card, pasted payroll and alphalist tables) and the named QuickBooks pay accounts. The Payroll module itself — with the semi-monthly 🏢 Office Payroll screen — stays with the pay name list. What taking 🏢 away from Jinky or Dr Amy does: Accounting shows her the same 🔒 rows as anyone without office pay, and the Payroll module opens only its labor screens — 👷 Labor Payroll, 📥 Timecard Upload, 🚚 Trip Incentives, 🏛️ Rates & Tax and 📊 History (the weekly runs only). Office Payroll, All Payroll, QB Recon, Pay Basis Check, BIR / Reports, OT & Premiums, Final Pay and every other payroll screen that lists office people close for her.',
    'The 💰 column is the labor-rate flag (HR daily rates, Production training rates, the labor lines of the payroll reports); the primary admin toggles it as before. It never opens office pay or loyalty.']},
   {h:'🛡 Data Safety: calls and issues upload by themselves (v22.32, Eyal 10 Oct)', p:[
    'Calls and issues were held several times a day (“issues: 0 removed · 225 changed · 0 added of 300”, Upload anyway pressed again and again). Nexi\'s own bulk work caused it: the daily approval reminder rewrote every resolved issue once a day — also the pool alarms Nexi resolved by itself — and the old-alarm clean-up closed hundreds at once, without dating the records, so every computer kept its own copy.',
@@ -297396,14 +297405,14 @@ function open(username){
   d.onclick=function(e){if(e.target===d)d.remove();};
   d.innerHTML='<div style="background:var(--surface,#0f1b2b);color:var(--text,#e8f1f8);border:1px solid var(--border,#2a4360);border-radius:14px;max-width:860px;width:100%;padding:16px 18px;">'
     +'<div style="display:flex;align-items:center;gap:10px;"><b style="font-size:15px;flex:1;">🔎 Module access — '+esc(u.fullname||u.username)+' <span style="font-size:11px;color:var(--text3);">role '+esc(u.role||'?')+' · home dept '+esc(Array.isArray(u.departments)&&u.departments.length?u.departments.join(', '):(u.department||'—'))+(u.allDepts?' · ALL DEPTS':'')+(strict?' · STRICT':'')+'</span></b>'
-    +(strict?'<button class="btn btn-outline" style="padding:4px 10px;font-size:11px;" onclick="HNXACCESS.liftStrict(\''+esc(username)+'\')">Lift Strict</button>':'')
+    +(strict?'<button class="btn btn-outline" style="padding:4px 10px;font-size:11px;" data-u="'+esc(username)+'" onclick="HNXACCESS.liftStrict(this.getAttribute(\'data-u\'))">Lift Strict</button>':'')
     +'<button class="btn btn-outline" style="padding:4px 10px;font-size:11px;" onclick="document.getElementById(\'hnxAccDoc\').remove()">✕</button></div>'
     +(window.HNXMATRIX&&HNXMATRIX.sensLine?HNXMATRIX.sensLine(username):'') /* v22.52 */
     +'<div style="font-size:11.5px;color:var(--text3);margin:4px 0 10px;">One line per module: what this person gets today and why. Grant View or Edit writes a per-user override (it beats the role default); Reset removes it.</div>'
     +'<table style="width:100%;border-collapse:collapse;font-size:12px;"><tr style="color:var(--text3);"><th style="text-align:left;padding:4px 6px;">Module</th><th style="text-align:left;">Access</th><th style="text-align:left;">Why</th><th></th></tr>'
     +rows.map(function(r){var col=r.access==='edit'?'#7fff7f':r.access==='view'?'#ffe082':'#ff8a80';
       return '<tr style="border-top:1px solid var(--border,#243752);"><td style="padding:5px 6px;white-space:nowrap;">'+esc(r.icon)+' '+esc(r.name)+'</td><td style="color:'+col+';font-weight:800;">'+esc(r.access.toUpperCase())+'</td><td style="color:var(--text2);">'+r.reason+'</td>'
-      +'<td style="white-space:nowrap;text-align:right;">'+(r.adminOnly?'<span style="font-size:10px;color:var(--text3);">admin only</span>':r.locked?'<span style="font-size:10px;color:var(--text3);" title="decided elsewhere — see the reason">🔒 locked</span>':'<button class="btn btn-outline" style="padding:2px 8px;font-size:10.5px;" onclick="HNXACCESS.grant(\''+esc(username)+'\',\''+esc(r.module)+'\',\'view\')">View</button> <button class="btn btn-primary" style="padding:2px 8px;font-size:10.5px;" onclick="HNXACCESS.grant(\''+esc(username)+'\',\''+esc(r.module)+'\',\'edit\')">Edit</button> <button class="btn btn-outline" style="padding:2px 8px;font-size:10.5px;" onclick="HNXACCESS.grant(\''+esc(username)+'\',\''+esc(r.module)+'\',\'inherit\')">Reset</button>')+'</td></tr>';}).join('')
+      +'<td style="white-space:nowrap;text-align:right;">'+(r.adminOnly?'<span style="font-size:10px;color:var(--text3);">admin only</span>':r.locked?'<span style="font-size:10px;color:var(--text3);" title="decided elsewhere — see the reason">🔒 locked</span>':'<button class="btn btn-outline" style="padding:2px 8px;font-size:10.5px;" data-u="'+esc(username)+'" data-m="'+esc(r.module)+'" onclick="HNXACCESS.grant(this.getAttribute(\'data-u\'),this.getAttribute(\'data-m\'),\'view\')">View</button> <button class="btn btn-primary" style="padding:2px 8px;font-size:10.5px;" data-u="'+esc(username)+'" data-m="'+esc(r.module)+'" onclick="HNXACCESS.grant(this.getAttribute(\'data-u\'),this.getAttribute(\'data-m\'),\'edit\')">Edit</button> <button class="btn btn-outline" style="padding:2px 8px;font-size:10.5px;" data-u="'+esc(username)+'" data-m="'+esc(r.module)+'" onclick="HNXACCESS.grant(this.getAttribute(\'data-u\'),this.getAttribute(\'data-m\'),\'inherit\')">Reset</button>')+'</td></tr>';}).join('')
     +'</table><div style="font-size:11px;color:var(--text3);margin-top:8px;">The person sees the change after a sync and a refresh (the overrides store syncs to every computer).</div></div>';
   document.body.appendChild(d);
 }
@@ -297430,7 +297439,7 @@ function openAudit(){if(typeof isAdmin!=='function'||!isAdmin())return;var rows=
     +'<button class="btn btn-outline" style="padding:4px 10px;font-size:11px;" onclick="document.getElementById(\'hnxAccAudit\').remove()">✕</button></div>'
     +'<div style="font-size:11.5px;color:var(--text3);margin:4px 0 10px;">Expected = the modules the person\'s role, home department and department-head seats give them, with no Strict and no override in the way. Missing = expected modules hidden today. Fix writes a per-user Edit override for each missing module (audited); Strict stays as it is.</div>'
     +'<table style="width:100%;border-collapse:collapse;font-size:12px;"><tr style="color:var(--text3);"><th style="text-align:left;padding:4px 6px;">User</th><th style="text-align:left;">Role · home dept</th><th style="text-align:left;">Head of</th><th style="text-align:left;">Missing</th><th style="text-align:left;">Has</th><th></th></tr>'
-    +rows.sort(function(a,b){return b.missing.length-a.missing.length||a.name.localeCompare(b.name);}).map(function(r){return '<tr style="border-top:1px solid var(--border,#243752);'+(r.missing.length?'':'opacity:.6;')+'"><td style="padding:5px 6px;white-space:nowrap;"><b>'+esc(r.name)+'</b><div style="font-size:10px;color:var(--text3);">'+esc(r.username)+(r.strict?' · STRICT':'')+'</div></td><td style="white-space:nowrap;">'+esc(r.role)+' · '+esc(r.dept)+'</td><td>'+esc(r.heads.join(', ')||'—')+'</td><td style="color:'+(r.missing.length?'#ff8a80':'var(--text3)')+';font-weight:'+(r.missing.length?'800':'400')+';">'+esc(r.missing.join(', ')||'none')+'</td><td style="color:var(--text3);font-size:11px;">'+esc(r.has.join(', '))+'</td><td style="white-space:nowrap;text-align:right;">'+(r.missing.length?'<button class="btn btn-primary" style="padding:2px 8px;font-size:10.5px;" onclick="HNXACCESS.fixOne(\''+esc(r.username)+'\')">Grant '+r.missing.length+'</button> ':'')+'<button class="btn btn-outline" style="padding:2px 8px;font-size:10.5px;" onclick="HNXACCESS.open(\''+esc(r.username)+'\')">🔎</button></td></tr>';}).join('')
+    +rows.sort(function(a,b){return b.missing.length-a.missing.length||a.name.localeCompare(b.name);}).map(function(r){return '<tr style="border-top:1px solid var(--border,#243752);'+(r.missing.length?'':'opacity:.6;')+'"><td style="padding:5px 6px;white-space:nowrap;"><b>'+esc(r.name)+'</b><div style="font-size:10px;color:var(--text3);">'+esc(r.username)+(r.strict?' · STRICT':'')+'</div></td><td style="white-space:nowrap;">'+esc(r.role)+' · '+esc(r.dept)+'</td><td>'+esc(r.heads.join(', ')||'—')+'</td><td style="color:'+(r.missing.length?'#ff8a80':'var(--text3)')+';font-weight:'+(r.missing.length?'800':'400')+';">'+esc(r.missing.join(', ')||'none')+'</td><td style="color:var(--text3);font-size:11px;">'+esc(r.has.join(', '))+'</td><td style="white-space:nowrap;text-align:right;">'+(r.missing.length?'<button class="btn btn-primary" style="padding:2px 8px;font-size:10.5px;" data-u="'+esc(r.username)+'" onclick="HNXACCESS.fixOne(this.getAttribute(\'data-u\'))">Grant '+r.missing.length+'</button> ':'')+'<button class="btn btn-outline" style="padding:2px 8px;font-size:10.5px;" data-u="'+esc(r.username)+'" onclick="HNXACCESS.open(this.getAttribute(\'data-u\'))">🔎</button></td></tr>';}).join('')
     +'</table></div>';
   document.body.appendChild(d);}
 function fixOne(username){var r=auditAll().filter(function(x){return x.username===username;})[0];if(!r)return;var n=fixUser(username,r.missing);toast('Granted '+n+' module'+(n===1?'':'s')+' to '+(r.name));openAudit();}
@@ -297452,17 +297461,19 @@ try{console.log('[v21.56] Access doctor ready');}catch(e){}
        every loyalty account into "🔒 Loyalty program (restricted)", the amounts added together so totals and the trial balance still
        agree; labor, trainee and production wages stay as they are. Ledger, journal and bank-recon lines keep their amounts, but a
        payee, memo or split account naming an office employee reads "🔒 Office payroll". The mask is applied when the data is READ
-       (the two QuickBooks caches, through the outermost localStorage.getItem) and when it ARRIVES (every QuickBooks call through
+       (the four QuickBooks caches — books, 12-month, aging, cash flow — through the outermost localStorage.getItem; none of them syncs) and when it ARRIVES (every QuickBooks call through
        window.fetch), so the reports, Matrices, Financial Statements, exports and the CFO-AI / ACCOUNTANT-AI / Ask-the-books prompts
        only ever see masked data for such a person. Nothing masked is ever written over the real cache: what a non-holder pulls lives
-       in memory for that session only. Signing in as a person with less access than the one before reloads the page, so nothing a
+       in memory for that session only. Bank & Card Recon is the one exception: its ledger pull arrives as sent (fetch init
+       hnxRaw:'recon'), the synced recon store keeps the real lines, and the recon screen, its link list and CSV mask a payee or
+       account when it is SHOWN (HNXMATRIX.maskText). Signing in as a person with less access than the one before reloads the page, so nothing a
        holder pulled into memory stays on screen for him.
    (2) 🔐 ACCESS MATRIX: every user × every module + 🏢 Office pay + 💎 Loyalty + 💰 Labor rates, the reason for each cell (the same
        reasons the 🔎 Access card gives — HNXACCESS.why uses explain()), filters, and editing for the owner.
    TODO (not in this release): the HR card still fills Monthly Basic / allowances / loyalty into hidden inputs for people who may not
    see them (fill and save must change together); the sync worker still sends every store to every signed-in computer (a per-key
    check in hnx-sync is the real fix — every gate here runs in the browser); a one-time notice to the owner listing who lost office pay
-   or loyalty; the management EWT constants in the payroll engine; bank-recon rows pulled before v22.52 keep their payee names. */
+   or loyalty; the management EWT constants in the payroll engine. */
 (function(){
 'use strict';
 if(window.HNXMATRIX)return;
@@ -297526,7 +297537,16 @@ function want(c,F){return !!c&&((c==='off'&&F.off)||(c==='loy'&&F.loy));}
 function isNumStr(v){return typeof v==='number'||(typeof v==='string'&&/^\s*-?\(?-?[₱$]?\s*[\d,]+(\.\d+)?\)?\s*$/.test(v)&&/\d/.test(v));}
 function toNum(v){if(typeof v==='number')return v;var s=String(v).trim();var neg=/^\(.*\)$/.test(s)||/^-/.test(s)||/^\(?-/.test(s);var n=parseFloat(s.replace(/[^\d.]/g,''));if(isNaN(n))return 0;return neg?-n:n;}
 function fmt2(n){return (Math.round(n*100)/100).toFixed(2);}
-function nature(l){l=String(l||'');if(/payable|accrued|clearing|liabilit|withholding|net ?pay|suspense|semi[- _]?monthly/i.test(l))return 'pay';if(/advance/i.test(l))return 'adv';return 'exp';}
+/* review of v22.52: a masked row's nature follows its chart code — its own, else the nearest enclosing QuickBooks section's (2xxx a
+   liability → payable / accrued, 1xxx an asset → advances, 5xxx and up an expense) — and only then the words of the label or of the
+   sections (a 2312 government payable read "payroll expense", a 6122 EWT expense read "payable / accrued"). PARENT = the labels of
+   the sections being walked (maskQboRows). */
+var PARENT=[];
+function nature(l){l=String(l||'');var cd=code4(l),i;for(i=PARENT.length-1;!cd&&i>=0;i--)cd=code4(PARENT[i]);
+  if(cd){var c0=cd.charAt(0);if(c0==='2')return 'pay';if(c0==='1')return 'adv';if(c0>='5')return 'exp';}
+  if(/payable|accrued|clearing|liabilit|withholding|net ?pay|suspense|semi[- _]?monthly/i.test(l))return 'pay';if(/advance/i.test(l))return 'adv';
+  for(i=PARENT.length-1;i>=0;i--){var p=String(PARENT[i]||'');if(/payable|accrued|liabilit/i.test(p))return 'pay';if(/advance|receivable/i.test(p))return 'adv';if(/expense|cost of/i.test(p))return 'exp';}
+  return 'exp';}
 function code4(l){var m=/^\s*(\d{4})[\d-]*/.exec(String(l||''));return m?m[1]:'';}
 function synthLabel(c,l){var n=nature(l),cd=code4(l);
   return (cd?cd+' ':'')+(c==='loy'?LOY_LBL:OFF_LBL)+(n==='pay'?' · payable / accrued':n==='adv'?' · advances':(c==='loy'?' · employee benefit expense':' · payroll expense'));}
@@ -297547,7 +297567,7 @@ function maskQboRows(rows,F,d){
       vals.forEach(function(cd,i){if(i===0)return;var v=cd&&cd.value;if(v==null||v===''||!isNumStr(v))return;b.n[i]=(b.n[i]||0)+toNum(v);});
       return;}
     var nr={};for(var k in r)nr[k]=r[k];
-    if(r.Rows)nr.Rows=maskAny(r.Rows,F,d+1);
+    if(r.Rows){PARENT.push(lab);try{nr.Rows=maskAny(r.Rows,F,d+1);}finally{PARENT.pop();}}
     if(Array.isArray(r.ColData)){var det=isDate(lab);nr.ColData=r.ColData.map(function(cd,i){if(!cd||typeof cd!=='object')return cd;if(i===0&&!det)return cd;
       var v=cd.value,cc=(typeof v==='string')?cls(v):'';if(!want(cc,F))return cd;var o={};for(var k2 in cd)o[k2]=cd[k2];o.value=cc==='loy'?LOY_LBL:PAYEE_LBL;delete o.id;return o;});}
     if(r.Header&&Array.isArray(r.Header.ColData)){var h={};for(var k3 in r.Header)h[k3]=r.Header[k3];h.ColData=r.Header.ColData.map(function(cd,i){if(i===0||!cd||typeof cd!=='object')return cd;var v=cd.value;if(typeof v!=='string')return cd;var cc=cls(v);if(!want(cc,F))return cd;var o={};for(var k4 in cd)o[k4]=cd[k4];o.value=cc==='loy'?LOY_LBL:PAYEE_LBL;return o;});nr.Header=h;}
@@ -297606,7 +297626,7 @@ function maskAny(x,F,d){d=d||0;if(!d&&!EMPX.pass){empIndex();EMPX.pass++;try{ret
 /* who is looking: F.off / F.loy = mask that area */
 function flags(){var u=me();return {u:(u&&u.username)||'',off:!(u&&window.hnxCanOfficePay&&hnxCanOfficePay(u)),loy:!(u&&window.hnxCanLoyalty&&hnxCanLoyalty(u))};}
 function maskJSON(raw,F){return JSON.stringify(maskAny(JSON.parse(raw),F,0));}
-var QBK=/^hydroPro_acct_qb(_monthly)?_v1$/;
+var QBK=/^hydroPro_acct_qb(_monthly|_aging|_cashflow)?_v1$/; /* review: aging (vendor / customer names) and cash flow too */
 var OVL={},OVLU=null,MEMO={};
 (function(){try{
   var L=window.localStorage,pg=L.getItem,ps=L.setItem,pr=L.removeItem;if(!pg||pg.__hnxSens)return;
@@ -297644,6 +297664,7 @@ function maskResponse(res,F){
     var url='';try{url=typeof input==='string'?input:((input&&input.url)||String(input||''));}catch(e){}
     var p=pf.apply(this,arguments);
     if(!QBURL.test(url))return p;
+    if(init&&init.hnxRaw==='recon'&&/\/general-ledger|\/qb\/gl\b/i.test(url))return p; /* review: the Bank & Card Recon ledger pull is stored as sent and masked when shown */
     var F=flags();if(!F.off&&!F.loy)return p;
     return p.then(function(res){return maskResponse(res,F);});};
   for(var k in pf){try{wf[k]=pf[k];}catch(e){}}
@@ -297721,7 +297742,7 @@ function whyRows(username){return withMemo(function(){var u=userOf(username);if(
 function sensLine(username){try{var u=userOf(username);if(!u)return '';var o=explainSens(u,'office'),l=explainSens(u,'loyalty'),b=explainLabor(u);
   function chip(t,x){return '<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;border-radius:99px;font-size:11px;border:1px solid '+(x.on?'#c62828':'var(--border,#2a4360)')+';background:'+(x.on?'rgba(198,40,40,.18)':'transparent')+';" title="'+esc(x.reason)+'">'+t+': <b>'+(x.on?'YES':'no')+'</b> <span style="color:var(--text3,#9ab);">('+esc(x.reason)+')</span></span>';}
   return '<div style="margin:0 0 8px;">'+chip('🏢 Office pay',o)+chip('💎 Loyalty',l)+chip('💰 Labor rates',b)
-    +' <button class="btn btn-outline" style="padding:2px 9px;font-size:10.5px;" onclick="HNXMATRIX.open(\''+esc(u.username)+'\')">🔐 Access matrix</button></div>';}catch(e){return '';}}
+    +' <button class="btn btn-outline" style="padding:2px 9px;font-size:10.5px;" data-u="'+esc(u.username)+'" onclick="HNXMATRIX.open(this.getAttribute(\'data-u\'))">🔐 Access matrix</button></div>';}catch(e){return '';}}
 function canEditMods(){var u=me();return !!u&&u.active!==false&&(u.role==='admin'||hnxIsOwnerDecider(u));}
 function canEditSens(){var u=me();return !!u&&hnxIsOwnerDecider(u);}
 function cycle(username,m){
@@ -297738,7 +297759,7 @@ function toggleSens(username,area,noConfirm){
   var u=userOf(username);if(!u)return false;var x=explainSens(u,area);
   if(x.locked){toast(x.reason,'warn');return false;}
   var on=!x.on,what=area==='office'?'OFFICE SALARIES':'the LOYALTY PROGRAM';
-  if(!noConfirm&&!confirm((on?'Give '+(u.fullname||u.username)+' '+what+'?':'Take '+what+' away from '+(u.fullname||u.username)+'?')+'\n\n'+(on?'They will see the named office pay accounts and figures.':'They will see 🔒 rows instead.')))return false;
+  if(!noConfirm&&!confirm((on?'Give '+(u.fullname||u.username)+' '+what+'?':'Take '+what+' away from '+(u.fullname||u.username)+'?')+'\n\n'+(area==='office'?(on?'They will see the named QuickBooks pay accounts and the office lines of the Accounting payroll reports (Payroll Report, Alphalist, 1601-C, Office Payroll card).'+(hnxPaySensitiveAllowed(u)?'':' The Payroll module itself, with the Office Payroll screen, stays with the pay name list.'):'QuickBooks shows them 🔒 rows instead and the Accounting payroll reports show labor lines only'+(hnxPaySensitiveAllowed(u)?'; in Payroll only the labor screens stay open (Labor Payroll, Timecard Upload, Trip Incentives, Rates & Tax, History of the weekly runs).':'.')):(on?'They will see Loyalty Savings, its guide, the loyalty card in Government Remittances and the loyalty accounts in QuickBooks.':'Loyalty Savings closes for them and the QuickBooks loyalty accounts show as 🔒 rows.'))))return false;
   var ok=window.HNXSENS&&HNXSENS.set(u.username,area,on);
   if(!ok){toast('Not changed — the owner cannot change his own access, and the System Admin login and Eyal are never locked out','warn');return false;}
   toast((on?'✅ Granted ':'Taken away: ')+what+(on?' to ':' from ')+(u.fullname||u.username)+' — every computer after the next sync');rerender();return true;}
@@ -297825,7 +297846,9 @@ setInterval(matrixBtn,2500);setTimeout(matrixBtn,2600);
 (function hookDoc(){try{if(!window.HNXACCESS){setTimeout(hookDoc,1000);return;}if(HNXACCESS.__mx)return;var o=HNXACCESS.open;
   HNXACCESS.why=whyRows;HNXACCESS.explain=explain;HNXACCESS.open=function(n){window.__hnxMxDocUser=n;return o.apply(this,arguments);};HNXACCESS.__mx=true;}catch(e){}})();
 window.HNXMATRIX={explain:explain,explainSens:explainSens,explainLabor:explainLabor,rows:rows,whyRows:whyRows,sensLine:sensLine,open:open,close:close,render:render,cycle:cycle,reset:resetCell,toggleSens:toggleSens,toggleLabor:toggleLabor,
-  mask:function(x,F){return maskAny(x,F||flags(),0);},cls:cls,flags:flags};
+  mask:function(x,F){return maskAny(x,F||flags(),0);},cls:cls,flags:flags,
+  /* one payee / account / memo as this person may see it ("🔒 Office payroll" / "🔒 Loyalty program (restricted)") */
+  maskText:function(s,F){if(typeof s!=='string'||!s)return s==null?'':s;F=F||flags();if(!F.off&&!F.loy)return s;return maskCell(s,F);}};
 try{console.log('[v22.52] Owner-granted areas + QuickBooks mask + 🔐 Access matrix ready');}catch(e){}
 })();
 </script>

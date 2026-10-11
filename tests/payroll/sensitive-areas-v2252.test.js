@@ -176,4 +176,113 @@ module.exports=[
     as('jinky');const j2=await open('payroll_office');const j3=await open('payroll_ops');
     return {jinkyOpens:j1.on,rv,refused:!j2.on&&/owner-granted/.test(j2.msg),labor:j3.on,joshOffice:s1.on,joshLabor:s2.on,joshMsg:/Payroll is visible only/.test(s2.msg)};})();`),
   expect:{jinkyOpens:true,rv:true,refused:true,labor:true,joshOffice:false,joshLabor:false,joshMsg:true} },
+/* ---- review of v22.52: the confirmed findings, each as a rule ---- */
+{ name:'🏦 Bank & Card Recon for an accountant without 🏢 (Rosa, department accounting): the PAGTAMA ₱-27,500.00 QuickBooks line reads "🔒 Office payroll" on screen, in the 🔗 link list and in the CSV, ARABIS ₱-4,100.00 stays; her own ledger pull stores the REAL payee (synced store has PAGTAMA, no 🔒); the owner sees PAGTAMA (v22.52 review)',
+  requires:REQ,
+  seed:function(){(USERS)();var U=JSON.parse(localStorage.getItem('hydroPro_users'));U.push({username:'rosa',fullname:'Rosa Reyes',passwordHash:'x',role:'supervisor',department:'accounting',departments:['accounting'],active:true});localStorage.setItem('hydroPro_users',JSON.stringify(U));
+    localStorage.setItem('hydroPro_user_perms',JSON.stringify({rosa:{overrides:{'module:bankrecon':'edit'},updatedAt:'2026-10-11T00:00:00.000Z',updatedBy:'tester'}}));
+    localStorage.setItem('hydroPro_recon_v1',JSON.stringify({v2:1,v3:1,accounts:{a1:{name:'Cash in Bank - BDO',company:'APTI',type:'bank',sourceClass:'bank',installments:[],chartNo:'1011-002'}},
+      sets:{'a1::2026-10':{acctId:'a1',period:'2026-10',createdAt:1,vari:[],
+        lines:[{ref:'S1',date:'2026-10-10',amt:-27500,desc:'TRANSFER 101',period:'2026-10',qb:{uid:'u1',date:'2026-10-10',name:'PAGTAMA, JINKY',amt:-27500,ref:'101',acct:'- BP_Acctg_PAGTAMA, JINKY'}},
+               {ref:'S2',date:'2026-10-10',amt:-999,desc:'BANK CHARGE',period:'2026-10'}],
+        qb:[{date:'2026-10-10',amt:-27500,name:'PAGTAMA, JINKY',acct:'- BP_Acctg_PAGTAMA, JINKY',ref:'101',transactionId:'Check#101',uid:'u1',used:true},
+            {date:'2026-10-10',amt:-1500,name:'PAGTAMA, JINKY',acct:'Cash in Bank - BDO',ref:'103',transactionId:'Check#103',uid:'u3',used:false},
+            {date:'2026-10-10',amt:-4100,name:'ARABIS, ANGELYN',acct:'Cash in Bank - BDO',ref:'102',transactionId:'Check#102',uid:'u2',used:false}]}}}));}.toString().replace('(USERS)()','('+USERS.toString()+')()'),
+  drive:async(pg)=>{
+    const gl={Header:{ReportName:'GeneralLedger'},Rows:{Row:[{type:'Section',Header:{ColData:[{value:'Cash in Bank - BDO'}]},Rows:{Row:[
+      {type:'Data',ColData:[{value:'2026-10-10'},{value:'Check'},{value:'101'},{value:'PAGTAMA, JINKY'},{value:'Salary 26 Sep-10 Oct'},{value:'- BP_Acctg_PAGTAMA, JINKY'},{value:'-27500.00'},{value:'472500.00'}]},
+      {type:'Data',ColData:[{value:'2026-10-10'},{value:'Check'},{value:'102'},{value:'ARABIS, ANGELYN'},{value:'Wages week 40'},{value:'Payroll Clearing_Net Pay_Weekly'},{value:'-4100.00'},{value:'468400.00'}]}]},
+      Summary:{ColData:[{value:'Total for Cash in Bank - BDO'},{value:''},{value:''},{value:''},{value:''},{value:''},{value:'-31600.00'},{value:''}]}}]}};
+    await pg.route(u=>u.pathname.indexOf('/api/qb/')>=0&&/general-ledger/.test(u.pathname),r=>r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify(gl)}));return 'routed';},
+  run:new Function(`return (async()=>{${AS}await sleep(5000);window.showToast=()=>{};window._toast=window.showToast;
+    window.XLSX={utils:{book_new:()=>({SheetNames:[],Sheets:{}}),aoa_to_sheet:a=>({__rows:a}),book_append_sheet:(wb,ws,n)=>{wb.SheetNames.push(n);wb.Sheets[n]=ws;},sheet_to_json:ws=>ws.__rows}};
+    const view=async()=>{switchView('recon');await sleep(900);try{hnxReconPick('a1::2026-10');}catch(e){}await sleep(700);return (document.getElementById('view-recon')||{}).innerText||'';};
+    const csv=async()=>{let b=null;const cu=URL.createObjectURL,ck=HTMLAnchorElement.prototype.click;URL.createObjectURL=x=>{b=x;return 'blob:none';};HTMLAnchorElement.prototype.click=function(){};
+      try{hnxReconCsv();}finally{URL.createObjectURL=cu;HTMLAnchorElement.prototype.click=ck;}return b?await b.text():'';};
+    const link=()=>{let m='';const p=window.prompt;window.prompt=x=>{m=String(x);return null;};try{hnxReconLink(1);}finally{window.prompt=p;}return m;};
+    const store=()=>localStorage.getItem('hydroPro_recon_v1')||'';
+    as('rosa');const office=hnxCanOfficePay();const t1=await view(),c1=await csv(),p1=link();
+    await hnxReconQBPull();await sleep(800);const after=store();const t2=(document.getElementById('view-recon')||{}).innerText||'';
+    const S=JSON.parse(after).sets['a1::2026-10'];
+    as('tester');const t3=await view(),c3=await csv();
+    const masked=t=>!/PAGTAMA/.test(t)&&/🔒 Office payroll/.test(t)&&/ARABIS/.test(t);
+    return {office,screen:masked(t1),csv:masked(c1),link:!/PAGTAMA/.test(p1)&&/🔒 Office payroll/.test(p1)&&/ARABIS/.test(p1),
+      pulled:(S.qb||[]).map(q=>q.name+' '+q.amt).sort().join(' | '),storeNoLock:!/🔒/.test(after),src:/live pull/.test(JSON.stringify(S.qbFileMeta||{})),screenAfter:masked(t2),
+      owner:/PAGTAMA, JINKY/.test(t3)&&!/🔒 Office payroll/.test(t3),ownerCsv:/PAGTAMA, JINKY/.test(c3)};})();`),
+  expect:{office:false,screen:true,csv:true,link:true,pulled:'ARABIS, ANGELYN -4100 | PAGTAMA, JINKY -27500',storeNoLock:true,src:true,screenAfter:true,owner:true,ownerCsv:true} },
+
+{ name:'🗄 QuickBooks aging + cash-flow caches: Joshane reads them masked (no PAGTAMA, one 🔒 row ₱5,000.00, Acme ₱1,200.00 kept) and her write stays in memory (the stored copy keeps PAGTAMA, no 🔒); the owner reads PAGTAMA; both keys are in SKIP_KEYS; the QB Recon pay export lands in hnxlocal_qbpay_v1 (not hydroPro_qbpay_local_v1) and never in the daily backup (v22.52 review)',
+  requires:REQ,
+  seed:function(){(USERS)();
+    var ap={Header:{ReportName:'AgedPayables'},Rows:{Row:[{ColData:[{value:'PAGTAMA, JINKY'},{value:'5000.00'}]},{ColData:[{value:'Acme Hardware Supply'},{value:'1200.00'}]}]}};
+    localStorage.setItem('hydroPro_acct_qb_aging_v1',JSON.stringify({APTI:{ap:{at:Date.now(),raw:ap}}}));
+    var cf={rows:[{account:'- BP_Acctg_PAGTAMA, JINKY',m:[1000,2000]},{account:'Utilities Expense',m:[300,400]}]};
+    localStorage.setItem('hydroPro_acct_qb_cashflow_v1',JSON.stringify({APTI:{'2026':{at:Date.now(),data:cf}}}));}.toString().replace('(USERS)()','('+USERS.toString()+')()'),
+  drive:async()=>{const fs=require('fs'),path=require('path');const s=fs.readFileSync(path.resolve(__dirname,'../..',process.env.NEXI_PAGE||'index.html'),'utf8');
+    const m=/var SKIP_KEYS=\[([^\]]*)\]/.exec(s)||['',''];return {aging:m[1].indexOf("'hydroPro_acct_qb_aging_v1'")>=0,cash:m[1].indexOf("'hydroPro_acct_qb_cashflow_v1'")>=0};},
+  run:new Function(`return (async()=>{${AS}await sleep(5000);window.showToast=()=>{};
+    const NG=k=>(window.__hnxNG||Storage.prototype.getItem).call(localStorage,k)||'';
+    as('joshanee');const a=localStorage.getItem('hydroPro_acct_qb_aging_v1'),c=localStorage.getItem('hydroPro_acct_qb_cashflow_v1');
+    const A=JSON.parse(a).APTI.ap.raw.Rows.Row.map(r=>r.ColData.map(x=>x.value).join(' '));
+    localStorage.setItem('hydroPro_acct_qb_aging_v1',JSON.stringify({APTI:{ap:{at:1,raw:{Rows:{Row:[]}}}}}));const mine=JSON.parse(localStorage.getItem('hydroPro_acct_qb_aging_v1')).APTI.ap.at;
+    const stored=NG('hydroPro_acct_qb_aging_v1');
+    as('tester');const own=localStorage.getItem('hydroPro_acct_qb_aging_v1');
+    const f=new File([JSON.stringify({months:['2026-08'],rows:[{account:'QBPAY_MARKER_7731 BP_Acctg_X',m:[1]}],summary:[{}]})],'qbpay.json',{type:'application/json'});
+    hnxQbpayLoadFile({files:[f]});await sleep(800);
+    localStorage.setItem('hnx_cloud_token','t');const AB=window.hnxAutoBackupCloud;let cap=null;window.hnxAutoBackupCloud=p=>{cap=p;return Promise.resolve({ok:true});};
+    try{await hnxAutoBackupNow();}finally{window.hnxAutoBackupCloud=AB;}const bk=JSON.stringify((cap&&cap.data)||{});const bkHasData=!!cap&&Object.keys(cap.data||{}).length>5;
+    return {aging:A.join(' | '),cashMasked:!/PAGTAMA/.test(c)&&/🔒/.test(c)&&/Utilities Expense/.test(c),mine,storedReal:/PAGTAMA/.test(stored)&&!/🔒/.test(stored),owner:/PAGTAMA/.test(own)&&!/🔒/.test(own),
+      local:/QBPAY_MARKER_7731/.test(localStorage.getItem('hnxlocal_qbpay_v1')||''),oldKey:localStorage.getItem('hydroPro_qbpay_local_v1'),backupClean:bkHasData&&!/QBPAY_MARKER_7731/.test(bk)};})();`),
+  expect:{aging:'🔒 Office pay (restricted) · payroll expense 5000.00 | Acme Hardware Supply 1200.00',cashMasked:true,mine:1,storedReal:true,owner:true,local:true,oldKey:null,backupClean:true,'drive.aging':true,'drive.cash':true} },
+
+{ name:'🏢 Taking office pay away from Jinky closes every payroll screen that lists office people: she keeps Labor / Trips / Rates / History, loses Office, All, QB Recon, Pay Basis, BIR, OT & Premiums, Final Pay, payroll brain; History lists the weekly ₱120000 run only (owner: both, ₱50000 office); the payroll cockpit counts 1 run (owner 2); Dr Amy keeps Pay Basis; a 🏢 grant to Joshane opens the office line ₱50,000.00 of her Accounting Payroll Report but not the Payroll module (v22.52 review)',
+  requires:REQ,
+  seed:function(){(USERS)();var Y=new Date().getFullYear();
+    localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([
+      {id:'office_'+Y+'-09-26_'+Y+'-10-10',type:'semi_monthly',periodStart:Y+'-09-26',periodEnd:Y+'-10-10',status:'approved',approvedAt:1,createdAt:2,totals:{netPay:50000},lines:[{empId:'E1',name:'PAGTAMA, JINKY',grossPay:55000,grossEarnings:55000,totalGovDed:2000,withholdingTax:3000,netPay:50000,taxBase:53000}]},
+      {id:'ops_'+Y+'-09-27_'+Y+'-10-03',type:'weekly',periodStart:Y+'-09-27',periodEnd:Y+'-10-03',status:'approved',approvedAt:1,createdAt:1,totals:{netPay:120000},lines:[{empId:'L1',name:'ARABIS, ANGELYN',grossPay:125000,grossEarnings:125000,totalGovDed:5000,withholdingTax:0,netPay:120000,taxBase:120000}]}]));}.toString().replace('(USERS)()','('+USERS.toString()+')()'),
+  run:new Function(`return (async()=>{${AS}await sleep(5000);window.showToast=()=>{};window._toast=window.showToast;window.confirm=()=>true;
+    const V=['payroll_ops','pay_trips','payroll_rates','payroll_history','payroll_office','payroll_all','payroll_qbrecon','pay_basis','payroll_bir','payroll_ot','hr_final_pay','payroll_brain'];
+    const hist=async()=>{document.querySelectorAll('.view.active').forEach(x=>x.classList.remove('active'));switchView('payroll_history');await sleep(600);return (document.getElementById('payrollHistoryBody')||{}).innerText||'';};
+    const cock=()=>{try{return HNX_COCKPIT_SUBJECTS.payroll.find(x=>x.name==='Payroll runs').compute().total;}catch(e){return 'ERR '+e;}};
+    as('tester');const rv=HNXSENS.revoke('jinky','office');const th=await hist(),tc=cock();
+    as('jinky');const jv=V.filter(v=>hnxSensViewAllowed(v)).join(',');const jh=await hist(),jc=cock();
+    const amy=hnxSensViewAllowed('pay_basis',loadUsers().find(x=>x.username==='amy'));
+    as('tester');const g=HNXSENS.grant('joshanee','office');
+    as('joshanee');const jo=hnxSensViewAllowed('payroll_office');window.__hnxACC.open();await sleep(500);window.__hnxACC.navLeaf('reports','rep','pay');await sleep(800);const jp=(document.getElementById('hnxaccOverlay')||{}).innerText||'';window.__hnxACC.close();
+    return {rv,jinkyViews:jv,jinkyHist:/Weekly Ops/.test(jh)&&!/Bi-monthly Office/.test(jh)&&!/50000/.test(jh)&&/120000/.test(jh),ownerHist:/Bi-monthly Office/.test(th)&&/50000/.test(th)&&/120000/.test(th),
+      jinkyCockpit:jc,ownerCockpit:tc,amy,grant:g,joshPayrollOffice:jo,joshReport:/50,000\\.00/.test(jp)&&!/Office lines hidden/.test(jp)};})();`),
+  expect:{rv:true,jinkyViews:'payroll_ops,pay_trips,payroll_rates,payroll_history',jinkyHist:true,ownerHist:true,jinkyCockpit:1,ownerCockpit:2,amy:true,grant:true,joshPayrollOffice:false,joshReport:true} },
+
+{ name:'💉 A username carrying script (q\');window.__pw1=1;//) never runs: the 🔎 Access card\'s 🔐 Access matrix, View and Lift-Strict buttons and the Permissions tab\'s 🔐 Open in Access matrix pass it as data — __pw1 stays unset, the matrix opens on that user and the View override is written for him (v22.52 review)',
+  requires:REQ,
+  seed:function(){(USERS)();var U=JSON.parse(localStorage.getItem('hydroPro_users'));U.push({username:"q');window.__pw1=1;//",fullname:'Odd "Name"',passwordHash:'x',role:'supervisor',department:'production',active:true});localStorage.setItem('hydroPro_users',JSON.stringify(U));
+    localStorage.setItem('hydroPro_user_perms',JSON.stringify({"q');window.__pw1=1;//":{overrides:{},strict:true,updatedAt:'2026-10-11T00:00:00.000Z'}}));}.toString().replace('(USERS)()','('+USERS.toString()+')()'),
+  run:new Function(`return (async()=>{${AS}await sleep(5000);window.showToast=()=>{};window.confirm=()=>true;const ODD="q');window.__pw1=1;//";
+    as('tester');const btn=(root,re)=>[...root.querySelectorAll('button')].find(b=>re.test(b.textContent));
+    HNXACCESS.open(ODD);await sleep(300);let doc=document.getElementById('hnxAccDoc');
+    btn(doc,/Access matrix/).click();await sleep(400);const fx=document.querySelector('#hnxAccMatrix tr.fx');const m1=!!fx&&fx.textContent.indexOf(ODD)>=0;HNXMATRIX.close();
+    doc=document.getElementById('hnxAccDoc');const vb=[...doc.querySelectorAll('button')].find(b=>b.textContent.trim()==='View');const mod=vb&&vb.getAttribute('data-m');vb&&vb.click();await sleep(300);
+    const ov=getUserOverrides(ODD)['module:'+mod];
+    doc=document.getElementById('hnxAccDoc');const ls=btn(doc,/Lift Strict/);ls&&ls.click();await sleep(300);const strict=hnxUserStrict_(ODD);
+    const d=document.getElementById('hnxAccDoc');d&&d.remove();
+    const host=document.createElement('div');host.innerHTML=renderUserPermsTab(ODD);document.body.appendChild(host);btn(host,/Open in Access matrix/).click();await sleep(400);
+    const fx2=document.querySelector('#hnxAccMatrix tr.fx');const m2=!!fx2&&fx2.textContent.indexOf(ODD)>=0;HNXMATRIX.close();host.remove();
+    return {pw:typeof window.__pw1,matrixFromCard:m1,view:ov,lifted:strict===false,matrixFromPerms:m2};})();`),
+  expect:{pw:'undefined',matrixFromCard:true,view:'view',lifted:true,matrixFromPerms:true} },
+
+{ name:'🖥 Wall Launcher + masked-row nature: Joshane\'s Wall Launcher lists no Loyalty Savings / Office Payroll / QB Recon / Labor Payroll screen (the owner\'s lists all four); in a QuickBooks report the 2312 office SSS row ₱-1,200.00 reads "· payable / accrued" and the 6122 office EWT row ₱800.00 "· payroll expense", the labor SSS row ₱-500.00 stays (v22.52 review)',
+  requires:REQ,
+  seed:USERS,
+  run:new Function(`return (async()=>{${AS}await sleep(6000);window.showToast=()=>{};
+    const wall=async()=>{const b=document.getElementById('hnx-wall_launcher-body');if(b)delete b.dataset.shellRendered;switchView('wall_launcher');await sleep(900);
+      return [...document.querySelectorAll('#hnxWlPalette .hnx-pmod')].map(x=>x.getAttribute('data-id')).filter(id=>/^(acct_loyalty|payroll_office|payroll_qbrecon|payroll_ops)$/.test(id)).sort().join(',');};
+    as('joshanee');const jw=await wall();
+    const rep={Rows:{Row:[
+      {type:'Section',Header:{ColData:[{value:'2312 Government Contributions Payable'},{value:''}]},Rows:{Row:[{type:'Data',ColData:[{value:'SSS Premium - PAGTAMA, JINKY'},{value:'-1200.00'}]},{type:'Data',ColData:[{value:'SSS Premium - ARABIS, ANGELYN'},{value:'-500.00'}]}]},Summary:{ColData:[{value:'Total 2312'},{value:'-1700.00'}]}},
+      {type:'Section',Header:{ColData:[{value:'6122 Taxes and Licenses'},{value:''}]},Rows:{Row:[{type:'Data',ColData:[{value:'EWT Withholding - PAGTAMA, JINKY'},{value:'800.00'}]}]},Summary:{ColData:[{value:'Total 6122'},{value:'800.00'}]}}]}};
+    const M=HNXMATRIX.mask(rep);const sec=i=>M.Rows.Row[i].Rows.Row.map(r=>r.ColData.map(c=>c.value).join(' ')).join(' | ');
+    as('tester');const tw=await wall();
+    return {joshWall:jw,ownerWall:tw,s2312:sec(0),s6122:sec(1)};})();`),
+  expect:{joshWall:'',ownerWall:'acct_loyalty,payroll_office,payroll_ops,payroll_qbrecon',s2312:'🔒 Office pay (restricted) · payable / accrued -1200.00 | SSS Premium - ARABIS, ANGELYN -500.00',s6122:'🔒 Office pay (restricted) · payroll expense 800.00'} },
 ];
