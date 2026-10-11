@@ -28,16 +28,16 @@ module.exports=[
     return {missing,flat,gauges,clock:lab(pic(td(2))),hand:lab(pic(td(4))),handPh:lab(pic(td(6))),water:/add 566 L/.test(lab(pic(td(12)))),a:lab(pic(td(13))),b:lab(pic(td(14))),c:lab(pic(td(15))),check:lab(pic(td(16))),says:shown(pic(td(17)))?lab(pic(td(17))):'none'};`),
   expect:{says:'Every 10 cm of water (≈ 202 L) takes 1 L of A and 1 L of B',missing:[],flat:[],gauges:[],clock:'Finished at 10:45',hand:'Hand EC meter 1.60',handPh:'Hand pH meter 6.28',water:true,a:'A 2.8 L = 3 jugs (the last one 0.8 L)',b:'B 2.8 L = 3 jugs (the last one 0.8 L)',c:'C 153 cc',check:'Checked by Reven'} },
 
-{ name:'📏 No empty space (Eyal 10 Oct: "so much empty space which I don\'t want"): at 1512×982 with text 120 % Pool 2\'s card is under 45 % of the window, no box holds less than 60 % of its own height (v22.44 had the hand EC box at 42 % and the level box at 57 %), nothing is drawn twice — the drawing\'s pictures are the ① water / ② A / ③ B / ④ C boxes ("Nexi says" and the proportion stay), the level box has no fill valve, take pills or "+566 L → 60 cm" — the EC band reads "OK 1.7–1.9" whole and nothing scrolls sideways',
-  requires:NEW, viewport:{width:1512,height:982}, seed:TEXT120,
+{ name:'📏 No empty space (Eyal 10 Oct: "so much empty space which I don\'t want"): at the 1512×982 laptop (default text) Pool 2\'s card is under 42 % of the window (v22.44: 546 px = 56 %), no box holds less than 65 % of its own height (v22.44 had the hand EC box at 42 % and the level box at 57 %), nothing is drawn twice — the drawing\'s pictures are the ① water / ② A / ③ B / ④ C boxes ("Nexi says" and the proportion stay), the level box has no fill valve, take pills or "+566 L → 60 cm" — the EC band reads "OK 1.7–1.9" whole and nothing scrolls sideways',
+  requires:NEW, viewport:{width:1512,height:982},
   run:fn(FULL+`await sleep(400);renderIrrPoolMonitor();await sleep(700);
     const c=card('P02'),w=host().querySelector('.irr-pool-table-wrap');
     const loose=[...c.children].slice(1).map((td,i0)=>{const i=i0+1;return [td,i];}).map(([td,i])=>{const r=td.getBoundingClientRect();let top=1e9,bot=-1e9;[...td.children].forEach(k=>{const q=k.getBoundingClientRect();if(q.height>0){top=Math.min(top,q.top);bot=Math.max(bot,q.bottom);}});
-      const lbl=getComputedStyle(td,'::before').content;const used=(bot-top)+(lbl&&lbl!=='none'&&lbl!=='normal'?14:0);return {i:i+1,f:r.height>0?used/r.height:1};}).filter(x=>x.f<0.6).map(x=>x.i+':'+x.f.toFixed(2));
+      const lbl=getComputedStyle(td,'::before').content;const used=(bot-top)+(lbl&&lbl!=='none'&&lbl!=='normal'?14:0);return {i:i+1,f:r.height>0?used/r.height:1};}).filter(x=>x.f<0.65).map(x=>x.i+':'+x.f.toFixed(2));
     const rx=c.querySelector('.irr-pc-rx');const steps=[...rx.querySelectorAll('.irr-rx-step')];
     const lv=c.children[6],vis=sel=>[...lv.querySelectorAll(sel)].some(e=>e.offsetParent!==null&&e.getBoundingClientRect().width>0);
     const hd=c.children[2].querySelector('.iv-hd'),hdR=hd?hd.getBoundingClientRect():null,band=hd?[...hd.querySelectorAll('span')].find(x=>/OK/.test(x.textContent)):null;
-    return {third:c.getBoundingClientRect().height<=innerHeight*0.45,loose,stepsHidden:steps.length>0&&steps.every(s=>s.offsetParent===null),says:shown(rx.querySelector('.irr-nexi-says')),ratio:shown(rx.querySelector('.irr-rx-ratio')),
+    return {third:c.getBoundingClientRect().height<=innerHeight*0.42,loose,stepsHidden:steps.length>0&&steps.every(s=>s.offsetParent===null),says:shown(rx.querySelector('.irr-nexi-says')),ratio:shown(rx.querySelector('.irr-rx-ratio')),
       valve:vis('[data-ivkey$=":valve"]'),takes:vis('.ivx-tk'),act:vis('.iv-act'),tank:vis('[data-ivkey$=":tank"]'),bandWhole:!!band&&band.getBoundingClientRect().right<=hdR.right+1,extra:Math.max(0,w.scrollWidth-w.clientWidth)};`),
   expect:{third:true,loose:[],stepsHidden:true,says:true,ratio:true,valve:false,takes:false,act:false,tank:true,bandWhole:true,extra:0} },
 
