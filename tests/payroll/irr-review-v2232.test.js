@@ -51,11 +51,11 @@ module.exports=[
     return {past,todayButtons:(h2.match(/irrSavePool\\('P01'/g)||[]).length>0,todayLock:h2.indexOf('🔒 past day')>=0};`),
   expect:{past:{a21:true,buttons:0,lock:true},todayButtons:true,todayLock:false} },
 
-{ name:'🏠 The paired rooms follow 1 L per 10 cm: a wizard pool in GH7_8 → 1, in GH3_4 → 1, GH9 → 2, GH11 → none (EC matrix), a project pool PRJ11 → none',
+{ name:'🏠 The paired rooms follow 1 L per 10 cm: a wizard pool in GH7_8 → 1, in GH3_4 → 1, GH9 → 2, GH11 → none (EC matrix); a pool added to project room PRJ11 → 0.5 (Eyal 11 Oct: 500 ml per 10 cm, v22.46), PRJ12 → none',
   requires:NEW,
   run:fn(`const f=g=>irrAbPer10({id:'P_X_'+g+'_1',greenhouse:g});
-    return {gh78:f('GH7_8'),gh34:f('GH3_4'),gh9:f('GH9'),gh11:f('GH11'),prj:f('PRJ11')};`),
-  expect:{gh78:1,gh34:1,gh9:2,gh11:null,prj:null} },
+    return {gh78:f('GH7_8'),gh34:f('GH3_4'),gh9:f('GH9'),gh11:f('GH11'),prj:f('PRJ11'),prj12:f('PRJ12')};`),
+  expect:{gh78:1,gh34:1,gh9:2,gh11:null,prj:0.5,prj12:null} },
 
 { name:'🧮 Exact halves round UP: Pool 1 at 10 cm, mix 15% over-tank → gap 50 × 1.15 = 57.5 → 5.8 L each (5800 cc; 5.7 L before — 57.4999… in floating point); the drawing says "×1.15" (it printed ×1.2)',
   requires:NEW,

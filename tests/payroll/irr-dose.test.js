@@ -1,20 +1,20 @@
-/* v21.70: two meters must agree; water source; Nexi says; Export for Reven. PRJ11-A (no fill rule) = 110 × 123 cm, target 100 cm, keeps the EC matrix. */
+/* v21.70: two meters must agree; water source; Nexi says; Export for Reven. PRJ12-A (no fill rule, not named in the per-10 cm rule) = 200 × 120 cm, target 110 cm, keeps the EC matrix (v22.46: PRJ11 is 0.5 L per 10 cm). */
 module.exports=[
-{ name:'🏊 PRJ11-A (matrix pool), level 79 cm (gap 21 = 284 L): controller EC 1.85 + handheld 1.87 → used 1.86 → matrix row 1.85 × 21 cm = 2,750 cc A and B (2.75 L); handheld 1.95 (Δ 0.10, critical drift) → CALIBRATE, A/B cleared, red instruction; C = 21 cm × 5 cc × pH factor 1 (pH 6.2) = 105 cc; over-tank water (EC 1.0) → factor 0.474 → 1,303 cc (exact factor, v22.20); mix 50 % → 2,026 cc; "Nexi says" line under the pool; Export for Reven writes 24 rows (v21.70, v22.20)',
+{ name:'🏊 PRJ12-A (a matrix pool — PRJ11 is 0.5 L per 10 cm since v22.46), level 89 cm (gap 21 = 504 L): controller EC 1.85 + handheld 1.87 → used 1.86 → matrix row 1.85 × 21 cm = 2,750 cc A and B (2.75 L); handheld 1.95 (Δ 0.10, critical drift) → CALIBRATE, A/B cleared, red instruction; C = 21 cm × 5 cc × pH factor 1 (pH 6.2) = 105 cc; over-tank water (EC 1.0) → factor 0.474 → 1,303 cc (exact factor, v22.20); mix 50 % → 2,026 cc; "Nexi says" line under the pool; Export for Reven writes 24 rows (v21.70, v22.20)',
   seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));localStorage.removeItem('hydroPro_irr_pool');localStorage.removeItem('hydroProIrrSettings');},
   run:new Function(`return (async()=>{await sleep(4000);window.showToast=()=>{};
     switchView('irr_nutrients');await sleep(800);_irrDate='2026-10-05';window.irrSetPoolTime('08:00');
-    const rec=()=>((loadIrrPool()['2026-10-05']||{})['P11A']||{})['08:00']||{};
-    irrSavePool('P11A','water','79');irrSavePool('P11A','EC','1.85');irrSavePool('P11A','manualEC','1.87');irrSavePool('P11A','pH','6.2');irrSavePool('P11A','manualPH','6.2');await sleep(300);
+    const rec=()=>((loadIrrPool()['2026-10-05']||{})['P12A']||{})['08:00']||{};
+    irrSavePool('P12A','water','89');irrSavePool('P12A','EC','1.85');irrSavePool('P12A','manualEC','1.87');irrSavePool('P12A','pH','6.2');irrSavePool('P12A','manualPH','6.2');await sleep(300);
     let r=rec();const a1={gap:r._dose.gap,water:r.waterAdded,ec:r._dose.ec,aCC:r._dose.aCC,A:r.A,B:r.B,cal:r._calibrate||''};
-    renderIrrPoolMonitor();await sleep(400);const txt=document.getElementById('view-irr_nutrients').innerText;const says=/Add 284 L pure water · A 2750 cc · B 2750 cc · C 105 cc/.test(txt);
-    irrSavePool('P11A','manualEC','1.95');await sleep(300);r=rec();const a2={cal:/CALIBRATE EC meters/.test(r._calibrate||''),A:r.A,instr:irrInstruction(IRR_POOLS.find(p=>p.id==='P11A'),r).slice(0,1)};
-    irrSavePool('P11A','manualEC','1.87');irrSavePool('P11A','source','overtank');await sleep(300);r=rec();const a3={factor:r._dose.factor,aCC:r._dose.aCC};
-    irrSavePool('P11A','source','mix');irrSavePool('P11A','mixPct','50');await sleep(300);r=rec();const a4={factor:r._dose.factor,aCC:r._dose.aCC};
+    renderIrrPoolMonitor();await sleep(400);const txt=document.getElementById('view-irr_nutrients').innerText;const says=/Add 504 L pure water · A 2750 cc · B 2750 cc · C 105 cc/.test(txt);
+    irrSavePool('P12A','manualEC','1.95');await sleep(300);r=rec();const a2={cal:/CALIBRATE EC meters/.test(r._calibrate||''),A:r.A,instr:irrInstruction(IRR_POOLS.find(p=>p.id==='P12A'),r).slice(0,1)};
+    irrSavePool('P12A','manualEC','1.87');irrSavePool('P12A','source','overtank');await sleep(300);r=rec();const a3={factor:r._dose.factor,aCC:r._dose.aCC};
+    irrSavePool('P12A','source','mix');irrSavePool('P12A','mixPct','50');await sleep(300);r=rec();const a4={factor:r._dose.factor,aCC:r._dose.aCC};
     let wbRows=null;window.XLSX=window.XLSX||{};const X=window.XLSX;X.utils=X.utils||{};X.utils.book_new=()=>({});X.utils.aoa_to_sheet=a=>a;X.utils.book_append_sheet=(wb,sh)=>{wbRows=sh;};X.writeFile=()=>{};
-    irrExportReven();const exp={rows:wbRows?wbRows.length-4:0,p1:wbRows?wbRows[4][0]:'',instr:wbRows?/^Add 284 L mix \\(50% over-tank\\) water · A 2026 cc · B 2026 cc · C 105 cc/.test(wbRows[14][23]):false};
+    irrExportReven();const exp={rows:wbRows?wbRows.length-4:0,p1:wbRows?wbRows[4][0]:'',instr:wbRows?/^Add 504 L mix \\(50% over-tank\\) water · A 2026 cc · B 2026 cc · C 105 cc/.test(wbRows[16][23]):false};
     return {a1,says,a2,a3,a4,exp};})();`),
-  expect:{a1:{gap:21,water:284,ec:1.86,aCC:2750,A:2.75,B:2.75,cal:''},says:true,a2:{cal:true,A:'',instr:'⚠'},a3:{factor:0.474,aCC:1303},a4:{factor:0.737,aCC:2026},exp:{rows:24,p1:'Pool 1',instr:true}} }
+  expect:{a1:{gap:21,water:504,ec:1.86,aCC:2750,A:2.75,B:2.75,cal:''},says:true,a2:{cal:true,A:'',instr:'⚠'},a3:{factor:0.474,aCC:1303},a4:{factor:0.737,aCC:2026},exp:{rows:24,p1:'Pool 1',instr:true}} }
 ,
 { name:'🌱 Fill rules (v21.71) only for pools switched to 🌱 Fill rule (v22.20; a pool without it uses the v22.32 rule, 1 L per 10 cm: Pool 2 level 40, EC 1.7 → "Add 405 L pure water · A 2000 cc"): GH1 at 08:00 level 40 → "Morning fill to 60 cm": 405 L, A 2 L, B 2 L; at 11:00 level 45 → no fill; at 11:00 level 25 → under 30 → fill to 60: gap 35 → A 4 L (whole liters); GH7 level 60 → no fill (≥ 50); level 40 → fill to 100: 1,287 L, A 6 L (1 L per 10 cm since v22.32, was per 12 cm); GH9 level 30 → fill to 50: A 4 L (2 L per 10 cm); GH10 level 40 (fill to its daily 60 cm, gap 20) EC 1.6 → A 2 L + "add 1 L more … until ≈ 1.7"; water 30 °C flagged hot; EC ok band 1.7–1.9, pH 5.8–6.5 (Eyal 9 Oct)',
   seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));localStorage.removeItem('hydroPro_irr_pool');localStorage.removeItem('hydroProIrrSettings');},
