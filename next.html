@@ -22452,7 +22452,7 @@ const MODULES={
       {id:'perf_monitor',label:'⚡ Performance',perm:'manageUsers',title:'Performance monitor — render-time profiling, cache hit rates, localStorage size, dashboard timings. Use to identify and verify hotspots.'},
       {id:'live_sensors',label:'🔌 Live Sensors',perm:'manageUsers',title:'Live sensor mode — connect HydroNexis-AI to real-time sensor data via API endpoint. Reads pool readings, drum levels, climate data from your hardware gateway every N seconds.'},
       {id:'integration_spec',label:'📡 Integration Spec',perm:'manageUsers',title:'Integration documentation — API contract for sensor + control hardware integrators. JSON formats, auth, polling intervals, per-sensor field mappings.'},
-      {id:'admin_sos_sync',label:'📦 SOS Inventory Sync',perm:'manageUsers',title:'Connect HydroNexis-AI to SOS Inventory (sosinventory.com) — pulls items, locations, lots, shipments via OAuth2 through the hnx-sync Cloudflare worker. Auto-syncs every 5 min when connected.'},
+      {id:'admin_sos_sync',label:'📦 SOS Inventory Sync',perm:'manageUsers',title:'Connect HydroNexis-AI to SOS Inventory (sosinventory.com) — pulls items, locations, lots, shipments via OAuth2 through the hnx-sync Cloudflare worker. Auto-syncs every 15 min when connected.'},
       {id:'control_audit',label:'🛡️ Control Audit',perm:'manageUsers',title:'Control Action Audit — log of every automated or manual control action across all greenhouses. Builds the compliance trail for hardware integration. Works today as manual audit log; auto-populates from the predictive engine and hardware acknowledgements once connected.'},
       {id:'device_registry',label:'🖥 Device Registry',perm:'manageUsers',title:'Master inventory of every networked device — computers, phones, printers, cameras, network gear, HVAC, door readers, sensors. CSV import/export. Foundation for company-wide visibility.'},
       {id:'danger_zone',label:'🚨 Danger Zone',perm:'manageUsers',title:'Destructive admin-only actions: reset day, wipe data, factory reset. Cannot be undone.'}
@@ -146758,7 +146758,7 @@ body.hnx-mobile-locked { overflow: hidden; }
 
   // Keys we sync (everything starting with hydroPro_ except sensitive/temp ones)
   var SKIP_PREFIXES=['hydroPro_session','hydroPro_biometric','hydroPro_rescue_','hydroPro_backup_','hydroPro_autobackup_','hydroPro_rnd_items_v1_backup', /* v19.47: device snapshots never sync — the cloud kept re-delivering a 700 KB May backup to every machine after each cleanup */'hydroPro_ea_email_cache','hydroPro_ea_email_drafts','hydroPro_ea_notes_v1','hydroPro_ea_remind_']; /* v13.67 AUDIT-1 · v15.11: 'hydroPro_audit' moved to exact-key skip — the PREFIX silently excluded hydroPro_audit_workflow_v1 (the accounting year-end audit checklist, real shared data) from sync */
-  var SKIP_KEYS=['hnx_cloud_token','hnx_cloud_last','hydroPro_audit','hydroPro_sos_pull_v1','hydroPro_liveSensor_cache','hydroPro_acct_qb_monthly_v1','hydroPro_acct_qb_v1','hydroPro_sos_items_v1','hydroPro_sos_shipments_v1','hydroPro_sos_locations_v1','hydroPro_sos_lots_v1'/* v21.99: QuickBooks/SOS caches (11.7 MB on the admin PC) are re-read from QuickBooks/SOS on each computer — never synced *//* v21.19: rewritten on every poll — pushed the whole payload from every PC */]; /* v19.39: the SOS pull state describes THIS device's cache */
+  var SKIP_KEYS=['hnx_cloud_token','hnx_cloud_last','hydroPro_audit','hydroPro_sos_pull_v1','hydroPro_liveSensor_cache','hydroPro_acct_qb_monthly_v1','hydroPro_acct_qb_v1','hydroPro_sos_items_v1','hydroPro_sos_shipments_v1','hydroPro_sos_locations_v1','hydroPro_sos_lots_v1','hydroPro_qb_last_v1'/* v22.52: this computer's own "last QuickBooks read" status line (rewritten every 3 min = an upload every 3 min from every computer; only this computer's ☁ QB Sync screen reads it) */ /* v21.99: QuickBooks/SOS caches (11.7 MB on the admin PC) are re-read from QuickBooks/SOS on each computer — never synced *//* v21.19: rewritten on every poll — pushed the whole payload from every PC */]; /* v19.39: the SOS pull state describes THIS device's cache */
   /* v12.90 SYNC-SCOPE-EXPANSION: operational keys the app writes under legacy
      hn_/hnx_/hydroProIrr* names (not hydroPro_) that were being SILENTLY
      EXCLUDED from cloud sync. Each one holds cross-device data — daily
@@ -146839,7 +146839,42 @@ body.hnx-mobile-locked { overflow: hidden; }
     }catch(e){}
     return false;
   }
-  window.addEventListener('online', function(){ setState({online:true}); tryAutoSync(); });
+  /* v22.52 (Eyal, 11 Oct 2026: "Sync · no connection" on every load): BACK OFF WHEN THE CLOUD FAILS. Every computer retried on
+     a fixed 20-second clock (plus the 90-second self-heal, plus the heaviest request there is as a fallback), so a cloud that was
+     already over its limit was hit by every computer at once, all day. Now a failed sync CYCLE (download + upload) waits 20 s,
+     then 40 s, 80 s … up to 5 min, plus a random 0-15 s so the computers do not retry together; one good cycle clears it. The pill
+     says "· retrying" for the first two failures in a row. After a "Failed to fetch" the app asks the cloud's /health once and
+     names the cause (state.reason): unreachable (Cloudflare limit or network) or overloaded on the download. Nothing typed here is
+     lost while it waits — unsent changes stay marked on this computer and go up with the next good cycle. */
+  var __bo={n:0,until:0,cur:null,probeAt:0,reason:''};
+  function __boDelay(n){ return Math.min(300000,20000*Math.pow(2,Math.max(0,(n|0)-1)))+Math.floor(Math.random()*15001); }
+  function __boWait(){ return Math.max(0,__bo.until-Date.now()); }
+  function __isNetErr(m){ return /Failed to fetch|Load failed|NetworkError|network error/i.test(String(m||'')); }
+  var REASON_DOWN='Cloud unreachable \u2014 Cloudflare daily limit (resets 08:00 PH) or network';
+  function __cloudHealth(){ var ctl=null,tm=null; try{ if(typeof AbortController==='function'){ ctl=new AbortController(); tm=setTimeout(function(){ try{ctl.abort();}catch(e){} },10000); } }catch(e){}
+    return fetch(WORKER+'/health',{cache:'no-store',signal:ctl?ctl.signal:undefined})
+      .then(function(r){ if(tm)clearTimeout(tm); if(!r.ok) throw new Error('health HTTP '+r.status); return r.json(); },function(e){ if(tm)clearTimeout(tm); throw e; }); }
+  function __boProbe(what){
+    if(__bo.probeAt&&Date.now()-__bo.probeAt<600000) return; __bo.probeAt=Date.now(); /* once per failure streak (again after 10 min) */
+    __cloudHealth().then(function(h){ return !!(h&&h.status==='ok'); },function(){ return false; }).then(function(up){
+      var w=what||'download';
+      var why=up?('Cloud server overloaded on '+w+' \u2014 it answers its health check but not the '+w+' (Cloudflare memory/CPU limit)'):REASON_DOWN;
+      __bo.reason=why; if(state.error) setState({reason:why}); }); }
+  function __boMark(ok,err,what){ var c=__bo.cur; if(c){ if(ok) c.ok=1; else c.fail=1; }
+    if(ok){ if(what==='download'&&(__bo.reason||state.reason)){ __bo.reason=''; state.reason=''; } return; }
+    if(__isNetErr(err&&err.message||err)) __boProbe(what); }
+  /* one sync cycle: fn() runs the requests and returns a promise; a failure anywhere in it counts once */
+  function __boCycle(fn){ var c={ok:0,fail:0}; __bo.cur=c; var p; try{ p=fn(); }catch(e){ c.fail=1; }
+    function end(){ if(__bo.cur===c) __bo.cur=null;
+      if(c.fail){ __bo.n++; __bo.until=Date.now()+__boDelay(__bo.n); }
+      else if(c.ok&&__bo.n){ __bo.n=0; __bo.until=0; __bo.probeAt=0; __bo.reason=''; }
+      state.failCount=__bo.n; state.retryAt=__bo.until; if(!__bo.n) state.reason=''; else if(__bo.reason&&state.error) state.reason=__bo.reason;
+      try{ updateBadge(); }catch(e){} }
+    return Promise.resolve(p).then(end,end); }
+  window.__hnxSyncBackoff=function(){ return {n:__bo.n,waitMs:__boWait(),until:__bo.until,reason:__bo.reason}; };
+  window.__hnxSyncBackoff.delay=__boDelay;
+  window.__hnxSyncBackoff.expire=function(){ __bo.until=0; };
+  window.addEventListener('online', function(){ __bo.until=0; setState({online:true}); tryAutoSync(); }); /* v22.52: the network is back — try now */
   window.addEventListener('offline', function(){ setState({online:false}); });
 
   function getToken(){ try{ return localStorage.getItem(TOK_KEY); }catch(e){ return null; } }
@@ -146980,13 +147015,13 @@ body.hnx-mobile-locked { overflow: hidden; }
         return false;
       }
       if(res.status!==200||!res.data.token){
-        _alFails++;
+        _alFails++; __boMark(false,new Error('HTTP '+res.status),'sign-in'); /* v22.52 */
         /* v18.86: say what a 401 means on a stale device */
         if(res.status===401||res.status===403){ setState({syncing:false,error:'Cloud refused the password saved on this device (it is out of date). Sign out, then sign in again with your CURRENT password.'}); return false; }
         if(_alFails>=3) setState({syncing:false,error:(res.data.error||('cloud sign-in failed ('+res.status+')'))});
         return false;
       }
-      _alFails=0;
+      _alFails=0; __boMark(true,null,'sign-in'); /* v22.52 */
       setToken(res.data.token);
       setState({syncing:false,error:null});
       /* Pull first (merge), then push — same order tryAutoSync uses. */
@@ -146995,7 +147030,7 @@ body.hnx-mobile-locked { overflow: hidden; }
       return true;
     })
     .catch(function(err){
-      _alBusy=false; _alFails++;
+      _alBusy=false; _alFails++; __boMark(false,err,'sign-in'); /* v22.52 */
       if(_alFails>=3) setState({syncing:false,error:(err&&err.message)||'cloud sign-in failed'});
       return false;
     });
@@ -147092,7 +147127,7 @@ body.hnx-mobile-locked { overflow: hidden; }
   function pushAll(){
     syncWatchdog(); /* v20.20 */
     if(!state.online || !getToken() || state.syncing) return Promise.resolve();
-    if(!window.__hnxPulledOk){ setState({error:'upload held — the cloud download has not finished yet this session'}); return Promise.resolve(); } /* SAFETY: never push before pulling cloud data this session (v21.12: now says so instead of looking like success) */
+    if(!window.__hnxPulledOk){ setState({error:(state.error&&(__bo.n||(__bo.cur&&__bo.cur.fail)))?state.error:'upload held — the cloud download has not finished yet this session'}); return Promise.resolve(); } /* v22.52: a failed download keeps its own message on the pill */ /* SAFETY: never push before pulling cloud data this session (v21.12: now says so instead of looking like success) */
     if(window.__hnxStaleApp){ setState({error:'upload paused — this screen runs an old Nexi; v'+window.__hnxStaleApp+' is live. Load the new version to upload'}); return Promise.resolve(); } /* v21.33 */
     setState({syncing:true});
     var __full=wantFull(); var data=collectData(__full);
@@ -147129,11 +147164,13 @@ body.hnx-mobile-locked { overflow: hidden; }
         try{ __stored.forEach(function(k){ var v=data[k]; if(typeof v!=='string')return; if(window.__hnxMergeOwed)delete window.__hnxMergeOwed[k];
           if(v.length<=8000000){ if(window.__hnxCloudRaw)window.__hnxCloudRaw[k]=v; } else { (window.__hnxCloudSig=window.__hnxCloudSig||{})[k]=__hnxFullHash(v); } }); }catch(e){}
         __lsRawSet(LAST_KEY, new Date().toISOString());
-        setState({syncing:false,lastSync:Date.now(),error:(window.__hnxPushSkipped&&window.__hnxPushSkipped.length)?('not stored by the cloud (too big): '+window.__hnxPushSkipped.map(function(x){return x.k.replace(/^hydroPro_/,'');}).join(', ')+' — kept on this computer'):null});
+        __boMark(true,null,'upload'); /* v22.52 */
+        setState({syncing:false,lastSync:Date.now(),error:(window.__hnxPushSkipped&&window.__hnxPushSkipped.length)?('not stored by the cloud (too big): '+window.__hnxPushSkipped.map(function(x){return x.k.replace(/^hydroPro_/,'');}).join(', ')+' — kept on this computer'):((__bo.cur&&__bo.cur.fail&&state.error)?state.error:null)}); /* v22.52: an upload that worked after a failed download does not hide that failure */
         return res;
       })
       .catch(function(err){
-        setState({syncing:false,error:err.message});
+        __boMark(false,err,'upload'); /* v22.52 */
+        setState({syncing:false,error:(err&&err.message)||String(err)});
         if(String(err.message).indexOf('Unauthorized')!==-1){
           setToken(null);
         }
@@ -148040,19 +148077,35 @@ body.hnx-mobile-locked { overflow: hidden; }
     if(!state.online || !getToken() || state.syncing) return Promise.resolve();
     var __partial=!!(onlyKeys&&onlyKeys.length&&window.__hnxPulledOk);
     var __t0=Date.now();
-    try{if(window.__hnxAUTOVAULT&&__hnxAUTOVAULT.ready&&!__hnxAUTOVAULT.ready()&&(Date.now()-(window.__hnxBoot0||0))<8000){setTimeout(pullAll,500);return Promise.resolve();}}catch(e){} /* v19.55: merge against the hydrated vault, never against an empty one */
+    try{if(window.__hnxAUTOVAULT&&__hnxAUTOVAULT.ready&&!__hnxAUTOVAULT.ready()&&(Date.now()-(window.__hnxBoot0||0))<8000){return new Promise(function(__r){ setTimeout(function(){ __r(pullAll()); },500); });}}catch(e){} /* v19.55: merge against the hydrated vault, never against an empty one · v22.52: the deferred download stays in the same sync cycle, so its failure counts toward the back-off */
     setState({syncing:true});
     /* v21.99: a full pull asks the cloud for its key list first and then pulls only the keys that sync, in batches of 40 —
        the worker's bare /sync/pull sends EVERY key, including an 11.7 MB QuickBooks cache no computer needs from the cloud. */
+    /* v22.52: no bare /sync/pull after a failure any more. When the key list or ANY batch failed, the app fell back to one request
+       for EVERYTHING (~27 MB with the old QuickBooks/SOS caches) — likely over the cloud's 128 MB memory limit on its own, so one
+       failure became a failure on every try. Now a failed download simply fails: the cycle backs off and tries again later. The
+       40-key batches run 2 at a time instead of all at once (all at once put the whole store through one cloud worker at the same
+       moment). The worker may send a value as parsed JSON or as its raw JSON text — the merge below takes both. */
+    var PULL_LANES=2;
     function __fullPull(){
       return api('/sync/keys').then(function(r){
-        var ks=((r&&r.keys)||[]).filter(function(k){ return shouldSync(k); });
-        if(!ks.length) return api('/sync/pull');
+        /* a server that answers 200 without a key list is not the hnx-sync worker (the worker always lists, or fails with an
+           error): only then one plain /sync/pull, as before. Never after a failure, never for an empty list. */
+        if(!r||!Array.isArray(r.keys)) return api('/sync/pull');
+        var ks=r.keys.filter(function(k){ return shouldSync(k); });
         var parts=[]; for(var i=0;i<ks.length;i+=40) parts.push(ks.slice(i,i+40));
-        return Promise.all(parts.map(function(c){ return api('/sync/pull?keys='+encodeURIComponent(c.join(','))); })).then(function(rs){
-          var out={}; rs.forEach(function(x){ if(x&&x.data) Object.keys(x.data).forEach(function(k){ out[k]=x.data[k]; }); });
-          return {data:out,count:Object.keys(out).length}; });
-      }).catch(function(){ return api('/sync/pull'); });
+        var out={}, next=0, dead=false;
+        function lane(){
+          if(dead||next>=parts.length) return Promise.resolve();
+          var c=parts[next++];
+          return api('/sync/pull?keys='+encodeURIComponent(c.join(','))).then(function(x){
+            if(x&&x.data) Object.keys(x.data).forEach(function(k){ out[k]=x.data[k]; });
+            return lane();
+          },function(e){ dead=true; throw e; });
+        }
+        var lanes=[]; for(var j=0;j<Math.min(PULL_LANES,parts.length);j++) lanes.push(lane());
+        return Promise.all(lanes).then(function(){ return {data:out,count:Object.keys(out).length}; });
+      });
     }
     return (__partial?api('/sync/pull?keys='+encodeURIComponent(onlyKeys.join(','))):__fullPull())
       .then(function(res){
@@ -148165,14 +148218,16 @@ body.hnx-mobile-locked { overflow: hidden; }
               if(__lost.length){ try{ localStorage.setItem('hnx_delta_unsafe','1'); localStorage.setItem('hnxlocal_delta_unsafe_at',String(Date.now())); }catch(e){} window.__hnxLastFullPush=0; try{ console.error('[sync] the cloud lost '+__lost.length+' key(s) after a delta upload ('+__lost.slice(0,3).join(', ')+') — full uploads from now on'); }catch(e){} } }
             window.__hnxCloudKeys=__now; window.__hnxDeltaPushed=false; }catch(e){}
         } finally { __HNX_SUPPRESS--; }
+        __boMark(true,null,'download'); /* v22.52 */
         window.__hnxPulledOk=true; window.__hnxLastPullAt=Date.now(); window.__hnxPresentAtBoot=null; /* v21.28: cloud-first applies to the first pull only */
         localStorage.setItem(LAST_KEY, new Date().toISOString());
         setState({syncing:false,lastSync:Date.now(),error:__hnxSkNotice()}); /* (review 2) a refused store still unsent stays on the sync line */
         return res; });
       })
       .catch(function(err){
-        setState({syncing:false,error:err.message});
-        if(String(err.message).indexOf('Unauthorized')!==-1){
+        __boMark(false,err,'download'); /* v22.52 */
+        setState({syncing:false,error:(err&&err.message)||String(err)});
+        if(String(err&&err.message).indexOf('Unauthorized')!==-1){
           setToken(null);
         }
       });
@@ -148180,19 +148235,20 @@ body.hnx-mobile-locked { overflow: hidden; }
 
   function tryAutoSync(){
     if(IS_LOCAL) return; /* p51: no cloud calls from file:// */
+    if(__boWait()>0) return; /* v22.52: the last cycle failed — wait (20 s, 40 s, 80 s … 5 min, + 0-15 s) */
     /* v12.88: no token yet → try the silent app-credential sign-in and stop.
        appAutoLogin() runs its own pull+push on success, so the next tick syncs normally. */
-    if(state.online && !getToken()){ try{ appAutoLogin(); }catch(e){} return; }
+    if(state.online && !getToken()){ try{ __boCycle(function(){ return appAutoLogin(); }); }catch(e){} return; }
     syncWatchdog(); /* v20.20 */
     if(!state.online || !getToken() || state.syncing) return;
     try{ var __ps=window.__hnxPullStats; if(__ps&&__ps.lastAt&&window.__hnxPulledOk){ var __gap=Math.min(300000,Math.max(SYNC_INTERVAL-1000,__ps.lastMs*10));
       if(Date.now()-__ps.lastAt<__gap){ var __skm=__hnxSkMemo(),__dk=Object.keys(__HNX_DIRTY).filter(function(k){ return !__hnxSkHeld(k,__skm); }); /* v22.32 (review): a refused, unchanged store is not re-downloaded every 20 s */
-        if(__dk.length){ var pq=pullAll(__dk); if(pq&&pq.then) pq.then(function(){ pushAll(); }); } return; } } }catch(e){} /* v21.96: slow line → full pull less often */
+        if(__dk.length){ __boCycle(function(){ var pq=pullAll(__dk); return (pq&&pq.then)?pq.then(function(){ return pushAll(); }):pushAll(); }); } return; } } }catch(e){} /* v21.96: slow line → full pull less often */
     /* p98: pull-then-push every cycle. The pull now MERGES operational keys, so periodic
        pulling is non-destructive and lets users/perms/calls/issues converge across devices. */
-    var pr=pullAll();
-    if(pr && pr.then){ pr.then(function(){ pushAll(); }); } else { pushAll(); }
+    __boCycle(function(){ var pr=pullAll(); return (pr&&pr.then)?pr.then(function(){ return pushAll(); }):pushAll(); }); /* v22.52: one counted cycle */
   }
+  try{ window.__hnxTryAutoSync=tryAutoSync; }catch(e){}
 
   setInterval(tryAutoSync, SYNC_INTERVAL);
   try{ document.addEventListener('hnx-vault-ready',function(){ try{ tryAutoSync(); }catch(e){} }); }catch(e){} /* v21.16 r2: merge the vault stores the moment they are readable, not up to 20 s later */
@@ -148293,7 +148349,7 @@ body.hnx-mobile-locked { overflow: hidden; }
       window.__hnxSyncPushSoon=function(k){ try{ if(__HNX_SUPPRESS||IS_LOCAL||!getToken()||!window.__hnxPulledOk) return;
         if(k&&!shouldSync(k)) return; if(k&&window.__hnxAUTOVAULT&&__hnxAUTOVAULT.vaultKeys&&__hnxAUTOVAULT.vaultKeys.indexOf(k)>=0) return; /* re-pullable caches never trigger a push */
         clearTimeout(_qpT); _qpT=setTimeout(function(){
-        try{ var __dk=Object.keys(__HNX_DIRTY); if(!__dk.length) return; var __skm=__hnxSkMemo(); __dk=__dk.filter(function(k){ return !__hnxSkHeld(k,__skm); }); if(!__dk.length){ pushAll(); return; } /* (review 2) a refused, unchanged store is not re-downloaded after every edit */ var pr=pullAll(__dk); if(pr&&pr.then){ pr.then(function(){ try{pushAll();}catch(e){} }); } else { pushAll(); } }catch(e){ try{pushAll();}catch(e2){} } /* v21.96: pull only the edited keys */ }, 4000); }catch(e){} };
+        if(__boWait()>0) return; /* v22.52: in back-off — the change stays unsent (marked) here and goes up with the next sync cycle */ __boCycle(function(){ try{ var __dk=Object.keys(__HNX_DIRTY); if(!__dk.length) return; var __skm=__hnxSkMemo(); __dk=__dk.filter(function(k){ return !__hnxSkHeld(k,__skm); }); if(!__dk.length){ return pushAll(); } /* (review 2) a refused, unchanged store is not re-downloaded after every edit */ var pr=pullAll(__dk); return (pr&&pr.then)?pr.then(function(){ return pushAll(); }):pushAll(); }catch(e){ try{ return pushAll(); }catch(e2){} } }); /* v21.96: pull only the edited keys */ }, 4000); }catch(e){} };
       localStorage.setItem=function(k,v){ v=__hnxStampDay(k,v); v=__hnxStampEmps(k,v);
         /* v21.19: a write that does not change the value (boot seeders re-writing their defaults on every start — ~45 keys) is not
            an edit: nothing is marked dirty and nothing is uploaded for it */
@@ -148308,7 +148364,7 @@ body.hnx-mobile-locked { overflow: hidden; }
                daily report forever. Pulling first merges the fresh cloud copy in
                (the __ts-newer side wins, dirty keys stay untouched locally), so the
                value we upload never silently erases someone else's newer work. */
-            try{ var __dk=Object.keys(__HNX_DIRTY); if(!__dk.length) return; var __skm=__hnxSkMemo(); __dk=__dk.filter(function(k){ return !__hnxSkHeld(k,__skm); }); if(!__dk.length){ pushAll(); return; } /* (review 2) a refused, unchanged store is not re-downloaded after every edit */ var pr=pullAll(__dk); if(pr&&pr.then){ pr.then(function(){ try{pushAll();}catch(e){} }); } else { pushAll(); } }catch(e){ try{pushAll();}catch(e2){} } /* v21.96: pull only the edited keys */
+            if(__boWait()>0) return; /* v22.52: in back-off — the change stays unsent (marked) here and goes up with the next sync cycle */ __boCycle(function(){ try{ var __dk=Object.keys(__HNX_DIRTY); if(!__dk.length) return; var __skm=__hnxSkMemo(); __dk=__dk.filter(function(k){ return !__hnxSkHeld(k,__skm); }); if(!__dk.length){ return pushAll(); } /* (review 2) a refused, unchanged store is not re-downloaded after every edit */ var pr=pullAll(__dk); return (pr&&pr.then)?pr.then(function(){ return pushAll(); }):pushAll(); }catch(e){ try{ return pushAll(); }catch(e2){} } }); /* v21.96: pull only the edited keys */
           }, 4000); }
         } }catch(e){}
         return r; };
@@ -148404,6 +148460,7 @@ body.hnx-mobile-locked { overflow: hidden; }
             '</b></div>';
       html+='<div>Last sync: <b>'+fmtTime(state.lastSync)+'</b></div>';
       if(state.error) html+='<div style="color:#ff8a80;margin-top:4px;font-size:9px;">'+state.error+'</div>';
+      if(state.error&&state.reason) html+='<div style="color:#ffcc80;margin-top:2px;font-size:9px;">'+state.reason+'</div>'; /* v22.52 */
       html+='<a class="btn" id="hnx-sync-now">Sync now</a> ';
       html+='<a class="btn" id="hnx-pull-now" style="background:linear-gradient(180deg,#42a5f5,#1976d2);border-color:#90caf9;color:#fff;">Pull cloud</a> ';
       html+='<a class="btn" id="hnx-cloud-disc" style="background:rgba(255,82,82,.2);color:#ff8a80;border-color:rgba(255,82,82,.4);">Disconnect</a>';
@@ -148465,7 +148522,7 @@ body.hnx-mobile-locked { overflow: hidden; }
       }catch(e){}
     }, 2000);
     // First sync attempt
-    if(getToken() && !IS_LOCAL) setTimeout(pullAll, 2000); /* p51: skip cloud pull when running locally */
+    if(getToken() && !IS_LOCAL) setTimeout(function(){ __boCycle(function(){ return pullAll(); }); }, 2000); /* p51: skip cloud pull when running locally · v22.52: a failed boot download starts the back-off */
     /* v12.88: no token on this device → sign in silently with the user's own app
        credentials. Safe before the worker route exists (404 → silent no-op). */
     else if(!IS_LOCAL) setTimeout(function(){ try{ appAutoLogin(); }catch(e){} }, 2500);
@@ -148478,6 +148535,8 @@ body.hnx-mobile-locked { overflow: hidden; }
   try{window.__hnxMergeSupTest=__hnxMergeSup;}catch(e){}
   window.HNX_Cloud={
     push:pushAll, pull:pullAll, state:state,
+    health:__cloudHealth, /* v22.52: GET /health (no sign-in, no download) */
+    cycle:function(){ return __boCycle(function(){ var pr=pullAll(); return (pr&&pr.then)?pr.then(function(){ return pushAll(); }):pushAll(); }); }, /* v22.52: one counted pull+push */
     connect:connectCloud, disconnect:disconnectCloud,
     api:api
   };
@@ -149450,11 +149509,12 @@ body.hnx-mobile-locked { overflow: hidden; }
   async function testPull() {
     log('Pulling');
     /* v21.19: the sync engine already downloads the store at boot — wait for it instead of a second 15 MB pull on every page load */
-    var t0=Date.now(); while(!window.__hnxPulledOk&&Date.now()-t0<240000){ await new Promise(function(r){ setTimeout(r,1000); }); }
+    var t0=Date.now(); while(!window.__hnxPulledOk&&Date.now()-t0<240000){ var __cs=window.HNX_Cloud&&window.HNX_Cloud.state; if(__cs&&__cs.reason&&__cs.error) throw new Error(__cs.error); /* v22.52: the download failed and the cause is known — say so now, not after 4 minutes */ await new Promise(function(r){ setTimeout(r,1000); }); }
     if(!window.__hnxPulledOk) throw new Error('cloud download not finished yet');
     var d={}; (window.__hnxCloudKeys||[]).forEach(function(k){ d[k]=1; }); return { data: d };
   }
-  async function testPullReal() { return api('/sync/pull'); }
+  /* v22.52: never the full download — the cloud's /health and its store list (/sync/keys) */
+  async function testPullReal() { const h = await healthCheck(); const k = await api('/sync/keys'); const d = {}; ((k && k.keys) || []).forEach(function (x) { d[x] = 1; }); return { data: d, count: (k && k.count != null) ? k.count : Object.keys(d).length, health: h }; }
 
   async function main() {
     log('Starting cloud-fix patch ' + PATCH_VERSION);
@@ -149474,8 +149534,10 @@ body.hnx-mobile-locked { overflow: hidden; }
       log('Health OK:', healthData);
     } catch (e) {
       err('Health check failed:', e);
-      showBanner('❌ Cloud worker unreachable.', 'fail',
-        'Cause: ' + String(e) + '<br>Worker URL: ' + WORKER_URL);
+      /* v22.52: name the likely cause, not a bare "Failed to fetch" */
+      showBanner('❌ Cloud unreachable — Cloudflare daily limit (resets 08:00 PH) or network.', 'fail',
+        'The cloud server did not answer its health check (' + String(e) + '). Your work stays on this computer and uploads by itself when the cloud answers again — the sync retries on its own (20 s, 40 s, 80 s … up to 5 min).' +
+        '<br>To check: open ' + WORKER_URL + '/health in a browser tab. A Cloudflare “Error 1027” page = the daily request limit (resets 08:00 PH); if it opens on a phone on mobile data but not here = this network.');
       return;
     }
 
@@ -149528,8 +149590,9 @@ body.hnx-mobile-locked { overflow: hidden; }
         '<br>auto-hides in 10s');
     } catch (e) {
       err('Pull failed:', e);
-      showBanner('⚠️ Push OK but PULL failed.', 'fail',
-        'Cause: ' + String(e));
+      const __rs = (window.HNX_Cloud && window.HNX_Cloud.state && window.HNX_Cloud.state.reason) || ''; /* v22.52 */
+      showBanner(__rs ? ('⚠️ ' + __rs + '.') : '⚠️ Push OK but PULL failed.', 'fail',
+        'Cause: ' + String(e) + (__rs ? '<br>Nothing typed here is lost — it stays on this computer and uploads when the cloud answers. The sync retries by itself (20 s, 40 s, 80 s … up to 5 min).' : ''));
     }
   }
 
@@ -167171,7 +167234,7 @@ gh+=_mtxTreeBody(rows);
     shipments: 'hydroPro_sos_shipments_v1',
     meta:      'hydroPro_sos_meta_v1'
   };
-  var AUTO_SYNC_MS = 5 * 60 * 1000;   // v17.84: 5 min — the Prj 15/16 SOS recon needs a live picture
+  var AUTO_SYNC_MS = 15 * 60 * 1000;  // v17.84: 5 min — v22.52: 15 min (each run is up to ~50 cloud requests per computer; the Prj 15/16 recon still refreshes every 5 min while it is on screen)
   var SYNC_TIMEOUT_MS = 30000;        // 30s per endpoint
 
   // ---------- helpers ----------
@@ -167590,6 +167653,7 @@ gh+=_mtxTreeBody(rows);
       if(document.hidden) return;          // pause when tab hidden
       var m = getMeta();
       if(!m.connected) return;
+      try{ var __b = window.__hnxSyncBackoff && window.__hnxSyncBackoff(); if(__b && __b.waitMs > 0) return; }catch(_){} // v22.52: the cloud is failing — do not add ~50 requests
       sync().catch(function(){});           // swallow errors here — already logged
     }, AUTO_SYNC_MS);
   }
@@ -167699,7 +167763,7 @@ gh+=_mtxTreeBody(rows);
               +'<div style="font-size:20px;font-weight:800;color:#e8f5e9;letter-spacing:.3px;">📦 SOS Inventory Sync</div>'
               + statusPill(meta.connected)
             +'</div>'
-            +'<div style="font-size:11.5px;color:#7aa99a;margin-top:5px;">OAuth2 integration with <a href="https://sosinventory.com" target="_blank" style="color:#42a5f5;">sosinventory.com</a> via the hnx-sync Cloudflare worker. Auto-syncs every 5 min when connected.</div>'
+            +'<div style="font-size:11.5px;color:#7aa99a;margin-top:5px;">OAuth2 integration with <a href="https://sosinventory.com" target="_blank" style="color:#42a5f5;">sosinventory.com</a> via the hnx-sync Cloudflare worker. Auto-syncs every 15 min when connected.</div>'
           +'</div>'
           +'<div style="display:flex;gap:8px;flex-wrap:wrap;">'+actionButtons+'</div>'
         +'</div>'
@@ -170933,15 +170997,22 @@ gh+=_mtxTreeBody(rows);
        the cause was its own full storage. The reason is on the badge now, in one or two
        words, and the full message is on hover. */
     var _em = String(state.error || '');
+    /* v22.52: the first two failed syncs in a row say "· retrying" (amber) — Nexi retries by itself after 20 s, 40 s, 80 s … 5 min;
+       from the third in a row the pill says what is wrong. The app's own "sync timed out after 240s" and Safari's "Load failed"
+       now read "no connection" (they fell through to "· error"). Hover shows the cause found by the /health check. */
+    var _fc = +state.failCount || 0;
     var _ek = !_em ? '' : /quota|storage|exceed/i.test(_em) ? ' · storage full'
             : /refused the password|Unauthorized|401|403|sign-in/i.test(_em) ? ' · password'
             : /stalled/i.test(_em) ? ' · stalled'
-            : /Failed to fetch|NetworkError|network|timeout|ECONN|502|503|504/i.test(_em) ? ' · no connection'
+            : /Failed to fetch|Load failed|NetworkError|network|timed? ?out|ECONN|502|503|504/i.test(_em) ? (_fc < 3 ? ' · retrying' : ' · no connection')
+            : (_fc > 0 && _fc < 3 && !/not stored by the cloud|old Nexi/i.test(_em)) ? ' · retrying'
             : ' · error';
     var why = ok && !stale ? '' : ok && stale ? ' · waiting' : (!hasTok ? ' · not signed in' : state.online===false ? ' · offline' : _ek);
-    b.title = _em ? ('Sync error: ' + _em + (/quota|storage|exceed/i.test(_em) ? ' — this machine\'s browser storage is full; press the 🚑 STORAGE FULL button, then the sync will catch up' : '') + ' — click for details') : (ok ? 'Cloud sync is working' : '');
+    var _isRetry = (why === ' · retrying'); if (_isRetry) dot = '🟡';
+    var _rs = String(state.reason || ''), _rin = (state.retryAt && state.retryAt > Date.now()) ? Math.round((state.retryAt - Date.now())/1000) : 0;
+    b.title = _em ? ('Sync error: ' + _em + (_rs ? ' — ' + _rs : '') + (_rin ? ' — next try in ' + _rin + ' s' + (_fc ? ' (' + _fc + ' failed in a row)' : '') : '') + (/quota|storage|exceed/i.test(_em) ? ' — this machine\'s browser storage is full; press the 🚑 STORAGE FULL button, then the sync will catch up' : '') + ' — click for details') : (ok ? 'Cloud sync is working' : '');
     b.innerHTML = '<span style="font-size:14px;line-height:1">'+dot+'</span><span>Sync'+why+'</span>';
-    b.style.background = (ok && !stale) ? '#2e7d32' : (ok && stale) ? '#ef6c00' : '#c62828';
+    b.style.background = (ok && !stale) ? '#2e7d32' : ((ok && stale) || _isRetry) ? '#ef6c00' : '#c62828';
   }
 
   // -------- panel --------
@@ -170975,6 +171046,8 @@ gh+=_mtxTreeBody(rows);
       +     row('Cloud user', user ? '<code style="background:#f1f1f1;padding:2px 6px;border-radius:4px">'+escapeHtml(user)+'</code>' : '<span style="color:#999">unknown (no saved credential)</span>')
       +     row('Last sync', ls ? relTime(ls)+' <span style="color:#999;font-size:11px">('+new Date(ls).toLocaleString('en-PH')+')</span>' : '<span style="color:#c62828">never</span>')
       +     row('Current state', state.syncing ? '⏳ Syncing now…' : state.error ? '<span style="color:#c62828">error</span>' : 'idle')
+      +     (state.error && state.reason ? row('Cause', '<b style="color:#e65100">'+escapeHtml(state.reason)+'</b>') : '') /* v22.52 */
+      +     (state.failCount ? row('Retries', escapeHtml(state.failCount+' failed in a row'+((state.retryAt&&state.retryAt>Date.now())?' · next try in '+Math.round((state.retryAt-Date.now())/1000)+' s':' · trying now'))) : '')
       +     row('Last error', state.error ? '<code style="color:#c62828;background:#fdecea;padding:2px 6px;border-radius:4px">'+escapeHtml(state.error)+'</code>' : '<span style="color:#999">none</span>')
       +     row('Online (browser)', (state.online !== false) ? '🟢 yes' : '🔴 no')
       +     row('Local data', bytesStr + ' · ' + (counts.op+counts.nonop) + ' keys ('+counts.op+' op + '+counts.nonop+' non-op)')
@@ -171087,13 +171160,22 @@ gh+=_mtxTreeBody(rows);
       }
     }catch(e){ logEvent('ERR','Full sync threw: '+e.message); renderLog(); }
   }
+  /* v22.52: the test no longer downloads the whole store (bare /sync/pull — the heaviest request there is). It asks the cloud's
+     /health (is the server up, which version) and /sync/keys (is the sign-in valid, how many stores) — both tiny. */
   function doTest(){
     if(!window.HNX_Cloud || !window.HNX_Cloud.api){ logEvent('ERR','No api() on HNX_Cloud'); renderLog(); return; }
-    logEvent('…','Test starting…'); renderLog();
+    logEvent('…','Test starting (health check + store list, no download)…'); renderLog();
     try{
       var t0 = Date.now();
-      var p = window.HNX_Cloud.api('/sync/pull');
-      if(p && p.then) p.then(function(){ logEvent('OK','Test OK — server reachable, auth valid ('+(Date.now()-t0)+'ms)'); renderLog(); }).catch(function(e){ logEvent('ERR','Test failed: '+e.message); renderLog(); });
+      var h = (typeof window.HNX_Cloud.health === 'function') ? window.HNX_Cloud.health() : Promise.resolve({});
+      h.then(function(hd){
+        var t1 = Date.now();
+        logEvent('OK','Cloud server reachable'+(hd && hd.version ? ' — worker v'+hd.version : '')+' ('+(t1-t0)+'ms)'); renderLog();
+        return window.HNX_Cloud.api('/sync/keys').then(function(r){
+          var n = (r && r.count != null) ? r.count : ((r && r.keys) || []).length;
+          logEvent('OK','Test OK — sign-in valid, '+n+' stores in the cloud ('+(Date.now()-t1)+'ms)'); renderLog();
+        }, function(e){ logEvent('ERR','Server reachable, but the store list failed: '+(e && e.message || e)); renderLog(); });
+      }, function(e){ logEvent('ERR','Test failed: Cloud unreachable — Cloudflare daily limit (resets 08:00 PH) or network ('+(e && e.message || e)+')'); renderLog(); });
     }catch(e){ logEvent('ERR','Test threw: '+e.message); renderLog(); }
   }
   function doDisconnect(){
@@ -238795,10 +238877,12 @@ function waiting(){
 }
 
 /* ---------- snapshot upload (debounced, on change) ---------- */
-var _lastSig='';
+var _lastSig='', _snapFail=0, _snapNext=0; /* v22.52: a failed upload waits 1, 2, 4 … 30 min (6 h after "not allowed") — it retried every 20 s, all day */
 function pushSnapshot(){
   try{
     var tok=cloudToken();if(!tok)return;
+    if(Date.now()<_snapNext)return;
+    try{ var __b=window.__hnxSyncBackoff&&window.__hnxSyncBackoff(); if(__b&&__b.waitMs>0)return; }catch(e){}
     var n=ncfg(),a=acfg();
     var list=waiting().map(function(m){
       return {id:m.id,title:m.title||'',date:m.date||'',gh:m.gh||m.ghAffected||'',
@@ -238816,9 +238900,10 @@ function pushSnapshot(){
       method:'POST',
       headers:{'Authorization':'Bearer '+tok,'Content-Type':'application/json'},
       body:JSON.stringify(snap)
-    }).then(function(r){if(r.ok)_lastSig=sig;}).catch(function(){});
+    }).then(function(r){ if(r.ok){ _lastSig=sig; _snapFail=0; _snapNext=0; } else snapFailed(r.status); }).catch(function(){ snapFailed(0); });
   }catch(e){}
 }
+function snapFailed(st){ _snapFail++; _snapNext=Date.now()+((st===401||st===403)?6*3600e3:Math.min(30*60e3,60e3*Math.pow(2,_snapFail-1))); }
 setInterval(pushSnapshot,20000);
 setTimeout(pushSnapshot,6000);
 
@@ -249567,10 +249652,16 @@ setInterval(function(){
     if(!s)return; /* nobody logged in */
     var st=(window.HNX_Cloud&&window.HNX_Cloud.state)||{};
     var tok=null;try{tok=localStorage.getItem('hnx_cloud_token');}catch(e){}
+    /* v22.52: no retry (sign-in or sync) while the sync back-off is waiting; a "not stored by the cloud (too big)" notice is not a
+       failure to heal (it re-downloaded the whole store every 90 s); the retry is one counted cycle, so a failure lengthens the wait */
+    var bo=(typeof window.__hnxSyncBackoff==='function')?window.__hnxSyncBackoff():null;
+    if(bo&&bo.waitMs>0)return;
     if(!tok){
       if(typeof window.hnxCloudAutoLogin==='function')window.hnxCloudAutoLogin();
       return;
     }
+    if(st.error&&/^not stored by the cloud/.test(String(st.error)))return;
+    if(st.error&&!st.syncing&&window.HNX_Cloud&&typeof window.HNX_Cloud.cycle==='function'){ try{window.HNX_Cloud.cycle();}catch(e){} return; }
     if(st.error&&!st.syncing&&window.HNX_Cloud){
       var p=null;
       try{if(window.HNX_Cloud.pull)p=window.HNX_Cloud.pull();}catch(e){}
@@ -293345,7 +293436,7 @@ window.HNX_HELP_TASKS = [
  cat:'task',
  summary:'What Nexi pulls from SOS, what it sends back, and how to tell when the two disagree.',
  sections:[
-  {h:'What Nexi reads', p:['Administration → 📦 SOS Inventory Sync shows whether it is connected and which account it is on. Nexi pulls the items, the locations, the lots and the shipments every five minutes, and the stock list you see IS the SOS catalogue.']},
+  {h:'What Nexi reads', p:['Administration → 📦 SOS Inventory Sync shows whether it is connected and which account it is on. Nexi pulls the items, the locations, the lots and the shipments every 15 minutes (v22.52; it was every five — tap Sync on the SOS screen for a fresh pull right now; the Projects 15/16 SOS recon still refreshes every five minutes while it is on screen), and the stock list you see IS the SOS catalogue.']},
   {h:'What Nexi sends', p:['Confirming an issue posts the movement to SOS — an issue, a transfer, a purchase order, a shipment or a receipt depending on the request type. The item number, the serial and the asset tag go with it.']},
   {h:'Why a number can differ', table:{head:['Reason','What to do'],rows:[
    ['A request was issued but the post to SOS failed','Post it in SOS and paste the reference on the request'],
@@ -294548,6 +294639,11 @@ window.HNX_HELP_MODULES_B = [
 {id:'m_admin', icon:'⚙️', title:'Administration', who:'Eyal · Dr Amy · admins', cat:'module',
  summary:'Users and rights, approvals, the cloud sync, the audit log, the integrations, and the things that cannot be undone.',
  sections:[
+  {h:'Sync · retrying / no connection (v22.52)', p:[
+   'The Sync pill at the bottom-left says “Sync · retrying” (amber) after the first and the second failed sync in a row. Nexi tries again by itself after 20 seconds, then 40, then 80 … up to 5 minutes, plus a few random seconds so the computers do not all retry at the same moment. From the third failure in a row it says “Sync · no connection” (the cloud did not answer) or “Sync · error” (it answered with an error). One good sync clears it. Nothing typed on this computer is lost while it waits: unsent changes stay marked here and go up with the next good sync.',
+   'Hover over the pill (or click it: Cause and Retries) to see why. After a “Failed to fetch” Nexi checks the cloud’s health once. “Cloud unreachable — Cloudflare daily limit (resets 08:00 PH) or network” means the cloud server did not answer at all: open https://hnx-sync.eyalbenari99.workers.dev/health in a browser tab — a Cloudflare “Error 1027” page is the daily request limit; if it opens on a phone on mobile data but not on the office computer, it is the office network. “Cloud server overloaded on download” means the server is up but the download was too heavy for it (Cloudflare memory or CPU limit) — the cloud worker 3.7.3 is the fix. The same cause shows in the banner at the top of the page.',
+   '🧪 Test connection (click the pill) checks only the server’s health and the list of stores — it no longer downloads everything, which was the heaviest request there is. A sync that runs past its 4-minute limit (“sync timed out”) now reads “no connection”, not “error”.',
+   'Less load on the cloud: the download runs 2 parts at a time instead of all at once and never falls back to one huge download; 📦 SOS Inventory refreshes in the background every 15 minutes (was 5) and pauses while the cloud is failing; the memo SMS list no longer retries every 20 seconds after a refusal; and this computer’s own “last QuickBooks read” line is no longer uploaded every 3 minutes (it was only ever read on the same computer).']},
   {h:'New phones and computers (v22.29 trial)', p:[
    'An invitation link (or its QR code) now carries the person\'s department(s), position and their rights from Administration ▸ Users. Before, a phone or computer that had not received the user list yet created the person with no department, and Strict-by-default then gave them nothing to open. A device that already holds a newer rights record keeps it.',
    'Signing in on a new device asks the cloud for the account. If that fails once (a typo, the network), the device asks again on the next try, at most every 20 seconds per username. Before, it asked once per page load and kept saying "not found" until a reload.',
