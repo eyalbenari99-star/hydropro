@@ -6216,13 +6216,13 @@ td.critical-blink,div.critical-blink,span.critical-blink,
         <div class="emp-field"><label class="field-label">Daily Rate Override (₱)</label><input type="number" step="0.01" class="users-input" id="empRate" placeholder="Leave empty to use level rate" title="Optional: enter a specific daily rate to override the level-based rate"></div>
         <div class="emp-field"><label class="field-label">💰 Salary Category <span style="color:var(--text3);font-weight:400;">(decides which payroll — independent of working dept)</span></label><select class="users-input" id="empSalaryCategory" title="1. Admin + 11. Management → bi-monthly (office) payroll · every other category → weekly payroll. A production supervisor can still be paid under Admin."><option value="">— By department (legacy) —</option><option value="admin">1. Admin</option><option value="logistic">2. Logistic</option><option value="accounting">3. Accounting</option><option value="production">4. Production</option><option value="packaging">5. Packaging</option><option value="maintenance">6. Maintenance</option><option value="production_regular">7. Production Regular</option><option value="production_temp">8. Production Temp</option><option value="production_trainee">9. Production Trainee</option><option value="production_contractual">10. Production Contractual</option><option value="management">11. Management</option><option value="operation">12. Operation</option><option value="drivers">13. Drivers</option><option value="helpers">14. Helpers</option><option value="it">15. IT</option><option value="packaging_trainee">16. Packaging Trainee</option><option value="helpers_trainee">17. Helpers Trainee</option><option value="maintenance_trainee">18. Maintenance Trainee</option><option value="project_contractor">19. GH15 &amp; GH16 Project Contractor Labor</option></select></div><!-- v13.53 PAY-F48 · v14.24 -->
         <div class="emp-field" id="empAllowanceBlock"><label class="field-label">💼 Contract Pay (office) <span style="color:var(--text3);font-weight:400;">(accounting only)</span></label>
-          <label class="field-label" style="font-size:10.5px;margin-top:2px;">Monthly Basic (₱)</label><input type="number" step="0.01" class="users-input" id="empMonthlyBasic" placeholder="e.g. 16000" title="OFFICE contract monthly basic. Each cutoff the daily rate is derived: (monthly ÷ 2) ÷ regular working days in the cutoff (Mon–Fri incl. government holidays). Sundays 130% and holiday premiums use that derived rate.">
+          <div id="empContractPayPart"><!-- v22.54 audit PRIV-3: office pay part, hidden for an office employee without 🏢 Office pay --><label class="field-label" style="font-size:10.5px;margin-top:2px;">Monthly Basic (₱)</label><input type="number" step="0.01" class="users-input" id="empMonthlyBasic" placeholder="e.g. 16000" title="OFFICE contract monthly basic. Each cutoff the daily rate is derived: (monthly ÷ 2) ÷ regular working days in the cutoff (Mon–Fri incl. government holidays). Sundays 130% and holiday premiums use that derived rate.">
           <label class="field-label" style="font-size:10.5px;margin-top:6px;">Fixed EWT per cut-off (₱) <span style="color:var(--text3);font-weight:400;">(management, company-paid BIR — empty = the ordinary rate)</span></label><input type="number" step="0.01" class="users-input" id="empEwtFixed" placeholder="e.g. 4270.83" title="v22.28 (payroll audit NEW-01): the exact BIR expanded withholding per cut-off for a management member, paid by the company. It used to be chosen by NAME in the code."><!-- v13.52 PAY-F44 -->
           <label class="field-label" style="font-size:10.5px;margin-top:6px;">Allowances <span style="color:var(--text3);font-weight:400;">(as many as needed — PER DAY pays ₱X for each day worked (labor); per month pays monthly ÷ 22 × attended weekdays (office))</span></label>
           <div id="empAllowList"></div>
-          <button type="button" class="btn btn-outline" style="padding:3px 10px;font-size:11px;margin-top:4px;" onclick="window._empAllowAdd&&window._empAllowAdd()">➕ Add allowance</button>
+          <button type="button" class="btn btn-outline" style="padding:3px 10px;font-size:11px;margin-top:4px;" onclick="window._empAllowAdd&&window._empAllowAdd()">➕ Add allowance</button></div>
           <input type="hidden" id="empMonthlyAllowance"><input type="hidden" id="empAllowanceType"><input type="checkbox" id="empAllowanceTaxable" style="display:none;"><!-- legacy fields kept hidden for old code paths -->
-          <label class="field-label" style="font-size:10.5px;margin-top:8px;">💰 Loyalty savings (₱ per month, company deposits to BDO) <span style="color:var(--text3);font-weight:400;">— never deducted; booked as an employer payable on the cut-off that ends on the 25th, like the SSS employer share</span></label><input type="number" step="1" min="0" class="users-input" id="empLoyaltyMonthly" placeholder="e.g. 10000 (blank = not a member)" title="v21.26: the amount the company sets aside for this employee's loyalty savings each month. Shown on Accounting → Loyalty Savings and on Government Remittances as the company's payable."><!-- v21.26 -->
+          <div id="empLoyaltyPart"><!-- v22.54 audit PRIV-3: hidden without 💎 Loyalty --><label class="field-label" style="font-size:10.5px;margin-top:8px;">💰 Loyalty savings (₱ per month, company deposits to BDO) <span style="color:var(--text3);font-weight:400;">— never deducted; booked as an employer payable on the cut-off that ends on the 25th, like the SSS employer share</span></label><input type="number" step="1" min="0" class="users-input" id="empLoyaltyMonthly" placeholder="e.g. 10000 (blank = not a member)" title="v21.26: the amount the company sets aside for this employee's loyalty savings each month. Shown on Accounting → Loyalty Savings and on Government Remittances as the company's payable."></div><!-- v21.26 -->
         </div><!-- v13.45/50/52 PAY-F33/F40/F44/F46: monthly basic + multi-allowance · accounting-only -->
         <div class="emp-field"><label class="field-label">Date Hired</label><input type="date" class="users-input" id="empDateHired"></div>
         <div class="emp-field"><label class="field-label">Contract End <span style="color:var(--text3);font-weight:400;">(optional — fixed-term / contractual)</span></label><input type="date" class="users-input" id="empContractEnd"></div>
@@ -23703,6 +23703,7 @@ function _renderHrGroupedTables(list){
     // Per-dept total rate (if visible)
     let deptRate=0;
     emps.forEach(e=>{
+      if(window.hnxOfficePayHidden&&window.hnxOfficePayHidden(e))return; /* v22.54 audit PRIV-4 */
       try{deptRate+=(typeof getEmployeeRate==='function'?getEmployeeRate(e):(Number(e.rate)||0));}
       catch(_){deptRate+=(Number(e.rate)||0);}
     });
@@ -23765,7 +23766,7 @@ function _buildEmpRow(emp,showSalary,typeColors){
   }catch(_){}
   // Rate
   let rateCell='';
-  if(showSalary){
+  if(showSalary&&!(window.hnxOfficePayHidden&&window.hnxOfficePayHidden(emp))){ /* v22.54 audit PRIV-4 */
     let rateNum=0;
     try{rateNum=(typeof getEmployeeRate==='function')?getEmployeeRate(emp):(Number(emp.rate)||0);}
     catch(_){rateNum=Number(emp.rate)||0;}
@@ -23846,7 +23847,7 @@ function buildEmpCard(emp){
       ${emp.type?`<span class="emp-chip type-${emp.type}">${emp.type}</span>`:''}
       ${(()=>{
         const showSalary=(typeof canViewSalaries==='function')?canViewSalaries():false; /* v13.07 SALARY-ACCESS: was can('manageHR') */
-        if(!showSalary){try{const c=getEmpCert(emp.id);return c?`<span class="emp-chip rate" title="Salary restricted — Admin or 💰 salary-access grant only">L${c.level} · 🔒</span>`:'';}catch(e){return '';}}
+        if(!showSalary||(window.hnxOfficePayHidden&&window.hnxOfficePayHidden(emp))){try{const c=getEmpCert(emp.id);return c?`<span class="emp-chip rate" title="Salary restricted — Admin or 💰 salary-access grant only (office pay: 🏢 owner-granted)">L${c.level} · 🔒</span>`:'';}catch(e){return '';}}
         try{const r=getEmployeeRate(emp);const c=getEmpCert(emp.id);return r?`<span class="emp-chip rate" title="Level ${c.level} (${(TRAINING_LEVELS.find(l=>l.id===c.level)||{}).name||''})">L${c.level} · ₱${r}/day</span>`:'';}
         catch(e){return emp.rate?`<span class="emp-chip rate">₱${emp.rate}/day</span>`:'';}
       })()}
@@ -23999,28 +24000,43 @@ function openEmployeeModal(empId){
       document.getElementById('empLevel').value=String((cert&&cert.level)||1);
     }catch(e){document.getElementById('empLevel').value='1';}
     document.getElementById('empRate').value=emp.rateOverride||emp.rate||'';
-    try{document.getElementById('empMonthlyAllowance').value=emp.monthlyAllowance||'';document.getElementById('empAllowanceTaxable').checked=!!emp.allowanceTaxable;document.getElementById('empAllowanceType').value=emp.allowanceType||'';}catch(e){} /* v13.45 PAY-F33 · v13.50 PAY-F40 */
+    /* v22.54 audit PRIV-3/4: office salaries and the loyalty program are owner-granted. For an OFFICE employee and a person without
+       🏢 Office pay the 💼 Contract Pay part (Monthly Basic, Fixed EWT, allowances) is neither filled nor shown and the save keeps the
+       stored values; the 💰 Loyalty field the same without 💎 Loyalty. offLock also blanks the Daily Rate box of such a card. */
+    var _payEd=(function(){try{var p=typeof can!=='function'||can('managePayroll')||can('viewSalaries');
+      var off=!!(typeof hnxIsOfficeEmployee==='function'&&hnxIsOfficeEmployee(emp));
+      var o=typeof window.hnxCanOfficePay!=='function'||!!window.hnxCanOfficePay();
+      var l=typeof window.hnxCanLoyalty!=='function'||!!window.hnxCanLoyalty();
+      return {pay:!!p&&(!off||o),loy:!!p&&l,offLock:off&&!o};}catch(e){return {pay:false,loy:false,offLock:true};}})();
+    window.__empPayEdit={id:emp.id,pay:_payEd.pay,loy:_payEd.loy,offLock:_payEd.offLock};
+    try{document.getElementById('empMonthlyAllowance').value=_payEd.pay?(emp.monthlyAllowance||''):'';document.getElementById('empAllowanceTaxable').checked=!!emp.allowanceTaxable;document.getElementById('empAllowanceType').value=emp.allowanceType||'';}catch(e){} /* v13.45 PAY-F33 · v13.50 PAY-F40 */
     /* v20.14 (audit PAY-055): payroll reads the monthly basic from FIVE field names (v15.22 added
        them because different forms wrote different ones), but this box read only emp.monthlyBasic.
        A record whose basic lives under monthlySalary therefore opened with the box BLANK, and the
        save below then wrote that blank back - destroying the only copy of the salary. */
-    try{document.getElementById('empMonthlyBasic').value=(emp.monthlyBasic||emp.monthlyRate||emp.monthlySalary||emp.basicSalary||emp.salaryMonthly||'');}catch(e){} /* v13.52 PAY-F44 */
-    try{document.getElementById('empEwtFixed').value=(parseFloat(emp.ewtFixed)||0)>0?emp.ewtFixed:'';}catch(e){} /* v22.28 NEW-01 */
+    try{document.getElementById('empMonthlyBasic').value=_payEd.pay?(emp.monthlyBasic||emp.monthlyRate||emp.monthlySalary||emp.basicSalary||emp.salaryMonthly||''):'';}catch(e){} /* v13.52 PAY-F44 */
+    try{document.getElementById('empEwtFixed').value=_payEd.pay&&(parseFloat(emp.ewtFixed)||0)>0?emp.ewtFixed:'';}catch(e){} /* v22.28 NEW-01 */
     try{document.getElementById('empSalaryCategory').value=emp.salaryCategory||'';}catch(e){} /* v13.53 PAY-F48 */
     /* v22.28 (payroll audit PAY-075): for an office employee with a Monthly Basic the engine pays monthly ÷ 2 ÷ working days and IGNORES the
        Daily Rate Override — the box said "Leave empty to use level rate" and took the number in silence. It is greyed out with that note now
        (pay does not change); clearing the Monthly Basic turns it back on. */
     try{if(!window.hnxEmpRateNote)window.hnxEmpRateNote=function(e){var box=document.getElementById('empRate'),mb=document.getElementById('empMonthlyBasic');if(!box)return;
-      var m=parseFloat(mb&&mb.value)||0,weekly=String((e&&e.payType)||'').toLowerCase()==='weekly',off=m>0&&!weekly;
+      /* v22.54 audit PRIV-4: the 💰 / admin-role salary gate is LABOR rates — an office Monthly Basic is quoted only with 🏢 Office pay */
+      var ok=(function(){try{return typeof window.hnxCanOfficePay!=='function'||!!window.hnxCanOfficePay();}catch(x){return false;}})();
+      var m=parseFloat(mb&&mb.value)||0,weekly=String((e&&e.payType)||'').toLowerCase()==='weekly';
+      if(!ok&&!m){try{m=parseFloat(e&&(e.monthlyBasic||e.monthlyRate||e.monthlySalary||e.basicSalary||e.salaryMonthly))||0;}catch(x){m=0;}}
+      var off=m>0&&!weekly,amt=ok?('₱'+m.toLocaleString('en-PH')):'(🔒 office pay — owner-granted)';
       box.disabled=off;box.style.opacity=off?'.55':'';box.placeholder=off?'not used — Monthly Basic pays':'Leave empty to use level rate';
-      box.title=off?'Not used — office pay comes from the Monthly Basic (₱'+m.toLocaleString('en-PH')+' ÷ 2 ÷ working days of the cut-off). Clear the Monthly Basic to pay a daily rate.':'Optional: enter a specific daily rate to override the level-based rate';
+      box.title=off?'Not used — office pay comes from the Monthly Basic '+(ok?'('+amt+' ÷ 2 ÷ working days of the cut-off)':amt)+'. Clear the Monthly Basic to pay a daily rate.':'Optional: enter a specific daily rate to override the level-based rate';
       var n=document.getElementById('empRateNote');if(!n&&box.parentNode){n=document.createElement('div');n.id='empRateNote';n.style.cssText='font-size:10.5px;color:var(--warn,#ffb300);margin-top:3px;';box.parentNode.appendChild(n);}
-      if(n)n.textContent=off?('Not used — pay comes from the Monthly Basic ₱'+m.toLocaleString('en-PH')+' ÷ 2 ÷ working days'+((parseFloat(box.value)||0)>0?' (the ₱'+box.value+' here is ignored)':'')):'';
+      if(n)n.textContent=off?('Not used — pay comes from the Monthly Basic '+amt+(ok?' ÷ 2 ÷ working days'+((parseFloat(box.value)||0)>0?' (the ₱'+box.value+' here is ignored)':''):'')):'';
       if(mb&&!mb.__rateNote){mb.__rateNote=1;mb.addEventListener('input',function(){window.hnxEmpRateNote(e);});}};
       window.hnxEmpRateNote(emp);}catch(e){}
-    try{document.getElementById('empLoyaltyMonthly').value=(parseFloat(emp.loyaltyMonthly)||0)>0?emp.loyaltyMonthly:'';}catch(e){} /* v21.26 */
-    try{window._empAllowDraft=Array.isArray(emp.allowances)?JSON.parse(JSON.stringify((window.__hnxAllowDedupe&&window.__hnxAllowDedupe(emp.allowances,emp))||emp.allowances)):((parseFloat(emp.monthlyAllowance)||0)>0?[{type:emp.allowanceType||'other',monthly:parseFloat(emp.monthlyAllowance),taxable:!!emp.allowanceTaxable}]:[]);if(window._empAllowRender)window._empAllowRender();try{var _dd=Array.isArray(emp.allowances)?emp.allowances.length-window._empAllowDraft.length:0;if(_dd>0)showToast('🍚 '+_dd+' duplicate allowance row'+(_dd>1?'s':'')+' removed from this card — Save to keep it clean','warn');}catch(e){}}catch(e){} /* v13.52 PAY-F46 · v21.24 duplicates collapsed */
-    try{var _ab=document.getElementById('empAllowanceBlock');if(_ab)_ab.style.display=(typeof can==='function'&&!(can('managePayroll')||can('viewSalaries')))?'none':'';}catch(e){} /* v13.50 PAY-F40: allowance is a contract term — accounting/payroll eyes only */
+    try{document.getElementById('empLoyaltyMonthly').value=_payEd.loy&&(parseFloat(emp.loyaltyMonthly)||0)>0?emp.loyaltyMonthly:'';}catch(e){} /* v21.26 */
+    try{window._empAllowDraft=!_payEd.pay?[]:Array.isArray(emp.allowances)?JSON.parse(JSON.stringify((window.__hnxAllowDedupe&&window.__hnxAllowDedupe(emp.allowances,emp))||emp.allowances)):((parseFloat(emp.monthlyAllowance)||0)>0?[{type:emp.allowanceType||'other',monthly:parseFloat(emp.monthlyAllowance),taxable:!!emp.allowanceTaxable}]:[]);if(window._empAllowRender)window._empAllowRender();try{var _dd=(_payEd.pay&&Array.isArray(emp.allowances))?emp.allowances.length-window._empAllowDraft.length:0;if(_dd>0)showToast('🍚 '+_dd+' duplicate allowance row'+(_dd>1?'s':'')+' removed from this card — Save to keep it clean','warn');}catch(e){}}catch(e){} /* v13.52 PAY-F46 · v21.24 duplicates collapsed */
+    try{var _ab=document.getElementById('empAllowanceBlock');if(_ab)_ab.style.display=(_payEd.pay||_payEd.loy)?'':'none';
+      var _cpp=document.getElementById('empContractPayPart');if(_cpp)_cpp.style.display=_payEd.pay?'':'none';
+      var _lyp=document.getElementById('empLoyaltyPart');if(_lyp)_lyp.style.display=_payEd.loy?'':'none';}catch(e){} /* v13.50 PAY-F40: allowance is a contract term — accounting/payroll eyes only */
     onEmpLevelChange(); // refresh hint
     document.getElementById('empDateHired').value=emp.dateHired||'';
     {const _ce=document.getElementById('empContractEnd'); if(_ce) _ce.value=emp.contractEnd||'';}
@@ -24065,6 +24081,10 @@ function openEmployeeModal(empId){
     document.getElementById('empId').readOnly=false;
     ['empName','empNickname','empBirthday','empTitle','empRate','empMonthlyAllowance','empMonthlyBasic','empDateHired','empContractEnd','empAddress','empPhone','empEmail','empEmergName','empEmergPhone','empEmergRel','empSSS','empPHIC','empHDMF','empTIN','empNotes','empLastWorkingDay','empStatusReason','empNumChildren','empSpouseName'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
     try{window._empAllowDraft=[];if(window._empAllowRender)window._empAllowRender();}catch(e){} /* v13.52 PAY-F46 */
+    try{var _p0=typeof can!=='function'||can('managePayroll')||can('viewSalaries');var _l0=!!_p0&&(typeof window.hnxCanLoyalty!=='function'||!!window.hnxCanLoyalty()); /* v22.54 audit PRIV-3: a new card never shows the previous card's figures */
+      ['empLoyaltyMonthly','empEwtFixed'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
+      var _ab0=document.getElementById('empAllowanceBlock');if(_ab0)_ab0.style.display=_p0?'':'none';var _cp0=document.getElementById('empContractPayPart');if(_cp0)_cp0.style.display=_p0?'':'none';
+      var _lp0=document.getElementById('empLoyaltyPart');if(_lp0)_lp0.style.display=_l0?'':'none';window.__empPayEdit={id:'',pay:!!_p0,loy:_l0,offLock:false};}catch(e){}
     document.getElementById('empStatus').value='Active';
     onEmpStatusChange();
     document.getElementById('empDept').value='PROD_TRAINEES';
@@ -24094,7 +24114,8 @@ function openEmployeeModal(empId){
   try{
     var _cvs=(typeof canViewSalaries==='function')?canViewSalaries():false;
     var _rf=document.getElementById('empRate');
-    if(_rf){ var _wrap=_rf.closest('.emp-field'); if(_wrap)_wrap.style.display=_cvs?'':'none'; if(!_cvs)_rf.value=''; }
+    if(_rf){ var _wrap=_rf.closest('.emp-field'); if(_wrap)_wrap.style.display=_cvs?'':'none'; if(!_cvs)_rf.value='';
+      if(_cvs&&empId&&window.__empPayEdit&&window.__empPayEdit.id===empId&&window.__empPayEdit.offLock)_rf.value=''; } /* v22.54 audit PRIV-4: an office card's daily rate is office pay */
     var _lh=document.getElementById('empLevelHint'); if(_lh&&!_cvs)_lh.style.display='none';
   }catch(e){}
   modal.classList.add('open');
@@ -24468,6 +24489,12 @@ function saveEmployee(opts){
   }
   // Get existing rec to preserve old rate as base if no override
   const existing=_editingEmpId?employees.find(e=>e.id===_editingEmpId):null;
+  /* v22.54 audit PRIV-3/4: the same gate as the fill in openEmployeeModal — an OFFICE card saved by a person without 🏢 Office pay keeps
+     its stored Monthly Basic, Fixed EWT, allowances and daily rate; a person without 💎 Loyalty keeps the stored loyalty amount */
+  const _noPayEd=(typeof can==='function'&&!(can('managePayroll')||can('viewSalaries')));
+  const _offLock=!!existing&&(function(){try{return typeof hnxIsOfficeEmployee==='function'&&!!hnxIsOfficeEmployee(existing)&&typeof window.hnxCanOfficePay==='function'&&!window.hnxCanOfficePay();}catch(e){return true;}})();
+  const _loyLock=(function(){try{return typeof window.hnxCanLoyalty==='function'&&!window.hnxCanLoyalty();}catch(e){return true;}})();
+  const _keepPay=_noPayEd||_offLock,_keepLoy=_noPayEd||_loyLock;
   const rec={
     id,name,
     nickname:document.getElementById('empNickname').value.trim(),
@@ -24486,7 +24513,7 @@ function saveEmployee(opts){
        can see the box and chose to empty it, wrong for someone whose box was emptied FOR them.
        Guarded on exactly the condition that blanks the field, so an emptied box only clears when the
        user could actually see it. Costs nothing when they can. */
-    rate:((typeof canViewSalaries==='function')&&!canViewSalaries())
+    rate:(((typeof canViewSalaries==='function')&&!canViewSalaries())||_offLock)
       ? ((existing&&existing.rate)||0)
       : (rateOverride||((rateInput==='')?0:((existing&&existing.rate)||0))),
     /* v20.14 (audit PAY-005): the field's own placeholder says 'leave empty to use the level rate',
@@ -24494,17 +24521,17 @@ function saveEmployee(opts){
        payroll wrapper's precedence is rateOverride, then rate, then the level rate, so it never
        reached the level branch. A promotion changed the level chip and the HR card and not one peso
        of pay. An explicitly emptied box now clears both, so the level rate applies. */
-    rateOverride:((typeof canViewSalaries==='function')&&!canViewSalaries())
+    rateOverride:(((typeof canViewSalaries==='function')&&!canViewSalaries())||_offLock)
       ? ((existing&&existing.rateOverride)||null)
       : (rateOverride||null), /* v20.21 RATE-02: same guard */
-    monthlyBasic:(typeof can==='function'&&!(can('managePayroll')||can('viewSalaries')))?(existing&&existing.monthlyBasic||null):((parseFloat((document.getElementById('empMonthlyBasic')||{}).value)||0)||null), /* v13.52 PAY-F44 */
+    monthlyBasic:_keepPay?(existing&&existing.monthlyBasic||null):((parseFloat((document.getElementById('empMonthlyBasic')||{}).value)||0)||null), /* v13.52 PAY-F44 */
     salaryCategory:String((document.getElementById('empSalaryCategory')||{}).value||'')||((existing&&existing.salaryCategory)||''), /* v13.53 PAY-F48 */
-    ewtFixed:(typeof can==='function'&&!(can('managePayroll')||can('viewSalaries')))?((existing&&existing.ewtFixed)||null):((parseFloat((document.getElementById('empEwtFixed')||{}).value)||0)||null), /* v22.28 (payroll audit NEW-01): the management BIR per cut-off, accounting only */
-    loyaltyMonthly:(typeof can==='function'&&!(can('managePayroll')||can('viewSalaries')))?((existing&&existing.loyaltyMonthly)||null):((parseFloat((document.getElementById('empLoyaltyMonthly')||{}).value)||0)||null), /* v21.26: company loyalty savings per month */
-    allowances:(typeof can==='function'&&!(can('managePayroll')||can('viewSalaries')))?((existing&&existing.allowances)||null):(Array.isArray(window._empAllowDraft)?window._empAllowDraft.filter(a=>a&&((parseFloat(a.monthly)||0)>0||(parseFloat(a.perDay)||0)>0)):null), /* v13.52 PAY-F46 · v15.05: per-day rows kept */
-    monthlyAllowance:(typeof can==='function'&&!(can('managePayroll')||can('viewSalaries')))?(existing&&existing.monthlyAllowance||null):((Array.isArray(window._empAllowDraft)?window._empAllowDraft.reduce((s,a)=>s+(parseFloat(a&&a.monthly)||0),0):0)||null), /* legacy = sum, keeps older code paths working */
-    allowanceTaxable:(typeof can==='function'&&!(can('managePayroll')||can('viewSalaries')))?!!(existing&&existing.allowanceTaxable):!!((document.getElementById('empAllowanceTaxable')||{}).checked),
-    allowanceType:(typeof can==='function'&&!(can('managePayroll')||can('viewSalaries')))?((existing&&existing.allowanceType)||''):String((document.getElementById('empAllowanceType')||{}).value||''), /* v13.50 PAY-F40 */
+    ewtFixed:_keepPay?((existing&&existing.ewtFixed)||null):((parseFloat((document.getElementById('empEwtFixed')||{}).value)||0)||null), /* v22.28 (payroll audit NEW-01): the management BIR per cut-off, accounting only */
+    loyaltyMonthly:_keepLoy?((existing&&existing.loyaltyMonthly)||null):((parseFloat((document.getElementById('empLoyaltyMonthly')||{}).value)||0)||null), /* v21.26: company loyalty savings per month */
+    allowances:_keepPay?((existing&&existing.allowances)||null):(Array.isArray(window._empAllowDraft)?window._empAllowDraft.filter(a=>a&&((parseFloat(a.monthly)||0)>0||(parseFloat(a.perDay)||0)>0)):null), /* v13.52 PAY-F46 · v15.05: per-day rows kept */
+    monthlyAllowance:_keepPay?(existing&&existing.monthlyAllowance||null):((Array.isArray(window._empAllowDraft)?window._empAllowDraft.reduce((s,a)=>s+(parseFloat(a&&a.monthly)||0),0):0)||null), /* legacy = sum, keeps older code paths working */
+    allowanceTaxable:_keepPay?!!(existing&&existing.allowanceTaxable):!!((document.getElementById('empAllowanceTaxable')||{}).checked),
+    allowanceType:_keepPay?((existing&&existing.allowanceType)||''):String((document.getElementById('empAllowanceType')||{}).value||''), /* v13.50 PAY-F40 */
     dateHired:document.getElementById('empDateHired').value,
     contractEnd:(document.getElementById('empContractEnd')?document.getElementById('empContractEnd').value:''),
     ghAssigned,
@@ -24552,7 +24579,7 @@ function saveEmployee(opts){
   let _oldLvl=null;try{if(existing&&typeof loadCerts==='function')_oldLvl=Number(((loadCerts()||{})[existing.id]||{}).level)||1;}catch(_){}
   const _lvlDiff=!!existing&&_oldLvl!=null&&_oldLvl!==proLevel;
   /* allowance rows left with no amount (a unit switch clears the amount) are dropped by the filter above */
-  const _emptyAllow=(Array.isArray(window._empAllowDraft)&&!(typeof can==='function'&&!(can('managePayroll')||can('viewSalaries'))))?window._empAllowDraft.filter(a=>a&&!(_nm(a.monthly)>0)&&!(_nm(a.perDay)>0)):[];
+  const _emptyAllow=(Array.isArray(window._empAllowDraft)&&!_keepPay)?window._empAllowDraft.filter(a=>a&&!(_nm(a.monthly)>0)&&!(_nm(a.perDay)>0)):[];
   if(_silent&&existing){
     _PAYK.forEach(k=>{delete rec[k];});
     try{
@@ -24769,7 +24796,7 @@ function viewEmployee(id){
           <span class="emp-chip type-${emp.type||''}">${emp.type||'—'}</span>
           ${(()=>{
             const showSalary=(typeof canViewSalaries==='function')?canViewSalaries():false; /* v13.07 SALARY-ACCESS: was can('manageHR') */
-            if(!showSalary){try{const c=getEmpCert(emp.id);return c?`<span class="emp-chip rate" title="Salary restricted — Admin or 💰 salary-access grant only">L${c.level} · 🔒</span>`:'';}catch(e){return '';}}
+            if(!showSalary||(window.hnxOfficePayHidden&&window.hnxOfficePayHidden(emp))){try{const c=getEmpCert(emp.id);return c?`<span class="emp-chip rate" title="Salary restricted — Admin or 💰 salary-access grant only (office pay: 🏢 owner-granted)">L${c.level} · 🔒</span>`:'';}catch(e){return '';}}
             try{const r=getEmployeeRate(emp);const c=getEmpCert(emp.id);return r?`<span class="emp-chip rate" title="Level ${c.level} (${(TRAINING_LEVELS.find(l=>l.id===c.level)||{}).name||''})">L${c.level} · ₱${r}/day</span>`:'';}
             catch(e){return emp.rate?`<span class="emp-chip rate">₱${emp.rate}/day</span>`:'';}
           })()}
@@ -62357,6 +62384,8 @@ function hnxSensAllowed(u,area){
 function hnxCanOfficePay(u){if(u===undefined){try{u=getCurrentUser();}catch(e){u=null;}}return hnxSensAllowed(u,'office');}
 function hnxCanLoyalty(u){if(u===undefined){try{u=getCurrentUser();}catch(e){u=null;}}return hnxSensAllowed(u,'loyalty');}
 window.hnxCanOfficePay=hnxCanOfficePay;window.hnxCanLoyalty=hnxCanLoyalty;window.hnxSensNeverLock=hnxSensNeverLock;window.hnxSensGrantOf=hnxSensGrantOf;
+/* v22.54 audit PRIV-4: an OFFICE employee's daily rate (HR list, HR cards) is office pay — hidden from a person without 🏢 Office pay */
+window.hnxOfficePayHidden=function(emp,u){try{return !!(emp&&typeof hnxIsOfficeEmployee==='function'&&hnxIsOfficeEmployee(emp)&&!hnxCanOfficePay(u));}catch(e){return true;}};
 /* which gate a SCREEN needs before a menu, the Accounting flyout or ⌘K lists it: loyalty screens hnxCanLoyalty, every other payroll
    screen the pay name list (v21.91) AND 🏢 Office pay — except the LABOR screens below, which a pay-list person whose office pay the
    owner took away keeps (📊 History then lists the weekly runs only). Every other payroll screen lists office people: Office, All,
@@ -172207,9 +172236,9 @@ gh+=_mtxTreeBody(rows);
     var termsHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">'
       +'<div><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Notice period (days)</div><input type="number" min="0" id="hnxCT_notice" value="'+esc(t.noticePeriodDays||'')+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;font-family:var(--mono,monospace);box-sizing:border-box;"></div>'
       +'<div><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Probation (months)</div><input type="number" min="0" id="hnxCT_probation" value="'+esc(t.probationMonths||'')+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;font-family:var(--mono,monospace);box-sizing:border-box;"></div>'
-      +((typeof canViewSalaries!=='function'||canViewSalaries())
+      +(((typeof canViewSalaries!=='function'||canViewSalaries())&&!(window.hnxOfficePayHidden&&window.hnxOfficePayHidden(emp))) /* v22.54 audit PRIV-4: an office base salary needs 🏢 Office pay */
         ? '<div style="grid-column:span 2"><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Base salary (₱ monthly)</div><input type="number" min="0" id="hnxCT_salary" value="'+esc(t.baseSalary||'')+'"'+ro+' style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:7px 10px;font-size:13px;font-family:var(--mono,monospace);box-sizing:border-box;"></div></div>'
-        : '<div style="grid-column:span 2"><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Base salary (₱ monthly)</div><div style="padding:7px 10px;border:1px dashed #2c5a3f;border-radius:6px;color:#7aa99a;font-size:12px;">\u{1F512} Restricted — 💰 salary access required</div><input type="hidden" id="hnxCT_salary" value="'+esc(t.baseSalary||'')+'"></div></div>') /* v13.12 PAY-F11e: value masked; hidden input preserves the stored salary through Save */
+        : '<div style="grid-column:span 2"><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Base salary (₱ monthly)</div><div style="padding:7px 10px;border:1px dashed #2c5a3f;border-radius:6px;color:#7aa99a;font-size:12px;">\u{1F512} Restricted — '+((window.hnxOfficePayHidden&&window.hnxOfficePayHidden(emp))?'office pay is owner-granted (🏢 Office pay)':'💰 salary access required')+'</div><input type="hidden" id="hnxCT_salary" value="'+esc(t.baseSalary||'')+'"></div></div>') /* v13.12 PAY-F11e: value masked; hidden input preserves the stored salary through Save */
       +'<div style="grid-column:span 2"><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Deduction policies</div><textarea id="hnxCT_deductions"'+ro+' rows="3" placeholder="e.g. SSS, PhilHealth, PAG-IBIG, withholding tax, salary loan deductions..." style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:8px 10px;font-size:12.5px;resize:vertical;box-sizing:border-box;font-family:inherit;">'+esc(t.deductionPolicies||'')+'</textarea></div>'
       +'<div style="grid-column:span 2"><div style="font-size:11px;color:#8aa;margin-bottom:4px;">Custom notes / special clauses</div><textarea id="hnxCT_notes"'+ro+' rows="3" placeholder="Allowances, COLA, bonuses, restrictive covenants..." style="width:100%;background:#0d1f17;color:#e8f5e9;border:1px solid #2c5a3f;border-radius:6px;padding:8px 10px;font-size:12.5px;resize:vertical;box-sizing:border-box;font-family:inherit;">'+esc(t.customNotes||'')+'</textarea></div>'
     +'</div>';
@@ -216058,6 +216087,12 @@ console.log('[HNX-PAY] line attendance editor ready');
 (function(){
 'use strict';
 if(window.hnxBirCenter)return;
+/* v22.54 audit PRIV-1: the BIR / Reports Center lists every office employee's gross, taxable pay and tax (Full Alphalist, the CSVs,
+   Form 2316, the register, the YTD ledger) — it needs 🏢 Office pay (owner-granted) on top of the payroll gate. The old
+   "or viewAuditLog" door (every accounting role, every admin-role account outside the pay name list) is closed. */
+function birOK(){try{return typeof can==='function'&&can('managePayroll')&&(typeof window.hnxCanOfficePay!=='function'||!!window.hnxCanOfficePay());}catch(e){return false;}}
+function birDeny(){try{showToast('🔒 BIR / Reports lists office salaries — owner-granted (🏢 Office pay)','warn');}catch(e){}}
+window.hnxBirOK=birOK;
 
 function J(k,fb){try{var v=JSON.parse(localStorage.getItem(k)||'null');return v==null?fb:v;}catch(e){return fb;}}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];});}
@@ -216134,6 +216169,7 @@ function validate(year){
 }
 
 window.hnxBirExport=function(kind,year){
+  if(!birOK()){birDeny();return;} /* v22.54 audit PRIV-1 */
   var v=validate(year);var agg=v.agg;
   var ids=Object.keys(agg).sort(function(a,b){return (agg[a].name||'')<(agg[b].name||'')?-1:1;});
   if(!ids.length&&(kind!=='register'||!runsForYear(year,true).length)){try{var _dn=runsForYear(year,true).length;showToast('No APPROVED payroll runs for '+year+(_dn?' ('+_dn+' draft run'+(_dn>1?'s':'')+' not approved — not filed)':'')+' — approve payroll periods first','warn');}catch(e){}return;}
@@ -216184,6 +216220,7 @@ window.hnxBirExport=function(kind,year){
 };
 /* v13.46b: on-screen preview so nobody wonders whether the button works */
 window.hnxBirPreview=function(kind,year){
+  if(!birOK()){birDeny();return;} /* v22.54 audit PRIV-1 */
   var v=validate(year);var agg=v.agg;
   var ids=Object.keys(agg).sort(function(a,b){return (agg[a].name||'')<(agg[b].name||'')?-1:1;});
   var host=document.getElementById('birPreviewBox');if(!host)return;
@@ -216201,7 +216238,7 @@ window.hnxBirPreview=function(kind,year){
 };
 
 window.hnxBirCenter=function(){
-  try{if(typeof can==='function'&&!can('managePayroll')&&!can('viewAuditLog')){showToast('Payroll/accounting access required','warn');return;}}catch(e){}
+  if(!birOK()){birDeny();var _o0=document.getElementById('hnxBirOverlay');if(_o0)_o0.remove();return;} /* v22.54 audit PRIV-1 */
   var old=document.getElementById('hnxBirOverlay');if(old){old.remove();return;}
   var years={};J('hydroPro_payroll_runs',[]).forEach(function(r){var y=runYear(r);if(/^\d{4}$/.test(y))years[y]=1;}); /* audit G-reports: the year a cut-off ends */
   var ylist=Object.keys(years).sort().reverse();
@@ -216278,7 +216315,7 @@ window.hnxBirCenter=function(){
   window.hnxAttCoverageStrip=function(start,end,emps){
     var base=prev(start,end,emps)||'';
     try{
-      base=base.replace('🩺 Doctor</button>','🩺 Doctor</button><button class="btn btn-outline" style="padding:4px 10px;font-size:11px;border-color:rgba(255,193,7,.5);color:#ffe082;" onclick="hnxBirCenter()">📋 BIR / Reports</button>');
+      if(birOK())base=base.replace('🩺 Doctor</button>','🩺 Doctor</button><button class="btn btn-outline" style="padding:4px 10px;font-size:11px;border-color:rgba(255,193,7,.5);color:#ffe082;" onclick="hnxBirCenter()">📋 BIR / Reports</button>');
     }catch(e){}
     return base;
   };
@@ -216780,7 +216817,12 @@ window.hnxFinalPayCompute=function(empId,opts){try{return compute(empId,opts||{}
 window.hnxFinalPay=function(preselect){
   try{if(typeof can==='function'&&!can('managePayroll')){showToast('Payroll access required','warn');return;}}catch(e){}
   var old=document.getElementById('hnxFinalPayOverlay');if(old){old.remove();return;}
-  var emps=J('hydroPro_employees',[]).filter(function(e){return e&&e.name;}).sort(function(a,b){return a.name<b.name?-1:1;});
+  /* v22.54 audit PRIV-2: 👷 Labor Payroll stays open for a pay-list person whose 🏢 Office pay the owner took away — Final Pay then
+     lists and prices LABOR employees only (an office person's final pay quotes the monthly basic) */
+  var offOK=(function(){try{return typeof window.hnxCanOfficePay!=='function'||!!window.hnxCanOfficePay();}catch(e){return false;}})();
+  var _isOffE=function(e){try{return !!(typeof window.hnxIsOfficeEmployee==='function'&&window.hnxIsOfficeEmployee(e));}catch(x){return true;}};
+  if(!offOK&&preselect){var _pe=J('hydroPro_employees',[]).filter(function(e){return e&&e.id===preselect;})[0];if(_pe&&_isOffE(_pe)){try{showToast('🔒 Office salaries are owner-granted (🏢 Office pay)','warn');}catch(e){}return;}}
+  var emps=J('hydroPro_employees',[]).filter(function(e){return e&&e.name&&(offOK||!_isOffE(e));}).sort(function(a,b){return a.name<b.name?-1:1;});
   /* v20.14 (audit PAY-017): this pre-filled 5 unused leave days for EVERY leaver and converted them
    to cash, with nothing reading a leave ledger or the authorized days already taken and paid during
    the year. An untouched dialog therefore paid five days twice. It starts at 0 now and the preparer
@@ -218529,6 +218571,7 @@ function logoSrc(){
 }
 
 window.hnxBirSheet=function(year){
+  if(!(typeof can==='function'&&can('managePayroll')&&(typeof window.hnxCanOfficePay!=='function'||!!window.hnxCanOfficePay()))){try{showToast('🔒 BIR / Reports lists office salaries — owner-granted (🏢 Office pay)','warn');}catch(e){}return;} /* v22.54 audit PRIV-1 */
   year=year||new Date().getFullYear();
   var d=collect(year);
   var acct=(localStorage.getItem('hydroPro_accountant_name')||'').trim();
@@ -218577,6 +218620,7 @@ window.hnxBirSheet=function(year){
 };
 
 window.hnxBirPreviewFull=function(year){
+  if(!(typeof can==='function'&&can('managePayroll')&&(typeof window.hnxCanOfficePay!=='function'||!!window.hnxCanOfficePay()))){try{showToast('🔒 BIR / Reports lists office salaries — owner-granted (🏢 Office pay)','warn');}catch(e){}return;} /* v22.54 audit PRIV-1 */
   year=year||new Date().getFullYear();
   var d=collect(year);
   var old=document.getElementById('hnxAlphaFull');if(old){old.remove();return;}
@@ -219114,7 +219158,7 @@ function deadlineFeed(){
     });
   }catch(e){}
   /* missing gov IDs blocking filings — finance clearance only */
-  if(_finOK)try{
+  if(_finOK&&window.hnxBirOK&&window.hnxBirOK())try{ /* v22.54 audit PRIV-1: the BIR center needs 🏢 Office pay */
     var miss=J('hydroPro_employees',[]).filter(function(e){return e&&e.status==='Active'&&(!e.sss||!e.phic||!e.hdmf||!e.tin);}).length;
     if(miss>0)items.push({src:'COMPLIANCE',owner:'Jinky',title:miss+' active employees missing SSS/PhilHealth/Pag-IBIG/TIN numbers',due:addD(t,7),score:4,why:'Alphalist & remittance schedules show MISSING',act:'hnxBirCenter()',actLabel:'📋 BIR center'});
   }catch(e){}
@@ -237169,6 +237213,7 @@ function collect(month){ /* month = 'YYYY-MM' */
     /* audit G-reports (deductions-loans-05): approved runs only — a draft was never deducted */
     if(r.status!=='approved'){out.drafts=(out.drafts||0)+1;return;}
     var isOff=String(r.id||'').indexOf('office')===0||r.type==='semi_monthly'||r.periodType==='semi_monthly';
+    if(isOff){var _offOK=false;try{_offOK=typeof window.hnxCanOfficePay!=='function'||!!window.hnxCanOfficePay();}catch(e){}if(!_offOK){out.officeHidden=true;return;}} /* v22.54 audit PRIV-2: office runs need 🏢 Office pay */
     var b=isOff?out.office:out.labor;
     b.runs++;
     r.lines.forEach(function(l){
@@ -237205,6 +237250,7 @@ window.hnxGovMonthly=function(month){
     +line('Withholding Tax',d0.labor.tax,d0.office.tax)
     +line('ALL AGENCIES',d0.labor.sss+d0.labor.phic+d0.labor.hdmf+d0.labor.tax,d0.office.sss+d0.office.phic+d0.office.hdmf+d0.office.tax)
     +'</table>'
+    +(d0.officeHidden?'<div style="font-size:11px;color:var(--warn,#ffb300);margin-top:6px;">🔒 Office (semi-monthly) is not shown — office salaries are owner-granted (🏢 Office pay); TOTAL is labor only.</div>':'')
     +'<style>#hnxGovTbl td.n,#hnxGovTbl th.n{text-align:right;padding:6px 10px;font-family:var(--mono,monospace);}#hnxGovTbl tr{border-top:1px solid rgba(255,255,255,.08);}</style>'
     +'<div style="display:flex;gap:8px;margin-top:14px;">'
     +'<button class="btn btn-primary" style="padding:7px 16px;" onclick="hnxGovMonthlyPrint(\''+month+'\')">🖨 Print</button>'
@@ -242879,6 +242925,7 @@ window.hnxAnnualTaxPH=function(annual){
 };
 
 window.hnxSpecialPay=function(){
+  try{if(typeof window.hnxCanOfficePay==='function'&&!window.hnxCanOfficePay()){try{showToast('🔒 Office salaries are owner-granted (🏢 Office pay)','warn');}catch(e){}return;}}catch(e){return;} /* v22.54 audit PRIV-2: fix-base executives' annual basic */
   var u=null;try{u=getCurrentUser();}catch(e){}
   var ro=!(u&&(u.role==='admin'||(typeof isAdmin==='function'&&isAdmin())));
   var cfg=J(KEY,{})||{};
@@ -242951,6 +242998,7 @@ setInterval(function(){
     ['view-payroll_ops','view-payroll_office'].forEach(function(id){
       var v=document.getElementById(id);
       if(!v||!v.classList.contains('active')||v.querySelector('.hnx-specialpay-btn'))return;
+      try{if(typeof window.hnxCanOfficePay==='function'&&!window.hnxCanOfficePay())return;}catch(e){return;} /* v22.54 audit PRIV-2 */
       var ref=v.querySelector('.hnx-memorates-btn')||v.querySelector('.hnx-govm-btn')||v.querySelector('button');if(!ref)return;
       var b=document.createElement('button');
       b.className='btn btn-outline hnx-specialpay-btn';
@@ -244531,7 +244579,7 @@ window.hnxReconAutoJe=function(){
       return;
     }
     var hit=null;
-    for(var i=0;i<rules.length;i++){if(rules[i]&&rules[i].m&&d.indexOf(String(rules[i].m).toUpperCase())>=0){hit=rules[i];break;}}
+    for(var i=0;i<rules.length;i++){if(rules[i]&&rules[i].m&&String(rules[i].dr||'').indexOf('🔒')<0&&d.indexOf(String(rules[i].m).toUpperCase())>=0){hit=rules[i];break;}} /* v22.54 audit DSAFE-1: a rule saved with a 🔒 masked DEBIT is ignored */
     if(hit){
       if(!l.cat)l.cat=hit.cat;
       if(!l.acctdr)l.acctdr=hit.dr||hit.cat;
@@ -244555,7 +244603,7 @@ function _jeChart(){
     var t=qb[co]&&qb[co].tb,rows=(t&&t.parsed&&t.parsed.rows)||[];
     rows.forEach(function(r){
       var raw=String(r.account||'').replace(/\s+/g,' ').trim();
-      if(!raw||seen[raw])return;seen[raw]=1;
+      if(!raw||seen[raw]||raw.indexOf('🔒')>=0)return;seen[raw]=1; /* v22.54 audit DSAFE-1: a 🔒 masked row is not a QuickBooks account */
       var mm=raw.match(/^([0-9][0-9A-Za-z.\/-]*)\s+(.+)$/);
       out.push({code:mm?mm[1]:'',name:mm?mm[2]:raw});
     });
@@ -244604,6 +244652,7 @@ window.hnxReconJeSave=function(i){
   var cat=String((d.querySelector('#hnxJeCat')||{}).value||'').trim();
   var drEl=d.querySelector('#hnxJeDrTxt');
   var dr=String((drEl||{}).value||'').trim();
+  if(dr.indexOf('🔒')>=0){try{showToast('🔒 That account is restricted — an office-pay holder categorises this line','warn');}catch(e){}return;} /* v22.54 audit DSAFE-1 */
   var code=(drEl&&drEl.getAttribute('data-code'))||'';
   if(!code){var selEl=d.querySelector('#hnxJeDr');var o=selEl&&selEl.options[selEl.selectedIndex];if(o&&o.value===dr)code=o.getAttribute('data-code')||'';}
   var ded=String((d.querySelector('#hnxJeDed')||{}).value||'');
@@ -255760,7 +255809,9 @@ window.hnxQbAutoSave=function(now){
       if(el&&el.offsetParent!==null&&!el.innerHTML)try{render();}catch(e){}
     },1500);
     /* keep the copy fresh while the app is open */
-    window.hnxQBPullAll(function(){try{render();}catch(e){}});
+    /* v22.54 audit LOCK-1: the first pull waits until every inline script has run — the v22.52 QuickBooks mask (hnx-sensitive-areas)
+       wraps window.fetch ~40,000 lines later, and a pull issued while the page was still parsing reached a non-holder unmasked */
+    (function(f){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',f,{once:true});else f();})(function(){window.hnxQBPullAll(function(){try{render();}catch(e){}});});
     setInterval(function(){window.hnxQBPullAll(function(){
       var el=document.getElementById('view-qb_sync');
       if(el&&el.offsetParent!==null)try{render();}catch(e){}
@@ -259345,7 +259396,8 @@ function qbpayPanel(){
   if(!(window.hnxCanOfficePay&&window.hnxCanOfficePay()))return '<div style="padding:16px;border:1px dashed var(--border,#2a6);border-radius:11px;font-size:12.5px;">🔒 The 2026 government JE audit reads the per-employee QuickBooks export — office salaries are owner-granted (🏢 Office pay).</div>';
   return '<div style="padding:16px;border:1px dashed var(--border,#2a6);border-radius:11px;font-size:12.5px;line-height:1.6;">'
     +'<b style="font-size:13.5px;">📥 Load the QuickBooks export</b><br>The 2026 government JE audit compares Nexi payroll with the company\'s QuickBooks Balance Sheet and Profit &amp; Loss per employee account. That export is no longer built into the page (anyone could read it in View Source); load it here once on this computer — it stays on this computer only — never synced and never in the daily cloud backup.<br>'
-    +'<input type="file" accept=".json,application/json" onchange="hnxQbpayLoadFile(this)" style="margin-top:8px;"> <span style="font-size:11px;color:var(--text3,#9ab);">the JSON export: {"months":[…],"rows":[…],"summary":[…]}</span></div>';}
+    +'<div style="margin:8px 0 2px;padding:8px 10px;border-radius:8px;background:rgba(255,193,7,.10);"><b>How:</b> Eyal has the file (qbpay-2026.json) — ask him for it. Then press <b>📥 Choose file</b> below and pick it. Do this once on each computer you use; the audit opens straight away.</div>'
+    +'<input type="file" accept=".json,application/json" onchange="hnxQbpayLoadFile(this)" style="margin-top:8px;" title="📥 Choose file — the QuickBooks export Eyal gave you (qbpay-2026.json)"> <span style="font-size:11px;color:var(--text3,#9ab);">the JSON export: {"months":[…],"rows":[…],"summary":[…]}</span></div>';}
 window.hnxQbpayLoadFile=function(inp){try{if(!(window.hnxCanOfficePay&&window.hnxCanOfficePay())){toast('🔒 Office salaries are owner-granted','warn');return;}
   var f=inp&&inp.files&&inp.files[0];if(!f)return;var r=new FileReader();
   r.onload=function(){try{var v=JSON.parse(String(r.result||''));if(!v||!Array.isArray(v.rows)||!v.rows.length||!Array.isArray(v.months)||!v.months.length)throw new Error('not a QuickBooks pay export (needs months and rows)');
@@ -293279,6 +293331,9 @@ window.HNX_HELP_MODULES_B = [
 {id:'m_hr', icon:'👥', title:'HR & People', who:'Mea · Chen · Jinky · HR', cat:'module',
  summary:'The employee records, attendance, memos, policies and the final pay of anyone leaving.',
  sections:[
+  {h:'🔒 Office pay and loyalty on the HR card (v22.54)', p:[
+   'On the card of an OFFICE employee, the 💼 Contract Pay part — Monthly Basic, Fixed EWT, allowances — opens only for people with 🏢 Office pay (owner-granted, Administration guide); anyone else does not see it, and saving the card keeps the stored figures. The 💰 Loyalty savings amount opens only with 💎 Loyalty. Labor employees’ allowances show as before.',
+   'The 💰 labor-rate flag and an admin role show LABOR rates only: on an office card the Daily Rate box is empty and greyed with “Not used — pay comes from the Monthly Basic (🔒 office pay — owner-granted)”, the 📄 contract’s Base salary reads “🔒 Restricted — office pay is owner-granted”, and the HR list shows 🔒 instead of the office person’s rate per day.']},
   {h:'Job descriptions (v22.28)', p:[
    'The 📋 Job Description of a 201 file is kept by Jinky, Eyal and Dr Amy only; everyone else sees a lock. It is view only on screen: there is no print, and a signed scan opens inside Nexi, not as a file. Every save keeps the earlier version (“N earlier version(s) kept”).']},
   {h:'The employee record is the centre of it', p:[
@@ -293305,8 +293360,12 @@ window.HNX_HELP_MODULES_B = [
 {id:'m_payroll', icon:'💰', title:'Payroll', who:'Jinky · Eyal · Dr Amy', cat:'module',
  summary:'The weekly labor run, the semi-monthly office run, the timecards behind them and the rates and tax.',
  sections:[
+  {h:'🔒 Office pay inside Labor Payroll (v22.54)', p:[
+   'When the owner takes 🏢 Office pay away from a pay-list person (Jinky, Dr Amy), 👷 Labor Payroll stays open for her, but nothing on it shows an office salary: 🧮 Final Pay lists and prices labor employees only; 🏛 Gov monthly shows the Labor column only (“🔒 Office (semi-monthly) is not shown”, TOTAL is labor only — also in Print and Excel); ⭐ Special payroll (the fix-base executives) and 📋 BIR / Reports say “🔒 … owner-granted (🏢 Office pay)”.',
+   '📋 BIR / Reports (Full Alphalist, BIR Alphalist CSV, Form 2316, Annual Payroll Register, YTD Ledger) lists every office employee, so it opens only for the pay name list WITH 🏢 Office pay — from the payroll toolbar, the coverage strip and Nexi’s Desk alike. An accounting role or an admin-role account outside the pay name list no longer opens it.']},
   {h:'🔁 QB Recon: load the QuickBooks export (v22.52)', p:[
-   'The 🏛 2026 government JE audit tab compares Nexi payroll with the QuickBooks Balance Sheet and Profit & Loss per employee account. That export used to be built into the page, where anyone could read it in View Source; it is loaded from the file now — 📥 Load the QuickBooks export (the JSON export with months, rows and summary). It stays on the computer that loaded it — never synced and never in the daily cloud backup — and opens only for people with 🏢 Office pay. The other QB Recon tabs read the live QuickBooks copy as before.']},
+   'The 🏛 2026 government JE audit tab compares Nexi payroll with the QuickBooks Balance Sheet and Profit & Loss per employee account. That export used to be built into the page, where anyone could read it in View Source; it is loaded from the file now — 📥 Load the QuickBooks export (the JSON export with months, rows and summary). It stays on the computer that loaded it — never synced and never in the daily cloud backup — and opens only for people with 🏢 Office pay. The other QB Recon tabs read the live QuickBooks copy as before.',
+   'How (v22.54): Eyal has the file (qbpay-2026.json) — ask him for it. Payroll → 🔁 QB Recon → 🏛 2026 government JE audit → 📥 Choose file → pick it. Do this once on each computer you use; the audit and 🖨 Print JE open straight away.']},
   {h:'Payroll audit fixes (v22.28)', p:[
    'HR card: for an office employee paid from the Monthly Basic, the Daily Rate Override box is greyed out with “Not used — pay comes from the Monthly Basic …” (it was ignored in silence). New box “Fixed EWT per cut-off” (accounting only): the exact company-paid BIR for a management member — the management members’ amounts were moved onto it once from the code, pay unchanged; a new management member is set here.',
    'Late approvals never list a late dated before the employee’s hire date. The 🏦 Bank file ends with a TOTAL row (number of employees and the net). “Ask payroll — cost” shows the same gross as the payroll screen (with the non-taxable allowances). An old duplicate office draft (time-zone alias) is removed only when unstamped, and every removal is written in the audit trail.']},
@@ -293709,6 +293768,7 @@ window.HNX_HELP_MODULES_B = [
   {h:'How the fund works', p:['Since v21.26 the monthly amount is typed by Accounting on the employee\'s HR card (💰 Loyalty savings ₱/month) and the card is the source: the member here takes the card\'s amount, an employee given an amount becomes a member from the current month, a cleared card closes the membership at the end of last month. Payroll books the amount once a month as an EMPLOYER payable on the cut-off that ends on the 25th, exactly like the SSS employer share (never deducted from the employee); the Overview shows whether that run is approved, and 🏛 Government Remittances carries a “Loyalty savings — BDO” card with the month\'s total to deposit.','Every month the company sets aside a fixed amount per member (the monthly entitlement on each member’s HR card). The amounts are remitted together to BDO by voucher and check, and BDO buys units of the Short Term Fund at that day’s NAVPU (the confirmation, COP, states the NAVPU and the units). Each employee owns a share of every remittance equal to their contribution ÷ the remittance, so they own that share of the units bought. Worth today = units × the latest NAVPU; interest = worth − contributions. The value moves with the NAVPU and can go down in a period.']},
   {h:'Every month, Accounting does three things', steps:['Months & remittances: type what was funded for each employee that month (blank = not funded; a partly funded month shows in amber).','+ Remittance / UITF purchase: the voucher date, check number and amount, and, when the COP arrives, its date, number, NAVPU and units (leave units blank to compute amount ÷ NAVPU). One remittance can cover two months.','NAVPU history → + NAVPU: the month-end statement. Type the NAVPU if the statement prints it, or just the statement’s total value — Nexi divides it by the units held. The latest point values the whole fund and every employee statement. No bank connection is involved: these three entries are the whole monthly routine.']},
   {h:'What each screen shows', p:['Overview: cash remitted, value at the latest NAVPU, earnings, units, outstanding; per employee their contributions, share of the fund, units, value, interest and what is still due; the fund by remittance.','Employee statement: pick the employee — what is saved for them, what it is worth today, their interest, their share of the fund, then every remittance with their contribution, share, entry NAVPU, units, worth and interest. 🖨 Print gives the employee a statement; ⬇ CSV exports it.','Members: name, link to the HR record, monthly entitlement, from / to month, active. Outstanding is counted from each member’s From month; the current month is due but not yet late.']},
+  {h:'Deleting a remittance (v22.54)', p:['🗑 Delete on a remittance now stays deleted on every computer: the plan remembers the deleted remittance, so a computer that still held it can no longer bring it back with its next upload (before v22.54 it came back after the sync). A new remittance is never hidden by this.']},
   {h:'Where the figures come from', p:['The plan’s figures live in the synced loyalty store (they were entered from the BDO audit workbook of 28-Sep-2026); since v22.52 nothing about the plan is built into the page. A computer that has not received them yet shows an empty plan until the next sync. Correct anything from the vouchers; the workbook stays the audit trail.']}
  ]},
 {id:'m_accounting', icon:'🧮', title:'Accounting & Purchasing', who:'Accounting · buyers', cat:'module',
@@ -293735,7 +293795,7 @@ window.HNX_HELP_MODULES_B = [
    '✏ Edit offer on a FINAL offer: new lead days, terms, warranty, brand or notes keep it final. A new price, quantity, VAT or delivery asks first — the offer then no longer counts as final (no file backs the new price), the final offer and its file stay in its history, and the award list no longer marks it FINAL. To record a revised final offer use 📎 Final offer instead. The request stays “final offer received”.',
    'The request keeps its own copy of the last final offer (price, terms and the link to its file). If an older copy of the RFQ, saved on another computer, overwrites the final offer, the evaluation and the RFQ step say “The final offer from … is no longer on RFQ-…” with ↺ Restore the final offer (Buyers): the final offer comes back with its file, and the offer that had replaced it stays in the history.']},
   {h:'🔒 rows in the books (v22.52)', p:[
-   'Office salaries and the Loyalty program are owner-granted (Administration guide). An Accounting user without them sees the QuickBooks reports with one “🔒 Office pay (restricted)” and one “🔒 Loyalty program (restricted)” row per group in place of the named pay and loyalty accounts — the amounts are added together, so totals, the trial balance, the Matrices and the Financial Statements still agree; labor and production wages show as before. Ledger lines keep their amounts, but a payee, memo or split account naming an office employee reads “🔒 Office payroll”. 🏦 Bank & Card Recon keeps the QuickBooks lines exactly as QuickBooks sent them (so matching works the same on every computer) and shows such a payee or account as “🔒 Office payroll” on the screen, in the 🔗 link QB line list and in the CSV. The QuickBooks copies each computer keeps (books, 12-month, aging, cash flow) are never synced: every computer reads them from QuickBooks itself.',
+   'Office salaries and the Loyalty program are owner-granted (Administration guide). An Accounting user without them sees the QuickBooks reports with one “🔒 Office pay (restricted)” and one “🔒 Loyalty program (restricted)” row per group in place of the named pay and loyalty accounts — the amounts are added together, so totals, the trial balance, the Matrices and the Financial Statements still agree; labor and production wages show as before. Ledger lines keep their amounts, but a payee, memo or split account naming an office employee reads “🔒 Office payroll”. 🏦 Bank & Card Recon keeps the QuickBooks lines exactly as QuickBooks sent them (so matching works the same on every computer) and shows such a payee or account as “🔒 Office payroll” on the screen, in the 🔗 link QB line list and in the CSV. Since v22.54 the ✎ journal-entry DEBIT list never offers a 🔒 row (it is not a real QuickBooks account): a 🔒 account typed in is refused, and 🤖 Auto-JE ignores a rule that carries one — an office-pay holder categorises such a line. The QuickBooks copies each computer keeps (books, 12-month, aging, cash flow) are never synced: every computer reads them from QuickBooks itself.',
    'Reports ▸ 💰 Payroll Report and 🧾 BIR Alphalist show the labor lines only, with “🔒 Office lines hidden (n)” and the totals marked labor only; the pasted payroll and alphalist tables show 🔒 Restricted; 1601-C and its tile on the Tax Dashboard show 🔒 (the figure covers office and labor together). What such a person pulls from QuickBooks stays in memory for that session only — the computer’s saved copy is never overwritten with masked figures. On a shared computer, signing in as somebody with less access than the person before reloads Nexi once, so nothing the first person pulled stays on screen.']},
   {h:'Who approves a purchase (v22.28)', p:[
    'Eyal and Dr Amy approve purchase requests, award a supplier and issue the purchase order (and the System Admin login). Before v22.28 any admin-role account and anyone with payroll rights approved.',
@@ -293860,7 +293920,8 @@ window.HNX_HELP_MODULES_B = [
    'The Accounting module, a payroll department, the 💰 labor-rate flag and a secondary-admin role do NOT open them. In the QuickBooks reports (Trial Balance, General Ledger, Chart of Accounts, P&L, Matrices, Financial Statements, the exports and the CFO-AI / ACCOUNTANT-AI questions) such a person sees one “🔒 Office pay (restricted)” and one “🔒 Loyalty program (restricted)” row per group instead of the named accounts; the amounts are added together, so totals and the trial balance still agree, and labor and production wages show as before. Ledger lines keep their amounts, but a payee naming an office employee reads “🔒 Office payroll”; 🏦 Bank & Card Recon stores the real lines and shows such a payee or account as “🔒 Office payroll” on screen and in its CSV.',
    'Granting: in 🔐 Access matrix the owner (System Admin login, Eyal, Dr Amy) clicks a person’s 🏢 or 💎 cell and confirms. The same click takes it away again — also from Jinky or Dr Amy. The System Admin login and Eyal can never be locked out, nobody can change their own, and a grant written by anybody else is ignored. It reaches every computer with the next sync. “Same access as” never copies these grants, and Reset of a person’s overrides keeps them.',
    'What a 🏢 grant opens for someone outside the pay name list: the office lines of the Accounting payroll reports (Payroll Report, BIR Alphalist, 1601-C, the Office Payroll card, pasted payroll and alphalist tables) and the named QuickBooks pay accounts. The Payroll module itself — with the semi-monthly 🏢 Office Payroll screen — stays with the pay name list. What taking 🏢 away from Jinky or Dr Amy does: Accounting shows her the same 🔒 rows as anyone without office pay, and the Payroll module opens only its labor screens — 👷 Labor Payroll, 📥 Timecard Upload, 🚚 Trip Incentives, 🏛️ Rates & Tax and 📊 History (the weekly runs only). Office Payroll, All Payroll, QB Recon, Pay Basis Check, BIR / Reports, OT & Premiums, Final Pay and every other payroll screen that lists office people close for her.',
-   'The 💰 column is the labor-rate flag (HR daily rates, Production training rates, the labor lines of the payroll reports); the primary admin toggles it as before. It never opens office pay or loyalty.']},
+   'The 💰 column is the labor-rate flag (HR daily rates, Production training rates, the labor lines of the payroll reports); the primary admin toggles it as before. It never opens office pay or loyalty.',
+   'Since v22.54 the same rule also covers: 📋 BIR / Reports (from every button and from Nexi’s Desk), 🧮 Final Pay, 🏛 Gov monthly and ⭐ Special payroll on Labor Payroll, the HR card’s 💼 Contract Pay part and 💰 Loyalty amount, the office Daily Rate note, the contract’s Base salary and the HR list’s office rates. QuickBooks: the first pull after opening Nexi waits until the mask is in place, the ☁ QB Sync copy is masked when it is read, and when somebody with MORE access signs in (or the page pulled while nobody was signed in) Nexi reads QuickBooks again for him — no reload. A masked row keeps its amount (“🔒 Office pay (restricted)” ₱ total) and its indentation.']},
   {h:'🛡 Data Safety: calls and issues upload by themselves (v22.32, Eyal 10 Oct)', p:[
    'Calls and issues were held several times a day (“issues: 0 removed · 225 changed · 0 added of 300”, Upload anyway pressed again and again). Nexi\'s own bulk work caused it: the daily approval reminder rewrote every resolved issue once a day — also the pool alarms Nexi resolved by itself — and the old-alarm clean-up closed hundreds at once, without dating the records, so every computer kept its own copy.',
    'Now those changes are dated, and the daily approval reminder is kept on each computer — it never changes the issue itself, so a reminder can no longer undo an approval given on another computer. For calls and issues the guard asks which copy is newer: a call or issue changed on this computer with a NEWER date that does not move it back (re-open, un-approve) is ordinary work and uploads by itself. A date more than 10 minutes in the future (a computer whose clock runs ahead) is not trusted. Still held for your decision: records removed in bulk, a bulk re-open or un-approve, a computer whose clock runs ahead, and an old copy that would undo newer work from another computer.',
@@ -295574,7 +295635,10 @@ function uid(p){return p+'_'+Date.now().toString(36)+Math.random().toString(36).
 function seed(){ /* v22.52 scrub: no names, amounts, vouchers or checks inside the page — the plan lives in the synced store */
   return {members:[],paid:{},batches:[],navpu:[],fund:{name:'BDO Short Term Fund',account:'',company:'APTI'},seededFrom:''};
 }
-function DB(){var d=J(KEY,null);if(!d||!Array.isArray(d.members)){d=seed();} /* v22.52: an empty plan is never saved over the synced one — it waits for the sync or the first real edit */d.paid=d.paid||{};d.batches=d.batches||[];d.navpu=d.navpu||[];d.fund=d.fund||{};try{if(syncCards(d))Sv(d);}catch(e){}return d;}
+function DB(){var d=J(KEY,null);if(!d||!Array.isArray(d.members)){d=seed();} /* v22.52: an empty plan is never saved over the synced one — it waits for the sync or the first real edit */d.paid=d.paid||{};d.batches=d.batches||[];
+  /* v22.54 audit DSAFE-6: a deleted remittance leaves its id in delBatches (an object the sync's deep merge unions), so a computer still
+     holding it can never bring it back; new remittances get fresh ids, so a tombstone never hides one */
+  d.delBatches=(d.delBatches&&typeof d.delBatches==='object'&&!Array.isArray(d.delBatches))?d.delBatches:{};d.batches=d.batches.filter(function(x){return !(x&&d.delBatches[x.id]);});d.navpu=d.navpu||[];d.fund=d.fund||{};try{if(syncCards(d))Sv(d);}catch(e){}return d;}
 /* v21.26 (Eyal): THE EMPLOYEE CARD IS THE SOURCE — Jinky types the monthly loyalty amount on the HR card (💰 Loyalty savings ₱/month);
    a member linked to that card takes the card's amount, an employee with an amount but no member row is added as a member from this
    month, a member whose card is cleared is closed at the end of last month. Names are matched "LAST, FIRST" ↔ "First M. Last". */
@@ -295707,7 +295771,7 @@ window.HNXLOY={render:render,calc:function(){return canSee()?calc(DB()):null;},d
         var i=d.batches.findIndex(function(x){return x.id===n.id;});if(i>=0)d.batches[i]=n;else d.batches.push(n);
         if(n.copDate&&n.navpu&&!d.navpu.some(function(p){return p.date===n.copDate;}))d.navpu.push({date:n.copDate,navpu:n.navpu,src:'COP '+(n.copNo||'')});
         if(!Sv(d)){toast('⛔ NOT SAVED','error');return false;}try{if(typeof audit==='function')audit('accounting','Loyalty savings: remittance '+n.label+' '+peso0(n.amount));}catch(e){}toast('Saved','ok');});},
-  delBatch:function(id){if(!canEd())return;if(!confirm('Delete this remittance and its UITF purchase?'))return;var d=DB();d.batches=d.batches.filter(function(x){return x.id!==id;});Sv(d);var m=document.getElementById('hnxLoyModal');if(m)m.remove();render();},
+  delBatch:function(id){if(!canEd())return;if(!confirm('Delete this remittance and its UITF purchase?'))return;var d=DB();d.batches=d.batches.filter(function(x){return x.id!==id;});d.delBatches[id]=Date.now();Sv(d);var m=document.getElementById('hnxLoyModal');if(m)m.remove();render();},
   addNav:function(){if(!canEd())return;var C0=calc(DB());modal('Month-end statement / NAVPU',fld('lyND','Statement date','','date')+fld('lyNV','NAVPU (as printed on the statement or the fund sheet)','','number','step="0.0001"')+fld('lyVal','… or the statement’s total value (₱) — NAVPU = value ÷ '+u4(C0.totUnits)+' units held','','number','step="0.01"')+fld('lyNS','Source (BDO statement, Funds Weekly, COP …)','BDO statement'),function(){var dt=gv('lyND'),v=+gv('lyNV'),val=+gv('lyVal');if(!v&&val&&C0.totUnits)v=Math.round(val/C0.totUnits*10000)/10000;if(!dt||!v){toast('Date and either the NAVPU or the statement value are needed','warn');return false;}var d=DB();d.navpu=d.navpu.filter(function(p){return p.date!==dt;});d.navpu.push({date:dt,navpu:v,src:gv('lyNS')+(val&&!+gv('lyNV')?' (from value '+peso0(val)+')':'')});Sv(d);try{if(typeof audit==='function')audit('accounting','Loyalty savings: NAVPU '+v+' on '+dt);}catch(e){}});},
   delNav:function(i){if(!canEd())return;var d=DB();var pts=d.navpu.slice().sort(function(a,b){return String(a.date).localeCompare(String(b.date));});var p=pts[i];if(!p||!confirm('Remove the NAVPU of '+p.date+'?'))return;d.navpu=d.navpu.filter(function(x){return x!==p&&!(x.date===p.date&&x.navpu===p.navpu);});Sv(d);render();},
   editMember:function(id){if(!canEd())return;var d=DB(),m=d.members.filter(function(x){return x.id===id;})[0]||{id:'',name:'',monthly:0,start:nowMonth(),active:true};var emps=[];try{emps=(typeof _fleetEmployees==='function'?_fleetEmployees():[]).filter(function(e){return e&&e.name;});}catch(e){}
@@ -297584,9 +297648,13 @@ function bucketObj(B,order,out,x,lk,c){
   if(!b){b={o:{},n:0};B[key]=b;order.push(key);out.push(b.o);}
   b.n++;var o=b.o;o[lk]=synthLabel(c,lab);
   for(var k in x){if(k===lk)continue;var v=x[k];
+    if(k==='depth'){if(b.n===1)o[k]=v;continue;}if(k==='id'){o[k]='';continue;} /* v22.54 audit LOCK-4: indentation of the first row; no summed / real office account id */
     if(typeof v==='number'){o[k]=(typeof o[k]==='number'?o[k]:0)+v;}
     else if(typeof v==='string'){if(b.n===1)o[k]=isNumStr(v)?v:(cls(v)?'':v);else if(o[k]!==v){if(isNumStr(v)&&isNumStr(o[k]))o[k]=fmt2(toNum(o[k])+toNum(v));else o[k]='';}}
     else if(Array.isArray(v)&&v.every(function(z){return z==null||typeof z==='number';})){if(!Array.isArray(o[k]))o[k]=v.slice();else for(var i=0;i<v.length;i++)o[k][i]=+(((Number(o[k][i])||0)+(Number(v[i])||0)).toFixed(2));}
+    else if(Array.isArray(v)&&v.every(function(z){return z==null||z===''||isNumStr(z);})){ /* v22.54 audit LOCK-4: the nexi-qb flatten() shape keeps its amounts as STRINGS */
+      if(!Array.isArray(o[k]))o[k]=v.map(function(z){return z==null||z===''?z:fmt2(toNum(z));});
+      else for(var i2=0;i2<v.length;i2++){if(v[i2]==null||v[i2]==='')continue;o[k][i2]=fmt2(toNum(o[k][i2]||0)+toNum(v[i2]));}}
     else if(typeof v==='boolean'){if(b.n===1)o[k]=v;}}}
 function maskArr(a,F,d){
   if(!a.length||d>60)return a;
@@ -297627,10 +297695,14 @@ function maskAny(x,F,d){d=d||0;if(!d&&!EMPX.pass){empIndex();EMPX.pass++;try{ret
 function flags(){var u=me();return {u:(u&&u.username)||'',off:!(u&&window.hnxCanOfficePay&&hnxCanOfficePay(u)),loy:!(u&&window.hnxCanLoyalty&&hnxCanLoyalty(u))};}
 function maskJSON(raw,F){return JSON.stringify(maskAny(JSON.parse(raw),F,0));}
 var QBK=/^hydroPro_acct_qb(_monthly|_aging|_cashflow)?_v1$/; /* review: aging (vendor / customer names) and cash flow too */
+/* v22.54 audit LOCK-2: the pull stamps that guard the caches above live as long as the data they describe — for a non-holder in memory
+   too, else a reload found "all monthly fresh (<24h)" next to an empty cache and nothing was pulled again for a day */
+var QBTS=/^hnxlocal_acct_(monthly_pull_ts_v1|auto_pull_ts_v2)$/;
 var OVL={},OVLU=null,MEMO={};
 (function(){try{
   var L=window.localStorage,pg=L.getItem,ps=L.setItem,pr=L.removeItem;if(!pg||pg.__hnxSens)return;
   var g=function(k){
+    if(typeof k==='string'&&QBTS.test(k)){var F0=flags();if(F0.off||F0.loy){if(OVLU!==F0.u){OVL={};OVLU=F0.u;}return Object.prototype.hasOwnProperty.call(OVL,k)?OVL[k]:null;}return pg.apply(L,arguments);}
     if(typeof k!=='string'||!QBK.test(k))return pg.apply(L,arguments);
     var F=flags();if(!F.off&&!F.loy)return pg.apply(L,arguments);
     if(OVLU!==F.u){OVL={};OVLU=F.u;}
@@ -297641,13 +297713,15 @@ var OVL={},OVLU=null,MEMO={};
     var out;try{out=maskJSON(raw,F);}catch(e){out='{}';} /* fail closed */
     MEMO[k]={raw:raw,fk:fk,out:out};return out;};
   var s=function(k,v){
+    if(typeof k==='string'&&QBTS.test(k)){var F1=flags();if(F1.off||F1.loy){if(OVLU!==F1.u){OVL={};OVLU=F1.u;}OVL[k]=String(v);return;}}
     if(typeof k==='string'&&QBK.test(k)){var F=flags();if(F.off||F.loy){if(OVLU!==F.u){OVL={};OVLU=F.u;}OVL[k]=String(v);return;}}
     return ps.apply(L,arguments);};
-  var rm=function(k){if(typeof k==='string'&&QBK.test(k)){delete OVL[k];delete MEMO[k];}return pr.apply(L,arguments);};
+  var rm=function(k){if(typeof k==='string'&&(QBK.test(k)||QBTS.test(k))){delete OVL[k];delete MEMO[k];}return pr.apply(L,arguments);};
   g.__hnxSens=s.__hnxSens=rm.__hnxSens=true;
   L.getItem=g;L.setItem=s;L.removeItem=rm;
 }catch(e){try{console.warn('[v22.52] QuickBooks mask not installed',e);}catch(_){}}})();
 /* every QuickBooks call (qb-api reports, nexi-qb snapshot / ledger / account list) */
+var QBMASKED={off:false,loy:false}; /* v22.54 audit LOCK-5: a QuickBooks pull was masked into memory under these flags */
 var QBURL=/\/api\/qb\/|\/qb\/(gl|snapshot|report|reports|accounts|query|journal|sync)\b/i;
 function maskResponse(res,F){
   try{if(!res||typeof res.clone!=='function')return res;
@@ -297666,15 +297740,28 @@ function maskResponse(res,F){
     if(!QBURL.test(url))return p;
     if(init&&init.hnxRaw==='recon'&&/\/general-ledger|\/qb\/gl\b/i.test(url))return p; /* review: the Bank & Card Recon ledger pull is stored as sent and masked when shown */
     var F=flags();if(!F.off&&!F.loy)return p;
+    if(F.off)QBMASKED.off=true;if(F.loy)QBMASKED.loy=true;
     return p.then(function(res){return maskResponse(res,F);});};
   for(var k in pf){try{wf[k]=pf[k];}catch(e){}}
   wf.__hnxSens=true;window.fetch=wf;
+}catch(e){}})();
+/* v22.54 audit LOCK-1: the in-memory QuickBooks snapshot (QB Sync, the cockpit, Nexi answers) is masked when READ too — defence in depth
+   for any pull that reached memory before the fetch wrapper existed */
+(function(){try{
+  var s0=window.hnxQBSnapshot,a0=window.hnxQBAll,WM=(typeof WeakMap==='function')?new WeakMap():null;
+  function mk(x){var F=flags();if(!x||typeof x!=='object'||(!F.off&&!F.loy))return x;empIndex();var key=F.u+'|'+F.off+'|'+F.loy+'|'+EMPX.ver;
+    var c=WM&&WM.get(x);if(c&&c.k===key)return c.v;var v;try{v=maskAny(x,F,0);}catch(e){v=null;}if(WM)WM.set(x,{k:key,v:v});return v;}
+  if(typeof s0==='function'&&!s0.__hnxSens){var s1=function(){return mk(s0.apply(this,arguments));};for(var k in s0){try{s1[k]=s0[k];}catch(e){}}s1.__hnxSens=true;window.hnxQBSnapshot=s1;}
+  if(typeof a0==='function'&&!a0.__hnxSens){var a1=function(){var A=a0.apply(this,arguments)||{},F=flags();if(!F.off&&!F.loy)return A;var o={};for(var r in A)o[r]=mk(A[r]);return o;};for(var k2 in a0){try{a1[k2]=a0[k2];}catch(e){}}a1.__hnxSens=true;window.hnxQBAll=a1;}
 }catch(e){}})();
 /* a sign-in as somebody with LESS access than the person before → reload, so nothing pulled into memory for the holder stays */
 var LASTF=null;try{LASTF=flags();}catch(e){}
 (function hookShow(){try{var sa=window.showApp;if(typeof sa!=='function'){setTimeout(hookShow,1500);return;}if(sa.__hnxSens)return;
   var w=function(){var r=sa.apply(this,arguments);try{var F=flags(),P=LASTF;LASTF=F;
-      if(P&&P.u&&F.u&&P.u!==F.u&&((F.off&&!P.off)||(F.loy&&!P.loy))){setTimeout(function(){try{location.reload();}catch(e){}},50);}}catch(e){}
+      if(P&&P.u&&F.u&&P.u!==F.u&&((F.off&&!P.off)||(F.loy&&!P.loy))){setTimeout(function(){try{location.reload();}catch(e){}},50);}
+      /* v22.54 audit LOCK-5: access went UP since a QuickBooks pull was masked into memory (signed out, or a non-holder before) → read it again */
+      else if(F.u&&((QBMASKED.off&&!F.off)||(QBMASKED.loy&&!F.loy))){QBMASKED={off:false,loy:false};
+        try{if(typeof window.hnxQBPullAll==='function')window.hnxQBPullAll(function(){try{var el=document.getElementById('view-qb_sync');if(el&&el.offsetParent!==null&&window._hnxQbRender)window._hnxQbRender();}catch(e){}});}catch(e){}}}catch(e){}
     return r;};
   for(var k in sa){try{w[k]=sa[k];}catch(e){}}w.__hnxSens=true;window.showApp=w;}catch(e){}})();
 
