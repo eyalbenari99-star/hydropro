@@ -97704,6 +97704,7 @@ function saveRFQ(r){r.updatedAt=Date.now();var a=L(K.rfqs);var i=a.findIndex(fun
 function getPO(id){return L(K.pos).find(function(x){return x.id===id;});}
 function savePO(p){p.updatedAt=Date.now();var a=L(K.pos);var i=a.findIndex(function(x){return x.id===p.id;});if(i>=0)a[i]=p;else a.push(p);Sv(K.pos,a);}
 function advance(pr,note){
+  if(!pr||pr.status==='Cancelled')return; /* v22.54 audit (PUR-3, as the v22.31 trial): a request cancelled on a trial computer never moves again — only Admin reopens it with ↩ Reopen… */
   var i=stageIdx(pr);
   if(i>=STAGES.length-1)return;
   pr.status=STAGES[i+1];
@@ -97818,6 +97819,28 @@ function healStaleAward(pr){
 }
 /* the RFQ still says Awarded but no live PO holds it (a draft left behind) — healStaleAward opens it with the next change, so its offers stay editable */
 function rfqStaleAward(pr,rfq){var ci=STAGES.indexOf(pr&&pr.status);return !!rfq&&rfq.status==='Awarded'&&ci>=0&&ci<STAGES.indexOf('Purchase Order')&&!prPOs(pr).some(function(p){return livePO(p)&&!p.reopenedByAdmin;});}
+/* v22.54 audit (PUR-1/2/3/5/6 — Eyal 11 Oct: "Unless final offer comes want to go back any stage and admin should go back any case"):
+   ONE guard for every button that moves a request on. The Purchasing screen is not redrawn when a sync brings another computer's
+   change, so a screen left open can show a stage the request has already left — sent back, moved on, cancelled, or awarded again.
+   At the click the request (and, for a purchase-order step, its PO) is read again from storage and must still be where the button
+   was drawn: at one of `stages`; not Cancelled (only Admin reopens one, with ↩ Reopen…); and when `po` is given, on a live — issued,
+   not cancelled — purchase order, the very one the screen showed when `po` is its id (a request sent back and awarded again is at
+   "Purchase Order" once more, but on a NEW draft PO). Otherwise nothing changes: the person is told where the request is now and the
+   screen is drawn again. */
+function stillAt(pr,stages,po){
+  if(!pr)return false;
+  var want=[].concat(stages||[]),why='';
+  if(pr.status==='Cancelled')why=pr.number+' was cancelled'+(pr.cancelled&&pr.cancelled.by?' by '+pr.cancelled.by:'')+' — only Admin reopens it (↩ Reopen…)';
+  else if(want.length&&want.indexOf(pr.status)<0)why=pr.number+' already moved on (now: '+pr.status+')';
+  else if(po){var cur=pr.poId?getPO(pr.poId):null;
+    if(!cur||!livePO(cur))why=cur?cur.number+' is '+cur.status+(cur.status==='Draft'?' — issue it first':''):'There is no purchase order on '+pr.number;
+    else if(typeof po==='string'&&po!==cur.id)why=pr.number+' is now on '+cur.number+' — not the purchase order this screen showed';}
+  if(!why)return true;
+  toast(why+' — screen refreshed','warn');
+  try{S.quoteOpen=null;S.quoteOpenName=null;S.backOpen=null;}catch(e){}
+  renderPurchPro();
+  return false;
+}
 function backTell(pr,from,to,why,redo,cleared){
   try{
     var meN=_names(_pu()),skip=function(u){return String(u.username||'').toLowerCase()==='admin'||_names(u).some(function(x){return meN.indexOf(x)>=0;});};
@@ -97911,7 +97934,21 @@ function prBanners(pr){
       (p.reopenedByAdmin?'Admin may award again (asked to confirm).':'no new award while it is live'+(isPurchAdmin()?'.':' — Admin cancels it or marks it reopened here.'))+
       (isPurchAdmin()?((got>0||ni)?'':bb('✕ Cancel '+esc(p.number),'cancel'))+(p.reopenedByAdmin?'':bb('↩ Mark reopened by admin','reopen')):'')+'</div>'; /* v22.52: a PO left live behind the request (not its own PO) — Admin clears it here */
   });
+  orphanRFQs(pr).forEach(function(o){var cur=pr.rfqId&&getRFQ(pr.rfqId),into=cur&&cur.status==='Open',nq=0;(o.suppliers||[]).forEach(function(x){if(x.quote)nq++;nq+=optLive(x).length;});
+    h+='<div style="font-size:12px;padding:7px 10px;border-radius:6px;background:rgba(239,108,0,.12);border-left:3px solid var(--warn);font-weight:700;margin-bottom:6px;">📨 '+esc(o.number)+' ('+(o.suppliers||[]).length+' suppliers, '+nq+' offers) is also open for '+esc(pr.number)+(into?' next to '+esc(cur.number):'')+' — left behind when an older copy of Nexi made a new RFQ for it. '+
+      (canEditPurch()&&isPurchBuyer()?actBtn(into?'⇄ Bring its suppliers and offers into '+esc(cur.number):'⇄ Go on with '+esc(o.number),'__PURPRO.rfqAdopt(\''+jsq(pr.id)+'\',\''+jsq(o.id)+'\')',true):'<span style="font-weight:600;">A Buyer brings them in here.</span>')+'</div>';});
   return h;
+}
+/* v22.54 audit (DSAFE-3): a second OPEN RFQ of the same request. The rollback copy (prev.html, v22.52) does not know that a request sent
+   back to Supplier Sourcing keeps its open RFQ: its 📨 Create RFQ makes a new one, points the request at it and leaves the old RFQ — with
+   every supplier, offer, option and final offer — open with nobody looking at it (two computers creating an RFQ for the same request
+   at the same moment leave the same). That copy cannot be changed, so this one notices it: the stage card says so (Supplier Sourcing up
+   to the award) and a Buyer brings the suppliers and offers into the request's RFQ with one click. A supplier on both keeps the offer it
+   has here (the other stays in the old RFQ's record); the old RFQ is closed as merged — nothing is deleted. */
+function orphanRFQs(pr){
+  if(!pr||!pr.id)return [];
+  var ci=STAGES.indexOf(pr.status);if(ci<STAGES.indexOf('Supplier Sourcing')||ci>=STAGES.indexOf('Purchase Order'))return [];
+  return L(K.rfqs).filter(function(r){return r&&r.prId===pr.id&&r.id!==pr.rfqId&&r.status==='Open'&&(r.suppliers||[]).length>0;});
 }
 /* ---------- offers: Option A (the supplier's offer) and Options B–D (alternative items), keyed 'Supplier' / 'Supplier#opt:<id>' ---------- */
 function optLive(s){return ((s&&s.options)||[]).filter(function(o){return o&&o.quote;});}
@@ -97940,6 +97977,9 @@ function qOpenRow(rfq){
 /* the award: at Approval, the RFQ open, the screen not stale, no other PO alive for the request */
 function awardGuard(pr,fromStage,stamp){
   if(pr.status!=='Approval'||(fromStage&&fromStage!==pr.status)){toast(pr.number+' is not waiting for the award (now: '+pr.status+') — screen refreshed','warn');renderPurchPro();return false;}
+  /* v22.54 audit (DSAFE-4, as the trial's award): items added after approval on a trial computer are checked before the award on every copy */
+  if(pr.addedPending){alert('⛔ Items were added to '+pr.number+' after approval — '+(pr.addedPending.need==='approver'?'Eyal or Dr Amy':'Jinky')+' must check them before the award.');renderPurchPro();return false;}
+  if((pr.items||[]).some(function(it){return it.addedAfterApproval&&String(it.addedBy||'')===who();})){alert('⛔ You added items to '+pr.number+' — someone else awards it.');return false;}
   healStaleAward(pr);
   /* a live PO is checked first — it says why (and an RFQ it holds stays Awarded) */
   var live=prPOs(pr).filter(livePO); /* a draft left behind was cancelled just above (healStaleAward) — only an issued PO holds the award */
@@ -98042,6 +98082,10 @@ function offerStore(pr,rfq,supName,label,f){
     .catch(function(e){return local('The cloud upload failed ('+String((e&&e.message)||e).slice(0,80)+')');});
 }
 function finalOffer(pr,rfq,supName,optId,v){
+  /* v22.54 audit (PUR-7): one upload at a time per supplier and option — a second press while the file is still uploading (up to 3
+     minutes on a slow line) no longer stores the final offer twice, files the first as a "previous offer" and tells Eyal and Dr Amy twice */
+  var fk=rfq.id+'|'+supName+'|'+(optId||'A'),busy=S.finalBusy||(S.finalBusy={});
+  if(busy[fk]&&Date.now()-busy[fk]<5*60000){toast('📤 This final offer is still uploading — wait for it to finish','warn');return;}
   var fi=document.getElementById('ppQff'),f=fi&&fi.files&&fi.files[0];
   if(!f){alert('Pick the final offer file — a photo or PDF of the supplier\'s final offer.');return;}
   if(f.size>10*1024*1024){alert('⛔ '+(f.name||'The file')+' is '+(f.size/1048576).toFixed(1)+' MB — a final offer file can be at most 10 MB. Save a smaller copy and upload it again. Nothing was saved.');return;}
@@ -98049,6 +98093,8 @@ function finalOffer(pr,rfq,supName,optId,v){
   if(!c0){alert('Log the offer first, then upload its final version.');return;}
   var chk=buildQuote(c0,v,true,pr.items||[]);if(chk.err){alert(chk.err);return;}
   var label=o0?o0.label:'A';
+  var c0At=Number(c0.at||0),c0Fin=Number(c0.finalAt||0),done=function(){delete busy[fk];try{if(fi)fi.disabled=false;}catch(e){}};
+  busy[fk]=Date.now();try{if(fi)fi.disabled=true;}catch(e){}
   toast('📤 Saving the final offer…');
   return offerStore(pr,rfq,supName,label,f).then(function(ff){
     if(!ff)return false;
@@ -98056,6 +98102,8 @@ function finalOffer(pr,rfq,supName,optId,v){
     if(!r2||!p2||r2.status!=='Open'||(p2.status!=='RFQ'&&p2.status!=='Quotation Evaluation')){alert('⛔ '+((p2&&p2.number)||'The request')+' moved on while the file was uploading (now: '+((p2&&p2.status)||'?')+') — nothing saved. Go back to the evaluation and upload it again.');renderPurchPro();return false;}
     var s2=(r2.suppliers||[]).filter(function(x){return x.name===supName;})[0],o2=s2&&optId?(s2.options||[]).filter(function(x){return x&&x.id===optId;})[0]:null,cur=o2?o2.quote:(s2&&s2.quote);
     if(!s2||(optId&&!o2)||!cur){alert('⛔ '+supName+(optId?' (Option '+label+')':'')+' is no longer on '+r2.number+' — nothing saved.');renderPurchPro();return false;}
+    /* v22.54 audit (PUR-7): the offer changed while the file was uploading (another computer saved an offer or a final offer) */
+    if(Number(cur.at||0)!==c0At||Number(cur.finalAt||0)!==c0Fin){alert('⛔ '+supName+(optId?' (Option '+label+')':'')+'\'s offer was changed on another computer while the file was uploading'+(cur.final?' (now 📎 FINAL '+money(cur.unitPrice)+(cur.finalBy?', by '+cur.finalBy:'')+')':'')+' — nothing saved.\n\nCheck it, then upload the final offer again if it is still needed.');renderPurchPro();return false;}
     var b=buildQuote(cur,v,true,p2.items||[]);if(b.err){alert(b.err);return false;}
     var nq=b.q,now=Date.now();
     nq.history=(cur.history||[]).concat([quoteSnap(cur,true)]);
@@ -98073,7 +98121,7 @@ function finalOffer(pr,rfq,supName,optId,v){
     S.quoteOpen=null;S.quoteOpenName=null;
     toast(ff.local?'📎 Final offer saved — '+ff.note:'📎 Final offer saved — '+lab,ff.local?'warn':'ok');renderPurchPro();
     return true;
-  });
+  }).then(function(r){done();return r;},function(e){done();throw e;});
 }
 function addSupHtml(rfq){
   var _vend=[];try{_vend=(JSON.parse(localStorage.getItem('hydroPro_acct_vendors')||'[]')||[]).map(function(v){return v&&v.name;}).filter(Boolean);}catch(e){}
@@ -98106,7 +98154,14 @@ function finalLostHtml(pr,rfq,canQ){
 }
 var PP_LINES=false; /* stable: one price per offer (the trial asks a price per item) */
 function addItemCard(){return '';} /* adding items at the RFQ / evaluation is trial-only */
-function addedNotes(){return '';}
+/* v22.54 audit (DSAFE-4): the trial adds items after approval (addedPending) — the stable copy shows the note and lets Jinky (or Eyal /
+   Dr Amy when the request grew a lot) check them, so the award is never made on unchecked items and never stays blocked here */
+function addedNotes(pr){
+  if(!pr)return '';
+  return (pr.addedPending?'<div style="font-size:12px;color:var(--warn);font-weight:700;margin:6px 0;">⏳ Items were added after approval — '+esc(pr.addedPending.need==='approver'?'Eyal or Dr Amy':'Jinky')+' must check them before the award.'+
+      (((pr.addedPending.need==='approver'&&isPurchApprover())||(pr.addedPending.need==='checker'&&(isPurchChecker()||isPurchApprover())))&&!(pr.items||[]).some(function(it){return it.addedAfterApproval&&String(it.addedBy||'')===who();})?' '+actBtn('✔ Added items checked','__PURPRO.acceptAdded(\''+pr.id+'\')',true):'')+'</div>':'')+
+    ((pr.items||[]).some(function(it){return it.notInSos;})?'<div style="font-size:12px;color:#fff;background:var(--danger);border-radius:6px;padding:6px 10px;margin:6px 0;font-weight:700;">🚨 NOT IN SOS: '+esc((pr.items||[]).filter(function(it){return it.notInSos;}).map(function(it){return it.desc;}).join(', '))+' — create the item in SOS, then the PO can carry it.</div>':'');
+}
 
 // ---------- UI state ----------
 var S={tab:'mission',prId:null,quoteOpen:null,quoteOpenName:null,quoteOpenAt:null,backOpen:null,draft:null};
@@ -98163,7 +98218,7 @@ window.renderPurchPro=function(){
 // ---------- Screen 001 · Mission Control ----------
 function rMission(){
   var prs=L(K.prs),rfqs=L(K.rfqs),pos=L(K.pos),invs=L(K.invs);
-  var open=prs.filter(function(p){return p.status!=='Completed';});
+  var open=prs.filter(function(p){return p.status!=='Completed'&&p.status!=='Cancelled';}); /* v22.54 audit (PUR-8, as the trial): a cancelled request is not open */
   var cnt=function(st){return prs.filter(function(p){return p.status===st;}).length;};
   var issued=pos.filter(livePO); /* v22.52: a cancelled PO is not an issued one */
   var kpi='<div class="pp-kpi">'+
@@ -98474,9 +98529,9 @@ function rSourcing(pr){
   var chip={local:'🏘 LOCAL — buy near the farm',import:'🌏 IMPORT — Alibaba / overseas',both:'🏘 LOCAL first, 🌏 import as a check'}[SC.cls];
   var h='<p style="font-size:12px;color:var(--text2);">Looking for: <b>'+esc(kw.slice(0,6).join(', ')||firstDesc)+'</b> · est. order '+money(est)+(geo.radius!=null?' · radius '+geo.radius+' km ('+esc(geo.tier.label||'')+')':'')+'</p>';
   /* v22.52: sent back to Sourcing, the request keeps its open RFQ — go on with it, or tick more suppliers to add to it */
-  var _orfq=pr.rfqId&&getRFQ(pr.rfqId);if(_orfq&&_orfq.status!=='Open')_orfq=null;
+  var _orfq=pr.rfqId&&getRFQ(pr.rfqId);if(_orfq&&_orfq.status!=='Open'&&!rfqStaleAward(pr,_orfq))_orfq=null; /* v22.54 audit (PUR-5/DSAFE-5): an RFQ still "Awarded" by an award undone on another computer (no issued PO holds it) is offered too — it opens again at the click */
   if(_orfq){var _nq=0;(_orfq.suppliers||[]).forEach(function(x){if(x.quote)_nq++;_nq+=optLive(x).length;});
-    h+='<div style="padding:8px 10px;border:1px solid var(--accent2);border-radius:8px;margin-bottom:8px;font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><b>📨 '+esc(_orfq.number)+' is still open</b><span>'+_orfq.suppliers.length+' suppliers, '+_nq+' offers kept. Tick more suppliers below and press ➕ Add to '+esc(_orfq.number)+', or go on with it as it is.</span><span style="flex:1;"></span>'+actBtn('➡ Continue with '+esc(_orfq.number),'__PURPRO.rfqContinue(\''+pr.id+'\')',true)+'</div>';}
+    h+='<div style="padding:8px 10px;border:1px solid var(--accent2);border-radius:8px;margin-bottom:8px;font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><b>📨 '+esc(_orfq.number)+' is still open</b><span>'+_orfq.suppliers.length+' suppliers, '+_nq+' offers kept.'+(_orfq.status==='Awarded'?' Its award was undone — it opens again when you go on.':'')+' Tick more suppliers below and press ➕ Add to '+esc(_orfq.number)+', or go on with it as it is.</span><span style="flex:1;"></span>'+actBtn('➡ Continue with '+esc(_orfq.number),'__PURPRO.rfqContinue(\''+pr.id+'\')',true)+'</div>';}
   h+='<div id="ppSrcClass" data-cls="'+SC.cls+'" style="padding:7px 10px;border-radius:8px;background:var(--surface2);font-size:12px;margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><b>'+chip+'</b><span style="color:var(--text3);">'+esc(SC.why)+'</span>'+
     '<select class="pp-in" style="width:auto;display:inline-block;font-size:11px;padding:3px 6px;" onchange="__PURPRO.srcClass(\''+pr.id+'\',this.value)"><option value="">change…</option><option value="local">Local only</option><option value="import">Import</option><option value="both">Both</option></select></div>';
   var impSec=function(){
@@ -98659,7 +98714,8 @@ function rAwardPanel(pr){
   var rec=A.best?A.best.key:A.rows[0].key,recRow=A.rows.filter(function(r){return r.key===rec;})[0]||A.rows[0];
   var opts=A.rows.slice().sort(function(a,b){return b.score-a.score;}).map(function(r){return '<option value="'+esc(r.key)+'"'+(r.key===rec?' selected':'')+'>'+esc(r.label)+' — '+money(r.landedUnit)+'/unit landed · score '+r.score+(r.q.final?' · FINAL':'')+(r.key===rec?' (recommended)':'')+'</option>';}).join('');
   var live=prPOs(pr).filter(livePO); /* a draft PO left behind is cancelled at the award — only an issued one holds it */
-  return '<div style="padding:8px 10px;background:rgba(46,125,90,.10);border-left:3px solid var(--ok);border-radius:6px;font-size:12.5px;margin-bottom:10px;"><b>🤖 Nexi recommends: '+esc(recRow.label)+'</b><div style="font-size:11.5px;margin-top:2px;">'+esc(A.reason||'')+'</div></div>'+
+  return addedNotes(pr)+ /* v22.54 audit (DSAFE-4): items added after approval wait for their check — shown where the award is refused */
+    '<div style="padding:8px 10px;background:rgba(46,125,90,.10);border-left:3px solid var(--ok);border-radius:6px;font-size:12.5px;margin-bottom:10px;"><b>🤖 Nexi recommends: '+esc(recRow.label)+'</b><div style="font-size:11.5px;margin-top:2px;">'+esc(A.reason||'')+'</div></div>'+
     (live.length?'<div style="font-size:12px;padding:7px 10px;border-radius:6px;background:var(--danger);color:#fff;font-weight:700;margin-bottom:8px;">⛔ '+esc(live.map(function(p){return p.number+' ('+p.status+')';}).join(', '))+' already exists for this request — '+(isPurchAdmin()&&live.every(function(p){return !!p.reopenedByAdmin;})?'Admin may still award a new PO (asked to confirm; the old one stays)':'no second PO is made — Admin cancels it or marks it reopened on the red banner above')+'.</div>':'')+
     '<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">'+
     '<label style="font-size:11px;">Award to<select class="pp-in" id="ppAwardSel" style="min-width:260px;">'+opts+'</select></label>'+
@@ -98680,7 +98736,7 @@ function rPOPanel(pr){
   return head+'<div style="display:flex;gap:8px;flex-wrap:wrap;">'+
     (po.supplierEmail?'<a class="btn btn-outline" style="font-size:12px;" href="'+mailto+'">✉ Email PO to supplier</a>':'')+
     actBtn('📝 Amendment','__PURPRO.amendPO(\''+pr.id+'\')')+
-    actBtn('➡ Move to receiving','__PURPRO.simpleAdvance(\''+pr.id+'\',\'PO issued — awaiting delivery\',\'Purchase Order\')',true)+'</div>'+
+    actBtn('➡ Move to receiving','__PURPRO.simpleAdvance(\''+pr.id+'\',\'PO issued — awaiting delivery\',\'Purchase Order\',\''+jsq(po.id)+'\')',true)+'</div>'+
     ((po.revisions||[]).length?'<div style="margin-top:8px;font-size:11px;color:var(--text3);">'+(po.revisions||[]).map(function(r,i){return 'Rev '+(i+1)+': '+esc(r.reason)+' ('+esc(r.by)+')';}).join('<br>')+'</div>':'');
 }
 
@@ -98702,8 +98758,8 @@ function rGRNPanel(pr){
   var prior=grns.length?'<div style="font-size:11px;color:var(--text3);margin-top:6px;">'+grns.map(function(g){return esc(g.number)+' · '+fdate(g.date)+' · '+esc(g.receiver);}).join('<br>')+'</div>':'';
   return '<p style="font-size:12px;color:var(--text2);">Receiving is not acceptance — enter accepted and rejected quantities per line. Accepted lines post to Purchase History.</p>'+
     '<table class="pp-tbl"><thead><tr><th>Item</th><th style="text-align:right;">Ordered</th><th style="text-align:right;">Accepted so far</th><th style="text-align:right;">Remaining</th><th>Accept now</th><th>Reject now</th></tr></thead><tbody>'+rows+'</tbody></table>'+
-    '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">'+actBtn('📦 Record GRN','__PURPRO.recordGRN(\''+pr.id+'\')',true)+
-    (fully?actBtn('✅ Complete procurement','__PURPRO.completePR(\''+pr.id+'\')',true):'<span style="font-size:11px;color:var(--text3);align-self:center;">Complete unlocks when all lines fully accepted (or use it anyway with confirmation).</span>'+actBtn('Complete anyway','__PURPRO.completePR(\''+pr.id+'\')'))+'</div>'+prior;
+    '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">'+actBtn('📦 Record GRN','__PURPRO.recordGRN(\''+pr.id+'\',\''+jsq(po.id)+'\')',true)+
+    (fully?actBtn('✅ Complete procurement','__PURPRO.completePR(\''+pr.id+'\',\''+jsq(po.id)+'\')',true):'<span style="font-size:11px;color:var(--text3);align-self:center;">Complete unlocks when all lines fully accepted (or use it anyway with confirmation).</span>'+actBtn('Complete anyway','__PURPRO.completePR(\''+pr.id+'\',\''+jsq(po.id)+'\')'))+'</div>'+prior;
 }
 
 // ---------- lists: RFQs / POs / GRNs ----------
@@ -98830,7 +98886,7 @@ function rAnalytics(){
   var top={};pos.forEach(function(p){top[p.supplier]=(top[p.supplier]||0)+Number(p.total||0);});
   var topList=Object.keys(top).map(function(k){return [k,top[k]];}).sort(function(a,b){return b[1]-a[1];}).slice(0,8);
   return '<div class="pp-kpi">'+
-    [['Total spend',money(spend)],['POs issued',pos.length],['Avg cycle (days)',avgCycle],['Negotiation savings',money(savings)],['Open PRs',prs.filter(function(p){return p.status!=='Completed';}).length],['Completed',prs.filter(function(p){return p.status==='Completed';}).length]]
+    [['Total spend',money(spend)],['POs issued',pos.length],['Avg cycle (days)',avgCycle],['Negotiation savings',money(savings)],['Open PRs',prs.filter(function(p){return p.status!=='Completed'&&p.status!=='Cancelled';}).length],['Completed',prs.filter(function(p){return p.status==='Completed';}).length]]
     .map(function(c){return '<div><div class="v">'+c[1]+'</div><div class="l">'+esc(c[0])+'</div></div>';}).join('')+'</div>'+
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'+
     '<div class="pp-card"><div style="font-weight:800;font-size:12px;margin-bottom:8px;">📅 Monthly spend</div>'+(bars||'<div style="color:var(--text3);font-size:12px;">No issued POs yet.</div>')+'</div>'+
@@ -98885,24 +98941,29 @@ window.__PURPRO={
     savePR(pr);audit('pr:create',pr.number,pr.title);toast('Created '+pr.number);
     S.draft=null;S.prId=pr.id;renderPurchPro();
   },
-  submitPR:function(id){var pr=getPR(id);if(!pr)return;advance(pr,'Submitted by '+who());toast(pr.number+' submitted');renderPurchPro();},
+  submitPR:function(id){var pr=getPR(id);if(!pr)return;if(!stillAt(pr,'Draft'))return; /* v22.54 audit (PUR-2/PUR-3): a stale Draft screen never skips Department Approval or revives a cancelled request */
+    advance(pr,'Submitted by '+who());toast(pr.number+' submitted');renderPurchPro();},
   runAI:function(id){
     var pr=getPR(id);if(!pr)return;
+    if(!stillAt(pr,['Submitted','AI Validation']))return; /* v22.54 audit (PUR-2) */
     if(pr.status==='Submitted')advance(pr,'AI analysis started');
     pr.aiAnalysis=analyzePR(pr);savePR(pr);audit('pr:ai',pr.number,pr.aiAnalysis.overall);
     renderPurchPro();
   },
   aiAccept:function(id){
     var pr=getPR(id);if(!pr||!pr.aiAnalysis)return;
+    if(!stillAt(pr,'AI Validation'))return; /* v22.54 audit (PUR-2/PUR-3): a stale AI screen never skips Department Approval, never revives a cancelled request and never closes one that moved on */
     if(pr.aiAnalysis.purchaseRequired){advance(pr,'AI accepted: purchase required');}
     else{pr.status='Completed';pr.workflow.push({stage:'Completed',at:Date.now(),by:who(),note:'Closed — AI: purchase not required (stock/transfer covers need)'});savePR(pr);audit('pr:closed-no-purchase',pr.number,'');}
     toast('Recorded');renderPurchPro();
   },
   aiOverride:function(id){
     var pr=getPR(id);if(!pr)return;
+    if(!stillAt(pr,'AI Validation'))return; /* v22.54 audit (PUR-2/PUR-3) */
     var reason=prompt('Override justification (required, recorded permanently):');
     if(!reason||!reason.trim())return;
-    pr.overrides.push({at:Date.now(),by:who(),stage:pr.status,reason:reason.trim()});
+    pr=getPR(id);if(!stillAt(pr,'AI Validation'))return; /* it may have moved on while the question was open */
+    pr.overrides=pr.overrides||[];pr.overrides.push({at:Date.now(),by:who(),stage:pr.status,reason:reason.trim()});
     advance(pr,'OVERRIDE: '+reason.trim());
     audit('pr:override',pr.number,reason.trim());toast('Override recorded');renderPurchPro();
   },
@@ -98920,9 +98981,23 @@ window.__PURPRO={
     renderPurchPro();
   },
   /* v22.28: the stage the button was drawn on travels with it — a stale screen cannot skip a stage another computer changed */
-  simpleAdvance:function(id,note,fromStage){var pr=getPR(id);if(!pr)return;
-    if(fromStage&&pr.status!==fromStage){toast(pr.number+' already moved on (now: '+pr.status+') — screen refreshed','warn');renderPurchPro();return;}
+  simpleAdvance:function(id,note,fromStage,poId){var pr=getPR(id);if(!pr)return;
+    /* v22.54 audit (PUR-6): at the Purchase Order step the issued PO the button was drawn for travels with it — a request sent back
+       and awarded again is at "Purchase Order" once more on a NEW draft PO, and a stale ➡ Move to receiving no longer sends it to
+       Receiving on a purchase order that was never issued */
+    if(!stillAt(pr,fromStage||null,(fromStage||pr.status)==='Purchase Order'?(poId||true):null))return;
     advance(pr,note);renderPurchPro();},
+  /* v22.54 audit (DSAFE-4): the trial's ✔ Added items checked, so a stable computer can clear items added after approval */
+  acceptAdded:function(prId){
+    var pr=getPR(prId);if(!pr||!pr.addedPending)return;
+    var ok=pr.addedPending.need==='approver'?isPurchApprover():(isPurchChecker()||isPurchApprover());
+    if(!ok){toast(pr.addedPending.need==='approver'?'Eyal or Dr Amy check these added items':'Jinky checks these added items','warn');return;}
+    if((pr.items||[]).some(function(it){return it.addedAfterApproval&&String(it.addedBy||'')===who();})){alert('⛔ You added items to '+pr.number+' — someone else checks them.');return;}
+    pr.addedChecks=pr.addedChecks||[];pr.addedChecks.push({by:who(),at:Date.now(),need:pr.addedPending.need});
+    delete pr.addedPending;pr.approvedEstimate=prTotal(pr);
+    pr.workflow=pr.workflow||[];pr.workflow.push({stage:pr.status,at:Date.now(),by:who(),note:'Added items checked'});
+    savePR(pr);audit('pr:added-checked',pr.number,'');toast('Added items checked');renderPurchPro();
+  },
   /* v22.28 (A5-38): Jinky's content check — Eyal and Dr Amy are told in their inbox */
   checkPR:function(id){
     if(!isPurchChecker()){toast('The content check is Jinky\'s (Mission Control ▸ 👥 Purchasing roles)','warn');return;}
@@ -98943,6 +99018,11 @@ window.__PURPRO={
   },
   createRFQ:function(prId){
     var pr=getPR(prId);if(!pr||!S._sourcing)return;
+    /* v22.54 audit (PUR-5/DSAFE-5): only at Supplier Sourcing — a stale screen never makes an RFQ for (and moves on) a request that is
+       further, or cancelled — and an RFQ still "Awarded" by an award undone on another computer is opened again first (the draft PO
+       left behind is cancelled): the picks join it and its offers stay. A second RFQ is never made next to it. */
+    if(!stillAt(pr,'Supplier Sourcing'))return;
+    if(healStaleAward(pr))pr=getPR(prId)||pr;
     var picks=[].slice.call(document.querySelectorAll('.ppSrcPick:checked')).map(function(b){return S._sourcing[Number(b.dataset.i)];}).filter(Boolean);
     if(!picks.length){alert('Pick at least one supplier.');return;}
     /* v22.52: a request sent back to Supplier Sourcing keeps its open RFQ — the picks join it (same number, every offer kept) */
@@ -99256,10 +99336,37 @@ window.__PURPRO={
       setTimeout(function(){if(!used)window.open=wo;},30000);}catch(e){}
     window.hnxFilesOpen(ff.key);
   },
+  /* v22.54 audit (DSAFE-3): an open RFQ left behind next to the request's RFQ (see orphanRFQs) — its suppliers and offers join the
+     request's RFQ, or the request goes on with it when it has no open RFQ of its own */
+  rfqAdopt:function(prId,oId){
+    var pr=getPR(prId);if(!pr)return;
+    if(!stillAt(pr,['Supplier Sourcing','RFQ','Quotation Evaluation','Approval']))return;
+    var o=getRFQ(oId);if(!o||o.prId!==pr.id||o.id===pr.rfqId||o.status!=='Open'){toast('That RFQ is no longer open next to '+pr.number+' — screen refreshed','warn');renderPurchPro();return;}
+    if(healStaleAward(pr))pr=getPR(prId)||pr;
+    var cur=pr.rfqId&&getRFQ(pr.rfqId),now=Date.now(),me=who();
+    if(!cur||cur.status!=='Open'){
+      pr.rfqId=o.id;pr.workflow=pr.workflow||[];pr.workflow.push({stage:pr.status,at:now,by:me,note:'⇄ Goes on with '+o.number+(cur?' ('+cur.number+' is '+cur.status+')':'')});
+      savePR(pr);audit('rfq:adopt',o.number,pr.number);toast(pr.number+' goes on with '+o.number);renderPurchPro();return;}
+    var have={};(cur.suppliers||[]).forEach(function(x,i){have[String(x.name||'').trim().toLowerCase()]=i;});
+    var moved=[],filled=[];cur.suppliers=cur.suppliers||[];
+    (o.suppliers||[]).forEach(function(s){var k=String((s&&s.name)||'').trim().toLowerCase();if(!k)return;
+      if(have[k]==null){cur.suppliers.push(Object.assign({},s,{movedFrom:o.number,movedAt:now,movedBy:me}));have[k]=cur.suppliers.length-1;moved.push(s.name);return;}
+      var c=cur.suppliers[have[k]],got=false;
+      if(!c.quote&&s.quote){c.quote=s.quote;got=true;}
+      if(!(c.options||[]).length&&(s.options||[]).length){c.options=s.options;got=true;}
+      if(got){c.movedFrom=o.number;filled.push(s.name);}
+    });
+    o.status='Cancelled';o.mergedInto=cur.id;o.cancelled={at:now,by:me,reason:'merged into '+cur.number+' — '+pr.number+' goes on with '+cur.number};
+    saveRFQ(cur);saveRFQ(o);
+    pr.workflow=pr.workflow||[];pr.workflow.push({stage:pr.status,at:now,by:me,note:'⇄ '+o.number+' brought into '+cur.number+(moved.length?' · suppliers added: '+moved.join(', '):'')+(filled.length?' · offers filled in: '+filled.join(', '):'')});savePR(pr);
+    audit('rfq:merge',o.number,'into '+cur.number+' · '+moved.concat(filled).join(', '));
+    toast(o.number+' brought into '+cur.number+' — '+moved.length+' supplier'+(moved.length===1?'':'s')+' added'+(filled.length?', '+filled.length+' offer'+(filled.length===1?'':'s')+' filled in':''));renderPurchPro();
+  },
   /* v22.52: a request sent back to Supplier Sourcing goes on with its open RFQ — same number, every supplier and offer kept */
   rfqContinue:function(prId){
     var pr=getPR(prId);if(!pr)return;
     if(pr.status!=='Supplier Sourcing'){toast(pr.number+' already moved on (now: '+pr.status+') — screen refreshed','warn');renderPurchPro();return;}
+    if(healStaleAward(pr))pr=getPR(prId)||pr; /* v22.54 audit (PUR-5/DSAFE-5): an RFQ left "Awarded" by an undone award opens again */
     var rfq=pr.rfqId&&getRFQ(pr.rfqId);if(!rfq||rfq.status!=='Open'){toast('No open RFQ to go on with — create one','warn');renderPurchPro();return;}
     var n=0;(rfq.suppliers||[]).forEach(function(s){if(s.quote)n++;n+=optLive(s).length;});
     advance(pr,'Back to '+rfq.number+' — '+rfq.suppliers.length+' suppliers, '+n+' offers kept');toast(pr.number+' → '+pr.status+' ('+rfq.number+')');renderPurchPro();
@@ -99372,8 +99479,11 @@ window.__PURPRO={
     po.revisions=po.revisions||[];po.revisions.push({at:Date.now(),by:who(),reason:reason.trim()});
     savePO(po);audit('po:amend',po.number,reason.trim());toast('Amendment recorded');renderPurchPro();
   },
-  recordGRN:function(prId){
-    var pr=getPR(prId);var po=pr&&getPO(pr.poId);if(!po)return;
+  recordGRN:function(prId,poId){
+    var pr=getPR(prId);if(!pr)return;
+    if(!stillAt(pr,'Receiving',poId||true))return; /* v22.54 audit (PUR-6): goods are received only at Receiving, on the issued PO the screen showed */
+    var po=getPO(pr.poId);if(!po)return;
+    if(po.status==='Draft'||po.status==='Cancelled'||/^Closed/.test(po.status)){alert('⛔ '+po.number+' is '+po.status+' — nothing can be received on it.');return;} /* v22.54 audit (PUR-6, the v22.31 trial's PW-11 guard) */
     var lines=[];
     po.items.forEach(function(it,i){
       var acc=Number((document.getElementById('ppGacc'+i)||{}).value||0);
@@ -99420,8 +99530,9 @@ window.__PURPRO={
     }catch(_e){}
     audit('grn:record',g.number,po.number);toast(g.number+' recorded');renderPurchPro();
   },
-  completePR:function(prId){
+  completePR:function(prId,poId){
     var pr=getPR(prId);if(!pr)return;
+    if(!stillAt(pr,'Receiving',poId||true))return; /* v22.54 audit (PUR-1): a stale Receiving screen never completes a request that was sent back, moved on or has no issued PO */
     var inv=L(K.invs).find(function(i){return i.poId===pr.poId&&i.matchStatus==='Matched';});
     if(!confirm('Complete '+pr.number+'?'+(inv?' Invoice matched ✓':' No matched invoice yet — you can still complete and match later.')))return;
     var po=getPO(pr.poId);if(po&&po.status==='Fully Delivered'){po.status='Closed';savePO(po);}
@@ -99540,12 +99651,12 @@ function canEditPurch(){
   }catch(e){return false;}
 }
 window.__PURPRO.canEdit=canEditPurch;
-['saveDraft','submitPR','runAI','aiAccept','aiOverride','simpleAdvance','createRFQ','sendRFQ','srcAdopt','srcAddNew','rfqContact','saveQuote','amendPO','recordGRN','completePR','addInvoice','rematch','a2aWeightsSave','fromInv','srcClass','rfqAddSupplier','rfqRemoveSupplier','editPR','optRemove','rfqContinue','finalRestore'] /* v22.48: the RFQ supplier changes need Purchasing EDIT too; v22.52: edit a draft, options, go on with an open RFQ (↩ goBack checks its own rule) */.forEach(function(k){
+['rfqAdopt','saveDraft','submitPR','runAI','aiAccept','aiOverride','simpleAdvance','createRFQ','sendRFQ','srcAdopt','srcAddNew','rfqContact','saveQuote','amendPO','recordGRN','completePR','addInvoice','rematch','a2aWeightsSave','fromInv','srcClass','rfqAddSupplier','rfqRemoveSupplier','editPR','optRemove','rfqContinue','finalRestore'] /* v22.48: the RFQ supplier changes need Purchasing EDIT too; v22.52: edit a draft, options, go on with an open RFQ (↩ goBack checks its own rule) */.forEach(function(k){
   var f=window.__PURPRO[k];if(typeof f!=='function')return;
   window.__PURPRO[k]=function(){if(!canEditPurch()){toast('🔒 Purchasing changes need Accounting or Purchasing EDIT — ask Admin ▸ Users','warn');return;}return f.apply(this,arguments);};
 });
 /* v22.28 (A5-37): when Mission Control ▸ 👥 Purchasing roles names Buyers / Warehouse people, only they (and Eyal / Dr Amy) do that step */
-['createRFQ','sendRFQ','saveQuote','srcAdopt','srcAddNew','rfqContact','rfqAddSupplier','rfqRemoveSupplier','optRemove','rfqContinue','finalRestore'].forEach(function(k){
+['rfqAdopt','createRFQ','sendRFQ','saveQuote','srcAdopt','srcAddNew','rfqContact','rfqAddSupplier','rfqRemoveSupplier','optRemove','rfqContinue','finalRestore'].forEach(function(k){
   var f=window.__PURPRO[k];if(typeof f!=='function')return;
   window.__PURPRO[k]=function(){if(!isPurchBuyer()){toast('🔒 RFQs and supplier offers are the Buyers\' step (Mission Control ▸ 👥 Purchasing roles)','warn');return;}return f.apply(this,arguments);};
 });
@@ -281526,7 +281637,7 @@ AC.push({name:'Purchase requests',icon:'🛒',go:'acct_purch_pro',title:'Every p
      collapsed to stage 0 "Draft", none could be Completed and none could be waiting for a decision. */
   var stageOf=function(r){return String((r&&(r.status||r.stage))||'Draft');};
   var idx=function(r){var i=PURCH_STAGES.indexOf(stageOf(r));return i<0?0:i;};
-  var doneS=[],waiting=[],moving=[],stuck=[];
+  var doneS=[],waiting=[],moving=[],stuck=[],cxl=0;
   /* v19.33 (MODS6-02 / MODS6-03): a purchase request carries number / items[] and its value is the
      sum of qty × unit cost — no, ref, lines and total are written by nobody, so every row was
      labelled with the internal uid and never showed a peso figure or a line count. */
@@ -281537,13 +281648,14 @@ AC.push({name:'Purchase requests',icon:'🛒',go:'acct_purch_pro',title:'Every p
       [stageOf(r),r.dept||r.department||'',ln?(ln+' line(s)'):'',t?P(t):'',d10(r.createdAt),age!=null?(age+' day(s) old'):'',x||''].filter(Boolean).join(' · '),sev,goV('acct_purch_pro'));};
   R.forEach(function(r){var i=idx(r),age=r.createdAt?-dd(today(),d10(r.createdAt)):null;
     if(stageOf(r)==='Completed'){doneS.push(mk(r,'done'));return;}
+    if(stageOf(r)==='Cancelled'){cxl++;return;} /* v22.54 audit (PUR-8): a cancelled request is closed — never open, never "stalled" (it sat red for ever) */
     if(age!=null&&age>21){stuck.push(mk(r,'crit','stalled for over three weeks'));return;}
     if(/Approval|Review|Validation/.test(stageOf(r)))waiting.push(mk(r,'warn','waiting for a decision'));
     else moving.push(mk(r,'open'));});
   return {items:{crit:stuck,warn:waiting,done:doneS,open:stuck.concat(waiting).concat(moving),total:R.map(function(r){return mk(r,'info');})},
-    total:R.length,open:R.length-doneS.length,crit:stuck.length,warn:waiting.length,done:doneS.length,
-    pct:Math.round(100*doneS.length/R.length),
-    text:stuck.length?(stuck.length+' request(s) stalled for over three weeks'):(waiting.length?waiting.length+' waiting for a decision':doneS.length+' of '+R.length+' completed'),
+    total:R.length,open:R.length-doneS.length-cxl,crit:stuck.length,warn:waiting.length,done:doneS.length,cancelled:cxl,
+    pct:R.length>cxl?Math.round(100*doneS.length/(R.length-cxl)):100,
+    text:stuck.length?(stuck.length+' request(s) stalled for over three weeks'):(waiting.length?waiting.length+' waiting for a decision':doneS.length+' of '+(R.length-cxl)+' completed'+(cxl?' · '+cxl+' cancelled':'')),
     reds:stuck.slice(0,3).map(function(x){return x.label+' · stalled';})};}});
 AC.push({name:'Purchase orders & receiving',icon:'📦',go:'acct_purch_pro',title:'Issued purchase orders and what has actually been received against them',compute:function(){
   var PO=A('hydroPro_purch_pos').filter(function(p){return p&&(!p.status||p.status==='Draft'||(window.__PURPRO&&typeof window.__PURPRO.livePO==='function'?window.__PURPRO.livePO(p):String(p.status).toLowerCase()!=='cancelled'));}),GR=A('hydroPro_purch_grns'); /* v22.52: an award undone by ↩ Go back leaves a Cancelled PO — not counted */
@@ -293782,6 +293894,15 @@ window.HNX_HELP_MODULES_B = [
    'A purchase order on the way back: a draft PO, or an issued PO with nothing received and no invoice, is cancelled (it stays in the list as Cancelled). If goods were already received or an invoice is logged, only Admin can go back and must type BACK: the PO, its receipts and its invoices are NOT deleted — the PO is marked “reopened by admin” and a red banner on the request says goods were received. No second PO is awarded while it is live (Admin is asked to confirm).',
    'A PO left behind when two computers crossed (an award on one, a step back on the other, before they synced): a DRAFT PO of a request that is back before the PO step is cancelled by itself as soon as someone logs an offer, adds a supplier, goes back or awards. An ISSUED PO left live shows the red banner; Admin presses ✕ Cancel PO-… there (nothing received, no invoice) or ↩ Mark reopened by admin (receipts and invoices kept; a reason is asked) — then the request can be awarded again.',
    'Who is told: the requester in the inbox; Eyal and Dr Amy when an approval or a PO was undone; Jinky when the request waits for her check again; the buyer when it goes back to Sourcing or later. The workflow history keeps who went back, from where, why and what was cleared.']},
+  {h:'🛑 A Purchasing screen left open on another computer (v22.54)', p:[
+   'The Purchasing screen does not redraw by itself when another computer changes a request, so a screen left open can show a stage the request has already left. Every button that moves a request — 🚀 Submit, 🤖 Run AI analysis, ✅ Accept and ✋ Override, the ✅ … proceed buttons, 📨 Create RFQ and ➡ Continue with RFQ-…, ➡ Move to receiving, 📦 Record GRN and ✅ Complete — first reads the request again. If it was sent back, moved on or cancelled meanwhile, nothing is changed: a message says where it is now and the screen is drawn again.',
+   'A CANCELLED request never moves again from a stage button — only Admin reopens it, with ↩ Reopen… on its stage card.',
+   '➡ Move to receiving works only on the purchase order the screen showed, and only once it is issued: a request sent back and awarded again is at Purchase Order on a NEW draft PO — issue it first. Goods are received (📦 Record GRN) only while the request is at Receiving, on the purchase order the screen showed; nothing is received on a draft, cancelled or closed PO. ✅ Complete needs the request at Receiving with an issued purchase order.',
+   'An RFQ that still says Awarded although its award was undone on another computer (no issued PO holds it) is offered again at Supplier Sourcing: “RFQ-… is still open”, ➡ Continue with RFQ-… and ➕ Add the selected to RFQ-…. Pressing either opens it again with every offer and cancels the draft PO left behind — a second RFQ is never made next to it.',
+   'An older copy of Nexi (the rollback copy, or a computer that has not reloaded yet) does not know this and can make a NEW RFQ for a request that was sent back to Supplier Sourcing, leaving the old RFQ and its offers open on the side. Back on this copy the stage card says “RFQ-… is also open for PR-…”: a Buyer presses ⇄ Bring its suppliers and offers into RFQ-… — suppliers missing from the request\'s RFQ are added with their offers, options and final offers, a supplier on both keeps the offer it has here, and the old RFQ is closed as merged (kept in the RFQ list, nothing deleted).',
+   '📎 Upload final offer pressed again while the file is still uploading is refused (“still uploading”) — the final offer is saved once, Eyal and Dr Amy are told once. If another computer saved an offer or a final offer for that supplier while the file was uploading, nothing is saved: check the offer, then upload again if it is still needed.',
+   'Items added to a request after its approval (➕ Add an item at the RFQ or the evaluation) are checked before the award on EVERY computer: the evaluation and the award step say “Items were added after approval” with ✔ Added items checked for Jinky (Eyal or Dr Amy when the request grew a lot), and 🏅 Approve award is refused until then.',
+   'Cancelled requests are not counted as open: Mission Control (open, Open value, past need-by alerts, priority queue), 📈 Analytics (Open PRs) and the Accounting cockpit “Purchase requests” (open, stalled for over three weeks) leave them out.']},
   {h:'➕ Suppliers and Option B at evaluation (v22.52)', p:[
    'At Quotation Evaluation you no longer have to go back to the RFQ to change offers. Under the comparison: ➕ Add a supplier (its offer form opens at once). Above it, “No offer yet” lists the suppliers whose offer is still to be logged, each with ➕ Log offer.',
    'On each row (Buyers, or anyone with Purchasing edit when no Buyers are named): ✏ Edit offer, ＋ Option and 📎 Final offer. ＋ Option logs an ALTERNATIVE item from the same supplier — for example SWCC offers Marine plywood 3/4 instead of the phenolic board: Option B, with its own quantity, price, VAT, delivery and terms. A supplier can have Options B, C and D; ✕ takes an option off with a reason (it is kept in the record).',
