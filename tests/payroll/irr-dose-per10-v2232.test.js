@@ -2,7 +2,7 @@
    each 10cm 2 AB pure water · If over tank (no way unless saying other wise) should be double AB" — and "this recommendation should be
    with graphics images colored motion as well showing exactly how much to fill so we can follow up the proportions".
    Pools (IRR_POOLS_DEFAULT): P01 238×85 cm (≈202 L per 10 cm), daily 60; P02 same; P03 197×115, daily 60; P07 150×143, daily 100;
-   P09 236×142, daily 50. The project pools (P11A …) were not named and keep the EC matrix (irr-dose.test.js case 1). */
+   P09 236×142, daily 50. The project pools not named keep the EC matrix (irr-dose.test.js case 1, PRJ12-A); PRJ11 is 0.5 L per 10 cm since v22.46 (irr-v2246). */
 const NEW="typeof window.hnxIrrRecipe==='function'&&typeof window.irrAbPer10==='function'";
 const OPEN=`window.__hnxPulledOk=true;localStorage.setItem('_v2_46_97_dose_migration_done','1');window.showToast=()=>{};window.confirm=()=>true;
   switchView('irr_nutrients');await sleep(900);window.irrSetPoolTime('08:00');renderIrrPoolMonitor();await sleep(300);

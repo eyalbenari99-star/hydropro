@@ -51,11 +51,11 @@ module.exports=[
     return {past,todayButtons:(h2.match(/irrSavePool\\('P01'/g)||[]).length>0,todayLock:h2.indexOf('🔒 past day')>=0};`),
   expect:{past:{a21:true,buttons:0,lock:true},todayButtons:true,todayLock:false} },
 
-{ name:'🏠 The paired rooms follow 1 L per 10 cm: a wizard pool in GH7_8 → 1, in GH3_4 → 1, GH9 → 2, GH11 → none (EC matrix), a project pool PRJ11 → none',
+{ name:'🏠 The paired rooms follow 1 L per 10 cm: a wizard pool in GH7_8 → 1, in GH3_4 → 1, GH9 → 2, GH11 → none (EC matrix); a pool added to project room PRJ11 → 0.5 (Eyal 11 Oct: 500 ml per 10 cm, v22.46), PRJ12 → none',
   requires:NEW,
   run:fn(`const f=g=>irrAbPer10({id:'P_X_'+g+'_1',greenhouse:g});
-    return {gh78:f('GH7_8'),gh34:f('GH3_4'),gh9:f('GH9'),gh11:f('GH11'),prj:f('PRJ11')};`),
-  expect:{gh78:1,gh34:1,gh9:2,gh11:null,prj:null} },
+    return {gh78:f('GH7_8'),gh34:f('GH3_4'),gh9:f('GH9'),gh11:f('GH11'),prj:f('PRJ11'),prj12:f('PRJ12')};`),
+  expect:{gh78:1,gh34:1,gh9:2,gh11:null,prj:0.5,prj12:null} },
 
 { name:'🧮 Exact halves round UP: Pool 1 at 10 cm, mix 15% over-tank → gap 50 × 1.15 = 57.5 → 5.8 L each (5800 cc; 5.7 L before — 57.4999… in floating point); the drawing says "×1.15" (it printed ×1.2)',
   requires:NEW,
@@ -148,11 +148,12 @@ module.exports=[
     return {past,today};`),
   expect:{past:false,today:true} },
 
-{ name:'🎞 (review 2) A jug waits EMPTY for its turn (no full jug that snaps empty): A 3.1 L in "always" → 150 ms after drawing, the 3rd jug is at scale 0 (a matrix, not "none"); the screen-reader label of a project pool with no EC says "A/B: enter EC first"; a fill-rule pool on 15% mix says "whole litres before ×1.15"; on a phone the Nexi row has no "Pool" card label',
+{ name:'🎞 (review 2) A jug waits EMPTY for its turn (no full jug that snaps empty): A 3.1 L in "always" → 150 ms after drawing, the 3rd jug is at scale 0 (a matrix, not "none") — v22.46: the jugs in the A box, where the card draws them; the screen-reader label of a project pool with no EC says "A/B: enter EC first"; a fill-rule pool on 15% mix says "whole litres before ×1.15"; on a phone the Nexi row has no "Pool" card label',
   requires:NEW,
   run:fn(`irrSavePool('P01','water','29');irrSavePool('P01','EC','1.7');await sleep(300);hnxIrrViz.setMotion('always');renderIrrPoolMonitor();
     try{RX('P01').scrollIntoView({block:'center'});}catch(e){}await sleep(150);
-    const f=[...RX('P01').querySelectorAll('.irr-rx-step')[1].querySelectorAll('.fill')];const tr=f[2]?getComputedStyle(f[2]).transform:'none';
+    const aBox=[...document.querySelectorAll('#stubIrrNutrientsBody .irr-cv')].find(e=>/^A 3.1 L/.test(e.getAttribute('aria-label')||'')); /* v22.46: on the cards the drawing's jugs are the A box's */
+    const f=(aBox&&aBox.offsetParent!==null)?[...aBox.querySelectorAll('.cv-fill')]:[...RX('P01').querySelectorAll('.irr-rx-step')[1].querySelectorAll('.fill')];const tr=f[2]?getComputedStyle(f[2]).transform:'none';
     const waits=/^matrix\\(/.test(tr)&&Math.abs(+(tr.match(/matrix\\(([^,]+),[^,]+,[^,]+,\\s*([^,]+)/)||[0,1,1])[2])<0.05;
     const h=hnxIrrRecipe({id:'PRJ_T',label:'Test pool',dim:{L:200,W:100}},{water:'40'},{gap:20,target:60,waterL:400,aCC:0,bCC:0,cCC:100,ec:'',mode:'matrix'});
     const aria=(/aria-label="([^"]*)"/.exec(h)||[])[1]||'';
