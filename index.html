@@ -97607,6 +97607,7 @@ function advance(pr,note){
   pr.workflow=pr.workflow||[];
   pr.workflow.push({stage:pr.status,at:Date.now(),by:who(),note:note||''});
   if(pr.status==='Department Approval'){delete pr.checkedBy;delete pr.checkedAt;} /* v22.28: every approval round is checked again */
+  try{S.quoteOpen=null;S.quoteOpenName=null;S.backOpen=null;}catch(e){} /* v22.52: a form opened at the old stage closes */
   savePR(pr);audit('stage:'+pr.status,pr.number,note||'');
   /* v22.28 (A5-38): Jinky is told in her inbox that a request waits for her content check */
   if(pr.status==='Department Approval'){
@@ -97614,8 +97615,355 @@ function advance(pr,note){
   }
 }
 
+/* ---------- v22.52 (Eyal 11 Oct 2026, PR-2026-000010 "3/4 Phenolic Board" at Quotation Evaluation: "1. need to go back and edit if
+   not yet final any stage 2. need to add suppliers and items as option 3. need to upload final offer option" — and "Unless final
+   offer comes want to go back any stage and admin should go back any case") ----------
+   ↩ GOING BACK. Until a FINAL OFFER is in (any offer or option on the request's RFQ marked final), whoever may edit Purchasing sends
+   a request back to ANY earlier stage with a reason — a Buyer when the target is Sourcing / RFQ / Evaluation, Eyal or Dr Amy when it
+   undoes an award or a completed request. Once a final offer is in, ONLY the primary Admin (role admin) goes back — and the Admin
+   goes back in any case: past an issued PO (cancelled when nothing was received and no invoice is live; with goods received or a
+   live invoice the PO, its receipts and invoices are KEPT, marked "reopened by admin", after typing BACK). Only the checks and
+   approvals recorded at or after the target stage are cleared; suppliers, offers, options, final offers and every history row stay.
+   ➕ OPTIONS. A supplier can offer up to 3 alternative items (Option B, C, D) next to its offer (Option A); each is scored apple to
+   apple like any offer. 📎 FINAL OFFER. The supplier's final offer file goes to the Nexi cloud (R2, like Tasks evidence); revised
+   price and terms are optional and the previous offer is kept in its history. */
+function isPurchAdmin(u){u=u||_pu();return !!u&&u.role==='admin';}
+function livePO(p){return !!p&&!!p.status&&p.status!=='Draft'&&p.status!=='Cancelled';} /* issued and not cancelled — what Health, Invoices and the lists count */
+function prPOs(pr){return pr?L(K.pos).filter(function(p){return p&&p.prId===pr.id;}):[];}
+function poGot(po){var n=0;L(K.grns).forEach(function(g){if(g&&g.poId===po.id)(g.lines||[]).forEach(function(l){n+=Number(l.accepted||0);});});return n;}
+function poInvs(po){return L(K.invs).filter(function(i){return i&&i.poId===po.id&&i.status!=='Rejected'&&i.status!=='Void';});}
+function jsq(s){return esc(String(s==null?'':s).replace(/['"\\\n\r]/g,''));} /* text inside an onclick='…' argument */
+function finalOfferIn(pr){
+  if(!pr)return null;
+  var rfq=pr.rfqId&&getRFQ(pr.rfqId),hit=null;
+  ((rfq&&rfq.suppliers)||[]).concat((rfq&&rfq.removed)||[]).forEach(function(s){
+    if(hit||!s)return;
+    if(s.quote&&s.quote.final)hit={sup:s.name,label:'A',at:s.quote.finalAt,by:s.quote.finalBy};
+    (s.options||[]).forEach(function(o){if(!hit&&o&&o.quote&&o.quote.final)hit={sup:s.name,label:o.label,at:o.quote.finalAt,by:o.quote.finalBy};});
+  });
+  return hit||pr.finalOffer||null;
+}
+/* the stages a request can go back to, newest first (a request that never had an RFQ or a PO does not go back to one) */
+function backTargets(pr){
+  var i=STAGES.indexOf(pr&&pr.status);if(i<1)return [];
+  var hasRfq=!!(pr.rfqId&&getRFQ(pr.rfqId)),hasPo=!!(pr.poId&&getPO(pr.poId)),out=[];
+  for(var k=i-1;k>=0;k--){
+    if(!hasRfq&&k>=STAGES.indexOf('RFQ'))continue;
+    if(!hasPo&&k>=STAGES.indexOf('Purchase Order'))continue;
+    out.push(STAGES[k]);
+  }
+  return out;
+}
+/* null = the signed-in person may send pr back to `to`; otherwise why not (shown on the screen) */
+function backBlock(pr,to){
+  if(!pr)return 'Request not found';
+  if(pr.status==='Cancelled')return pr.number+' is cancelled — raise a new request';
+  if(backTargets(pr).indexOf(to)<0)return '“'+to+'” is not an earlier stage of '+pr.number;
+  if(isPurchAdmin())return null; /* the primary Admin goes back in any case */
+  var fin=finalOfferIn(pr);
+  if(fin)return 'Final offer received ('+fin.sup+(fin.label&&fin.label!=='A'?' · Option '+fin.label:'')+') — only Admin can go back';
+  if(!canEditPurch())return 'Going back needs Accounting or Purchasing EDIT — ask Admin ▸ Users';
+  var ti=STAGES.indexOf(to),ci=STAGES.indexOf(pr.status),POI=STAGES.indexOf('Purchase Order');
+  if(ti>=STAGES.indexOf('Supplier Sourcing')&&ti<=STAGES.indexOf('Quotation Evaluation')&&!isPurchBuyer())return 'Sourcing, RFQs and offers are the Buyers\' step (Mission Control ▸ 👥 Purchasing roles)';
+  if(((ci>=POI&&ti<POI)||pr.status==='Completed')&&!canApprovePurch())return 'This undoes '+(pr.status==='Completed'?'a completed request':'an award')+' — only Eyal or Dr Amy (or Admin) send it back';
+  var po=pr.poId&&getPO(pr.poId);
+  if(po&&ti<POI&&po.status!=='Cancelled'&&(poGot(po)>0||poInvs(po).length))return 'Goods were received or an invoice is logged on '+po.number+' — only Admin can go back';
+  return null;
+}
+function backAllowed(pr){return backTargets(pr).filter(function(t){return !backBlock(pr,t);});}
+function lastApprover(pr){var w=(pr.workflow||[]).slice().reverse().filter(function(x){return /^Approved by /.test(x.note||'');})[0];return w?String(w.note).replace(/^Approved by /,'').replace(/\s*\(.*$/,''):'';}
+/* what has to be done again when pr goes back to `to` */
+function backRedo(pr,to){
+  var I=function(s){return STAGES.indexOf(s);},ti=I(to),ci=I(pr.status),out=[];
+  var po=pr.poId&&getPO(pr.poId),rfq=pr.rfqId&&getRFQ(pr.rfqId);
+  if(ti<=I('AI Validation')&&(pr.aiAnalysis||pr.closeRequest||ci>I('AI Validation')))out.push('Nexi\'s AI check');
+  if(ti<=I('Department Approval')&&ci>=I('Department Approval')){
+    if(pr.checkedBy)out.push(pr.checkedBy+'\'s content check');
+    var ab=pr.approvedBy||(ci>I('Department Approval')?lastApprover(pr):'');
+    if(ab||ci>I('Department Approval'))out.push((ab||'Eyal / Dr Amy')+'\'s approval');
+  }
+  if(ti<=I('Purchasing Review')&&ci>I('Purchasing Review'))out.push('the purchasing review'+(pr.reviewedBy?' ('+pr.reviewedBy+')':''));
+  if(ti<=I('Inventory Verification')&&ci>I('Inventory Verification'))out.push('the stock check');
+  if(rfq&&ti<I('Purchase Order')&&(rfq.status==='Awarded'||ci>=I('Purchase Order')))out.push('the award'+(rfq.awardedTo?' to '+rfq.awardedTo+(rfq.awardedOption?' (Option '+rfq.awardedOption+')':''):''));
+  if(po&&ti<I('Purchase Order')&&po.status!=='Cancelled')out.push((poGot(po)>0||poInvs(po).length)?po.number+' reopened by Admin (receipts and invoices kept)':(po.status==='Draft'?'draft ':'')+po.number+' cancelled');
+  return out;
+}
+function backRedoText(redo){return redo.length?'Will be redone: '+esc(redo.join(' · ')):'Nothing approved is cleared — the request just goes back.';}
+/* data from before v22.52: a request that went back past the award kept its draft PO and an "Awarded" RFQ — cancel the orphan, reopen the RFQ */
+function healStaleAward(pr){
+  try{
+    if(!pr||!pr.id)return false;var ci=STAGES.indexOf(pr.status);if(ci<0||ci>=STAGES.indexOf('Purchase Order'))return false;
+    var ch=false,po=pr.poId&&getPO(pr.poId);
+    if(po&&po.status==='Draft'){po.status='Cancelled';po.cancelled={at:Date.now(),by:who(),reason:'orphan draft — '+pr.number+' is back at '+pr.status};savePO(po);audit('rfq:reopen-heal',pr.number,po.number+' (orphan draft) cancelled');pr.poId=null;ch=true;}
+    else if(po&&po.status==='Cancelled'){pr.poId=null;ch=true;}
+    var rfq=pr.rfqId&&getRFQ(pr.rfqId);
+    if(rfq&&rfq.status==='Awarded'&&!prPOs(pr).some(function(p){return p.status!=='Cancelled';})){
+      rfq.status='Open';rfq.awardedTo=null;rfq.awardedTotal=null;rfq.awardedOption=null;rfq.awardedKey=null;saveRFQ(rfq);
+      audit('rfq:reopen-heal',rfq.number,pr.number+' is at '+pr.status+' with no live PO — open again');ch=true;}
+    if(ch)savePR(pr);
+    return ch;
+  }catch(e){return false;}
+}
+function backTell(pr,from,to,why,redo,cleared){
+  try{
+    var meN=_names(_pu()),skip=function(u){return String(u.username||'').toLowerCase()==='admin'||_names(u).some(function(x){return meN.indexOf(x)>=0;});};
+    var ti=STAGES.indexOf(to),apprCleared=!!(cleared.approvedBy||cleared.approvedAt||cleared.approvedEstimate||cleared.po||cleared.rfq);
+    var buyer=String(pr.buyer||'').trim().toLowerCase();
+    purchInbox(_purchUsers(function(u){return !skip(u)&&(isRequesterOf(pr,u)||(apprCleared&&isPurchApprover(u))||(ti>=STAGES.indexOf('Supplier Sourcing')&&!!buyer&&_names(u).indexOf(buyer)>=0));}),
+      '↩ '+pr.number+' sent back to '+to,'"'+(pr.title||'')+'" — '+who()+' sent it back from '+from+': '+why+(redo.length?' · to redo: '+redo.join(', '):''),pr.id);
+    if(to==='Department Approval')purchInbox(_purchUsers(function(u){return !skip(u)&&isPurchChecker(u);}),'📝 '+pr.number+' waits for your content check','"'+(pr.title||'')+'" · '+(pr.dept||'')+' · '+money(prTotal(pr))+' — sent back from '+from+': '+why,pr.id);
+  }catch(e){}
+}
+function goBack(prId,fromStage,toStage,why,word){
+  var pr=getPR(prId);if(!pr)return false;
+  if(fromStage&&pr.status!==fromStage){toast(pr.number+' already moved (now: '+pr.status+') — screen refreshed','warn');S.backOpen=null;renderPurchPro();return false;}
+  var gv=function(id){var e=document.getElementById(id);return e?String(e.value||''):'';};
+  var to=toStage||gv('ppBackTo')||backTargets(pr)[0];
+  if(!to){toast(pr.number+' has no earlier stage to go back to','warn');return false;}
+  var blk=backBlock(pr,to);if(blk){toast('🔒 '+blk,'warn');return false;}
+  var redo=backRedo(pr,to);
+  why=String(why!=null?why:gv('ppBackWhy')).trim();
+  if(!why){var pw=prompt('Send '+pr.number+' back from "'+pr.status+'" to "'+to+'"?'+(redo.length?'\n\nTo redo: '+redo.join(' · '):'')+'\n\nReason (required):');if(pw==null)return false;why=String(pw).trim();}
+  if(!why){toast('A reason is required to go back','warn');return false;}
+  healStaleAward(pr);
+  var from=pr.status,ti=STAGES.indexOf(to),POI=STAGES.indexOf('Purchase Order'),now=Date.now(),me=who(),cleared={};
+  var po=pr.poId&&getPO(pr.poId);
+  if(po&&ti<POI&&po.status!=='Cancelled'){
+    var got=poGot(po),ninv=poInvs(po).length;
+    if(got>0||ninv){
+      if(!isPurchAdmin()){toast('🔒 Goods were received or an invoice is logged on '+po.number+' — only Admin can go back','warn');return false;}
+      var w=word!=null?word:prompt('⚠ '+po.number+' ('+po.status+') has '+(got>0?got+' received':'')+(got>0&&ninv?' and ':'')+(ninv?ninv+' live invoice(s)':'')+'.\nNothing is deleted: the PO, its receipts and its invoices stay as they are, marked "reopened by admin".\n\nType BACK to send '+pr.number+' back to '+to+':');
+      if(String(w||'').trim().toUpperCase()!=='BACK'){toast('Not sent back — type BACK to confirm','warn');return false;}
+      po.history=po.history||[];po.history.push({at:now,by:me,note:'↩ Reopened by admin — '+pr.number+' sent back from '+from+' to '+to+': '+why});
+      po.reopenedByAdmin={at:now,by:me,reason:why,toStage:to,received:got,invoices:ninv};savePO(po);
+      pr.reopenedPOs=(pr.reopenedPOs||[]).filter(function(x){return x!==po.id;}).concat([po.id]);
+      cleared.po={number:po.number,status:po.status,kept:'reopened by admin — '+got+' received, '+ninv+' invoice(s) kept'};
+      audit('po:reopen-admin',po.number,from+' → '+to+': '+why);
+    }else{
+      cleared.po={number:po.number,status:po.status,now:'Cancelled',total:po.total,supplier:po.supplier};
+      po.status='Cancelled';po.cancelled={at:now,by:me,reason:'↩ '+pr.number+' sent back from '+from+' to '+to+': '+why};
+      po.history=po.history||[];po.history.push({at:now,by:me,note:'cancelled — '+pr.number+' sent back from '+from+' to '+to+': '+why});
+      savePO(po);audit('po:cancel',po.number,'↩ '+from+' → '+to+': '+why);
+    }
+    cleared.poId=pr.poId;pr.poId=null;
+  }
+  var rfq=pr.rfqId&&getRFQ(pr.rfqId);
+  if(rfq&&ti<POI&&rfq.status==='Awarded'){ /* the RFQ is open again — every supplier, offer, option and final offer is kept */
+    cleared.rfq={number:rfq.number,status:rfq.status,awardedTo:rfq.awardedTo||null,awardedTotal:rfq.awardedTotal!=null?rfq.awardedTotal:null,awardedOption:rfq.awardedOption||null};
+    rfq.status='Open';rfq.awardedTo=null;rfq.awardedTotal=null;rfq.awardedOption=null;rfq.awardedKey=null;
+    rfq.reopened=(rfq.reopened||[]).concat([{at:now,by:me,reason:why,from:from,to:to}]);saveRFQ(rfq);
+  }
+  var clr=function(keys){keys.forEach(function(k){if(pr[k]!=null&&pr[k]!=='')cleared[k]=(k==='aiAnalysis'?((pr[k]&&pr[k].overall)||'AI analysis'):pr[k]);delete pr[k];});};
+  if(ti<=STAGES.indexOf('Inventory Verification'))clr(['stockCheck']);
+  if(ti<=STAGES.indexOf('Purchasing Review'))clr(['reviewedBy','reviewedAt']);
+  if(ti<=STAGES.indexOf('Department Approval'))clr(['checkedBy','checkedAt','approvedBy','approvedAt','approvedEstimate','addedPending']);
+  if(ti<=STAGES.indexOf('AI Validation'))clr(['aiAnalysis','closeRequest']);
+  pr.status=to;pr.workflow=pr.workflow||[];
+  pr.workflow.push({stage:to,at:now,by:me,note:'↩ Back from '+from+' to '+to+': '+why+' · to redo: '+(redo.length?redo.join(', '):'the steps from '+to+' on'),back:{from:from,to:to,cleared:cleared}});
+  savePR(pr);audit('stage:back',pr.number,from+' → '+to+': '+why);
+  S.quoteOpen=null;S.quoteOpenName=null;S.backOpen=null;
+  backTell(pr,from,to,why,redo,cleared);
+  toast(pr.number+' is back at '+to+(redo.length?' — to redo: '+redo.join(', '):''));renderPurchPro();
+  return true;
+}
+/* ↩ on the stage card: the button, or why this person cannot go back */
+function backCtl(pr){
+  var tg=backTargets(pr);if(!tg.length)return '';
+  if(!backAllowed(pr).length){var why=backBlock(pr,tg[0])||'';return '<span style="font-size:11px;color:var(--text3);font-weight:600;">🔒 '+esc(why)+'</span>';}
+  return actBtn('↩ Go back…','__PURPRO.backOpen(\''+pr.id+'\')');
+}
+function backPanel(pr){
+  if(!S.backOpen||S.backOpen.prId!==pr.id)return '';
+  var ok=backAllowed(pr);if(!ok.length)return '';
+  var to=ok.indexOf(S.backOpen.to)>=0?S.backOpen.to:ok[0];S.backOpen.to=to;
+  return '<div class="pp-card" id="ppBackBox" style="border-color:var(--warn);margin:4px 0 10px;"><div style="font-weight:800;font-size:12px;margin-bottom:6px;">↩ Send '+esc(pr.number)+' back to an earlier stage</div>'+
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:end;">'+
+    '<label style="font-size:10px;">Back to<select class="pp-in" id="ppBackTo" style="min-width:200px;" onchange="__PURPRO.backPick(this.value)">'+ok.map(function(t){return '<option'+(t===to?' selected':'')+'>'+esc(t)+'</option>';}).join('')+'</select></label>'+
+    '<label style="font-size:10px;flex:1;min-width:220px;">Reason (required)<input class="pp-in" id="ppBackWhy" maxlength="500" placeholder="why it goes back — kept in the workflow log"></label>'+
+    actBtn('↩ Go back','__PURPRO.goBack(\''+pr.id+'\',\''+jsq(pr.status)+'\')',true)+' '+actBtn('✕','__PURPRO.backOpen(null)')+'</div>'+
+    '<div id="ppBackRedo" style="font-size:11px;margin-top:6px;color:var(--warn);font-weight:700;">'+backRedoText(backRedo(pr,to))+'</div>'+
+    '<div style="font-size:10.5px;color:var(--text3);margin-top:4px;">Suppliers, offers, options, final offers and the history are kept. Only the checks and approvals recorded at or after the stage you pick are cleared and done again. Until a final offer is in, anyone with Purchasing edit can go back; after it, only Admin.</div></div>';
+}
+/* top of the stage card: a final offer is in; a PO that is still live while the request is before the PO step (received goods!) */
+function prBanners(pr){
+  var h='',fin=finalOfferIn(pr);
+  if(fin)h+='<div style="font-size:11.5px;padding:5px 9px;border-radius:6px;background:rgba(21,101,192,.10);border-left:3px solid #1565c0;margin-bottom:6px;">📎 Final offer received — '+esc(fin.sup)+(fin.label&&fin.label!=='A'?' · Option '+esc(fin.label):'')+(fin.by?' · uploaded by '+esc(fin.by):'')+(fin.at?' · '+new Date(fin.at).toLocaleString('en-PH'):'')+'. Only Admin can send this request back now.</div>';
+  var ci=STAGES.indexOf(pr.status),POI=STAGES.indexOf('Purchase Order');
+  prPOs(pr).filter(function(p){return livePO(p)&&(ci<POI||p.id!==pr.poId);}).forEach(function(p){
+    var got=poGot(p),ni=poInvs(p).length;
+    h+='<div style="font-size:12px;padding:7px 10px;border-radius:6px;background:var(--danger);color:#fff;font-weight:700;margin-bottom:6px;">🚨 '+esc(p.number)+' ('+esc(p.status)+') to '+esc(p.supplier||'')+' is still live'+(got>0?' — goods were already RECEIVED ('+got+')':'')+(ni?' · '+ni+' invoice(s) logged':'')+(p.reopenedByAdmin?' · reopened by '+esc(p.reopenedByAdmin.by)+' '+new Date(p.reopenedByAdmin.at).toLocaleDateString('en-PH'):'')+'. Its receipts and invoices are kept — check them before ordering again; no new award while it is live.</div>';
+  });
+  return h;
+}
+/* ---------- offers: Option A (the supplier's offer) and Options B–D (alternative items), keyed 'Supplier' / 'Supplier#opt:<id>' ---------- */
+function optLive(s){return ((s&&s.options)||[]).filter(function(o){return o&&o.quote;});}
+function a2aSlots(rfq){
+  var out=[];
+  ((rfq&&rfq.suppliers)||[]).forEach(function(s){
+    var many=optLive(s).length>0;
+    if(s.quote)out.push({s:s,o:null,q:s.quote,key:s.name,label:s.name+(many?' · Option A':'')});
+    optLive(s).forEach(function(o){out.push({s:s,o:o,q:o.quote,key:s.name+'#opt:'+o.id,label:s.name+' · Option '+o.label});});
+  });
+  return out;
+}
+function a2aPick(rfq,key){key=String(key||'');return a2aSlots(rfq).filter(function(x){return x.key===key;})[0]||null;}
+function optDesc(o,j){return (o&&Number(o.itemIdx||0)===j)?' — Option '+o.label+': '+(o.spec||''):'';}
+function nextOptLabel(s){var used={A:1};((s&&s.options)||[]).concat((s&&s.removedOptions)||[]).forEach(function(o){if(o)used[String(o.label||'').toUpperCase()]=1;});for(var c=66;c<91;c++){var x=String.fromCharCode(c);if(!used[x])return x;}return 'Z';}
+function qOpenParts(){var p=String(S.quoteOpen||'').split(':');return {rfqId:p[0]||'',i:p.length>1?Number(p[1]):-1,opt:p[2]||'',mode:p[3]||''};}
+/* the award: at Approval, the RFQ open, the screen not stale, no other PO alive for the request */
+function awardGuard(pr,fromStage,stamp){
+  if(pr.status!=='Approval'||(fromStage&&fromStage!==pr.status)){toast(pr.number+' is not waiting for the award (now: '+pr.status+') — screen refreshed','warn');renderPurchPro();return false;}
+  healStaleAward(pr);
+  var rfq=getRFQ(pr.rfqId);
+  if(!rfq||rfq.status!=='Open'){toast((rfq?rfq.number+' is '+rfq.status:'The RFQ is missing')+' — it cannot be awarded (screen refreshed)','warn');renderPurchPro();return false;}
+  if(stamp!=null&&stamp!==''&&Number(stamp)!==Number(rfq.updatedAt||0)){toast('The offers on '+rfq.number+' changed since this screen was drawn — check them and award again (screen refreshed)','warn');renderPurchPro();return false;}
+  var live=prPOs(pr).filter(function(p){return p.status!=='Cancelled';});
+  if(live.length){
+    var nm=live.map(function(p){return p.number+' ('+p.status+')';}).join(', ');
+    if(!(isPurchAdmin()&&live.every(function(p){return !!p.reopenedByAdmin;}))){alert('⛔ '+nm+' already exists for '+pr.number+' — cancel it first. No second purchase order is made.');renderPurchPro();return false;}
+    if(!confirm(nm+' (its receipts and invoices are kept) stays as it is.\n\nAward a NEW purchase order for '+pr.number+' anyway?'))return false;
+  }
+  return true;
+}
+function a2aFrozen(A,pick){return {at:Date.now(),by:who(),key:pick.key,label:pick.label,weights:A.weights,reqQty:A.reqQty,
+  rows:A.rows.map(function(r){return {key:r.key,label:r.label,landedUnit:Math.round(r.landedUnit*100)/100,normTotal:Math.round(r.normTotal*100)/100,score:r.score,gapPct:r.gapPct,flags:r.flags,final:!!r.q.final};})};}
+/* ---------- the offer form (RFQ row, evaluation card): Option A, a new / edited option, or the final offer ---------- */
+function quoteFormHtml(pr,rfq,i,opt,mode){
+  var s=rfq&&rfq.suppliers[i];if(!s)return '';
+  var isNew=opt==='new',fin=mode==='final',o=(opt&&opt!=='A'&&!isNew)?(s.options||[]).filter(function(x){return x&&x.id===opt;})[0]:null;
+  if(opt&&opt!=='A'&&!isNew&&!o)return '';
+  var q=isNew?null:(o?o.quote:s.quote),_rq=a2aReqQty(pr),lbl=isNew?nextOptLabel(s):(o?o.label:'A');
+  if(fin&&!q)return '';
+  var title=fin?'📎 Final offer — '+s.name+(o||optLive(s).length?' · Option '+lbl:''):isNew?'➕ Option '+lbl+' — '+s.name+' offers an alternative item':o?'✏ Option '+o.label+' — '+s.name:(q?'✏ Offer — ':'➕ Offer — ')+s.name;
+  var call='__PURPRO.saveQuote(\''+rfq.id+'\','+i+(opt||mode?',\''+jsq(opt||'')+'\'':'')+(mode?',\''+jsq(mode)+'\'':'')+')';
+  return '<div style="font-weight:800;font-size:12px;padding:4px 4px 0;">'+esc(title)+'</div>'+
+    ((isNew||o)?'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:end;padding:4px;">'+
+      '<label style="font-size:10px;">Option<input class="pp-in" id="ppQol" maxlength="3" style="width:56px;" value="'+esc(lbl)+'"'+(o?' disabled':'')+'></label>'+
+      '<label style="font-size:10px;flex:1;min-width:240px;">Alternative item / spec *<input class="pp-in" id="ppQo" maxlength="200" placeholder="e.g. Marine plywood 3/4" value="'+esc(o?(o.spec||''):'')+'"'+(fin?' disabled':'')+'></label>'+
+      ((pr.items||[]).length>1?'<label style="font-size:10px;">Instead of<select class="pp-in" id="ppQoi" style="min-width:160px;"'+(fin?' disabled':'')+'>'+(pr.items||[]).map(function(it,j){return '<option value="'+j+'"'+(o&&Number(o.itemIdx||0)===j?' selected':'')+'>'+esc(it.desc)+'</option>';}).join('')+'</select></label>':'')+'</div>':'')+
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:end;padding:4px;">'+
+    '<label style="font-size:10px;">Qty offered<input class="pp-in" type="number" step="0.01" id="ppQq" style="width:80px;" value="'+esc(q&&q.qty!=null?q.qty:_rq)+'"></label>'+
+    '<label style="font-size:10px;">Unit price ₱<input class="pp-in" type="number" step="0.01" id="ppQu" style="width:100px;" value="'+esc(q&&q.unitPrice!=null?q.unitPrice:(q&&q.total&&_rq?Math.round(q.total/_rq*100)/100:''))+'"></label>'+
+    '<label style="font-size:10px;">VAT<select class="pp-in" id="ppQv" style="width:120px;"><option value="incl"'+(!q||q.vatIncl!==false?' selected':'')+'>included (12%)</option><option value="excl"'+(q&&q.vatIncl===false?' selected':'')+'>not included</option></select></label>'+
+    '<label style="font-size:10px;">Delivery ₱<input class="pp-in" type="number" step="0.01" id="ppQdc" style="width:90px;" value="'+esc(q?(q.delivery||''):'')+'"></label>'+
+    '<label style="font-size:10px;">Brand / spec<input class="pp-in" id="ppQb" style="width:150px;" value="'+esc(q?(q.brand||''):'')+'"></label>'+
+    '<label style="font-size:10px;">Valid until<input class="pp-in" type="date" id="ppQvu" style="width:130px;" value="'+esc(q?(q.validUntil||''):'')+'"></label>'+
+    '<label style="font-size:10px;">Lead days<input class="pp-in" type="number" id="ppQd" style="width:80px;" value="'+esc(q?q.deliveryDays:'')+'"></label>'+
+    '<label style="font-size:10px;">Terms<input class="pp-in" id="ppQp" style="width:120px;" value="'+esc(q?q.payTerms:'')+'"></label>'+
+    '<label style="font-size:10px;">Warranty<input class="pp-in" id="ppQw" style="width:110px;" value="'+esc(q?q.warranty:'')+'"></label>'+
+    '<label style="font-size:10px;">Notes<input class="pp-in" id="ppQn" style="width:160px;" value="'+esc(q?(q.notes||''):'')+'"></label>'+
+    (pr.deliverTo?'<label style="font-size:10px;font-weight:700;color:var(--danger);"><input type="checkbox" id="ppQgh"'+(q&&q.deliverToOk?' checked':'')+'> Supplier COMMITS drop-off: '+esc(pr.deliverTo)+'</label>':'')+
+    (fin?'<label style="font-size:10px;font-weight:700;color:#1565c0;">Final offer file * (photo / PDF, max 10 MB)<input type="file" id="ppQff" accept="image/*,application/pdf" style="font-size:10px;"></label>'
+      :'<label style="font-size:10px;">Offer file (photo / PDF)<input type="file" id="ppQf" accept="image/*,application/pdf" style="font-size:10px;"></label>'+
+       (q&&q.file?'<a href="'+q.file.data+'" target="_blank" download="'+esc(q.file.name)+'" style="font-size:11px;">📎 '+esc(q.file.name)+'</a>':''))+
+    (PP_LINES&&(pr.items||[]).length>1?'<div style="flex-basis:100%;display:flex;gap:6px;flex-wrap:wrap;align-items:end;border-top:1px dashed var(--border);padding-top:4px;"><span style="font-size:10px;font-weight:700;">Price per item ₱/unit (the PO uses these):</span>'+
+      (pr.items||[]).map(function(it,j){return '<label style="font-size:10px;">'+esc(it.desc)+' × '+Number(it.qty||0)+' '+esc(it.unit||'')+'<input class="pp-in" type="number" step="0.01" id="ppQl'+j+'" style="width:90px;" value="'+esc(q&&q.lines&&q.lines[j]&&q.lines[j].unitPrice?q.lines[j].unitPrice:'')+'"></label>';}).join('')+'</div>':'')+
+    actBtn(fin?'📎 Upload final offer':'💾 Save offer',call,true)+actBtn('✕','__PURPRO.quoteToggle(null)')+'</div>'+
+    '<div style="font-size:10.5px;color:var(--text3);padding:0 4px 4px;">'+(fin
+      ?'The supplier\'s FINAL offer: the file is required (to the Nexi cloud; without it, a file up to 2.5 MB is kept in the request). Revised price and terms are optional — an empty or unchanged box keeps the offer as it is. The previous offer stays in its history. Once a final offer is in, only Admin can send the request back.'
+      :(isNew||o)?'An alternative item from the same supplier — scored apple to apple like any offer. The approver confirms an alternative before awarding it.'
+      :'Request needs <b>'+_rq+'</b>. Nexi will compare every offer at the same quantity, VAT-exclusive, delivery included — ₱ per unit landed.')+'</div>';
+}
+function readQuoteForm(pr){
+  var g=function(id){var e=document.getElementById(id);return e?String(e.value==null?'':e.value):'';};
+  var its=(pr&&pr.items)||[],gh=document.getElementById('ppQgh');
+  return {qty:g('ppQq'),unit:g('ppQu'),vat:g('ppQv'),del:g('ppQdc'),brand:g('ppQb'),validUntil:g('ppQvu'),days:g('ppQd'),terms:g('ppQp'),warranty:g('ppQw'),notes:g('ppQn'),
+    gh:gh?!!gh.checked:null,lines:(its.length>1&&document.getElementById('ppQl0'))?its.map(function(it,j){return g('ppQl'+j);}):null,
+    spec:g('ppQo').trim(),label:g('ppQol').trim(),itemIdx:Number(g('ppQoi')||0)||0};
+}
+/* builds the offer from the form on top of the previous one (keep = an empty box keeps the old value — the final offer);
+   whatever the form does not show (final offer, its file, the trial's per-item prices) is kept, never dropped */
+function buildQuote(prev,v,keep,its){
+  prev=prev||{};its=its||[];
+  var blank=function(s){return s==null||String(s).trim()==='';};
+  var N=function(s,old){return (keep&&blank(s))?Number(old||0):Number(s||0);};
+  var T=function(s,old){return (keep&&blank(s))?String(old==null?'':old):String(s==null?'':s);};
+  var qty=N(v.qty,prev.qty),unit=N(v.unit,prev.unitPrice),del=N(v.del,prev.delivery),lines=null,total;
+  if(v.lines&&its.length>1){
+    var ls=its.map(function(it,j){return {unitPrice:Number(v.lines[j]||0)};}),n=ls.filter(function(l){return l.unitPrice>0;}).length;
+    if(n&&n<ls.length)return {err:'Enter a price for every item ('+n+' of '+ls.length+' have one), or leave all of them empty.'};
+    if(n)lines=ls;else if(keep&&Array.isArray(prev.lines)&&blank(v.unit))lines=prev.lines;
+  }else if(Array.isArray(prev.lines)&&prev.lines.length&&Number(qty)===Number(prev.qty)&&Number(unit)===Number(prev.unitPrice))lines=prev.lines; /* a form without per-item prices keeps the trial's when the price did not change */
+  if(lines&&its.length>1){var sq=its.reduce(function(a,it){return a+Number(it.qty||0);},0),sum=its.reduce(function(a,it,j){return a+Number(it.qty||0)*Number(lines[j].unitPrice||0);},0);
+    qty=sq||qty||1;unit=Math.round(sum/(sq||1)*10000)/10000;total=Math.round((sum+del)*100)/100;}
+  else{if(!qty||!unit)return {err:'Quantity offered and unit price are required.'};total=Math.round((qty*unit+del)*100)/100;}
+  var q=Object.assign({},prev,{qty:qty,unitPrice:unit,lines:lines,vatIncl:(keep&&blank(v.vat))?prev.vatIncl!==false:v.vat!=='excl',delivery:del,total:total,
+    brand:T(v.brand,prev.brand),validUntil:T(v.validUntil,prev.validUntil),deliveryDays:N(v.days,prev.deliveryDays),payTerms:T(v.terms,prev.payTerms),warranty:T(v.warranty,prev.warranty),notes:T(v.notes,prev.notes),
+    deliverToOk:v.gh==null?!!prev.deliverToOk:v.gh,file:prev.file||null,at:Date.now(),by:who()});
+  delete q.history;
+  return {q:q};
+}
+/* a history row: the offer as it was (its original offer file stays on the offer; a final offer file kept in the request moves with keepData) */
+function quoteSnap(q,keepData){var h={};Object.keys(q||{}).forEach(function(k){if(k!=='history'&&k!=='file')h[k]=q[k];});
+  if(h.finalFile&&h.finalFile.data&&!keepData){h.finalFile=Object.assign({},h.finalFile);delete h.finalFile.data;h.finalFile.dataOnOffer=true;}
+  return h;}
+/* the final offer file: to R2 through hnx-sync (as Tasks evidence) when this computer is signed in to the Nexi cloud; otherwise — or
+   when the upload fails — kept in the request like today's offer file (2.5 MB at most), with a note. Resolves the file record, or null. */
+function offerStore(pr,rfq,supName,label,f){
+  var meta={name:f.name||'final-offer',mime:f.type||'application/octet-stream',size:f.size||0,at:Date.now(),by:who()};
+  var tok='';try{tok=localStorage.getItem('hnx_cloud_token')||'';}catch(e){}
+  var api=typeof window.__hnxApi==='function'?window.__hnxApi:null;
+  var safe=function(x){return String(x||'').replace(/[^\w.\-]+/g,'_').replace(/_+/g,'_').slice(0,60);};
+  var local=function(why){
+    if(f.size>2500000){alert('⛔ '+why+' — and '+(f.name||'the file')+' is '+(f.size/1048576).toFixed(1)+' MB. Without the Nexi cloud a file of at most 2.5 MB can be kept in the request.\n\nSign in to the Nexi cloud on this computer (or save a smaller copy) and upload it again. Nothing was saved.');return Promise.resolve(null);}
+    return new Promise(function(res){var rd=new FileReader();rd.onload=function(){res(Object.assign(meta,{data:rd.result,local:true,note:why+' — kept in the request'}));};rd.onerror=function(){alert('⛔ The file could not be read — nothing saved.');res(null);};rd.readAsDataURL(f);});
+  };
+  if(!tok||!api)return local('This computer is not signed in to the Nexi cloud');
+  var key='purchasing/'+safe(pr.number)+'/'+safe(rfq.number)+'/'+safe(supName)+'_'+safe(label)+'_'+today()+'_'+uid('f')+'_'+safe(f.name||'offer');
+  return Promise.resolve().then(function(){return api('/r2/upload?key='+encodeURIComponent(key)+'&name='+encodeURIComponent(f.name||'final-offer'),{method:'POST',body:f,headers:{'Content-Type':f.type||'application/octet-stream'}});})
+    .then(function(d){if(d&&d.ok===false)throw new Error(d.error||'refused');return Object.assign(meta,{key:(d&&d.key)||key});})
+    .catch(function(e){return local('The cloud upload failed ('+String((e&&e.message)||e).slice(0,80)+')');});
+}
+function finalOffer(pr,rfq,supName,optId,v){
+  var fi=document.getElementById('ppQff'),f=fi&&fi.files&&fi.files[0];
+  if(!f){alert('Pick the final offer file — a photo or PDF of the supplier\'s final offer.');return;}
+  if(f.size>10*1024*1024){alert('⛔ '+(f.name||'The file')+' is '+(f.size/1048576).toFixed(1)+' MB — a final offer file can be at most 10 MB. Save a smaller copy and upload it again. Nothing was saved.');return;}
+  var s0=(rfq.suppliers||[]).filter(function(x){return x.name===supName;})[0],o0=optId&&s0?(s0.options||[]).filter(function(x){return x&&x.id===optId;})[0]:null,c0=o0?o0.quote:(s0&&s0.quote);
+  if(!c0){alert('Log the offer first, then upload its final version.');return;}
+  var chk=buildQuote(c0,v,true,pr.items||[]);if(chk.err){alert(chk.err);return;}
+  var label=o0?o0.label:'A';
+  toast('📤 Saving the final offer…');
+  return offerStore(pr,rfq,supName,label,f).then(function(ff){
+    if(!ff)return false;
+    var r2=getRFQ(rfq.id),p2=getPR(rfq.prId);
+    if(!r2||!p2||r2.status!=='Open'||(p2.status!=='RFQ'&&p2.status!=='Quotation Evaluation')){alert('⛔ '+((p2&&p2.number)||'The request')+' moved on while the file was uploading (now: '+((p2&&p2.status)||'?')+') — nothing saved. Go back to the evaluation and upload it again.');renderPurchPro();return false;}
+    var s2=(r2.suppliers||[]).filter(function(x){return x.name===supName;})[0],o2=s2&&optId?(s2.options||[]).filter(function(x){return x&&x.id===optId;})[0]:null,cur=o2?o2.quote:(s2&&s2.quote);
+    if(!s2||(optId&&!o2)||!cur){alert('⛔ '+supName+(optId?' (Option '+label+')':'')+' is no longer on '+r2.number+' — nothing saved.');renderPurchPro();return false;}
+    var b=buildQuote(cur,v,true,p2.items||[]);if(b.err){alert(b.err);return false;}
+    var nq=b.q,now=Date.now();
+    nq.history=(cur.history||[]).concat([quoteSnap(cur,true)]);
+    nq.final=true;nq.finalAt=now;nq.finalBy=who();nq.finalFile=ff;
+    if(o2)o2.quote=nq;else s2.quote=nq;saveRFQ(r2);
+    var lab=supName+' ('+label+')',was=Number(cur.unitPrice)||0,is=Number(nq.unitPrice)||0,landed=a2aNorm(p2,{name:supName,quote:nq}).landedUnit;
+    p2.finalOffer={at:now,by:who(),sup:supName,label:label};
+    p2.workflow=p2.workflow||[];p2.workflow.push({stage:p2.status,at:now,by:who(),note:'📎 Final offer: '+lab+' '+(was&&was!==is?money(was)+' → '+money(is):money(is))+' · '+ff.name+(ff.local?' ('+ff.note+')':'')});savePR(p2);
+    audit('rfq:final-offer',r2.number,lab+' '+was+' → '+is+' · '+(ff.key||ff.name));
+    try{var meN=_names(_pu());purchInbox(_purchUsers(function(u){return isPurchApprover(u)&&String(u.username).toLowerCase()!=='admin'&&!_names(u).some(function(x){return meN.indexOf(x)>=0;});}),
+      '📎 '+p2.number+': final offer from '+supName,'"'+(p2.title||'')+'" — '+lab+' '+money(is)+' as quoted · '+money(landed)+' per unit landed (ex-VAT, delivery in) · by '+who(),p2.id);}catch(e){}
+    S.quoteOpen=null;S.quoteOpenName=null;
+    toast(ff.local?'📎 Final offer saved — '+ff.note:'📎 Final offer saved — '+lab,ff.local?'warn':'ok');renderPurchPro();
+    return true;
+  });
+}
+function addSupHtml(rfq){
+  var _vend=[];try{_vend=(JSON.parse(localStorage.getItem('hydroPro_acct_vendors')||'[]')||[]).map(function(v){return v&&v.name;}).filter(Boolean);}catch(e){}
+  return '<div class="pp-card" style="margin-top:8px;"><div style="font-weight:800;font-size:12px;margin-bottom:6px;">➕ Add a supplier to this RFQ</div><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:end;">'+
+    '<label style="font-size:10px;">Supplier<input class="pp-in" id="ppAddSupN" list="ppAddSupL" style="width:200px;"></label><datalist id="ppAddSupL">'+_vend.slice(0,400).map(function(n){return '<option value="'+esc(n)+'">';}).join('')+'</datalist>'+
+    '<label style="font-size:10px;">Email<input class="pp-in" id="ppAddSupE" style="width:170px;"></label><label style="font-size:10px;">Mobile<input class="pp-in" id="ppAddSupP" style="width:120px;"></label>'+
+    actBtn('➕ Add supplier','__PURPRO.rfqAddSupplier(\''+rfq.id+'\')',true)+'</div>'+
+    '<div style="font-size:10.5px;color:var(--text3);margin-top:4px;">A supplier you canvassed that is not on the list: type its name (or pick a known one), its email or mobile, and press ➕ — then send it the RFQ or log its offer. ✕ on a row takes a supplier off (a reason is asked, the record keeps it).</div></div>';
+}
+/* under a supplier on the RFQ list: its options and its final offer */
+function supOptLines(s){
+  return optLive(s).map(function(o){return '<div style="font-size:10px;color:#6a1b9a;font-weight:700;">Option '+esc(o.label)+': '+esc(o.spec||'')+' · '+money(o.quote.total)+(o.quote.final?' · 📎 FINAL':'')+'</div>';}).join('')+
+    (s.quote&&s.quote.final?'<div style="font-size:10px;color:#1565c0;font-weight:700;">📎 FINAL offer'+(s.quote.finalBy?' — '+esc(s.quote.finalBy):'')+'</div>':'');
+}
+var PP_LINES=false; /* stable: one price per offer (the trial asks a price per item) */
+function addItemCard(){return '';} /* adding items at the RFQ / evaluation is trial-only */
+function addedNotes(){return '';}
+
 // ---------- UI state ----------
-var S={tab:'mission',prId:null,quoteOpen:null,draft:null};
+var S={tab:'mission',prId:null,quoteOpen:null,quoteOpenName:null,backOpen:null,draft:null};
 
 function css(){
   if(document.getElementById('purproCss'))return;
@@ -97632,6 +97980,7 @@ function css(){
   '.pp-pipe span{font-size:10px;padding:3px 9px;border-radius:10px;border:1px solid var(--border);color:var(--text3);font-weight:700;}'+
   '.pp-pipe span.done{background:rgba(46,125,90,.15);color:var(--ok);border-color:var(--ok);}'+
   '.pp-pipe span.cur{background:var(--accent2);color:#fff;border-color:transparent;}'+
+  '.pp-pipe span.pp-back{cursor:pointer;}'+'.pp-pipe span.pp-back:hover{outline:1px solid var(--accent);}'+ /* v22.52: a done stage you may go back to */
   '.pp-tbl{width:100%;border-collapse:collapse;font-size:12px;}'+
   '.pp-tbl th{text-align:left;padding:7px 9px;background:var(--surface3);font-size:10px;text-transform:uppercase;color:var(--text3);letter-spacing:.5px;}'+
   '.pp-tbl td{padding:7px 9px;border-bottom:1px solid var(--border);vertical-align:top;}'+
@@ -97670,7 +98019,7 @@ function rMission(){
   var prs=L(K.prs),rfqs=L(K.rfqs),pos=L(K.pos),invs=L(K.invs);
   var open=prs.filter(function(p){return p.status!=='Completed';});
   var cnt=function(st){return prs.filter(function(p){return p.status===st;}).length;};
-  var issued=pos.filter(function(p){return p.status!=='Draft';});
+  var issued=pos.filter(livePO); /* v22.52: a cancelled PO is not an issued one */
   var kpi='<div class="pp-kpi">'+
     [['Purchase Requests',prs.length,'open '+open.length],
      ['Awaiting approval',cnt('Department Approval')+cnt('Approval'),'dept + award'],
@@ -97738,7 +98087,7 @@ function rPRForm(){
     '<td style="width:12%;"><input class="pp-in" placeholder="Remarks" value="'+esc(it.remarks||'')+'" onchange="__PURPRO.dif('+i+',\'remarks\',this.value)"></td>'+
     '<td><button class="btn btn-outline" style="padding:3px 8px;font-size:10px;color:var(--danger);" onclick="__PURPRO.delItem('+i+')">✕</button></td></tr>';
   };
-  return '<div class="pp-card"><div style="font-weight:800;margin-bottom:10px;">📝 New Purchase Request</div>'+
+  return '<div class="pp-card"><div style="font-weight:800;margin-bottom:10px;">'+(d.editId?'✏ Edit '+esc(d.editNumber||'')+' — this saves revision '+(Number(d.editRev||1)+1):'📝 New Purchase Request')+'</div>'+
     '<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px;">'+
     '<div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:3px;">Title *</div><input class="pp-in" id="ppfTitle" maxlength="150" value="'+esc(d.title||'')+'" onchange="__PURPRO.df(\'title\',this.value)"></div>'+
     '<div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:3px;">Department *</div><select class="pp-in" onchange="__PURPRO.df(\'dept\',this.value)"><option value="">— pick —</option>'+(function(){ /* v21.53 (Eyal): a drop box with EVERY department, Construction and Projects included */var L=[];try{L=(Array.isArray(window.HNX_DEPARTMENTS_LIST)?window.HNX_DEPARTMENTS_LIST:[]).map(function(x){return x.label||x.id;});}catch(e){}['Construction','Projects','Purchasing','R&D & Planning','Compliance & Ext Affairs','Administration','Safety','Accounting','Production','Maintenance','Irrigation','Packaging','Logistics','Inventory','IT','HR','Payroll','CRM','Quality','Fleet','Licenses','Security'].forEach(function(x){if(L.indexOf(x)<0)L.push(x);});if(d.dept&&L.indexOf(d.dept)<0)L.unshift(d.dept);return L.map(function(x){return '<option value="'+esc(x)+'"'+(d.dept===x?' selected':'')+'>'+esc(x)+'</option>';}).join('');})()+'</select></div>'+
@@ -97765,9 +98114,11 @@ function rPRForm(){
 
 // ---------- PR detail: pipeline + stage panel ----------
 function pipeline(pr){
-  var cur=stageIdx(pr);
+  /* v22.52: a done stage you may go back to is clickable — ↩ Return to this stage */
+  var cur=stageIdx(pr),ok=pr.status==='Cancelled'?[]:backAllowed(pr);
   return '<div class="pp-pipe">'+STAGES.map(function(st,i){
-    return '<span class="'+(i<cur?'done':i===cur?'cur':'')+'">'+(i<cur?'✓ ':'')+esc(st)+'</span>';
+    var can=i<cur&&ok.indexOf(st)>=0;
+    return '<span class="'+(i<cur?'done':i===cur?'cur':'')+(can?' pp-back':'')+'"'+(can?' title="↩ Return to this stage" onclick="__PURPRO.backOpen(\''+pr.id+'\',\''+jsq(st)+'\')"':'')+'>'+(i<cur?'✓ ':'')+esc(st)+'</span>';
   }).join('')+'</div>';
 }
 function itemsTable(items,withCost){
@@ -97791,9 +98142,13 @@ function rPRDetail(){
 function actBtn(label,fn,primary){return '<button class="btn '+(primary?'btn-primary':'btn-outline')+'" style="font-size:12px;" onclick="'+fn+'">'+label+'</button>';}
 
 function rStage(pr){
-  var st=pr.status,h='<div class="pp-card"><div style="font-weight:800;margin-bottom:8px;">▶ Current stage: '+esc(st)+'</div>';
+  /* v22.52: ↩ Go back… (to any earlier stage while no final offer is in; Admin in any case) */
+  var st=pr.status,h='<div class="pp-card"><div style="font-weight:800;margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">▶ Current stage: '+esc(st)+'<span style="flex:1;"></span>'+backCtl(pr)+'</div>'+backPanel(pr)+prBanners(pr);
   if(st==='Draft'){
-    h+='<p style="font-size:12px;color:var(--text2);">Review the request, then submit for AI validation.</p>'+actBtn('🚀 Submit','__PURPRO.submitPR(\''+pr.id+'\')',true);
+    /* v22.52 (ported from the v22.31 trial): a draft — also one sent back — is edited, not only resubmitted */
+    var _rej=(pr.workflow||[]).slice().reverse().filter(function(w){return /^(REJECTED|↩ Back)/.test(w.note||'');})[0];
+    h+=(_rej?'<p style="font-size:12px;color:var(--danger);font-weight:700;">↩ Sent back by '+esc(_rej.by)+': '+esc(String(_rej.note).replace(/^REJECTED:\s*/,''))+' — edit the request, then submit it again.</p>':'')+
+      '<p style="font-size:12px;color:var(--text2);">Review the request, then submit for AI validation.</p>'+actBtn('✏ Edit request','__PURPRO.editPR(\''+pr.id+'\')')+' '+actBtn('🚀 Submit','__PURPRO.submitPR(\''+pr.id+'\')',true);
   }else if(st==='Submitted'){
     h+='<p style="font-size:12px;color:var(--text2);">Submitted. Run Nexi\'s procurement analysis (Screen 003 — the AI gate).</p>'+actBtn('🤖 Run AI analysis','__PURPRO.runAI(\''+pr.id+'\')',true);
   }else if(st==='AI Validation'){
@@ -97972,6 +98327,10 @@ function rSourcing(pr){
   var q=encodeURIComponent(kw.slice(0,4).join(' ')||firstDesc);
   var chip={local:'🏘 LOCAL — buy near the farm',import:'🌏 IMPORT — Alibaba / overseas',both:'🏘 LOCAL first, 🌏 import as a check'}[SC.cls];
   var h='<p style="font-size:12px;color:var(--text2);">Looking for: <b>'+esc(kw.slice(0,6).join(', ')||firstDesc)+'</b> · est. order '+money(est)+(geo.radius!=null?' · radius '+geo.radius+' km ('+esc(geo.tier.label||'')+')':'')+'</p>';
+  /* v22.52: sent back to Sourcing, the request keeps its open RFQ — go on with it, or tick more suppliers to add to it */
+  var _orfq=pr.rfqId&&getRFQ(pr.rfqId);if(_orfq&&_orfq.status!=='Open')_orfq=null;
+  if(_orfq){var _nq=0;(_orfq.suppliers||[]).forEach(function(x){if(x.quote)_nq++;_nq+=optLive(x).length;});
+    h+='<div style="padding:8px 10px;border:1px solid var(--accent2);border-radius:8px;margin-bottom:8px;font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><b>📨 '+esc(_orfq.number)+' is still open</b><span>'+_orfq.suppliers.length+' suppliers, '+_nq+' offers kept. Tick more suppliers below and press ➕ Add to '+esc(_orfq.number)+', or go on with it as it is.</span><span style="flex:1;"></span>'+actBtn('➡ Continue with '+esc(_orfq.number),'__PURPRO.rfqContinue(\''+pr.id+'\')',true)+'</div>';}
   h+='<div id="ppSrcClass" data-cls="'+SC.cls+'" style="padding:7px 10px;border-radius:8px;background:var(--surface2);font-size:12px;margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><b>'+chip+'</b><span style="color:var(--text3);">'+esc(SC.why)+'</span>'+
     '<select class="pp-in" style="width:auto;display:inline-block;font-size:11px;padding:3px 6px;" onchange="__PURPRO.srcClass(\''+pr.id+'\',this.value)"><option value="">change…</option><option value="local">Local only</option><option value="import">Import</option><option value="both">Both</option></select></div>';
   var impSec=function(){
@@ -97990,7 +98349,7 @@ function rSourcing(pr){
   if(rest.length)h+='<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12px;color:var(--text3);">Other known suppliers, not matched to this item ('+rest.length+')</summary>'+tbl(rest,off.rest)+'</details>';
   h+='<div style="display:flex;gap:8px;margin-top:10px;align-items:center;">'+
   '<label style="font-size:11px;">Closing date <input class="pp-in" type="date" id="ppRfqClose" style="width:140px;display:inline-block;" value="'+new Date(Date.now()+7*86400000).toISOString().slice(0,10)+'"></label>'+
-  actBtn('📨 Create RFQ with selected','__PURPRO.createRFQ(\''+pr.id+'\')',true)+'</div>';
+  actBtn(_orfq?'➕ Add the selected to '+esc(_orfq.number):'📨 Create RFQ with selected','__PURPRO.createRFQ(\''+pr.id+'\')',true)+'</div>';
   return h;
 }
 
@@ -98023,46 +98382,29 @@ function rfqSms(pr,rfq){var it=(pr.items||[]).map(function(x){return x.desc+' '+
 function rRFQPanel(pr){
   var rfq=getRFQ(pr.rfqId);
   if(!rfq)return '<p style="font-size:12px;color:var(--danger);">RFQ record missing.</p>';
-  var quoted=rfq.suppliers.filter(function(s){return s.quote;}).length;
+  var quoted=rfq.suppliers.filter(function(s){return s.quote;}).length,op=qOpenParts();
   var rows=rfq.suppliers.map(function(s,i){
     var q=s.quote;
     var open=S.quoteOpen===rfq.id+':'+i;
     /* v21.64 (Eyal: "apple to apple"): the offer is logged as the supplier wrote it — quantity, unit price, VAT in or out,
-       delivery, brand / spec, validity, lead, terms, warranty, the offer file — and the total is computed, never typed. */
-    var _rq=a2aReqQty(pr);
-    var quoteForm=open?'<tr><td colspan="6" style="background:var(--surface2);"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:end;padding:4px;">'+
-      '<label style="font-size:10px;">Qty offered<input class="pp-in" type="number" step="0.01" id="ppQq" style="width:80px;" value="'+esc(q&&q.qty!=null?q.qty:_rq)+'"></label>'+
-      '<label style="font-size:10px;">Unit price ₱<input class="pp-in" type="number" step="0.01" id="ppQu" style="width:100px;" value="'+esc(q&&q.unitPrice!=null?q.unitPrice:(q&&q.total&&_rq?Math.round(q.total/_rq*100)/100:''))+'"></label>'+
-      '<label style="font-size:10px;">VAT<select class="pp-in" id="ppQv" style="width:120px;"><option value="incl"'+(!q||q.vatIncl!==false?' selected':'')+'>included (12%)</option><option value="excl"'+(q&&q.vatIncl===false?' selected':'')+'>not included</option></select></label>'+
-      '<label style="font-size:10px;">Delivery ₱<input class="pp-in" type="number" step="0.01" id="ppQdc" style="width:90px;" value="'+esc(q?(q.delivery||''):'')+'"></label>'+
-      '<label style="font-size:10px;">Brand / spec<input class="pp-in" id="ppQb" style="width:150px;" value="'+esc(q?(q.brand||''):'')+'"></label>'+
-      '<label style="font-size:10px;">Valid until<input class="pp-in" type="date" id="ppQvu" style="width:130px;" value="'+esc(q?(q.validUntil||''):'')+'"></label>'+
-      '<label style="font-size:10px;">Lead days<input class="pp-in" type="number" id="ppQd" style="width:80px;" value="'+esc(q?q.deliveryDays:'')+'"></label>'+
-      '<label style="font-size:10px;">Terms<input class="pp-in" id="ppQp" style="width:120px;" value="'+esc(q?q.payTerms:'')+'"></label>'+
-      '<label style="font-size:10px;">Warranty<input class="pp-in" id="ppQw" style="width:110px;" value="'+esc(q?q.warranty:'')+'"></label>'+
-      '<label style="font-size:10px;">Notes<input class="pp-in" id="ppQn" style="width:160px;" value="'+esc(q?(q.notes||''):'')+'"></label>'+
-      (pr.deliverTo?'<label style="font-size:10px;font-weight:700;color:var(--danger);"><input type="checkbox" id="ppQgh"'+(q&&q.deliverToOk?' checked':'')+'> Supplier COMMITS drop-off: '+esc(pr.deliverTo)+'</label>':'')+
-      '<label style="font-size:10px;">Offer file (photo / PDF)<input type="file" id="ppQf" accept="image/*,application/pdf" style="font-size:10px;"></label>'+
-      (q&&q.file?'<a href="'+q.file.data+'" target="_blank" download="'+esc(q.file.name)+'" style="font-size:11px;">📎 '+esc(q.file.name)+'</a>':'')+
-      actBtn('💾 Save offer','__PURPRO.saveQuote(\''+rfq.id+'\','+i+')',true)+actBtn('✕','__PURPRO.quoteToggle(null)')+'</div>'+
-      '<div style="font-size:10.5px;color:var(--text3);padding:0 4px 4px;">Request needs <b>'+_rq+'</b>. Nexi will compare every offer at the same quantity, VAT-exclusive, delivery included — ₱ per unit landed.</div></td></tr>':'';
-    return '<tr><td><b style="cursor:pointer;border-bottom:1px dotted var(--text3);" title="Supplier 360° — all data + sources" onclick="__PURPRO.sup360N(this.dataset.n)" data-n="'+esc(s.name).replace(/"/g,'&quot;')+'">'+esc(s.name)+'</b></td>'+
+       delivery, brand / spec, validity, lead, terms, warranty, the offer file — and the total is computed, never typed.
+       v22.52: the form is shared with the evaluation (Option B, the final offer) */
+    var quoteForm=open?'<tr><td colspan="6" style="background:var(--surface2);">'+quoteFormHtml(pr,rfq,i,'','')+'</td></tr>':'';
+    return '<tr><td><b style="cursor:pointer;border-bottom:1px dotted var(--text3);" title="Supplier 360° — all data + sources" onclick="__PURPRO.sup360N(this.dataset.n)" data-n="'+esc(s.name).replace(/"/g,'&quot;')+'">'+esc(s.name)+'</b>'+supOptLines(s)+'</td>'+
     '<td style="font-family:var(--mono);font-size:11px;">'+esc(s.email||s.phone||'—')+' <button class="btn btn-outline" style="padding:1px 6px;font-size:10px;" title="Add / edit email & phone" onclick="__PURPRO.rfqContact(\''+rfq.id+'\','+i+')">✎</button></td>'+
     '<td>'+(q?'<span class="pp-chip" style="background:var(--ok);color:#fff;">QUOTED '+money(q.total)+'</span>':s.sentAt?'<span class="pp-chip" style="background:var(--info);color:#fff;">SENT</span>':'<span class="pp-chip" style="background:var(--surface3);color:var(--text3);">PENDING</span>')+'</td>'+
     '<td style="font-size:11px;">'+(s.sentAt?new Date(s.sentAt).toISOString().slice(5,16).replace('T',' '):'—')+'</td>'+
     '<td style="white-space:nowrap;">'+(s.email?actBtn('✉ Email','__PURPRO.sendRFQ(\''+rfq.id+'\','+i+',\'email\')'):'')+' '+(s.phone?actBtn('📱 SMS','__PURPRO.sendRFQ(\''+rfq.id+'\','+i+',\'sms\')'):'')+'</td>'+
-    '<td style="white-space:nowrap;">'+actBtn(q?'✏ Edit offer':'➕ Log offer','__PURPRO.quoteToggle(\''+rfq.id+':'+i+'\')')+' '+actBtn('✕','__PURPRO.rfqRemoveSupplier(\''+rfq.id+'\','+i+')')+'</td></tr>'+quoteForm;
+    '<td style="white-space:nowrap;">'+actBtn(q?'✏ Edit offer':'➕ Log offer','__PURPRO.quoteToggle(\''+rfq.id+':'+i+'\')')+' '+
+      (q&&(s.options||[]).length<3?actBtn('＋ Option','__PURPRO.quoteToggle(\''+rfq.id+':'+i+':new\')')+' ':'')+(q?actBtn('📎 Final','__PURPRO.quoteToggle(\''+rfq.id+':'+i+':A:final\')')+' ':'')+
+      actBtn('✕','__PURPRO.rfqRemoveSupplier(\''+rfq.id+'\','+i+')')+'</td></tr>'+quoteForm;
   }).join('');
+  var extra=(S.quoteOpen&&op.rfqId===rfq.id&&(op.opt||op.mode))?quoteFormHtml(pr,rfq,op.i,op.opt,op.mode):'';
   /* v22.48 (Jinky, 11 Oct: "How can I change the selected suppliers? The ones I canvassed with an RCP are not on the list"): an open
      RFQ takes more suppliers and a supplier can be taken off it (with a reason) — ported from the v22.29 trial */
-  var _vend=[];try{_vend=(JSON.parse(localStorage.getItem('hydroPro_acct_vendors')||'[]')||[]).map(function(v){return v&&v.name;}).filter(Boolean);}catch(e){}
-  var addSup='<div class="pp-card" style="margin-top:8px;"><div style="font-weight:800;font-size:12px;margin-bottom:6px;">➕ Add a supplier to this RFQ</div><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:end;">'+
-    '<label style="font-size:10px;">Supplier<input class="pp-in" id="ppAddSupN" list="ppAddSupL" style="width:200px;"></label><datalist id="ppAddSupL">'+_vend.slice(0,400).map(function(n){return '<option value="'+esc(n)+'">';}).join('')+'</datalist>'+
-    '<label style="font-size:10px;">Email<input class="pp-in" id="ppAddSupE" style="width:170px;"></label><label style="font-size:10px;">Mobile<input class="pp-in" id="ppAddSupP" style="width:120px;"></label>'+
-    actBtn('➕ Add supplier','__PURPRO.rfqAddSupplier(\''+rfq.id+'\')',true)+'</div>'+
-    '<div style="font-size:10.5px;color:var(--text3);margin-top:4px;">A supplier you canvassed that is not on the list: type its name (or pick a known one), its email or mobile, and press ➕ — then send it the RFQ or log its offer. ✕ on a row takes a supplier off (a reason is asked, the record keeps it).</div></div>';
   return '<p style="font-size:12px;color:var(--text2);"><b>'+esc(rfq.number)+'</b> · closing '+fdate(rfq.closingDate)+' · '+quoted+'/'+rfq.suppliers.length+' quotes in.</p>'+
-    '<table class="pp-tbl"><thead><tr><th>Supplier</th><th>Contact</th><th>Status</th><th>Sent</th><th>Send</th><th>Quote</th></tr></thead><tbody>'+rows+'</tbody></table>'+addSup+
+    '<table class="pp-tbl"><thead><tr><th>Supplier</th><th>Contact</th><th>Status</th><th>Sent</th><th>Send</th><th>Quote</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    (extra?'<div class="pp-card" id="ppQForm" style="background:var(--surface2);margin-top:8px;">'+extra+'</div>':'')+addSupHtml(rfq)+
     '<div style="margin-top:10px;">'+(quoted>0?actBtn('➡ Proceed to evaluation ('+quoted+' quotes)','__PURPRO.simpleAdvance(\''+pr.id+'\',\'Quotes received: '+quoted+'\',\'RFQ\')',true):'<span style="font-size:11px;color:var(--text3);">Log at least one quote to proceed.</span>')+'</div>';
 }
 /* ---------- v21.64 · APPLE-TO-APPLE offer analysis ----------
@@ -98092,12 +98434,15 @@ function a2aNorm(pr,s){
   if(lateDays>0)flags.push(lateDays+' d after need-by');
   if(!vatIncl)flags.push('VAT to add on invoice');
   if(pr.deliverTo&&!q.deliverToOk)flags.push('drop-off NOT committed: '+pr.deliverTo); /* v21.77 */
+  if(s.opt)flags.unshift('Option '+s.opt.label+': '+(s.opt.spec||'alternative item')); /* v22.52 */
+  if(pr.itemsChangedAt&&q.at&&Number(q.at)<Number(pr.itemsChangedAt))flags.push('offer is from before '+(pr.itemsChangedWhy||'the added items')); /* v22.52: logged before the items changed */
   return {name:s.name,q:q,legacy:legacy,qty:qty,unit:unit,vatIncl:vatIncl,delivery:del,unitEx:unitEx,landedUnit:landedUnit,normTotal:normTotal,lateDays:lateDays,flags:flags,perf:a2aPerf(s.name)};
 }
 function a2a(pr){
-  var rfq=getRFQ(pr.rfqId);var qs=rfq?rfq.suppliers.filter(function(s){return s.quote;}):[];
-  if(!qs.length)return {rows:[],best:null,weights:a2aWeights(),reqQty:a2aReqQty(pr)};
-  var W=a2aWeights(),rows=qs.map(function(s){return a2aNorm(pr,s);});
+  /* v22.52: one row per offer — the supplier's offer (Option A) and every alternative item it offered (Option B, C, D) */
+  var rfq=getRFQ(pr.rfqId),slots=a2aSlots(rfq);
+  if(!slots.length)return {rows:[],best:null,weights:a2aWeights(),reqQty:a2aReqQty(pr)};
+  var W=a2aWeights(),rows=slots.map(function(x){var r=a2aNorm(pr,{name:x.s.name,quote:x.q,opt:x.o});r.key=x.key;r.label=x.label;r.sup=x.s.name;r.opt=x.o;return r;});
   var best=Math.min.apply(null,rows.map(function(r){return r.landedUnit;}).filter(function(x){return x>0;}));if(!isFinite(best))best=0;
   rows.forEach(function(r){
     r.gapPct=best>0&&r.landedUnit>0?Math.round((r.landedUnit/best-1)*1000)/10:0;r.gapAmt=Math.round((r.landedUnit-best)*a2aReqQty(pr)*100)/100;
@@ -98111,19 +98456,33 @@ function a2a(pr){
   });
   var sorted=rows.slice().sort(function(a,b){return b.score-a.score;});
   var top=sorted[0],cheap=rows.slice().sort(function(a,b){return a.landedUnit-b.landedUnit;})[0];
-  var reason='Best score '+top.score+'/100 — landed '+money(top.landedUnit)+'/unit'+(top===cheap?' (cheapest landed)':' ('+top.gapPct+'% above the cheapest, '+cheap.name+', but ahead on '+['lead','terms','perf'].filter(function(k){return top.parts[k]>cheap.parts[k];}).join(' / ')+')')
-    +(top.q.deliveryDays?' · lead '+top.q.deliveryDays+' d'+(top.lateDays?' ⚠ late':' ✓ on time'):'')+(top.q.payTerms?' · '+top.q.payTerms:'')+(sorted[1]?' · next: '+sorted[1].name+' '+sorted[1].score:'');
+  var reason='Best score '+top.score+'/100 — landed '+money(top.landedUnit)+'/unit'+(top===cheap?' (cheapest landed)':' ('+top.gapPct+'% above the cheapest, '+cheap.label+', but ahead on '+['lead','terms','perf'].filter(function(k){return top.parts[k]>cheap.parts[k];}).join(' / ')+')')
+    +(top.q.deliveryDays?' · lead '+top.q.deliveryDays+' d'+(top.lateDays?' ⚠ late':' ✓ on time'):'')+(top.q.payTerms?' · '+top.q.payTerms:'')+(sorted[1]?' · next: '+sorted[1].label+' '+sorted[1].score:'');
   return {rows:rows,best:top,cheapest:cheap,bestLanded:best,reason:reason,weights:W,reqQty:a2aReqQty(pr)};
 }
 function rEvalPanel(pr){
-  var A=a2a(pr);
-  if(!A.rows.length)return '<p style="font-size:12px;color:var(--danger);">No offers logged yet.</p>';
-  var W=A.weights;
+  var A=a2a(pr),rfq=getRFQ(pr.rfqId);
+  /* v22.52 (Eyal 11 Oct): suppliers, alternative items (Option B) and the supplier's final offer are added right here — no going back to the RFQ for that */
+  var canQ=!!rfq&&rfq.status==='Open'&&canEditPurch()&&isPurchBuyer();
+  var op=qOpenParts(),form=(canQ&&S.quoteOpen&&op.rfqId===rfq.id)?quoteFormHtml(pr,rfq,op.i,op.opt,op.mode):'';
+  form=form?'<div class="pp-card" id="ppQForm" style="background:var(--surface2);">'+form+'</div>':'';
+  var none=rfq?(rfq.suppliers||[]).map(function(s,i){return [s,i];}).filter(function(x){return !x[0].quote&&!optLive(x[0]).length;}):[];
+  var noneHtml=none.length?'<div style="font-size:12px;margin:0 0 8px;color:var(--text2);"><b>No offer yet:</b> '+none.map(function(x){return '<span style="white-space:nowrap;">'+esc(x[0].name)+(canQ?' '+actBtn('➕ Log offer','__PURPRO.quoteToggle(\''+rfq.id+':'+x[1]+'\')'):'')+'</span>';}).join(' · ')+'</div>':'';
+  var tail=(canQ?addSupHtml(rfq)+addItemCard(pr):'')+addedNotes(pr);
+  if(!A.rows.length)return '<p style="font-size:12px;color:var(--danger);">No offers logged yet.</p>'+noneHtml+form+tail;
+  var W=A.weights,sIdx=function(n){return rfq?rfq.suppliers.findIndex(function(x){return x.name===n;}):-1;};
   var rows=A.rows.slice().sort(function(a,b){return b.score-a.score;}).map(function(r){
-    var isBest=A.best&&r.name===A.best.name,isCheap=A.cheapest&&r.name===A.cheapest.name;
-    return '<tr'+(isBest?' style="background:rgba(46,125,90,.10);"':'')+'><td><b style="cursor:pointer;border-bottom:1px dotted var(--text3);" onclick="__PURPRO.sup360N(this.dataset.n)" data-n="'+esc(r.name).replace(/"/g,'&quot;')+'">'+esc(r.name)+'</b>'+(isBest?' <span class="pp-chip" style="background:var(--ok);color:#fff;">🏅 BEST</span>':'')+(isCheap?' <span class="pp-chip" style="background:var(--warn);color:#000;">💰 CHEAPEST</span>':'')+(r.legacy?' <span class="pp-chip" style="background:var(--surface3);color:var(--text3);">total only</span>':'')+'</td>'+
+    var isBest=A.best&&r.key===A.best.key,isCheap=A.cheapest&&r.key===A.cheapest.key,si=sIdx(r.sup),sup=si>=0?rfq.suppliers[si]:null;
+    var ph=(r.q.history||[]).slice(-1)[0],was=(ph&&ph.unitPrice!=null&&Number(ph.unitPrice)!==Number(r.q.unitPrice))?ph.unitPrice:null;
+    var ff=r.q.final&&r.q.finalFile,fin=r.q.final?'<span class="pp-chip" style="background:#1565c0;color:#fff;cursor:pointer;" title="Final offer'+(r.q.finalBy?' — uploaded by '+esc(r.q.finalBy):'')+(ff&&ff.local?' — kept in the request, not in the cloud':'')+' — click to open" onclick="__PURPRO.openOfferFile(\''+rfq.id+'\','+si+',\''+(r.opt?r.opt.id:'A')+'\')">📎 FINAL</span>':'';
+    var acts=!canQ?'':'<td style="white-space:nowrap;">'+(si<0?'—':r.opt
+      ?actBtn('✏','__PURPRO.quoteToggle(\''+rfq.id+':'+si+':'+r.opt.id+'\')')+' '+actBtn('📎 Final','__PURPRO.quoteToggle(\''+rfq.id+':'+si+':'+r.opt.id+':final\')')+' '+actBtn('✕','__PURPRO.optRemove(\''+rfq.id+'\','+si+',\''+r.opt.id+'\')')
+      :actBtn('✏ Edit offer','__PURPRO.quoteToggle(\''+rfq.id+':'+si+'\')')+' '+(sup&&(sup.options||[]).length<3?actBtn('＋ Option','__PURPRO.quoteToggle(\''+rfq.id+':'+si+':new\')')+' ':'')+actBtn('📎 Final offer','__PURPRO.quoteToggle(\''+rfq.id+':'+si+':A:final\')'))+'</td>';
+    return '<tr'+(isBest?' style="background:rgba(46,125,90,.10);"':'')+'><td><b style="cursor:pointer;border-bottom:1px dotted var(--text3);" onclick="__PURPRO.sup360N(this.dataset.n)" data-n="'+esc(r.sup).replace(/"/g,'&quot;')+'">'+esc(r.sup)+'</b>'+
+      (r.opt?' <span class="pp-chip" style="background:#6a1b9a;color:#fff;">Option '+esc(r.opt.label)+'</span><div style="font-size:10px;color:var(--text2);">'+esc(r.opt.spec||'')+'</div>':(sup&&optLive(sup).length?' <span class="pp-chip" style="background:var(--surface3);color:var(--text2);">Option A</span>':''))+
+      (isBest?' <span class="pp-chip" style="background:var(--ok);color:#fff;">🏅 BEST</span>':'')+(isCheap?' <span class="pp-chip" style="background:var(--warn);color:#000;">💰 CHEAPEST</span>':'')+(r.legacy?' <span class="pp-chip" style="background:var(--surface3);color:var(--text3);">total only</span>':'')+(fin?' '+fin:'')+'</td>'+
     '<td style="text-align:right;font-family:var(--mono);">'+r.qty+'</td>'+
-    '<td style="text-align:right;font-family:var(--mono);">'+money(r.unit)+'<div style="font-size:10px;color:var(--text3);">'+(r.vatIncl?'VAT in':'VAT out')+'</div></td>'+
+    '<td style="text-align:right;font-family:var(--mono);">'+money(r.unit)+'<div style="font-size:10px;color:var(--text3);">'+(r.vatIncl?'VAT in':'VAT out')+'</div>'+(was!=null?'<div style="font-size:10px;color:var(--text3);">was '+money(was)+'</div>':'')+'</td>'+
     '<td style="text-align:right;font-family:var(--mono);">'+(r.delivery?money(r.delivery):'—')+'</td>'+
     '<td style="text-align:right;font-family:var(--mono);"><b>'+money(r.landedUnit)+'</b></td>'+
     '<td style="text-align:right;font-family:var(--mono);">'+money(r.normTotal)+'</td>'+
@@ -98134,36 +98493,38 @@ function rEvalPanel(pr){
     '<td style="font-size:10.5px;color:var(--text3);">'+esc(r.perf.text)+'</td>'+
     '<td style="font-size:10.5px;color:var(--danger);">'+(r.flags.length?r.flags.map(esc).join('<br>'):'<span style="color:var(--ok);">✓ like for like</span>')+'</td>'+
     '<td style="text-align:right;font-family:var(--mono);"><b>'+r.score+'</b><div style="font-size:9.5px;color:var(--text3);">P'+r.parts.price+' L'+r.parts.lead+' T'+r.parts.terms+' R'+r.parts.perf+'</div></td>'+
-    (r.q.file?'<td><a href="'+r.q.file.data+'" target="_blank" download="'+esc(r.q.file.name)+'">📎</a></td>':'<td>—</td>')+'</tr>';
+    '<td style="white-space:nowrap;">'+(r.q.file?'<a href="'+r.q.file.data+'" target="_blank" download="'+esc(r.q.file.name)+'" title="the offer as logged">📎</a>':(fin?'':'—'))+(fin?' '+fin:'')+'</td>'+acts+'</tr>';
   }).join('');
   var wIn=function(k,l){return '<label style="font-size:10px;">'+l+' %<input class="pp-in" type="number" min="0" max="100" id="ppW_'+k+'" style="width:60px;" value="'+W[k]+'"></label>';};
-  return '<div style="padding:8px 10px;background:rgba(46,125,90,.10);border-left:3px solid var(--ok);border-radius:6px;font-size:12.5px;margin-bottom:10px;"><b>🤖 Nexi — apple to apple on '+A.reqQty+' units, VAT-exclusive, delivery included: '+esc(A.best.name)+'</b><div style="font-size:11.5px;margin-top:2px;">'+esc(A.reason)+'</div></div>'+
-    '<div style="overflow-x:auto;"><table class="pp-tbl"><thead><tr><th>Supplier</th><th style="text-align:right;">Qty offered</th><th style="text-align:right;">Unit price as quoted</th><th style="text-align:right;">Delivery</th><th style="text-align:right;">₱/unit landed (ex-VAT)</th><th style="text-align:right;">Total for '+A.reqQty+'</th><th style="text-align:right;">Gap vs cheapest</th><th style="text-align:right;">Lead</th><th>Terms</th><th>Warranty</th><th>Brand / spec</th><th>Valid until</th><th>Supplier record</th><th>Flags</th><th style="text-align:right;">Score</th><th>File</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
-    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:10px;">'+wIn('price','Price')+wIn('lead','Lead time')+wIn('terms','Terms')+wIn('perf','Record')+actBtn('💾 Save weights','__PURPRO.a2aWeightsSave(\''+pr.id+'\')')+actBtn('⬇ Excel comparison','__PURPRO.a2aExcel(\''+pr.id+'\')')+'<div style="flex:1;"></div>'+actBtn('➡ Proceed to award','__PURPRO.simpleAdvance(\''+pr.id+'\',\'Evaluation complete — Nexi: '+esc(A.best.name).replace(/'/g,'')+' '+A.best.score+'\')',true)+'</div>'+
-    '<div style="font-size:10.5px;color:var(--text3);margin-top:6px;">Score = Price (cheapest landed = 100) · Lead (on time = 100, −5 per day late) · Terms (advance 25 · COD 50 · net N days 50+N) · Record (RFQs answered, deliveries on time). An expired offer or a short quantity is scored at 80%. The comparison is kept on the request for the approver.</div>';
+  return '<div style="padding:8px 10px;background:rgba(46,125,90,.10);border-left:3px solid var(--ok);border-radius:6px;font-size:12.5px;margin-bottom:10px;"><b>🤖 Nexi — apple to apple on '+A.reqQty+' units, VAT-exclusive, delivery included: '+esc(A.best.label)+'</b><div style="font-size:11.5px;margin-top:2px;">'+esc(A.reason)+'</div></div>'+
+    noneHtml+form+
+    '<div style="overflow-x:auto;"><table class="pp-tbl"><thead><tr><th>Supplier</th><th style="text-align:right;">Qty offered</th><th style="text-align:right;">Unit price as quoted</th><th style="text-align:right;">Delivery</th><th style="text-align:right;">₱/unit landed (ex-VAT)</th><th style="text-align:right;">Total for '+A.reqQty+'</th><th style="text-align:right;">Gap vs cheapest</th><th style="text-align:right;">Lead</th><th>Terms</th><th>Warranty</th><th>Brand / spec</th><th>Valid until</th><th>Supplier record</th><th>Flags</th><th style="text-align:right;">Score</th><th>File</th>'+(canQ?'<th>Change</th>':'')+'</tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:10px;">'+wIn('price','Price')+wIn('lead','Lead time')+wIn('terms','Terms')+wIn('perf','Record')+actBtn('💾 Save weights','__PURPRO.a2aWeightsSave(\''+pr.id+'\')')+actBtn('⬇ Excel comparison','__PURPRO.a2aExcel(\''+pr.id+'\')')+'<div style="flex:1;"></div>'+actBtn('➡ Proceed to award','__PURPRO.simpleAdvance(\''+pr.id+'\',\'Evaluation complete — Nexi: '+jsq(A.best.label)+' '+A.best.score+'\',\'Quotation Evaluation\')',true)+'</div>'+
+    '<div style="font-size:10.5px;color:var(--text3);margin-top:6px;">Score = Price (cheapest landed = 100) · Lead (on time = 100, −5 per day late) · Terms (advance 25 · COD 50 · net N days 50+N) · Record (RFQs answered, deliveries on time). An expired offer or a short quantity is scored at 80%. An alternative item (Option B…) is scored like any offer; the approver confirms it before awarding it. 📎 FINAL = the supplier\'s final offer (was ₱ = the price before it). The comparison is frozen on the request and the PO at the award.</div>'+
+    tail;
 }
 
 // ---------- Screen 008 · award ----------
 function rAwardPanel(pr){
   var rfq=getRFQ(pr.rfqId);
-  var qs=rfq?rfq.suppliers.filter(function(s){return s.quote;}):[];
-  if(!qs.length)return '<p style="font-size:12px;color:var(--danger);">No quotes to award.</p>';
   var A=a2a(pr); /* v21.64: the award follows the apple-to-apple score, not the typed total */
-  var recName=A.best?A.best.name:qs[0].name;
-  var opts=A.rows.slice().sort(function(a,b){return b.score-a.score;}).map(function(r){return '<option value="'+esc(r.name)+'"'+(r.name===recName?' selected':'')+'>'+esc(r.name)+' — '+money(r.landedUnit)+'/unit landed · score '+r.score+(r.name===recName?' (recommended)':'')+'</option>';}).join('');
-  var reason=A.reason||'';
-  return '<div style="padding:8px 10px;background:rgba(46,125,90,.10);border-left:3px solid var(--ok);border-radius:6px;font-size:12.5px;margin-bottom:10px;"><b>🤖 Nexi recommends: '+esc(recName)+'</b><div style="font-size:11.5px;margin-top:2px;">'+esc(reason)+'</div></div>'+
+  if(!A.rows.length)return '<p style="font-size:12px;color:var(--danger);">No quotes to award.</p>';
+  var rec=A.best?A.best.key:A.rows[0].key,recRow=A.rows.filter(function(r){return r.key===rec;})[0]||A.rows[0];
+  var opts=A.rows.slice().sort(function(a,b){return b.score-a.score;}).map(function(r){return '<option value="'+esc(r.key)+'"'+(r.key===rec?' selected':'')+'>'+esc(r.label)+' — '+money(r.landedUnit)+'/unit landed · score '+r.score+(r.q.final?' · FINAL':'')+(r.key===rec?' (recommended)':'')+'</option>';}).join('');
+  var live=prPOs(pr).filter(function(p){return p.status!=='Cancelled';});
+  return '<div style="padding:8px 10px;background:rgba(46,125,90,.10);border-left:3px solid var(--ok);border-radius:6px;font-size:12.5px;margin-bottom:10px;"><b>🤖 Nexi recommends: '+esc(recRow.label)+'</b><div style="font-size:11.5px;margin-top:2px;">'+esc(A.reason||'')+'</div></div>'+
+    (live.length?'<div style="font-size:12px;padding:7px 10px;border-radius:6px;background:var(--danger);color:#fff;font-weight:700;margin-bottom:8px;">⛔ '+esc(live.map(function(p){return p.number+' ('+p.status+')';}).join(', '))+' already exists for this request — '+(isPurchAdmin()?'Admin may still award a new PO (asked to confirm; the old one stays)':'cancel it first; no second PO is made')+'.</div>':'')+
     '<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">'+
     '<label style="font-size:11px;">Award to<select class="pp-in" id="ppAwardSel" style="min-width:260px;">'+opts+'</select></label>'+
-    actBtn('🏅 Approve award → generate PO','__PURPRO.award(\''+pr.id+'\',\''+esc(recName).replace(/'/g,'')+'\')',true)+'</div>'+
-    '<div style="font-size:10.5px;color:var(--text3);margin-top:6px;">Choosing a supplier other than the recommendation will require a written justification (recorded permanently).</div>';
+    actBtn('🏅 Approve award → generate PO','__PURPRO.award(\''+pr.id+'\',\'\',\'Approval\','+Number((rfq&&rfq.updatedAt)||0)+')',true)+'</div>'+ /* v22.52: the stage and the RFQ stamp travel with it — a stale screen awards nothing */
+    '<div style="font-size:10.5px;color:var(--text3);margin-top:6px;">Choosing a supplier other than the recommendation will require a written justification (recorded permanently). An alternative item (Option B…) is confirmed before it is awarded. To change offers, add a supplier or upload a final offer, ↩ go back to Quotation Evaluation.</div>';
 }
 
 // ---------- Screen 009 · PO ----------
 function rPOPanel(pr){
   var po=getPO(pr.poId);
   if(!po)return '<p style="font-size:12px;color:var(--danger);">PO record missing.</p>';
-  var head='<p style="font-size:12px;"><b style="font-family:var(--mono);color:var(--accent);">'+esc(po.number)+'</b> · '+esc(po.company||PURCH_COMPANY)+(po.project?' · 🏗 '+esc(po.project):'')+' · '+esc(po.supplier)+' · total <b>'+money(po.total)+'</b> · status <b>'+esc(po.status)+'</b>'+(po.revisions&&po.revisions.length?' · rev '+po.revisions.length:'')+'</p>';
+  var head='<p style="font-size:12px;"><b style="font-family:var(--mono);color:var(--accent);">'+esc(po.number)+'</b> · '+esc(po.company||PURCH_COMPANY)+(po.project?' · 🏗 '+esc(po.project):'')+' · '+esc(po.supplier)+(po.option?' · Option '+esc(po.option.label)+': '+esc(po.option.spec||''):'')+(po.reopenedByAdmin?' · <span style="color:var(--danger);">reopened by admin</span>':'')+' · total <b>'+money(po.total)+'</b> · status <b>'+esc(po.status)+'</b>'+(po.revisions&&po.revisions.length?' · rev '+po.revisions.length:'')+'</p>';
   if(po.status==='Draft'){
     return head+'<p style="font-size:11.5px;color:var(--text2);">Issuing makes the PO an official company obligation. It becomes immutable — later changes create amendments.</p>'+
       actBtn('📤 Issue PO','__PURPRO.issuePO(\''+pr.id+'\')',true);
@@ -98241,7 +98602,7 @@ function matchInvoice(inv){
 }
 function rInvoices(){
   var invs=L(K.invs).slice().reverse();
-  var pos=L(K.pos).filter(function(p){return p.status!=='Draft';});
+  var pos=L(K.pos).filter(livePO); /* v22.52: never a cancelled PO */
   var form='<div class="pp-card"><div style="font-weight:800;font-size:12px;margin-bottom:8px;">➕ Log supplier invoice</div>'+
     '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">'+
     '<label style="font-size:10px;">PO<select class="pp-in" id="ppInvPo" style="min-width:220px;">'+pos.map(function(p){return '<option value="'+p.id+'">'+esc(p.number)+' · '+esc(p.supplier)+' · '+money(p.total)+'</option>';}).join('')+'</select></label>'+
@@ -98264,7 +98625,7 @@ function rInvoices(){
 
 // ---------- Screen 012 · scorecard ----------
 function rScorecard(){
-  var pos=L(K.pos).filter(function(p){return p.status!=='Draft';});
+  var pos=L(K.pos).filter(livePO); /* v22.52 */
   var grns=L(K.grns),rfqs=L(K.rfqs);
   var by={};
   pos.forEach(function(p){
@@ -98304,7 +98665,7 @@ function rScorecard(){
 
 // ---------- Screen 013 · analytics ----------
 function rAnalytics(){
-  var prs=L(K.prs),pos=L(K.pos).filter(function(p){return p.status!=='Draft';}),rfqs=L(K.rfqs);
+  var prs=L(K.prs),pos=L(K.pos).filter(livePO),rfqs=L(K.rfqs); /* v22.52 */
   var spend=pos.reduce(function(a,p){return a+Number(p.total||0);},0);
   var cycles=prs.filter(function(p){return p.poId&&getPO(p.poId)&&getPO(p.poId).issuedAt;}).map(function(p){return (getPO(p.poId).issuedAt-p.createdAt)/86400000;});
   var avgCycle=cycles.length?(cycles.reduce(function(a,b){return a+b;},0)/cycles.length).toFixed(1):'—';
@@ -98351,6 +98712,10 @@ window.__PURPRO={
   addItem:function(){S.draft.items.push({});renderPurchPro();},
   delItem:function(i){S.draft.items.splice(i,1);if(!S.draft.items.length)S.draft.items.push({});renderPurchPro();},
   cancelDraft:function(){S.draft=null;renderPurchPro();},
+  /* v22.52 (ported from the v22.31 trial): a draft — also one sent back with ↩ Go back — is edited; saving keeps the number and adds a revision */
+  editPR:function(id){var pr=getPR(id);if(!pr)return;if(pr.status!=='Draft'){toast(pr.number+' is no longer a draft (now: '+pr.status+')','warn');renderPurchPro();return;}
+    S.draft={editId:pr.id,editNumber:pr.number,editRev:pr.revision||1,title:pr.title||'',dept:pr.dept||'',project:pr.project||'',klass:pr.klass||'',needBy:pr.needBy||'',priority:pr.priority||'Normal',justification:pr.justification||'',
+      items:(pr.items||[]).map(function(it){return Object.assign({},it);})};if(!S.draft.items.length)S.draft.items.push({});S.prId=null;S.tab='prs';renderPurchPro();},
   saveDraft:function(){
     var d=S.draft;
     if(!d.title.trim()){alert('Title is required.');return;}
@@ -98360,6 +98725,13 @@ window.__PURPRO={
     if((d.justification||'').trim().length<30){alert('Justification must be at least 30 characters.');return;}
     var items=d.items.filter(function(it){return (it.desc||'').trim()&&Number(it.qty)>0;});
     if(!items.length){alert('At least one line item with description and quantity.');return;}
+    if(d.editId){var ex=getPR(d.editId);if(!ex||ex.status!=='Draft'){alert('⛔ '+((ex&&ex.number)||'This request')+' is no longer a draft — it cannot be edited.');S.draft=null;renderPurchPro();return;}
+      var _sig=function(a){return JSON.stringify((a||[]).map(function(it){return [String(it.desc||'').trim(),Number(it.qty||0),String(it.unit||'').trim(),String(it.code||'').trim(),String(it.brand||'').trim()];}));},_old=_sig(ex.items);
+      ex.title=d.title.trim();ex.dept=d.dept.trim();ex.project=(d.project||'').trim();ex.klass=(d.klass||'').trim();ex.needBy=d.needBy;ex.priority=d.priority||'Normal';ex.justification=d.justification.trim();
+      ex.items=items.map(function(it){return Object.assign({},it,{desc:(it.desc||'').trim(),code:(it.code||'').trim(),qty:Number(it.qty),unit:(it.unit||'').trim(),unitCost:Number(it.unitCost||0),brand:(it.brand||'').trim(),warehouse:(it.warehouse||'').trim(),remarks:(it.remarks||'').trim()});});
+      ex.revision=(Number(ex.revision)||1)+1;ex.aiAnalysis=null;ex.workflow=ex.workflow||[];ex.workflow.push({stage:'Draft',at:Date.now(),by:who(),note:'edited — revision '+ex.revision});
+      if(_sig(ex.items)!==_old){ex.itemsChangedAt=Date.now();ex.itemsChangedWhy='revision '+ex.revision;} /* v22.52: offers kept on the open RFQ are flagged as older than this revision */
+      savePR(ex);audit('pr:edit',ex.number,'revision '+ex.revision);toast(ex.number+' saved — revision '+ex.revision);S.draft=null;S.prId=ex.id;renderPurchPro();return;}
     var pr={id:uid('pr'),number:num('PR'),title:d.title.trim(),dept:d.dept.trim(),project:(d.project||'').trim(),klass:(d.klass||'').trim(),company:PURCH_COMPANY,needBy:d.needBy,priority:d.priority||'Normal',justification:d.justification.trim(),
       items:items.map(function(it){return {desc:(it.desc||'').trim(),code:(it.code||'').trim(),qty:Number(it.qty),unit:(it.unit||'').trim(),unitCost:Number(it.unitCost||0),brand:(it.brand||'').trim(),warehouse:(it.warehouse||'').trim(),remarks:(it.remarks||'').trim()};}),
       status:'Draft',createdBy:who(),createdAt:Date.now(),revision:1,workflow:[{stage:'Draft',at:Date.now(),by:who(),note:'created'}],overrides:[]};
@@ -98394,7 +98766,8 @@ window.__PURPRO={
     if(pr.status!=='Department Approval'){toast(pr.number+' is no longer waiting for approval (now: '+pr.status+') — screen refreshed','warn');renderPurchPro();return;}
     if(ok&&isRequesterOf(pr)){alert('⛔ You raised '+pr.number+', so you cannot approve it.\n\nEyal or Dr Amy (the other one) approves it.');return;}
     if(ok&&!pr.checkedBy&&!confirm(pr.number+' has NOT been content-checked by Jinky yet.\n\nApprove it anyway? (it is written in the workflow log)'))return;
-    if(ok){advance(pr,'Approved by '+who()+(pr.checkedBy?'':' (before the content check)'));
+    if(ok){pr.approvedEstimate=prTotal(pr);pr.approvedBy=who();pr.approvedAt=Date.now(); /* v22.52 (as the trial): who approved, when, for how much — ↩ going back clears exactly these */
+      advance(pr,'Approved by '+who()+(pr.checkedBy?'':' (before the content check)'));
       try{purchInbox(_purchUsers(function(u){return isRequesterOf(pr,u);}),'✅ '+pr.number+' approved','"'+(pr.title||'')+'" approved by '+who(),pr.id);}catch(e){}}
     else{var why=prompt('Rejection reason:');if(why===null)return;pr.status='Draft';pr.workflow.push({stage:'Draft',at:Date.now(),by:who(),note:'REJECTED: '+(why||'')});savePR(pr);audit('pr:rejected',pr.number,why||'');}
     renderPurchPro();
@@ -98425,6 +98798,17 @@ window.__PURPRO={
     var pr=getPR(prId);if(!pr||!S._sourcing)return;
     var picks=[].slice.call(document.querySelectorAll('.ppSrcPick:checked')).map(function(b){return S._sourcing[Number(b.dataset.i)];}).filter(Boolean);
     if(!picks.length){alert('Pick at least one supplier.');return;}
+    /* v22.52: a request sent back to Supplier Sourcing keeps its open RFQ — the picks join it (same number, every offer kept) */
+    var orfq=pr.rfqId&&getRFQ(pr.rfqId);
+    if(orfq&&orfq.status==='Open'){
+      if(pr.status!=='Supplier Sourcing'){toast(pr.number+' already moved on (now: '+pr.status+') — screen refreshed','warn');renderPurchPro();return;}
+      var have={};orfq.suppliers.forEach(function(x){have[String(x.name||'').trim().toLowerCase()]=1;});
+      var add=picks.filter(function(x){var k=String(x.name||'').trim().toLowerCase();if(!k||have[k])return false;have[k]=1;return true;});
+      add.forEach(function(x){orfq.suppliers.push({name:x.name,email:x.email||'',phone:x.phone||'',sentAt:null,channel:null,quote:null,addedLate:true,addedBy:who(),addedAt:Date.now()});});
+      saveRFQ(orfq);if(add.length)audit('rfq:add-supplier',orfq.number,add.map(function(x){return x.name;}).join(', '));
+      advance(pr,orfq.number+' continued'+(add.length?' · +'+add.length+' supplier'+(add.length>1?'s':''):'')+' · '+orfq.suppliers.length+' suppliers');
+      toast(orfq.number+(add.length?' — '+add.length+' supplier'+(add.length>1?'s':'')+' added':' — the picked suppliers are already on it'));renderPurchPro();return;
+    }
     var closing=(document.getElementById('ppRfqClose')||{}).value||new Date(Date.now()+7*86400000).toISOString().slice(0,10);
     var rfq={id:uid('rfq'),number:num('RFQ'),prId:pr.id,status:'Open',closingDate:closing,createdAt:Date.now(),
       suppliers:picks.map(function(s){return {name:s.name,email:s.email||'',phone:s.phone||'',sentAt:null,channel:null,quote:null};})};
@@ -98589,13 +98973,16 @@ window.__PURPRO={
   },
   rfqAddSupplier:function(rfqId){
     var rfq=getRFQ(rfqId);if(!rfq)return;var pr=getPR(rfq.prId);
+    if(pr&&healStaleAward(pr))rfq=getRFQ(rfqId)||rfq; /* v22.52: an RFQ left "Awarded" by an old step back is opened again */
     if(rfq.status!=='Open'||(pr&&pr.status!=='RFQ'&&pr.status!=='Quotation Evaluation')){toast('This RFQ is closed — suppliers can be added only while it is open','warn');return;}
     var n=String((document.getElementById('ppAddSupN')||{}).value||'').trim();if(!n){toast('Supplier name is required','warn');return;}
     if((rfq.suppliers||[]).some(function(x){return String(x.name||'').trim().toLowerCase()===n.toLowerCase();})){toast(n+' is already on '+rfq.number,'warn');return;}
     var e=String((document.getElementById('ppAddSupE')||{}).value||'').trim(),p=String((document.getElementById('ppAddSupP')||{}).value||'').trim();
     try{var vs=JSON.parse(localStorage.getItem('hydroPro_acct_vendors')||'[]')||[];var v=vs.find(function(x){return x&&String(x.name||'').trim().toLowerCase()===n.toLowerCase();});if(v){e=e||v.email||'';p=p||v.phone||v.mobile||'';}}catch(_){}
     rfq.suppliers.push({name:n,email:e,phone:p,sentAt:null,channel:null,quote:null,addedLate:true,addedBy:who(),addedAt:Date.now()});
-    saveRFQ(rfq);audit('rfq:add-supplier',rfq.number,n);toast(n+' added to '+rfq.number+' — send it the RFQ');renderPurchPro();
+    saveRFQ(rfq);audit('rfq:add-supplier',rfq.number,n);
+    if(pr&&pr.status==='Quotation Evaluation'){S.quoteOpen=rfq.id+':'+(rfq.suppliers.length-1);S.quoteOpenName=n;} /* v22.52: at the evaluation its offer form opens at once */
+    toast(n+' added to '+rfq.number+' — send it the RFQ');renderPurchPro();
   },
   rfqRemoveSupplier:function(rfqId,idx){
     var rfq=getRFQ(rfqId);if(!rfq)return;var s0=rfq.suppliers[idx];if(!s0)return;
@@ -98605,7 +98992,8 @@ window.__PURPRO={
     rfq.removed=rfq.removed||[];rfq.removed.push(Object.assign({},s0,{removedBy:who(),removedAt:Date.now(),removeReason:why.trim()}));
     rfq.suppliers.splice(idx,1);S.quoteOpen=null;saveRFQ(rfq);audit('rfq:remove-supplier',rfq.number,s0.name+': '+why.trim());toast(s0.name+' taken off '+rfq.number);renderPurchPro();
   },
-  quoteToggle:function(k){S.quoteOpen=(S.quoteOpen===k?null:k);renderPurchPro();},
+  quoteToggle:function(k){S.quoteOpen=(S.quoteOpen===k?null:k);S.quoteOpenName=null; /* v22.52: the form belongs to the supplier by name */
+    if(S.quoteOpen){var _p=String(S.quoteOpen).split(':'),_r=getRFQ(_p[0]),_s=_r&&_r.suppliers[Number(_p[1])];S.quoteOpenName=_s?_s.name:null;}renderPurchPro();},
   srcClass:function(prId,v){if(!v)return;var pr=getPR(prId);if(!pr)return;var m={};try{m=JSON.parse(localStorage.getItem(SRC_KEY)||'{}')||{};}catch(e){}m[srcKey(pr)]=v;localStorage.setItem(SRC_KEY,JSON.stringify(m));try{if(typeof hnxScheduleSync==='function')hnxScheduleSync();}catch(e){}audit('src:class',pr.number,srcKey(pr)+' → '+v);toast('Source set: '+v);renderPurchPro();},
   sourceClass:function(prId){var pr=getPR(prId);return pr?sourceClass(pr):null;},
   fromInv:function(kind,id){
@@ -98632,53 +99020,139 @@ window.__PURPRO={
   a2aExcel:function(prId){
     var pr=getPR(prId);if(!pr)return;var A=a2a(pr);if(!A.rows.length){toast('No offers','warn');return;}
     if(typeof XLSX==='undefined'){toast('Excel library not loaded','warn');return;}
-    var hdr=['Supplier','Qty offered','Unit price as quoted','VAT','Delivery ₱','₱/unit landed ex-VAT','Total for '+A.reqQty,'Gap vs cheapest %','Gap ₱','Lead days','Days late','Terms','Warranty','Brand / spec','Valid until','Supplier record','Flags','Score','Price pts','Lead pts','Terms pts','Record pts','Logged by','Logged at'];
-    var rows=A.rows.slice().sort(function(a,b){return b.score-a.score;}).map(function(r){return [r.name,r.qty,r.unit,r.vatIncl?'included':'not included',r.delivery,Math.round(r.landedUnit*100)/100,Math.round(r.normTotal*100)/100,r.gapPct,r.gapAmt,r.q.deliveryDays||'',r.lateDays,r.q.payTerms||'',r.q.warranty||'',r.q.brand||'',r.q.validUntil||'',r.perf.text,r.flags.join('; '),r.score,r.parts.price,r.parts.lead,r.parts.terms,r.parts.perf,r.q.by||'',r.q.at?new Date(r.q.at).toISOString().slice(0,16).replace('T',' '):''];});
-    var top=[[pr.number+' — '+pr.title],['Need by',pr.needBy||'','Quantity',A.reqQty,'Items',(pr.items||[]).map(function(it){return it.desc+' × '+it.qty+' '+(it.unit||'');}).join('; ')],['Nexi recommends',A.best.name,A.reason],['Weights','Price '+A.weights.price+'%','Lead '+A.weights.lead+'%','Terms '+A.weights.terms+'%','Record '+A.weights.perf+'%'],[]];
+    var hdr=['Supplier','Option','Final offer','Was ₱/unit','Qty offered','Unit price as quoted','VAT','Delivery ₱','₱/unit landed ex-VAT','Total for '+A.reqQty,'Gap vs cheapest %','Gap ₱','Lead days','Days late','Terms','Warranty','Brand / spec','Valid until','Supplier record','Flags','Score','Price pts','Lead pts','Terms pts','Record pts','Logged by','Logged at'];
+    var rows=A.rows.slice().sort(function(a,b){return b.score-a.score;}).map(function(r){var _h=(r.q.history||[]).slice(-1)[0];return [r.sup,r.opt?('Option '+r.opt.label+': '+(r.opt.spec||'')):(r.label!==r.sup?'A':''),r.q.final?('FINAL '+(r.q.finalAt?new Date(r.q.finalAt).toISOString().slice(0,10):'')+(r.q.finalFile?' · '+r.q.finalFile.name:'')):'',(_h&&_h.unitPrice!=null&&Number(_h.unitPrice)!==Number(r.q.unitPrice))?_h.unitPrice:'',r.qty,r.unit,r.vatIncl?'included':'not included',r.delivery,Math.round(r.landedUnit*100)/100,Math.round(r.normTotal*100)/100,r.gapPct,r.gapAmt,r.q.deliveryDays||'',r.lateDays,r.q.payTerms||'',r.q.warranty||'',r.q.brand||'',r.q.validUntil||'',r.perf.text,r.flags.join('; '),r.score,r.parts.price,r.parts.lead,r.parts.terms,r.parts.perf,r.q.by||'',r.q.at?new Date(r.q.at).toISOString().slice(0,16).replace('T',' '):''];});
+    var top=[[pr.number+' — '+pr.title],['Need by',pr.needBy||'','Quantity',A.reqQty,'Items',(pr.items||[]).map(function(it){return it.desc+' × '+it.qty+' '+(it.unit||'');}).join('; ')],['Nexi recommends',A.best.label,A.reason],['Weights','Price '+A.weights.price+'%','Lead '+A.weights.lead+'%','Terms '+A.weights.terms+'%','Record '+A.weights.perf+'%'],[]];
     var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(top.concat([hdr]).concat(rows)),'Apple to apple');
     XLSX.writeFile(wb,'Offers_'+pr.number+'.xlsx');audit('a2a:excel',pr.number,A.rows.length+' offers');
   },
-  saveQuote:function(rfqId,idx){
-    var rfq=getRFQ(rfqId);if(!rfq)return;
-    /* v21.64: unit price × quantity (+ delivery) — the total is computed, never typed */
-    var g=function(id){return (document.getElementById(id)||{}).value;};
-    var qty=Number(g('ppQq')||0),unit=Number(g('ppQu')||0);
-    if(!qty||!unit){alert('Quantity offered and unit price are required.');return;}
-    var del=Number(g('ppQdc')||0);var total=Math.round((qty*unit+del)*100)/100;
-    var prev=rfq.suppliers[idx].quote||{};
-    var quote={qty:qty,unitPrice:unit,vatIncl:g('ppQv')!=='excl',delivery:del,total:total,brand:g('ppQb')||'',validUntil:g('ppQvu')||'',deliveryDays:Number(g('ppQd')||0),payTerms:g('ppQp')||'',warranty:g('ppQw')||'',notes:g('ppQn')||'',deliverToOk:!!(document.getElementById('ppQgh')||{}).checked,file:prev.file||null,at:Date.now(),by:who()};
-    var fin=document.getElementById('ppQf');var f=fin&&fin.files&&fin.files[0];
-    var done=function(){rfq.suppliers[idx].quote=quote;saveRFQ(rfq);audit('rfq:quote',rfq.number,rfq.suppliers[idx].name+' '+qty+' × '+unit+(del?' + del '+del:'')+' = '+total);S.quoteOpen=null;toast('Offer saved');renderPurchPro();};
-    if(f){if(f.size>2500000){alert('File too big (max 2.5 MB) — saved without the file.');done();return;}var rd=new FileReader();rd.onload=function(){quote.file={name:f.name,mime:f.type,data:rd.result};done();};rd.onerror=function(){done();};rd.readAsDataURL(f);}else done();
+  /* v22.52: an offer is changed only while the RFQ is open and the request is at RFQ or Quotation Evaluation. The supplier is the one
+     whose form was opened (by name — a supplier taken off meanwhile no longer shifts the row); optId = an option ('new' adds one);
+     mode 'final' = the supplier's final offer (file required, revised price / terms optional). Nothing the form does not show is lost. */
+  saveQuote:function(rfqId,idx,optId,mode){
+    var rfq=getRFQ(rfqId);if(!rfq)return;var pr=getPR(rfq.prId)||{};
+    if(healStaleAward(pr))rfq=getRFQ(rfqId)||rfq;
+    if(rfq.status!=='Open'||(pr.status!=='RFQ'&&pr.status!=='Quotation Evaluation')){alert('⛔ '+(pr.number||'This request')+' is at '+(pr.status||'?')+(rfq.status!=='Open'?' and '+rfq.number+' is '+rfq.status:'')+' — offers change only at the RFQ or Quotation Evaluation step.\n\n↩ Go back to the RFQ / evaluation first.');return;}
+    var op=qOpenParts(),nm=(S.quoteOpenName&&op.rfqId===rfqId&&op.i===Number(idx))?S.quoteOpenName:null;
+    var si=nm!=null?rfq.suppliers.findIndex(function(x){return x.name===nm;}):Number(idx),s=rfq.suppliers[si];
+    if(!s){alert('⛔ '+(nm||'That supplier')+' is no longer on '+rfq.number+' — nothing saved.');S.quoteOpen=null;S.quoteOpenName=null;renderPurchPro();return;}
+    var isNew=optId==='new',fin=mode==='final',o=null;
+    if(optId&&optId!=='A'&&!isNew){o=(s.options||[]).filter(function(x){return x&&x.id===optId;})[0];if(!o){alert('⛔ That option is no longer on '+s.name+'\'s offer — nothing saved.');S.quoteOpen=null;renderPurchPro();return;}}
+    var v=readQuoteForm(pr),its=pr.items||[],cur=isNew?null:((o?o.quote:s.quote)||null);
+    if(fin)return finalOffer(pr,rfq,s.name,o?o.id:null,v);
+    if((isNew||o)&&!v.spec){alert('Describe the alternative item / spec (e.g. Marine plywood 3/4).');return;}
+    if(isNew){
+      if((s.options||[]).length>=3){alert('⛔ '+s.name+' already has 3 options (B, C, D) — remove one first.');return;}
+      var lb=String(v.label||nextOptLabel(s)).toUpperCase().slice(0,3);
+      if(lb==='A'||(s.options||[]).concat(s.removedOptions||[]).some(function(x){return x&&String(x.label).toUpperCase()===lb;})){alert('⛔ Option '+lb+' is already used for '+s.name+' — pick another letter.');return;}
+      v.label=lb;}
+    var b=buildQuote(cur,v,false,its);if(b.err){alert(b.err);return;}
+    var nq=b.q;nq.history=((cur&&cur.history)||[]).slice();if(cur&&(cur.unitPrice!=null||cur.total!=null))nq.history.push(quoteSnap(cur,false)); /* every ✏ edit keeps the offer as it was */
+    if(!nq.history.length)delete nq.history;
+    var fileIn=document.getElementById('ppQf'),f=fileIn&&fileIn.files&&fileIn.files[0],sname=s.name;
+    var done=function(){
+      var r2=getRFQ(rfqId)||rfq,s2=(r2.suppliers||[]).filter(function(x){return x.name===sname;})[0];
+      if(!s2){alert('⛔ '+sname+' is no longer on '+r2.number+' — nothing saved.');renderPurchPro();return;}
+      var note='';
+      if(isNew){var oo={id:uid('opt'),label:v.label,spec:v.spec,itemIdx:v.itemIdx,quote:nq,addedBy:who(),addedAt:Date.now()};s2.options=(s2.options||[]).concat([oo]);
+        note='Option '+oo.label+' added: '+sname+' — '+v.spec+' · '+nq.qty+' × '+money(nq.unitPrice);audit('rfq:option',r2.number,note);}
+      else if(o){var o2=(s2.options||[]).filter(function(x){return x&&x.id===o.id;})[0];if(!o2){alert('⛔ That option is no longer on '+sname+'\'s offer — nothing saved.');renderPurchPro();return;}
+        o2.spec=v.spec;o2.itemIdx=v.itemIdx;o2.quote=nq;o2.editedBy=who();o2.editedAt=Date.now();audit('rfq:quote',r2.number,sname+' Option '+o2.label+' '+nq.qty+' × '+nq.unitPrice+' = '+nq.total);}
+      else{s2.quote=nq;audit('rfq:quote',r2.number,sname+' '+nq.qty+' × '+nq.unitPrice+(nq.delivery?' + del '+nq.delivery:'')+' = '+nq.total);}
+      saveRFQ(r2);
+      if(note){var p2=getPR(r2.prId);if(p2){p2.workflow=p2.workflow||[];p2.workflow.push({stage:p2.status,at:Date.now(),by:who(),note:note});savePR(p2);}}
+      S.quoteOpen=null;S.quoteOpenName=null;toast(note||'Offer saved');renderPurchPro();};
+    if(f){if(f.size>2500000){alert('File too big (max 2.5 MB) — saved without the file.');done();return;}var rd=new FileReader();rd.onload=function(){nq.file={name:f.name,mime:f.type,data:rd.result};done();};rd.onerror=function(){done();};rd.readAsDataURL(f);}else done();
   },
-  award:function(prId,recName){
+  /* v22.52: take an alternative item off a supplier's offer — with a reason; it is kept in the record */
+  optRemove:function(rfqId,i,optId){
+    var rfq=getRFQ(rfqId);if(!rfq)return;var pr=getPR(rfq.prId);
+    if(rfq.status!=='Open'||!pr||(pr.status!=='RFQ'&&pr.status!=='Quotation Evaluation')){toast('Options change only while the RFQ is open (RFQ or Quotation Evaluation) — ↩ go back first','warn');return;}
+    var s=null,o=null;(rfq.suppliers||[]).some(function(x){var hit=(x.options||[]).filter(function(y){return y&&y.id===optId;})[0];if(hit){s=x;o=hit;return true;}return false;});
+    if(!o){toast('That option is no longer on '+rfq.number,'warn');renderPurchPro();return;}
+    var why=prompt('Take Option '+o.label+' ('+(o.spec||'')+') off '+s.name+'\'s offer?'+(o.quote&&o.quote.final?' It carries a FINAL offer — kept in the record.':'')+'\n\nReason (required):');if(!why||!why.trim())return;
+    s.options=(s.options||[]).filter(function(y){return y&&y.id!==optId;});
+    s.removedOptions=(s.removedOptions||[]).concat([Object.assign({},o,{removedBy:who(),removedAt:Date.now(),removedReason:why.trim()})]);
+    saveRFQ(rfq);audit('rfq:remove-option',rfq.number,s.name+' Option '+o.label+': '+why.trim());
+    pr.workflow=pr.workflow||[];pr.workflow.push({stage:pr.status,at:Date.now(),by:who(),note:'Option '+o.label+' taken off: '+s.name+' — '+why.trim()});savePR(pr);
+    S.quoteOpen=null;S.quoteOpenName=null;toast('Option '+o.label+' taken off '+s.name);renderPurchPro();
+  },
+  /* v22.52: open a final offer file (any signed-in user — Eyal and Dr Amy on any computer); a browser that blocks the new tab gets it as a download */
+  openOfferFile:function(rfqId,i,optId,hi){
+    var rfq=getRFQ(rfqId);if(!rfq)return;var s=rfq.suppliers[Number(i)],o=null;
+    if(optId&&optId!=='A'){(rfq.suppliers||[]).concat(rfq.removed||[]).some(function(x){var hit=(x.options||[]).concat(x.removedOptions||[]).filter(function(y){return y&&y.id===optId;})[0];if(hit){o=hit;s=x;return true;}return false;});}
+    var q=o?o.quote:(s&&s.quote);if(!q){toast('Offer not found','warn');return;}
+    var ff=(hi!=null&&hi!=='')?(((q.history||[])[Number(hi)])||{}).finalFile:q.finalFile;
+    if(!ff){toast('No final offer file on this offer','warn');return;}
+    if(ff.data){try{var a=document.createElement('a');a.href=ff.data;a.target='_blank';a.download=ff.name||'final-offer';document.body.appendChild(a);a.click();a.remove();}catch(e){}return;}
+    if(!ff.key){toast('The file of this final offer is missing','warn');return;}
+    if(typeof window.hnxFilesOpen!=='function'){if(typeof window.hnxFilesDownload==='function')window.hnxFilesDownload(ff.key,ff.name);else toast('The 🗂 Files module has not loaded on this computer yet — reload and try again','warn');return;}
+    try{var wo=window.open,used=false;
+      window.open=function(u){if(String(u||'').indexOf('blob:')!==0)return wo.apply(window,arguments);used=true;window.open=wo;var w=wo.apply(window,arguments);if(!w&&typeof window.hnxFilesDownload==='function'){try{window.hnxFilesDownload(ff.key,ff.name);}catch(e){}}return w;};
+      setTimeout(function(){if(!used)window.open=wo;},30000);}catch(e){}
+    window.hnxFilesOpen(ff.key);
+  },
+  /* v22.52: a request sent back to Supplier Sourcing goes on with its open RFQ — same number, every supplier and offer kept */
+  rfqContinue:function(prId){
+    var pr=getPR(prId);if(!pr)return;
+    if(pr.status!=='Supplier Sourcing'){toast(pr.number+' already moved on (now: '+pr.status+') — screen refreshed','warn');renderPurchPro();return;}
+    var rfq=pr.rfqId&&getRFQ(pr.rfqId);if(!rfq||rfq.status!=='Open'){toast('No open RFQ to go on with — create one','warn');renderPurchPro();return;}
+    var n=0;(rfq.suppliers||[]).forEach(function(s){if(s.quote)n++;n+=optLive(s).length;});
+    advance(pr,'Back to '+rfq.number+' — '+rfq.suppliers.length+' suppliers, '+n+' offers kept');toast(pr.number+' → '+pr.status+' ('+rfq.number+')');renderPurchPro();
+  },
+  /* v22.52 (Eyal 11 Oct): ↩ go back to ANY earlier stage while no final offer is in — after it, only Admin (Admin in any case) */
+  goBack:function(prId,fromStage,toStage,why,word){return goBack(prId,fromStage,toStage,why,word);},
+  backStep:function(prId,fromStage){var pr=getPR(prId);if(!pr)return false;if(fromStage&&pr.status!==fromStage){toast(pr.number+' already moved (now: '+pr.status+') — screen refreshed','warn');renderPurchPro();return false;}
+    var tg=backTargets(pr);if(!tg.length){toast('This stage cannot go back','warn');return false;}return goBack(prId,fromStage,tg[0]);},
+  backOpen:function(prId,stage){
+    if(!prId||(S.backOpen&&S.backOpen.prId===prId&&!stage))S.backOpen=null;else S.backOpen={prId:prId,to:stage||null};
+    renderPurchPro();setTimeout(function(){try{var e=document.getElementById('ppBackWhy');if(e)e.focus();}catch(_){}},60);
+  },
+  backPick:function(v){if(!S.backOpen)return;S.backOpen.to=v;var pr=getPR(S.backOpen.prId),el=document.getElementById('ppBackRedo');if(pr&&el)el.innerHTML=backRedoText(backRedo(pr,v));},
+  canGoBack:function(prId,to){var pr=getPR(prId);return pr?backBlock(pr,to):'Request not found';},
+  backTargets:function(prId){var pr=getPR(prId);return pr?backAllowed(pr):[];},
+  livePO:livePO,
+  finalOffer:function(prId){var pr=getPR(prId);return pr?finalOfferIn(pr):null;},
+  /* v22.52: an award is made only at Approval, on an open RFQ, from a screen that is not stale, and never next to another live PO of
+     the request; an alternative item (Option B…) is confirmed; whoever recorded the chosen option or final offer does not award it;
+     the comparison is frozen on the request and the PO */
+  award:function(prId,recName,fromStage,rfqStamp){
     if(!canApprovePurch()){toast('Only Eyal or Dr Amy award a purchase','warn');return;}
     var pr=getPR(prId);if(!pr)return;
     if(isRequesterOf(pr)){alert('⛔ You raised '+pr.number+', so you cannot award it.\n\nEyal or Dr Amy (the other one) awards it.');return;} /* v22.28 (A5-37) */
     var rfq=getRFQ(pr.rfqId);if(!rfq)return;
-    var chosen=(document.getElementById('ppAwardSel')||{}).value||recName;
-    var sup=rfq.suppliers.find(function(s){return s.name===chosen&&s.quote;});
-    if(sup&&pr.deliverTo&&!sup.quote.deliverToOk){alert('⛔ '+sup.name+' has not committed the drop-off: '+pr.deliverTo+'.\nGet the written commitment, tick it on the offer, then award.');return;} /* v21.77 */
-    if(!sup){alert('Chosen supplier has no quote.');return;}
-    if(chosen!==recName){
-      var why=prompt('You are overriding Nexi\'s recommendation ('+recName+'). Business justification (required):');
+    var A=a2a(pr),rec=(A.best&&A.best.key)||'';
+    var chosen=(document.getElementById('ppAwardSel')||{}).value||recName||rec;
+    var pick=a2aPick(rfq,chosen);
+    if(pick&&pr.deliverTo&&!pick.q.deliverToOk){alert('⛔ '+pick.label+' has not committed the drop-off: '+pr.deliverTo+'.\nGet the written commitment, tick it on the offer, then award.');return;} /* v21.77 */
+    if(!pick){alert('Chosen supplier has no quote.');return;}
+    if(!awardGuard(pr,fromStage,rfqStamp))return;
+    rfq=getRFQ(pr.rfqId);A=a2a(pr);rec=(A.best&&A.best.key)||rec;pick=a2aPick(rfq,chosen);if(!pick){alert('Chosen supplier has no quote.');return;}
+    if((pick.o&&String(pick.o.addedBy||'')===who())||(pick.q.final&&String(pick.q.finalBy||'')===who())){alert('⛔ You recorded '+(pick.o?'Option '+pick.o.label:'the final offer')+' of '+pick.s.name+' — someone else awards it.');return;}
+    var alt='';
+    if(pick.o){if(!confirm('Option '+pick.o.label+' is an alternative ('+(pick.o.spec||'')+') — award it?'))return;alt=' · alternative Option '+pick.o.label+' ('+(pick.o.spec||'')+') confirmed by '+who();}
+    if(chosen!==rec){
+      var recL=(a2aPick(rfq,rec)||{}).label||rec;
+      var why=prompt('You are overriding Nexi\'s recommendation ('+recL+'). Business justification (required):');
       if(!why||!why.trim())return;
-      pr.overrides.push({at:Date.now(),by:who(),stage:'Approval',reason:why.trim()});
-      audit('award:override',pr.number,chosen+' over '+recName+': '+why.trim());
+      pr.overrides=pr.overrides||[];pr.overrides.push({at:Date.now(),by:who(),stage:'Approval',reason:why.trim()});
+      audit('award:override',pr.number,pick.label+' over '+recL+': '+why.trim());
     }
-    var est=prTotal(pr);
-    var factor=est>0?Number(sup.quote.total)/est:1;
-    var po={id:uid('po'),number:num('PO'),prId:pr.id,rfqId:rfq.id,company:PURCH_COMPANY,project:pr.project||'',klass:pr.klass||'',supplier:sup.name,supplierEmail:sup.email||'',status:'Draft',createdAt:Date.now(),issuedAt:null,revisions:[],
-      items:pr.items.map(function(it){return {desc:it.desc,code:it.code,qty:it.qty,unit:it.unit,unitCost:Math.round(Number(it.unitCost||0)*factor*100)/100};}),
-      total:Number(sup.quote.total),deliveryDays:sup.quote.deliveryDays||null,payTerms:sup.quote.payTerms||'',warranty:sup.quote.warranty||''};
-    savePO(po);pr.poId=po.id;rfq.status='Awarded';rfq.awardedTo=chosen;rfq.awardedTotal=Number(sup.quote.total);saveRFQ(rfq);
-    advance(pr,'Awarded to '+chosen+' · '+money(sup.quote.total)+' · PO draft '+po.number);
-    audit('award',pr.number,chosen+' '+sup.quote.total);
+    var q=pick.q,est=prTotal(pr),factor=est>0?Number(q.total)/est:1,frozen=a2aFrozen(A,pick);
+    var po={id:uid('po'),number:num('PO'),prId:pr.id,rfqId:rfq.id,company:PURCH_COMPANY,project:pr.project||'',klass:pr.klass||'',supplier:pick.s.name,supplierEmail:pick.s.email||'',status:'Draft',createdAt:Date.now(),issuedAt:null,revisions:[],
+      items:pr.items.map(function(it,j){return {desc:it.desc+optDesc(pick.o,j),code:it.code,qty:it.qty,unit:it.unit,unitCost:Math.round(Number(it.unitCost||0)*factor*100)/100};}),
+      total:Number(q.total),deliveryDays:q.deliveryDays||null,payTerms:q.payTerms||'',warranty:q.warranty||'',
+      option:pick.o?{id:pick.o.id,label:pick.o.label,spec:pick.o.spec||'',itemIdx:Number(pick.o.itemIdx||0)}:null,finalOffer:!!q.final,a2a:frozen.rows};
+    savePO(po);pr.poId=po.id;pr.awardSnapshot=frozen;
+    rfq.status='Awarded';rfq.awardedTo=pick.s.name;rfq.awardedTotal=Number(q.total);rfq.awardedOption=pick.o?pick.o.label:null;rfq.awardedKey=pick.key;saveRFQ(rfq);
+    advance(pr,'Awarded to '+pick.label+' · '+money(q.total)+' · PO draft '+po.number+alt);
+    audit('award',pr.number,pick.label+' '+q.total);
     toast('Awarded — PO draft '+po.number);renderPurchPro();
   },
   issuePO:function(prId){
     if(!canApprovePurch()){toast('Only Eyal or Dr Amy issue a purchase order','warn');return;}
     var pr=getPR(prId);var po=pr&&getPO(pr.poId);if(!po)return;
+    if(pr.status!=='Purchase Order'||po.status!=='Draft'){toast(po.number+' is '+po.status+(pr.status!=='Purchase Order'?' and '+pr.number+' is at '+pr.status:'')+' — only a draft PO at the Purchase Order step is issued (screen refreshed)','warn');renderPurchPro();return;} /* v22.52 */
     if(!confirm('Issue '+po.number+' to '+po.supplier+' for '+po.total+'? This becomes an official obligation and cannot be edited (amendments only).'))return;
     po.status='Issued';po.issuedAt=Date.now();savePO(po);
     audit('po:issue',po.number,po.supplier+' '+po.total);toast(po.number+' issued');renderPurchPro();
@@ -98751,6 +99225,7 @@ window.__PURPRO={
     var n=((document.getElementById('ppInvNum')||{}).value||'').trim();
     var amt=Number((document.getElementById('ppInvAmt')||{}).value||0);
     if(!poId||!n||!amt){alert('PO, invoice number and amount are required.');return;}
+    var _ipo=getPO(poId);if(!livePO(_ipo)){alert('⛔ '+((_ipo&&_ipo.number)||'That purchase order')+' is '+((_ipo&&_ipo.status)||'missing')+' — an invoice is logged only against an issued purchase order.');return;} /* v22.52: never on a cancelled PO */
     if(L(K.invs).some(function(i){return i.number.toLowerCase()===n.toLowerCase()&&i.poId===poId;})){alert('Duplicate invoice number for this PO — blocked.');return;}
     var inv={id:uid('inv'),number:n,poId:poId,date:(document.getElementById('ppInvDate')||{}).value||today(),amount:amt,status:'Pending',createdAt:Date.now()};
     inv.matchStatus=matchInvoice(inv);
@@ -98857,12 +99332,12 @@ function canEditPurch(){
   }catch(e){return false;}
 }
 window.__PURPRO.canEdit=canEditPurch;
-['saveDraft','submitPR','runAI','aiAccept','aiOverride','simpleAdvance','createRFQ','sendRFQ','srcAdopt','srcAddNew','rfqContact','saveQuote','amendPO','recordGRN','completePR','addInvoice','rematch','a2aWeightsSave','fromInv','srcClass','rfqAddSupplier','rfqRemoveSupplier'] /* v22.48: the RFQ supplier changes need Purchasing EDIT too */.forEach(function(k){
+['saveDraft','submitPR','runAI','aiAccept','aiOverride','simpleAdvance','createRFQ','sendRFQ','srcAdopt','srcAddNew','rfqContact','saveQuote','amendPO','recordGRN','completePR','addInvoice','rematch','a2aWeightsSave','fromInv','srcClass','rfqAddSupplier','rfqRemoveSupplier','editPR','optRemove','rfqContinue'] /* v22.48: the RFQ supplier changes need Purchasing EDIT too; v22.52: edit a draft, options, go on with an open RFQ (↩ goBack checks its own rule) */.forEach(function(k){
   var f=window.__PURPRO[k];if(typeof f!=='function')return;
   window.__PURPRO[k]=function(){if(!canEditPurch()){toast('🔒 Purchasing changes need Accounting or Purchasing EDIT — ask Admin ▸ Users','warn');return;}return f.apply(this,arguments);};
 });
 /* v22.28 (A5-37): when Mission Control ▸ 👥 Purchasing roles names Buyers / Warehouse people, only they (and Eyal / Dr Amy) do that step */
-['createRFQ','sendRFQ','saveQuote','srcAdopt','srcAddNew','rfqContact','rfqAddSupplier','rfqRemoveSupplier'].forEach(function(k){
+['createRFQ','sendRFQ','saveQuote','srcAdopt','srcAddNew','rfqContact','rfqAddSupplier','rfqRemoveSupplier','optRemove','rfqContinue'].forEach(function(k){
   var f=window.__PURPRO[k];if(typeof f!=='function')return;
   window.__PURPRO[k]=function(){if(!isPurchBuyer()){toast('🔒 RFQs and supplier offers are the Buyers\' step (Mission Control ▸ 👥 Purchasing roles)','warn');return;}return f.apply(this,arguments);};
 });
@@ -146135,7 +146610,7 @@ body.hnx-mobile-locked { overflow: hidden; }
     var t=getToken();
     if(t) h['Authorization']='Bearer '+t;
     if(opts.body && !h['Content-Type']) h['Content-Type']='application/json';
-    var ctl=null,timer=null,__tmo=(/^\/sync\/(pull|push)/.test(String(path)))?PULL_TIMEOUT_MS:(/^\/sos\//.test(String(path))?90000:API_TIMEOUT_MS); /* v21.19: the upload too; a SOS page (token refresh + 200 documents) gets 90 s, not 25 */
+    var ctl=null,timer=null,__tmo=(/^\/sync\/(pull|push)/.test(String(path)))?PULL_TIMEOUT_MS:(/^\/sos\//.test(String(path))?90000:(/^\/r2\/upload/.test(String(path))?180000:API_TIMEOUT_MS)); /* v21.19: the upload too; a SOS page (token refresh + 200 documents) gets 90 s, not 25; v22.52: a file upload to R2 (a 10 MB final offer on the office line) gets 180 s — every other route keeps its limit */
     try{ if(typeof AbortController==='function'){ ctl=new AbortController();
       timer=setTimeout(function(){ try{ctl.abort();}catch(e){} },__tmo); } }catch(e){}
     var o={method:opts.method||'GET',headers:h,body:opts.body};
@@ -280788,7 +281263,7 @@ AC.push({name:'Purchase requests',icon:'🛒',go:'acct_purch_pro',title:'Every p
     text:stuck.length?(stuck.length+' request(s) stalled for over three weeks'):(waiting.length?waiting.length+' waiting for a decision':doneS.length+' of '+R.length+' completed'),
     reds:stuck.slice(0,3).map(function(x){return x.label+' · stalled';})};}});
 AC.push({name:'Purchase orders & receiving',icon:'📦',go:'acct_purch_pro',title:'Issued purchase orders and what has actually been received against them',compute:function(){
-  var PO=A('hydroPro_purch_pos'),GR=A('hydroPro_purch_grns');
+  var PO=A('hydroPro_purch_pos').filter(function(p){return p&&(!p.status||p.status==='Draft'||(window.__PURPRO&&typeof window.__PURPRO.livePO==='function'?window.__PURPRO.livePO(p):String(p.status).toLowerCase()!=='cancelled'));}),GR=A('hydroPro_purch_grns'); /* v22.52: an award undone by ↩ Go back leaves a Cancelled PO — not counted */
   if(!PO.length)return {total:0,open:0,pct:0,text:'No purchase order on this device',items:{},reds:[]};
   var recvBy={};GR.forEach(function(g){var k=g.poId||g.poRef;if(k)recvBy[k]=(recvBy[k]||0)+1;});
   var open=[],part=[],closed=[];
@@ -293007,6 +293482,23 @@ window.HNX_HELP_MODULES_B = [
 {id:'m_accounting', icon:'🧮', title:'Accounting & Purchasing', who:'Accounting · buyers', cat:'module',
  summary:'Comparing suppliers before buying, and the purchasing workflow behind a purchase order.',
  sections:[
+  {h:'↩ Going back to an earlier stage (v22.52)', p:[
+   'Until a supplier\'s FINAL OFFER has been uploaded for a request, you can send the request back to ANY earlier stage — not only one step. Press ↩ Go back… at the top of the stage card (or click a green ✓ stage in the row of stages), pick the stage, write the reason and press ↩ Go back. Before you press, the line “Will be redone” shows what has to be done again.',
+   'Who can go back: anyone with Purchasing edit. Back to Supplier Sourcing, RFQ or Quotation Evaluation is the Buyers\' step when Buyers are named in 👥 Purchasing roles. Going back from Purchase Order, Receiving or Completed undoes an award, so Eyal or Dr Amy do it.',
+   'Once a final offer has been uploaded, only Admin can go back — the stage card says “Final offer received — only Admin can go back”. Admin can go back in any case: from any stage, also from a Purchase Order that was already issued, from Receiving and from Completed.',
+   'What happens: only the checks and approvals made at or after the stage you go back to are cleared and done again (back to Department Approval: Jinky\'s check and the approval again; back to Draft: the requester edits it with ✏ Edit request and submits it again). Every supplier, offer, option, final offer and the whole history are kept. The RFQ stays open: back at Supplier Sourcing, ➡ Continue with RFQ-… goes on with the same RFQ, and suppliers you tick are added to it.',
+   'A purchase order on the way back: a draft PO, or an issued PO with nothing received and no invoice, is cancelled (it stays in the list as Cancelled). If goods were already received or an invoice is logged, only Admin can go back and must type BACK: the PO, its receipts and its invoices are NOT deleted — the PO is marked “reopened by admin” and a red banner on the request says goods were received. No second PO is awarded while it is live (Admin is asked to confirm).',
+   'Who is told: the requester in the inbox; Eyal and Dr Amy when an approval or a PO was undone; Jinky when the request waits for her check again; the buyer when it goes back to Sourcing or later. The workflow history keeps who went back, from where, why and what was cleared.']},
+  {h:'➕ Suppliers and Option B at evaluation (v22.52)', p:[
+   'At Quotation Evaluation you no longer have to go back to the RFQ to change offers. Under the comparison: ➕ Add a supplier (its offer form opens at once). Above it, “No offer yet” lists the suppliers whose offer is still to be logged, each with ➕ Log offer.',
+   'On each row (Buyers, or anyone with Purchasing edit when no Buyers are named): ✏ Edit offer, ＋ Option and 📎 Final offer. ＋ Option logs an ALTERNATIVE item from the same supplier — for example SWCC offers Marine plywood 3/4 instead of the phenolic board: Option B, with its own quantity, price, VAT, delivery and terms. A supplier can have Options B, C and D; ✕ takes an option off with a reason (it is kept in the record).',
+   'Every option is a row of the apple-to-apple table and is scored like any offer (₱ per unit landed, gap to the cheapest, lead time, terms, record); its spec shows under the supplier and in the flags. The award list shows “SWCC · Option B”. Awarding an alternative asks the approver to confirm it, and the PO line then reads “… — Option B: Marine plywood 3/4”.',
+   'Editing an offer keeps the offer as it was in its history, and nothing logged on another computer (an option, a final offer) is lost when you save.']},
+  {h:'📎 Final offer (v22.52)', p:[
+   '📎 Final offer on a row (at RFQ or Quotation Evaluation) uploads the supplier\'s FINAL offer — a photo or PDF of at most 10 MB. You can also enter a new price, VAT, delivery or terms; empty or unchanged boxes keep the offer as it was. The previous offer is kept in its history.',
+   'The file goes to the Nexi cloud (🗂 Files, like task evidence). If this computer is not signed in to the Nexi cloud, or the upload fails, a file of up to 2.5 MB is kept in the request instead and the screen says so; a bigger file is then refused — sign in, or save a smaller copy.',
+   'The row then shows 📎 FINAL (click it to open the file — Eyal and Dr Amy can open it on any computer) and “was ₱…” under the price. The comparison and the award use the final price at once, and Eyal and Dr Amy get an inbox notice with the new price per unit landed.',
+   'From the moment a final offer is in, the request counts as “final offer received”: only Admin can send it back to an earlier stage. Whoever uploaded the final offer (or added the option) does not award it.']},
   {h:'Who approves a purchase (v22.28)', p:[
    'Eyal and Dr Amy approve purchase requests, award a supplier and issue the purchase order (and the System Admin login). Before v22.28 any admin-role account and anyone with payroll rights approved.',
    'Nobody approves or awards a request they raised themselves. If Eyal raised it, Dr Amy approves it, and the other way round.',
