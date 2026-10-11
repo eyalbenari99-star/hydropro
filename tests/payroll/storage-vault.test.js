@@ -115,6 +115,8 @@ module.exports.push(
       Object.defineProperty(rq,'onsuccess',{set(f){succ=f;},get(){return succ;}});
       rq.addEventListener('success',e=>{if(succ)setTimeout(()=>succ(e),Math.max(0,T0-performance.now()));});return rq;};
     const of=window.fetch;window.fetch=function(u,o){u=String(u);
+      /* v22.52: the full download asks the cloud's key list first (a failed key list no longer falls back to the bare pull) */
+      if(u.indexOf('/sync/keys')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,keys:Object.keys(JSON.parse(cloud)||{})}),{status:200}));
       if(u.indexOf('/sync/pull')>=0){ if(window.__firstPullBeforeSettled==null) window.__firstPullBeforeSettled=!(window.__hnxAUTOVAULT&&__hnxAUTOVAULT.settled()); return Promise.resolve(new Response('{"ok":true,"data":'+cloud+'}',{status:200})); }
       if(u.indexOf('/sync/push')>=0){try{window.__pushes.push(JSON.parse(o.body).data);}catch(e){}return Promise.resolve(new Response('{"ok":true}',{status:200}));}
       if(u.indexOf('hnx-sync')>=0)return Promise.resolve(new Response('{"ok":true,"data":{}}',{status:200}));

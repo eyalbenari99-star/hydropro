@@ -3,6 +3,8 @@ const SEED=function(){
   localStorage.setItem('hnx_cloud_token','t');window.__pushes=[];window.__pulls=0;
   const cloud={'hydroPro_crm_leads':'[{"id":"L1","company":"Cloud Co","stage":"new","updatedAt":1}]','hydroPro_memos':'[{"id":"M1","title":"cloud memo","status":"pending","updatedAt":1}]'};
   const of=window.fetch;window.fetch=function(u,o){u=String(u);
+    /* v22.52: the full download asks the cloud's key list first (a failed key list no longer falls back to the bare pull) */
+    if(u.indexOf('/sync/keys')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,keys:Object.keys(cloud||{})}),{status:200}));
     if(u.indexOf('/sync/pull')>=0){window.__pulls++;return Promise.resolve(new Response(JSON.stringify({ok:true,data:cloud}),{status:200}));}
     if(u.indexOf('/sync/push')>=0){try{const d=JSON.parse(o.body).data;window.__pushes.push(Object.keys(d));Object.keys(d).forEach(k=>cloud[k]=d[k]);}catch(e){}return Promise.resolve(new Response('{"ok":true}',{status:200}));}
     if(u.indexOf('hnx-sync')>=0)return Promise.resolve(new Response('{"ok":true,"data":{}}',{status:200}));

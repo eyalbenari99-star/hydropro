@@ -35,6 +35,7 @@ const SHIFT_DATE=function(){const RD=Date;const off=RD.UTC(2026,9,8,23,40,0)-RD.
 const CLOUD=function(firstDelayMs,cloudInit){
   return 'localStorage.setItem("hnx_cloud_token","t");window.__pushes=[];window.__pulls=0;window.__cloud='+JSON.stringify(cloudInit||{})+';'
    +'const of=window.fetch;window.fetch=function(u,o){u=String(u);'
+   +'if(u.indexOf("/sync/keys")>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,keys:Object.keys(window.__cloud||{})}),{status:200}));'
    +'if(u.indexOf("/sync/pull")>=0){window.__pulls++;const snap=JSON.parse(JSON.stringify(window.__cloud));const res=()=>new Response(JSON.stringify({ok:true,data:snap}),{status:200});'
    +'if(window.__pulls===1&&'+(firstDelayMs||0)+')return new Promise(r=>setTimeout(()=>r(res()),'+(firstDelayMs||0)+'));return Promise.resolve(res());}'
    +'if(u.indexOf("/sync/push")>=0){try{const d=JSON.parse(o.body).data;window.__pushes.push(Object.keys(d));Object.keys(d).forEach(k=>window.__cloud[k]=d[k]);}catch(e){}return Promise.resolve(new Response(\'{"ok":true}\',{status:200}));}'

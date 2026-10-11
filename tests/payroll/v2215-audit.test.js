@@ -59,7 +59,10 @@ module.exports=[
   expect:{n:300,allReal:true} },
 { name:'🛑 Quota v22.15: on a nearly full browser store, a 200 K store that only fits compressed is saved WITHOUT counting a failed save or painting the “ENTRIES ARE NOT BEING SAVED” banner (the raw first try is speculative) (v22.15)',
   run:async()=>{await sleep(3000);const ns=(k,v)=>window.__hnxNS.call(localStorage,k,v); /* the filler itself must not paint the banner */let i=0;const chunk=new Array(250000).join('f');
-    try{for(;i<40;i++)ns('zz_fill_'+i,chunk);}catch(e){}let small=new Array(20000).join('g');try{for(let j=0;j<200;j++)ns('zz_fillsmall_'+j,small);}catch(e){}
+    try{for(;i<40;i++)ns('zz_fill_'+i,chunk);}catch(e){}let small=new Array(20000).join('g');let sj=0;try{for(;sj<200;sj++)ns('zz_fillsmall_'+sj,small);}catch(e){}
+    /* CI 11 Oct (PR #519, shard 4): filling to the brim left a random 0–20 K gap; when it was smaller than the compressed probe (~1 K)
+       the save could not fit at all. Free one small filler: a 20–40 K gap still refuses the 210 K raw value but always holds the compressed one. */
+    if(sj>0)localStorage.removeItem('zz_fillsmall_'+(sj-1));
     const h0=window.__hnxQuotaHits||0;const v=new Array(70000).join('abc');let threw=false;try{localStorage.setItem('hydroPro_quota_probe',v);}catch(e){threw=true;}
     const back=localStorage.getItem('hydroPro_quota_probe');const banner=!!document.getElementById('hnxQuotaWarn');
     const banner0=banner;for(let j=0;j<40;j++)localStorage.removeItem('zz_fill_'+j);for(let j=0;j<200;j++)localStorage.removeItem('zz_fillsmall_'+j);

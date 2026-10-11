@@ -73,6 +73,8 @@ module.exports.push(
 
 { name:'☁ Dirty keys survive a reload (hnxlocal_dirty_v1) and the goodbye flush sends only changed keys in batches under 60 KB — a key too big for a batch stays dirty for the next normal upload (v21.19)',
   seed:function(){localStorage.setItem('hnx_cloud_token','t');window.__pushes=[];const of=window.fetch;window.fetch=function(u,o){u=String(u);
+    /* v22.52: the full download asks the cloud's key list first (a failed key list no longer falls back to the bare pull) */
+    if(u.indexOf('/sync/keys')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,keys:Object.keys({'hydroPro_memos':'[]'})}),{status:200}));
     if(u.indexOf('/sync/pull')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,data:{'hydroPro_memos':'[]'}}),{status:200}));
     if(u.indexOf('/sync/push')>=0){try{window.__pushes.push({keys:Object.keys(JSON.parse(o.body).data),len:o.body.length,keepalive:!!o.keepalive});}catch(e){}if(window.__holdPush&&!o.keepalive)return Promise.resolve(new Response('{"error":"held"}',{status:503})); /* the normal upload is held so the dirty keys stay put */return Promise.resolve(new Response('{"ok":true}',{status:200}));}
     if(u.indexOf('hnx-sync')>=0)return Promise.resolve(new Response('{"ok":true,"data":{}}',{status:200}));return of.apply(this,arguments);};},

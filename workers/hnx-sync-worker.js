@@ -1,6 +1,33 @@
 // ============================================================
-// HydroNexis-AI Cloudflare Worker v3.7.2-nexi
+// HydroNexis-AI Cloudflare Worker v3.7.3-nexi
 // ============================================================
+// CHANGE in v3.7.3-nexi (2026-10-11, "Sync · no connection" on every load):
+//   Cloudflare itself was ending the heavy sync requests (memory / CPU), so the
+//   browser saw no answer at all. Everything below cuts memory and KV writes;
+//   nothing changes for the app (same routes, same reply shapes).
+//   + /sync/pull sends every stored value AS-IS: the reply is built by string
+//     concatenation (JSON.stringify(key) + ':' + stored JSON text) — no
+//     JSON.parse of each value and no re-stringify of the whole result (about
+//     3x less memory on a 15 MB download). A stored value that is not valid
+//     JSON (checked without building objects) goes in as a JSON string, exactly
+//     what the old parse-fallback sent. The app receives the same data.
+//   + A bare /sync/pull (no ?keys=) leaves out the QuickBooks/SOS caches the
+//     app never syncs (BARE_PULL_SKIP, ~11.7 MB); it still follows the cursor.
+//   + /sync/push checks Content-Length BEFORE parsing (413 above 32 MB), and a
+//     store whose new value equals the stored one is not written again and gets
+//     no history copy (0 KV writes). It is still listed in keys (it IS stored).
+//   + The per-store cap is back to 5 MB (3.7.1 had raised it to 20 MB) until
+//     the raw pull above has been live for a while; a bigger store is named in
+//     skipped (why 'too-big') and the app keeps it as unsent.
+//   + The daily R2 snapshot is written in parts of ~4 MB (snap/<day>/NNN.json
+//     + snap/<day>/index.json) and the day is marked done BEFORE it starts, so
+//     a run that fails or is killed is never repeated on every cron tick.
+//   + The top-level catch reports String(err) (a thrown non-Error can no longer
+//     crash the error handler itself and lose the CORS headers).
+//   + /health reports rawPull:true, pushSkipsUnchanged:true and storeMaxMB:5.
+//   3.7.2's default-admin protections are unchanged.
+//   Paste over the deployed hnx-sync worker (Cloudflare → Workers → hnx-sync →
+//   Edit code → Deploy). Do NOT use wrangler deploy (no wrangler.toml here).
 // CHANGE in v3.7.2-nexi (2026-10-09, SECURITY):
 //   The app's default administrator (username 'admin', password 'admin123',
 //   created on a brand-new computer and flagged bootstrap:true) could reach the
@@ -198,7 +225,7 @@ const CORS_HEADERS = {
 
 const SESSION_TTL = 24 * 60 * 60; // 24 hours in seconds
 const BACKUP_RETENTION = 7; // Keep 7 days of backups
-const WORKER_VERSION = '3.7.2-nexi';
+const WORKER_VERSION = '3.7.3-nexi';
 
 // v3.7.2 (security): the app's default admin. These are hashPassword('admin123') exactly as the app stores it
 // (index.html hashPassword: input = password + ':hydroPro_salt_v1'; 'sha256:' + hex(SHA-256(input)), or 'fb1:' +
@@ -236,6 +263,135 @@ function stripDefaultAdmins(value) {
     return { value, removed: 0, empty: false };
   }
 }
+
+// v3.7.3: a bare /sync/pull (no ?keys=) never sends these — QuickBooks/SOS caches every computer re-reads from
+// QuickBooks/SOS itself (index.html SKIP_KEYS, v21.99: 11.7 MB on the admin PC). A ?keys= pull still returns them.
+const BARE_PULL_SKIP = [
+  'hydroPro_acct_qb_monthly_v1',
+  'hydroPro_acct_qb_v1',
+  'hydroPro_sos_items_v1',
+  'hydroPro_sos_shipments_v1',
+  'hydroPro_sos_locations_v1',
+  'hydroPro_sos_lots_v1',
+  'hydroPro_sos_pull_v1',
+  'hydroPro_liveSensor_cache'
+];
+// v3.7.3: per-store cap back at 5 MB (3.7.1 raised it to 20 MB) until the raw pull has been live for a while.
+const STORE_MAX = 5 * 1024 * 1024;
+// v3.7.3: a /sync/push body above this is refused BEFORE it is parsed (a full upload of every store is ~15-20 MB today;
+// parsing a much bigger one would end the isolate on memory and the browser would see no answer at all).
+const PUSH_BODY_MAX = 32 * 1024 * 1024;
+// v3.7.3: the daily snapshot is written in parts of about this many characters of stored data.
+const SNAP_PART_MAX = 4 * 1024 * 1024;
+
+// --- json-check begin (v3.7.3; tests/workers/hnx-sync-raw-v373.test.mjs fuzzes it against JSON.parse) ---
+// v3.7.3: true when s is ONE valid JSON text (RFC 8259, the grammar JSON.parse accepts), checked character by
+// character without building any object. A string holding a lone UTF-16 surrogate counts as not valid here (it could
+// not travel as-is in a UTF-8 reply). Whatever this says false for is sent as a JSON string instead (always safe).
+function _jWs(s, i, n) {
+  while (i < n) { const c = s.charCodeAt(i); if (c === 32 || c === 10 || c === 13 || c === 9) i++; else break; }
+  return i;
+}
+function _jStr(s, i, n) { // s[i] is the opening quote → index after the closing quote, or -1
+  i++;
+  while (i < n) {
+    const c = s.charCodeAt(i);
+    if (c === 34) return i + 1;
+    if (c === 92) {
+      const e = s.charCodeAt(i + 1);
+      if (e === 117) {
+        for (let k = i + 2; k < i + 6; k++) {
+          const h = s.charCodeAt(k);
+          if (!((h >= 48 && h <= 57) || (h >= 65 && h <= 70) || (h >= 97 && h <= 102))) return -1;
+        }
+        i += 6;
+      } else if (e === 34 || e === 92 || e === 47 || e === 98 || e === 102 || e === 110 || e === 114 || e === 116) i += 2;
+      else return -1;
+    } else if (c < 32) return -1;
+    else if (c >= 0xD800 && c <= 0xDFFF) {
+      if (c > 0xDBFF) return -1;
+      const d = s.charCodeAt(i + 1);
+      if (!(d >= 0xDC00 && d <= 0xDFFF)) return -1;
+      i += 2;
+    } else i++;
+  }
+  return -1;
+}
+function _jNum(s, i, n) { // → index after the number, or -1
+  if (s.charCodeAt(i) === 45) i++;
+  let c = s.charCodeAt(i);
+  if (c === 48) i++;
+  else if (c >= 49 && c <= 57) { i++; while (i < n && (c = s.charCodeAt(i)) >= 48 && c <= 57) i++; }
+  else return -1;
+  if (s.charCodeAt(i) === 46) {
+    i++; const st = i; while (i < n && (c = s.charCodeAt(i)) >= 48 && c <= 57) i++; if (i === st) return -1;
+  }
+  c = s.charCodeAt(i);
+  if (c === 101 || c === 69) {
+    i++; c = s.charCodeAt(i); if (c === 43 || c === 45) i++;
+    const st = i; while (i < n && (c = s.charCodeAt(i)) >= 48 && c <= 57) i++; if (i === st) return -1;
+  }
+  return i;
+}
+function isJsonText(s) {
+  if (typeof s !== 'string') return false;
+  const n = s.length, stack = []; // stack: 1 = inside an array, 2 = inside an object
+  let i = 0;
+  for (;;) {
+    // ---- a value is expected at i ----
+    i = _jWs(s, i, n);
+    if (i >= n) return false;
+    let c = s.charCodeAt(i);
+    if (c === 123 || c === 91) { // { or [
+      if (stack.length >= 2000) return false;
+      i = _jWs(s, i + 1, n);
+      if (c === 123) {
+        c = s.charCodeAt(i);
+        if (c === 125) { i++; }                       // {} → value complete
+        else {
+          if (c !== 34 || (i = _jStr(s, i, n)) < 0) return false;
+          i = _jWs(s, i, n);
+          if (s.charCodeAt(i) !== 58) return false;
+          i++; stack.push(2); continue;               // the member's value comes next
+        }
+      } else {
+        if (s.charCodeAt(i) === 93) { i++; }          // [] → value complete
+        else { stack.push(1); continue; }             // the first element comes next
+      }
+    } else if (c === 34) { if ((i = _jStr(s, i, n)) < 0) return false; }
+    else if (c === 45 || (c >= 48 && c <= 57)) { if ((i = _jNum(s, i, n)) < 0) return false; }
+    else if (c === 116) { if (s.startsWith('true', i)) i += 4; else return false; }
+    else if (c === 102) { if (s.startsWith('false', i)) i += 5; else return false; }
+    else if (c === 110) { if (s.startsWith('null', i)) i += 4; else return false; }
+    else return false;
+    // ---- a value just ended: close containers / move to the next element ----
+    for (;;) {
+      i = _jWs(s, i, n);
+      if (!stack.length) return i === n;
+      c = s.charCodeAt(i);
+      const top = stack[stack.length - 1];
+      if (c === 44) { // ,
+        i++;
+        if (top === 2) {
+          i = _jWs(s, i, n);
+          if (s.charCodeAt(i) !== 34 || (i = _jStr(s, i, n)) < 0) return false;
+          i = _jWs(s, i, n);
+          if (s.charCodeAt(i) !== 58) return false;
+          i++;
+        }
+        break; // next value
+      }
+      if ((top === 1 && c === 93) || (top === 2 && c === 125)) { i++; stack.pop(); continue; }
+      return false;
+    }
+  }
+}
+// --- json-check end ---
+// v3.7.3: one "key":value member of the /sync/pull reply — the stored JSON text as-is, or a JSON string when it is not JSON.
+function rawMember(key, raw) {
+  return JSON.stringify(key) + ':' + (isJsonText(raw) ? raw : JSON.stringify(raw));
+}
+function errText(e) { return String((e && e.message) || e); }
 
 // ============================================================
 // MAIN HANDLER
@@ -376,7 +532,10 @@ export default {
           smsConfigured: !!(env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN && env.TWILIO_FROM),
           setupCodeConfigured: !!env.SETUP_CODE,
           versionsConfigured: true,
-          snapshotConfigured: !!env.UPLOADS
+          snapshotConfigured: !!env.UPLOADS,
+          rawPull: true,
+          pushSkipsUnchanged: true,
+          storeMaxMB: STORE_MAX / 1048576
         });
       }
       else {
@@ -388,7 +547,8 @@ export default {
       return response;
 
     } catch (err) {
-      const response = json({ error: err.message, stack: err.stack }, 500);
+      // v3.7.3: String(err) — a thrown non-Error (or null) must not crash the handler and lose the CORS headers
+      const response = json({ error: errText(err), stack: (err && err.stack) || '' }, 500);
       Object.entries(corsHeaders).forEach(([k, v]) => response.headers.set(k, v));
       return response;
     }
@@ -407,7 +567,7 @@ export default {
     );
     // v3.7.0: daily snapshot of every data:* key to R2 (no-op without the UPLOADS binding)
     ctx.waitUntil(
-      runDailySnapshot(env).catch(e => console.log('[snapshot] cron error:', e && e.message))
+      runDailySnapshot(env).catch(e => console.log('[snapshot] cron error:', errText(e)))
     );
   }
 };
@@ -985,38 +1145,40 @@ async function handleSyncPull(request, env) {
       ? 'data:_shared:'
       : 'data:' + (session.user.dataNamespace || session.user.username) + ':';
 
-    const result = {};
+    // v3.7.3: members of the reply's "data" object, built from the stored text as-is (see rawMember)
+    const parts = [];
+    const seen = new Set();
 
     if (keysParam) {
       const keys = keysParam.split(',').map(k => k.trim()).filter(Boolean);
       for (const k of keys) {
+        if (seen.has(k)) continue;
         const raw = await env.TOKENS.get(prefix + k);
-        if (raw) {
-          try { result[k] = JSON.parse(raw); }
-          catch { result[k] = raw; }
-        }
+        if (raw) { parts.push(rawMember(k, raw)); seen.add(k); }
       }
     } else {
       // v3.7.1: KV returns at most 1000 keys per list call — follow the cursor so a
       // dataset past 1000 stores is downloaded whole, not silently cut.
+      // v3.7.3: the QuickBooks/SOS caches (BARE_PULL_SKIP) are left out.
       let cursor;
       do {
         const list = await env.TOKENS.list({ prefix, cursor });
         for (const item of list.keys) {
           const k = item.name.substring(prefix.length);
+          if (BARE_PULL_SKIP.indexOf(k) >= 0 || seen.has(k)) continue;
           const raw = await env.TOKENS.get(item.name);
-          if (raw) {
-            try { result[k] = JSON.parse(raw); }
-            catch { result[k] = raw; }
-          }
+          if (raw) { parts.push(rawMember(k, raw)); seen.add(k); }
         }
         cursor = list.list_complete ? undefined : list.cursor;
       } while (cursor);
     }
 
-    return json({ data: result, count: Object.keys(result).length });
+    return new Response('{"data":{' + parts.join(',') + '},"count":' + parts.length + '}', {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
   } catch (e) {
-    return json({ error: e.message }, e.name === 'AuthError' ? 401 : 500);
+    return json({ error: errText(e) }, e && e.name === 'AuthError' ? 401 : 500);
   }
 }
 
@@ -1026,8 +1188,13 @@ async function handleSyncPull(request, env) {
 async function handleSyncPush(request, env) {
   try {
     const session = await requireAuth(request, env);
+    // v3.7.3: an upload far bigger than any real one is refused BEFORE it is parsed
+    const declared = +(request.headers.get('Content-Length') || 0);
+    if (declared > PUSH_BODY_MAX) {
+      return json({ error: 'upload too big (' + (declared / 1048576).toFixed(1) + ' MB, limit ' + (PUSH_BODY_MAX / 1048576) + ' MB) — not stored', tooBig: true }, 413);
+    }
     const body = await request.json();
-    const { data, shared } = body;
+    const { data, shared } = body || {};
 
     if (!data || typeof data !== 'object') {
       return json({ error: 'data object required' }, 400);
@@ -1038,8 +1205,9 @@ async function handleSyncPush(request, env) {
       ? 'data:_shared:'
       : 'data:' + (session.user.dataNamespace || session.user.username) + ':';
 
-    const written = [];
+    const stored = [];     // what the cloud now holds exactly as sent (written now, or already identical)
     const skipped = [];
+    let writes = 0, unchanged = 0;
     for (const [k, v] of Object.entries(data)) {
       const safeKey = String(k).replace(/[^a-zA-Z0-9_:.-]/g, '_').slice(0, 200);
       let value = typeof v === 'string' ? v : JSON.stringify(v);
@@ -1049,21 +1217,26 @@ async function handleSyncPush(request, env) {
         if (st.empty) { skipped.push({ key: safeKey, size: value.length, why: 'default-admin-only' }); continue; }
         value = st.value;
       }
-      // v3.7.1: KV holds up to 25 MiB per value; 20 MB leaves room. A store above it is
+      // v3.7.3: 5 MB per store (v3.7.1's 20 MB is reverted until the raw pull is live). A store above it is
       // NAMED in the reply (skipped) so the app keeps it as unsent instead of believing it synced.
-      if (value.length > 20 * 1024 * 1024) {
+      if (value.length > STORE_MAX) {
         skipped.push({ key: safeKey, size: value.length, why: 'too-big' });
         continue;
       }
+      const fullKey = prefix + safeKey;
+      const prev = await env.TOKENS.get(fullKey);
+      // v3.7.3: unchanged → no write, no history copy (it is still stored, so it is listed in keys)
+      if (prev === value) { unchanged++; stored.push(safeKey); continue; }
       // v3.7.0: keep the previous value before it is overwritten (never fails the push)
-      await keepVersion(env, prefix + safeKey, value);
-      await env.TOKENS.put(prefix + safeKey, value);
-      written.push(safeKey);
+      await keepVersion(env, fullKey, value, prev);
+      await env.TOKENS.put(fullKey, value);
+      writes++;
+      stored.push(safeKey);
     }
 
-    return json({ ok: true, written: written.length, keys: written, skipped });
+    return json({ ok: true, written: writes, unchanged, keys: stored, skipped });
   } catch (e) {
-    return json({ error: e.message }, e.name === 'AuthError' ? 401 : 500);
+    return json({ error: errText(e) }, e && e.name === 'AuthError' ? 401 : 500);
   }
 }
 
@@ -1091,7 +1264,7 @@ async function handleSyncKeys(request, env) {
     } while (cursor);
     return json({ keys, count: keys.length });
   } catch (e) {
-    return json({ error: e.message }, e.name === 'AuthError' ? 401 : 500);
+    return json({ error: errText(e) }, e && e.name === 'AuthError' ? 401 : 500);
   }
 }
 
@@ -1117,9 +1290,9 @@ async function handleSyncKeys(request, env) {
 const VER_KEEP = 30;
 const VER_TTL = 45 * 24 * 60 * 60; // seconds
 
-async function keepVersion(env, fullKey, incoming) {
+async function keepVersion(env, fullKey, incoming, prevKnown) {
   try {
-    const prev = await env.TOKENS.get(fullKey);
+    const prev = prevKnown !== undefined ? prevKnown : await env.TOKENS.get(fullKey); // v3.7.3: push passes what it read
     if (prev == null || prev === incoming) return;          // nothing stored yet / unchanged
     const now = Date.now();
     let list = [];
@@ -1174,10 +1347,16 @@ async function handleSyncVersion(request, env) {
 }
 
 // ============================================================
-// DAILY SNAPSHOT to R2 (v3.7.0) — runs from the existing cron.
-// Writes snap/<YYYY-MM-DD>.json into the UPLOADS bucket once per
-// day (KV dedupe key), keeps 60 days. Same file shape as the app's
-// "⬇ Download backup", so 📂 Backups → Restore from file accepts it.
+// DAILY SNAPSHOT to R2 (v3.7.0; v3.7.3: in parts, marked done first)
+// Writes snap/<YYYY-MM-DD>/NNN.json parts (~4 MB of stored data each)
+// plus snap/<YYYY-MM-DD>/index.json into the UPLOADS bucket once per
+// day (KV dedupe key), keeps 60 days. Each part has the backup file
+// shape { exportedAt, app, worker, data:{ '<ns>:<storeKey>': text } }.
+// v3.7.3: the old one-file snapshot read and re-encoded ~27 MB at once
+// (likely over the 128 MB memory limit) and, when it failed, it was
+// never marked done, so it ran again on EVERY cron tick. Now the day is
+// marked BEFORE the work starts (a killed run is never repeated) and the
+// result ('ok …' / 'failed …') replaces the mark at the end.
 // No-op when the UPLOADS binding is missing.
 // ============================================================
 async function runDailySnapshot(env) {
@@ -1185,27 +1364,56 @@ async function runDailySnapshot(env) {
   const day = todayKey();
   const dedupeKey = 'snapdone:' + day;
   if (await env.TOKENS.get(dedupeKey)) return { skipped: true, reason: 'already-today' };
-  const snap = {};
-  let cursor = undefined, n = 0;
-  do {
-    const list = await env.TOKENS.list({ prefix: 'data:', cursor });
-    for (const k of list.keys) {
-      const raw = await env.TOKENS.get(k.name);
-      if (raw != null) { snap[k.name.slice(5)] = raw; n++; }
-    }
-    cursor = list.list_complete ? undefined : list.cursor;
-  } while (cursor);
-  await env.UPLOADS.put('snap/' + day + '.json',
-    JSON.stringify({ exportedAt: Date.now(), app: 'HydroNexis-AI', worker: WORKER_VERSION, data: snap }),
-    { httpMetadata: { contentType: 'application/json' } });
-  await env.TOKENS.put(dedupeKey, '1', { expirationTtl: 36 * 60 * 60 });
-  // prune snapshots older than 60 days
+  await env.TOKENS.put(dedupeKey, 'started ' + new Date().toISOString(), { expirationTtl: 36 * 60 * 60 });
+  const exportedAt = Date.now();
+  let n = 0, partNo = 0, members = [], size = 0;
+  const partsDone = [];
+  const flush = async () => {
+    if (!members.length) return;
+    partNo++;
+    const name = 'snap/' + day + '/' + String(partNo).padStart(3, '0') + '.json';
+    await env.UPLOADS.put(name,
+      '{"exportedAt":' + exportedAt + ',"app":"HydroNexis-AI","worker":' + JSON.stringify(WORKER_VERSION) +
+      ',"day":' + JSON.stringify(day) + ',"part":' + partNo + ',"data":{' + members.join(',') + '}}',
+      { httpMetadata: { contentType: 'application/json' } });
+    partsDone.push({ name, keys: members.length, size });
+    members = []; size = 0;
+  };
+  let result;
   try {
-    const old = await env.UPLOADS.list({ prefix: 'snap/' });
+    let cursor = undefined;
+    do {
+      const list = await env.TOKENS.list({ prefix: 'data:', cursor });
+      for (const k of list.keys) {
+        const raw = await env.TOKENS.get(k.name);
+        if (raw == null) continue;
+        if (size && size + raw.length > SNAP_PART_MAX) await flush();
+        members.push(JSON.stringify(k.name.slice(5)) + ':' + JSON.stringify(raw));
+        size += raw.length; n++;
+      }
+      cursor = list.list_complete ? undefined : list.cursor;
+    } while (cursor);
+    await flush();
+    await env.UPLOADS.put('snap/' + day + '/index.json',
+      JSON.stringify({ exportedAt, app: 'HydroNexis-AI', worker: WORKER_VERSION, day, keys: n, parts: partsDone }),
+      { httpMetadata: { contentType: 'application/json' } });
+    result = { ok: true, keys: n, parts: partsDone.length, day };
+  } catch (e) {
+    result = { ok: false, error: errText(e), keys: n, parts: partsDone.length, day };
+  }
+  // the mark stays (a failed day is not retried on every tick) — it now says how it ended
+  try { await env.TOKENS.put(dedupeKey, (result.ok ? 'ok ' : 'failed ') + JSON.stringify(result), { expirationTtl: 36 * 60 * 60 }); } catch (_) {}
+  // prune snapshots older than 60 days (both the old snap/<day>.json and the new snap/<day>/… parts)
+  try {
     const cutoff = new Date(Date.now() - 60 * 86400e3).toISOString().slice(0, 10);
-    for (const o of (old.objects || [])) if (o.key.slice(5, 15) < cutoff) await env.UPLOADS.delete(o.key);
+    let c2;
+    do {
+      const old = await env.UPLOADS.list({ prefix: 'snap/', cursor: c2 });
+      for (const o of (old.objects || [])) if (o.key.slice(5, 15) < cutoff) await env.UPLOADS.delete(o.key);
+      c2 = old.truncated ? old.cursor : undefined;
+    } while (c2);
   } catch (_) {}
-  return { ok: true, keys: n, day };
+  return result;
 }
 
 // ============================================================

@@ -116,6 +116,7 @@ module.exports=[
     const of=window.fetch;let sent=[];
     window.fetch=function(u,o){u=String(u);
       if(u.indexOf('/sync/push')>=0){let d={};try{d=JSON.parse(o.body).data||{};}catch(e){}sent=Object.keys(d);const keys=sent.filter(k=>k!==BK);return Promise.resolve(new Response(JSON.stringify({ok:true,written:keys.length,keys}),{status:200}));}
+      if(u.indexOf('/sync/keys')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,keys:Object.keys({})}),{status:200}));
       if(u.indexOf('/sync/pull')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,data:{}}),{status:200}));
       return of.apply(this,arguments);};
     try{
@@ -136,6 +137,7 @@ module.exports=[
     const of=window.fetch;const sent=[];
     window.fetch=function(u,o){u=String(u);
       if(u.indexOf('/sync/push')>=0){let d={};try{d=JSON.parse(o.body).data||{};}catch(e){}const ks=Object.keys(d);sent.push(ks.includes(BK));const keys=ks.filter(k=>k!==BK);return Promise.resolve(new Response(JSON.stringify({ok:true,written:keys.length,keys}),{status:200}));}
+      if(u.indexOf('/sync/keys')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,keys:Object.keys({})}),{status:200}));
       if(u.indexOf('/sync/pull')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,data:{}}),{status:200}));
       return of.apply(this,arguments);};
     const og=window.__hnxPushGuard,gate=[];window.__hnxPushGuard=function(d){gate.push(Object.keys(d||{}).indexOf(BK)>=0);return og.apply(this,arguments);}; /* (review) the gate must not re-weigh a held-back store */
@@ -157,6 +159,7 @@ module.exports=[
     const of=window.fetch;const sent=[];
     window.fetch=function(u,o){u=String(u);
       if(u.indexOf('/sync/push')>=0){let d={};try{d=JSON.parse(o.body).data||{};}catch(e){}const ks=Object.keys(d);sent.push(ks.sort().join(','));return Promise.resolve(new Response(JSON.stringify({ok:true,written:ks.length,keys:ks}),{status:200}));}
+      if(u.indexOf('/sync/keys')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,keys:Object.keys({})}),{status:200}));
       if(u.indexOf('/sync/pull')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,data:{}}),{status:200}));
       return of.apply(this,arguments);};
     try{
@@ -198,6 +201,7 @@ module.exports=[
     const of=window.fetch;let cloud={};const sent=[];
     window.fetch=function(u,o){u=String(u);
       if(u.indexOf('/sync/push')>=0){let d={};try{d=JSON.parse(o.body).data||{};}catch(e){}const ks=Object.keys(d);sent.push(ks);const keys=ks.filter(k=>k!==BK);keys.forEach(k=>cloud[k]=d[k]);return Promise.resolve(new Response(JSON.stringify({ok:true,written:keys.length,keys}),{status:200}));}
+      if(u.indexOf('/sync/keys')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,keys:Object.keys(cloud)}),{status:200}));
       if(u.indexOf('/sync/pull')>=0){const m=/keys=([^&]+)/.exec(u);const want=m?decodeURIComponent(m[1]).split(','):Object.keys(cloud);const data={};want.forEach(k=>{if(cloud[k]!=null)data[k]=cloud[k];});return Promise.resolve(new Response(JSON.stringify({ok:true,data}),{status:200}));}
       return of.apply(this,arguments);};
     try{
@@ -224,6 +228,7 @@ module.exports=[
     const of=window.fetch;const pulls=[],pushes=[];
     window.fetch=function(u,o){u=String(u);
       if(u.indexOf('/sync/push')>=0){let d={};try{d=JSON.parse(o.body).data||{};}catch(e){}const ks=Object.keys(d);pushes.push(ks);const keys=ks.filter(k=>k!==BK);return Promise.resolve(new Response(JSON.stringify({ok:true,written:keys.length,keys}),{status:200}));}
+      if(u.indexOf('/sync/keys')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,keys:Object.keys({})}),{status:200}));
       if(u.indexOf('/sync/pull')>=0){pulls.push(u);return Promise.resolve(new Response(JSON.stringify({ok:true,data:{}}),{status:200}));}
       return of.apply(this,arguments);};
     try{
@@ -299,6 +304,7 @@ module.exports=[
       if(u.indexOf('/sync/push')>=0){let d={};try{d=JSON.parse(o.body).data||{};}catch(e){}const ks=Object.keys(d);sent.push(ks);
         if(ks.includes(K))localStorage.setItem(K,JSON.stringify([{id:'r1'},{id:'r2-typed-during-upload'}])); /* an edit lands while the upload is on the way */
         return new Promise(res=>setTimeout(()=>res(new Response(JSON.stringify({ok:true,written:ks.length,keys:ks}),{status:200})),300));}
+      if(u.indexOf('/sync/keys')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,keys:Object.keys({})}),{status:200}));
       if(u.indexOf('/sync/pull')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,data:{}}),{status:200}));
       return of.apply(this,arguments);};
     try{

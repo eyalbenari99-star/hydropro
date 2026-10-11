@@ -20,7 +20,8 @@ const CLOUD=function(){
       C.state.online=true;C.state.syncing=false;C.state.error=null;
       window.__hnxPulledOk=!first;
       window.fetch=function(u,o){u=String(u);
-        if(u.indexOf('/sync/keys')>=0)return Promise.resolve({ok:true,status:200,json:()=>Promise.resolve({keys:[]})});
+        /* v22.52: the key list names the stores the stub holds (an empty list no longer falls back to the bare pull) */
+        if(u.indexOf('/sync/keys')>=0)return Promise.resolve({ok:true,status:200,json:()=>Promise.resolve({keys:Object.keys(data||{})})});
         if(u.indexOf('/sync/pull')>=0)return Promise.resolve({ok:true,status:200,json:()=>Promise.resolve({data:data||{}})});
         if(u.indexOf('/sync/push')>=0)return Promise.resolve({ok:true,status:200,json:()=>Promise.resolve({ok:true})});
         return f0.apply(this,arguments);};
