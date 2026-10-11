@@ -113,14 +113,24 @@ module.exports=[
       openEmployeeModal('E1');await sleep(1200);const box=document.getElementById('empRate'),note=document.getElementById('empRateNote');
       const r={office:hnxCanOfficePay(),cvs:canViewSalaries(),rateVis:vis(box),note:(note&&note.textContent)||'',title:(box&&box.title)||'',rate:(box&&box.value)||'',row:/3,?636/.test(rowTxt)};
       document.querySelectorAll('.modal.open').forEach(m=>m.classList.remove('open'));
-      try{hnxOpenContract('E1');}catch(e){}await sleep(900);const cs=document.getElementById('hnxCT_salary');r.contract=!!(cs&&cs.type!=='hidden'&&vis(cs)&&/77777/.test(cs.value));
+      try{hnxOpenContract('E1');}catch(e){}await sleep(900);const cs=document.getElementById('hnxCT_salary');r.contract=!!(cs&&cs.type!=='hidden'&&vis(cs)&&/77777/.test(cs.value));r.inPage=!!(cs&&/77777/.test(cs.value));
       r.contractLock=/office pay is owner-granted/.test((document.getElementById('hnxContractModal')||{}).innerText||'');
       const cm=document.getElementById('hnxContractModal');if(cm)cm.remove();
       r.leak=/77,?777/.test(r.note+' '+r.title)||/3636/.test(r.rate);r.lockNote=/🔒 office pay — owner-granted/.test(r.note);return r;};
     const m=await look('mea'),h=await look('hrflag'),e=await look('eyal');
     localStorage.setItem('hnx_test_harness','1');
-    return {mea:[m.office,m.cvs,m.rateVis,m.leak,m.lockNote,m.contract,m.contractLock,m.row].join('|'),hr:[h.office,h.cvs,h.leak,h.lockNote,h.contract,h.row].join('|'),eyal:/Monthly Basic ₱77,777/.test(e.note)&&e.contract};})();`),
-  expect:{mea:'false|true|true|false|true|false|true|false',hr:'false|true|false|true|false|false',eyal:true} },
+    return {mea:[m.office,m.cvs,m.rateVis,m.leak,m.lockNote,m.contract,m.contractLock,m.row,m.inPage].join('|'),hr:[h.office,h.cvs,h.leak,h.lockNote,h.contract,h.row,h.inPage].join('|'),eyal:/Monthly Basic ₱77,777/.test(e.note)&&e.contract};})();`),
+  expect:{mea:'false|true|true|false|true|false|true|false|false',hr:'false|true|false|true|false|false|false',eyal:true} },
+{ name:'📄 Contract Save without 🏢 keeps the stored Base salary: the hidden field carries "__keep__" (never ₱77,777 in the page) and a Save of the terms leaves baseSalary 77777; a holder\'s Save of 80000 stores 80000 (v22.54 audit PRIV-4)',
+  requires:REQ, seed:seed({who:'tester'}),
+  run:new Function(`return (async()=>{window.showToast=()=>{};window.toast=()=>{};await sleep(1500);
+    localStorage.setItem('hydroPro_emp_contract_E1',JSON.stringify({empId:'E1',terms:{baseSalary:77777}}));
+    hnxSetContractTerms('E1',{noticePeriodDays:30,probationMonths:6,baseSalary:'__keep__',deductionPolicies:'',customNotes:''});await sleep(200);
+    const k=JSON.parse(localStorage.getItem('hydroPro_emp_contract_E1')||'{}');const kept=(k.terms||{}).baseSalary;
+    hnxSetContractTerms('E1',{noticePeriodDays:30,probationMonths:6,baseSalary:'80000',deductionPolicies:'',customNotes:''});await sleep(200);
+    const n=JSON.parse(localStorage.getItem('hydroPro_emp_contract_E1')||'{}');const cm=document.getElementById('hnxContractModal');if(cm)cm.remove();
+    return {kept,notice:(k.terms||{}).noticePeriodDays,changed:(n.terms||{}).baseSalary};})();`),
+  expect:{kept:77777,notice:30,changed:80000} },
 
 { name:'🚦 prev.html (the previous copy, older access gates) with ?stay=1 and NO rollback is sent to /index.html (v22.54 audit PRIV-5)',
   seed:function(){localStorage.setItem('hnx_router_test','1');localStorage.setItem('hydroPro_release_ctl_v1','{}');},
