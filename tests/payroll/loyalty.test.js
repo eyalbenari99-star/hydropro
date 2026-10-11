@@ -1,7 +1,10 @@
-/* v21.21 (Eyal): Accounting → Loyalty Savings — the workbook's figures reproduced from the seeded data */
+/* v21.21 (Eyal): Accounting → Loyalty Savings — the workbook's figures reproduced from the seeded data.
+   v22.52: the audit figures are no longer built into the page (anyone could read them in View Source) — the plan lives in the synced
+   store, so the case seeds that store with the same 28-Sep-2026 BDO audit figures (fixtures/loyalty-bdo-audit-2026-09-28.json). */
+const LOY=JSON.stringify(require('./fixtures/loyalty-bdo-audit-2026-09-28.json'));
 module.exports=[
 { name:'💰 Loyalty Savings: seeded from the audit — 10 remittances ₱219,000, 1,689.1159 units, value ₱223,075.29 @ NAVPU 132.0663, earnings ₱4,075.29; Jinky 110,000 → 847.9905 units, 50.20% of the fund, worth ₱111,990.97, interest ₱1,990.97; Torzar 10.04%; outstanding to Sep-2026 ₱89,000 (Taladtad 53,000); the screen registers under Accounting and the statement prints the employee\'s share (v21.21)',
-  seed:function(){localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));},
+  seed:new Function("localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));localStorage.setItem('hydroPro_loyalty_v1',"+JSON.stringify(LOY)+");"),
   run:async()=>{
     await sleep(6000);
     const C=HNXLOY.calc();const r2=x=>Math.round(x*100)/100,r4=x=>Math.round(x*10000)/10000;
