@@ -15,5 +15,13 @@ module.exports=[
     const chk=u=>{as(u);const U=getCurrentUser();return [can('managePayroll'),can('viewSalaries'),getEffectiveModuleAccess(U,'payroll'),hnxPaySensitiveAllowed(U)].join('|');};
     return {josh:chk('joshane'),jinky:chk('jinky').split('|')[3],amy:chk('amy').split('|')[3],admin:chk('tester'),
       joshLoy:(()=>{as('joshane');return window.hnxPaySensitiveAllowed(getCurrentUser());})()};})()`),
-  expect:{josh:'false|false|none|false',jinky:'true',amy:'true',admin:'true|true|edit|true',joshLoy:false} }
+  expect:{josh:'false|false|none|false',jinky:'true',amy:'true',admin:'true|true|edit|true',joshLoy:false} },
+{ name:'🏢 v22.52 owner-granted areas: the same Joshane (secondary admin, all depts) → hnxCanOfficePay false, hnxCanLoyalty false although canViewSalaries stays true (labor rates, admin_secondary); Jinky, Dr Amy and admin → both true',
+  requires:"typeof window.hnxCanOfficePay==='function'",
+  seed:SEED,
+  run:new Function(`return (async()=>{${AS}
+    await sleep(6000);
+    const chk=u=>{as(u);const U=getCurrentUser();return [hnxCanOfficePay(),hnxCanLoyalty(),canViewSalaries()].join('|');};
+    return {josh:chk('joshane'),jinky:chk('jinky').split('|').slice(0,2).join('|'),amy:chk('amy').split('|').slice(0,2).join('|'),admin:chk('tester')};})()`),
+  expect:{josh:'false|false|true',jinky:'true|true',amy:'true|true',admin:'true|true|true'} }
 ];

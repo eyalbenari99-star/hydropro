@@ -2,7 +2,7 @@
    off it, items are picked from SOS (NOT IN SOS is a red critical line), items added after approval are checked before the award,
    and a request can go back one step with a reason. */
 module.exports=[
-{ name:'📨 Open RFQ-2026-000012 for PR-2026-000050 (approved ₱3,000 = 10 × ₱300): Joshane adds Wilcon (3 suppliers), takes Bravo off ("no stock") → 2; adds Gravel 5 × ₱100 (+16.7%) → Jinky checks; adds Rebar 10 × ₱200 (₱5,500, +83%) → Eyal / Dr Amy check, the award is blocked, Jinky cannot clear it, Dr Amy can; SOS has "Cement 40kg": "cement 40kg" becomes Cement 40kg (C40), "Mystery bolt" is NOT IN SOS; back one step → Supplier Sourcing, RFQ superseded; a stale second press does nothing (v22.28)',
+{ name:'📨 Open RFQ-2026-000012 for PR-2026-000050 (approved ₱3,000 = 10 × ₱300): Joshane adds Wilcon (3 suppliers), takes Bravo off ("no stock") → 2; adds Gravel 5 × ₱100 (+16.7%) → Jinky checks; adds Rebar 10 × ₱200 (₱5,500, +83%) → Eyal / Dr Amy check, the award is blocked, Jinky cannot clear it, Dr Amy can; SOS has "Cement 40kg": "cement 40kg" becomes Cement 40kg (C40), "Mystery bolt" is NOT IN SOS; back one step → Supplier Sourcing, RFQ stays open (v22.52: no longer marked Superseded — every supplier and offer is kept and ➡ Continue goes on with it); a stale second press does nothing (v22.28)',
   requires:"!!(window.__PURPRO&&window.__PURPRO.rfqAddItem&&window.__PURPRO.backStep&&window.hnxSosItemExact)",
   run:async()=>{
     const U={joshane:{username:'joshane',fullname:'Joshane Cruz',role:'staff',department:'Purchasing',active:true},amy:{username:'amy',fullname:'Dr Amy Patdu',role:'admin_secondary',active:true},
@@ -37,5 +37,5 @@ module.exports=[
     window.getCurrentUser=g;window.__hnxSos=gs;box.remove();
     return {n3,late,sup,rem,need1,jinkyTold,need2,blocked,stillJ,cleared,it,back,stale};},
   expect:{n3:3,late:true,sup:['Alpha Hardware','Wilcon Depot'],rem:[['Bravo Supply','no stock']],need1:'checker',jinkyTold:true,need2:'approver',blocked:true,stillJ:true,cleared:[true,5500],
-    it:[['Cement 40kg','C40',false],['Mystery bolt','',true]],back:['Supplier Sourcing','Superseded'],stale:'Supplier Sourcing'} }
+    it:[['Cement 40kg','C40',false],['Mystery bolt','',true]],back:['Supplier Sourcing','Open'],stale:'Supplier Sourcing'} }
 ];
