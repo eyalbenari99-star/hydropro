@@ -9,6 +9,8 @@ module.exports=[
   seed:SEED,
   run:new Function(`return (async()=>{${AS}await sleep(4000);as('jinky');
     const calls=[];const f0=window.fetch;window.fetch=function(u,o){u=String(u);calls.push({u,h:(o&&o.headers)||{},b:o&&o.body});
+      /* v22.52: the full download asks the cloud's key list first (a failed key list no longer falls back to the bare pull) */
+      if(u.indexOf('/sync/keys')>=0)return Promise.resolve({ok:true,status:200,json:()=>Promise.resolve({keys:Object.keys({}),count:Object.keys({}).length})});
       if(u.indexOf('/sync/pull')>=0)return Promise.resolve({ok:true,status:200,json:()=>Promise.resolve({data:{}})});if(u.indexOf('/sync/push')>=0)return Promise.resolve({ok:true,status:200,json:()=>Promise.resolve({ok:true})});
       if(u.endsWith('/ea/email/status'))return Promise.resolve({ok:true,json:()=>Promise.resolve({ok:true,connected:true,provider:'google',user:'jinky',prefs:{cadence:'daily',hour:'07:00'},lastScanAt:new Date().toISOString()})});
       if(u.endsWith('/ea/email/inbox'))return Promise.resolve({ok:true,json:()=>Promise.resolve({ok:true,snapshot:{scannedAt:new Date().toISOString(),counts:{reply:1},items:[{id:'m1',from:{name:'SM Buyer',email:'buyer@sm.ph'},subject:'Urgent: PO confirmation needed today',snippet:'Please confirm the delivery schedule',receivedAt:new Date().toISOString(),unread:true,importance:'high',needsReply:true},{id:'m2',from:{name:'DOLE',email:'x@dole.gov.ph'},subject:'Reminder: annual report',snippet:'follow-up on submission',receivedAt:new Date().toISOString(),unread:false,needsFollowUp:true}]}})});

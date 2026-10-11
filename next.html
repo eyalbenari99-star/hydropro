@@ -146846,9 +146846,9 @@ body.hnx-mobile-locked { overflow: hidden; }
      says "· retrying" for the first two failures in a row. After a "Failed to fetch" the app asks the cloud's /health once and
      names the cause (state.reason): unreachable (Cloudflare limit or network) or overloaded on the download. Nothing typed here is
      lost while it waits — unsent changes stay marked on this computer and go up with the next good cycle. */
-  var __bo={n:0,until:0,cur:null,probeAt:0,reason:''};
+  var __bo={n:0,until:0,cur:null,probeAt:0,reason:'',tok:''};
   function __boDelay(n){ return Math.min(300000,20000*Math.pow(2,Math.max(0,(n|0)-1)))+Math.floor(Math.random()*15001); }
-  function __boWait(){ return Math.max(0,__bo.until-Date.now()); }
+  function __boWait(){ if(__bo.until&&(getToken()||'')!==__bo.tok) __bo.until=0; /* new sign-in on this computer → try now */ return Math.max(0,__bo.until-Date.now()); }
   function __isNetErr(m){ return /Failed to fetch|Load failed|NetworkError|network error/i.test(String(m||'')); }
   var REASON_DOWN='Cloud unreachable \u2014 Cloudflare daily limit (resets 08:00 PH) or network';
   function __cloudHealth(){ var ctl=null,tm=null; try{ if(typeof AbortController==='function'){ ctl=new AbortController(); tm=setTimeout(function(){ try{ctl.abort();}catch(e){} },10000); } }catch(e){}
@@ -146866,7 +146866,7 @@ body.hnx-mobile-locked { overflow: hidden; }
   /* one sync cycle: fn() runs the requests and returns a promise; a failure anywhere in it counts once */
   function __boCycle(fn){ var c={ok:0,fail:0}; __bo.cur=c; var p; try{ p=fn(); }catch(e){ c.fail=1; }
     function end(){ if(__bo.cur===c) __bo.cur=null;
-      if(c.fail){ __bo.n++; __bo.until=Date.now()+__boDelay(__bo.n); }
+      if(c.fail){ __bo.n++; __bo.until=Date.now()+__boDelay(__bo.n); __bo.tok=getToken()||''; }
       else if(c.ok&&__bo.n){ __bo.n=0; __bo.until=0; __bo.probeAt=0; __bo.reason=''; }
       state.failCount=__bo.n; state.retryAt=__bo.until; if(!__bo.n) state.reason=''; else if(__bo.reason&&state.error) state.reason=__bo.reason;
       try{ updateBadge(); }catch(e){} }

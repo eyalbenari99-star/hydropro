@@ -61,6 +61,8 @@ module.exports=[
   seed:function(){ localStorage.setItem('hnx_cloud_token','t');window.__pushes=[];
     const cloud={'hydroPro_memos':'[]'};const of=window.fetch;
     window.fetch=function(u,o){u=String(u);
+      /* v22.52: the full download asks the cloud's key list first (a failed key list no longer falls back to the bare pull) */
+      if(u.indexOf('/sync/keys')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,keys:Object.keys(cloud||{})}),{status:200}));
       if(u.indexOf('/sync/pull')>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,data:cloud}),{status:200}));
       if(u.indexOf('/sync/push')>=0){let keys=[],skipped=[];try{const d=JSON.parse(o.body).data;window.__pushes.push(Object.keys(d));Object.keys(d).forEach(k=>{if(k==='hydroPro_qbig_store')skipped.push({key:k,size:String(d[k]).length,why:'too-big'});else{keys.push(k);cloud[k]=d[k];}});}catch(e){}
         return Promise.resolve(new Response(JSON.stringify({ok:true,written:keys.length,keys:keys,skipped:skipped}),{status:200}));}
