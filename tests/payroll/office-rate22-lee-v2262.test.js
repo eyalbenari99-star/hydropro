@@ -2,7 +2,7 @@
    A. Office: "For office salaries the daily rate jump higher. Should be basic divided normally by working days lets do 22 days a
       month just for safe so basic daily (on that you can add Sundays plus 30%) 727.27p" · "the pmt should be full 2 weeks working
       days for this example 8,000p Sunday's will be daily rate (basic money divided by 22) plus 30%" · "for all office only".
-   B. Lee: "Also Lee coming Thursday 8am instead 7am should deduct for him 1h from daily rate each Thursday and its not done". */
+   B. Lee (ordinary days clock in at 06:40 — on time on both the 07:00 table and the trial's 9 Oct 06:45 Production start): "Also Lee coming Thursday 8am instead 7am should deduct for him 1h from daily rate each Thursday and its not done". */
 const NOHOL=()=>{localStorage.setItem('hydroPro_ph_holidays','{}');};
 module.exports=[
 { name:'office ₱16,000, 11–25 Jul 2026 (10 working days): day rate 16,000 ÷ 22 = 727.27 (was 800.00); full cut-off pays 8,000.00; 1 day absent 7,272.73 (was 7,200.00); 2 days absent 6,545.45',
@@ -51,7 +51,7 @@ module.exports=[
 { name:'Lee (BORRETA, LEJANE, weekly ₱658), week 5–10 Oct 2026, Thursday 8 Oct in at 08:00: not a late (not held, not queued), 1 h deducted automatically = 658 ÷ 8 = 82.25; 6 days, basic 3,948.00; label "1 × 1 h — Thursday 08:00 start"',
   seed:NOHOL,
   run:async()=>{const lee=labour('EMP1061','BORRETA, LEJANE DJ',{dept:'APTI_REGULAR'});setE([lee]);const a={};
-    ['2026-10-05','2026-10-06','2026-10-07','2026-10-09','2026-10-10'].forEach(d=>{a[d]={EMP1061:rec('present','07:00','17:00')};});
+    ['2026-10-05','2026-10-06','2026-10-07','2026-10-09','2026-10-10'].forEach(d=>{a[d]={EMP1061:rec('present','06:40','17:00')};});
     a['2026-10-08']={EMP1061:rec('late','08:00','17:00')};setA(a);
     const l=calcEmployeePayroll(lee,'2026-10-05','2026-10-10','weekly');
     const q=(window.hnxLate&&window.hnxLate.scan)?window.hnxLate.scan('2026-10-05','2026-10-10'):[];
@@ -61,7 +61,7 @@ module.exports=[
 { name:'Lee, Thursday 8 Oct in at 08:20: the 20 minutes after 08:00 wait for Eyal / Dr Amy (day held 658.00) and the hour is still deducted (82.25) → Tardy 740.25; signed "deduct" 20 min → 27.42 + 82.25 = 109.67',
   seed:NOHOL,
   run:async()=>{const lee=labour('EMP1061','BORRETA, LEJANE DJ',{dept:'APTI_REGULAR'});setE([lee]);const a={};
-    ['2026-10-05','2026-10-06','2026-10-07','2026-10-09','2026-10-10'].forEach(d=>{a[d]={EMP1061:rec('present','07:00','17:00')};});
+    ['2026-10-05','2026-10-06','2026-10-07','2026-10-09','2026-10-10'].forEach(d=>{a[d]={EMP1061:rec('present','06:40','17:00')};});
     a['2026-10-08']={EMP1061:Object.assign(rec('late','08:20','17:00'),{lateMinutes:80})};setA(a);
     const held=calcEmployeePayroll(lee,'2026-10-05','2026-10-10','weekly');
     const q=window.hnxLate.scan('2026-10-05','2026-10-10');
@@ -73,11 +73,11 @@ module.exports=[
 { name:'only Lee, only Thursdays from 8 Oct 2026: another labourer in at 08:00 on Thu 8 Oct is a 60-minute late (held 658.00, queued); Lee on Thu 1 Oct at 08:00 is a normal late (held 658.00); Lee absent on Thu 8 Oct: no hour deducted (5 days, 3,290.00, tardy 0)',
   seed:NOHOL,
   run:async()=>{const lee=labour('EMP1061','BORRETA, LEJANE DJ',{dept:'APTI_REGULAR'}),jo=labour('JO','JO SANTOS');setE([lee,jo]);const a={};
-    ['2026-10-05','2026-10-06','2026-10-07','2026-10-09','2026-10-10'].forEach(d=>{a[d]={JO:rec('present','07:00','17:00')};});
+    ['2026-10-05','2026-10-06','2026-10-07','2026-10-09','2026-10-10'].forEach(d=>{a[d]={JO:rec('present','06:40','17:00')};});
     a['2026-10-08']={JO:rec('late','08:00','17:00')};
-    ['2026-09-28','2026-09-29','2026-09-30','2026-10-02','2026-10-03'].forEach(d=>{a[d]={EMP1061:rec('present','07:00','17:00')};});
+    ['2026-09-28','2026-09-29','2026-09-30','2026-10-02','2026-10-03'].forEach(d=>{a[d]={EMP1061:rec('present','06:40','17:00')};});
     a['2026-10-01']={EMP1061:rec('late','08:00','17:00')};
-    ['2026-10-05','2026-10-06','2026-10-07','2026-10-09','2026-10-10'].forEach(d=>{a[d].EMP1061=rec('present','07:00','17:00');});
+    ['2026-10-05','2026-10-06','2026-10-07','2026-10-09','2026-10-10'].forEach(d=>{a[d].EMP1061=rec('present','06:40','17:00');});
     setA(a);
     const j=calcEmployeePayroll(jo,'2026-10-05','2026-10-10','weekly');
     const q=window.hnxLate.scan('2026-10-05','2026-10-10').map(x=>x.empId).join(',');
