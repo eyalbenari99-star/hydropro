@@ -114,8 +114,10 @@ module.exports.push(
 
 { name:'👁 Page-wide watchers are coalesced: 30 body-subtree observers share one native observer, a burst of 50 DOM changes reaches each of them as ONE batched call (not 50), and the stats report them (v21.19)',
   run:async()=>{
-    await sleep(5000);let calls=0;const obs=[];for(let i=0;i<30;i++){const o=new MutationObserver(function(recs){calls++;});o.observe(document.body,{childList:true,subtree:true});obs.push(o);}
-    const st0=window.__hnxMoStats();const box=document.createElement('div');document.body.appendChild(box);
+    /* v22.66: count only the calls that carry this burst (records inside the test box) — the app's own screen updates
+       landing in the same 600 ms window (clock, banners) were counted too and pushed a slow CI runner over 60 */
+    await sleep(5000);let calls=0,box=null;const obs=[];for(let i=0;i<30;i++){const o=new MutationObserver(function(recs){if(box&&recs.some(r=>r.target===box))calls++;});o.observe(document.body,{childList:true,subtree:true});obs.push(o);}
+    const st0=window.__hnxMoStats();box=document.createElement('div');document.body.appendChild(box);
     for(let i=0;i<50;i++){const d=document.createElement('span');box.appendChild(d);}
     await sleep(600);const c1=calls;obs.forEach(o=>o.disconnect());box.remove();
     return {registered:st0.observers>=30,batched:c1>=30&&c1<=60,coalesced:MutationObserver.__hnxCoalesced===true};},
