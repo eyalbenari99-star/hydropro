@@ -183,11 +183,15 @@ module.exports=[
       while(size>=1){const chunk='x'.repeat(size);try{NS.call(localStorage,'zz_fill_'+(i++),chunk);n+=size;}catch(e){size=size>>1;}}return n;`);
     const f1=await fill();
     await ev(`localStorage.removeItem(BK);`);const f2=await fill();
+    /* a full browser refuses every write to the store; filling alone is not deterministic — when the stored copy is still raw,
+       Nexi's compressed retry REPLACES it with a smaller value and fits (the CI case), which is a real, correct save. So while
+       'full', writes of the asset store and its undo ring are refused the way a full browser refuses them. */
+    await ev(`window.__fullStub=localStorage.setItem;localStorage.setItem=function(k,v){if(k===K||k===BK){const e=new Error('The quota has been exceeded.');e.name='QuotaExceededError';e.code=22;throw e;}return window.__fullStub.apply(this,arguments);};`);
     await pg.click('#arAns2');await pg.keyboard.type('typed while full',{delay:5});
     await pg.click('button[onclick="hnxArAns(2)"]');await pg.waitForTimeout(900);
     const full=await ev(`const s=rd();return {stored:(s.answers||{})['2']===undefined?null:s.answers['2'],box:document.getElementById('arAns2').value,mark:mark(2),
       banner:[...V().querySelectorAll('b')].some(b=>/DID NOT GO THROUGH/.test(b.textContent))};`);
-    await ev(`Object.keys(localStorage).filter(k=>/^zz_fill_/.test(k)).forEach(k=>localStorage.removeItem(k));`);
+    await ev(`localStorage.setItem=window.__fullStub;Object.keys(localStorage).filter(k=>/^zz_fill_/.test(k)).forEach(k=>localStorage.removeItem(k));`);
     await pg.selectOption('select[onchange^="hnxArAnsPick(3,"]',{index:1});await pg.waitForTimeout(800);
     const freed=await ev(`const s=rd();hnxArTab('ov');await sleep(300);hnxArTab('ask');await sleep(300);
       return {a2:s.answers['2'],a3:s.answers['3'],box:document.getElementById('arAns2').value,mark:mark(2),banner:[...V().querySelectorAll('b')].some(b=>/DID NOT GO THROUGH/.test(b.textContent))};`);
