@@ -128,7 +128,7 @@ module.exports=[
 { name:'🎯 Smart Dosing follows: Pool 1 at 30 cm, EC 1.50 → A 9 L with "3 L per 10 cm at EC 1.5" under it, and "How it works (v22.56)" gives the EC rule; EC 1.90 → no A/B with "EC over 1.80 → water only"',
   requires:NEW,
   run:fn(`irrSavePool('P01','water','30');await setEc('P01','1.50');switchView('irr_smart_dose');await sleep(900);if(typeof renderIrrSmartDose==='function')renderIrrSmartDose();await sleep(300);
-    const body=document.getElementById('stubIrrSmartDoseBody');const row=()=>[...body.querySelectorAll('tr')].find(tr=>/Pool 1\\b/.test(tr.textContent)&&!/Pool 1\\d/.test(tr.cells[0].textContent));
+    const body=document.getElementById('stubIrrSmartDoseBody');const row=()=>[...body.querySelectorAll('tbody tr')].find(tr=>/^\\s*Pool 1(?!\\d)/.test((tr.cells[0]||{}).textContent||''));
     const r1=row();const t1=r1?r1.textContent:'';const how=/How it works \\(v22\\.56\\)[\\s\\S]*under 1\\.70 \\+ 1 L per 10 cm for every 0\\.1/.test(body.textContent);
     await setEc('P01','1.90');renderIrrSmartDose();await sleep(300);const t2=(row()||{}).textContent||'';
     return {nine:/9 L|\\b9\\b/.test(t1),note:/3 L per 10 cm at EC 1\\.5/.test(t1),how,water:/EC over 1\\.80 → water only/.test(t2)};`),
