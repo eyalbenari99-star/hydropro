@@ -28,7 +28,8 @@
    Same address, so the same data. Never redirects inside the test harness (hnx_router_test lets a test inspect the decision). */
 (function(){
   var W=window;
-  function page(){ var p=(location.pathname.split('/').pop()||'').toLowerCase(); return p==='next.html'?'next':(p==='prev.html'?'prev':'index'); }
+  /* v22.54 audit PRIV-5 (prev.html only): an extensionless /prev (the host serves prev.html for it) is the rollback copy too */
+  function page(){ var p=(location.pathname.split('/').pop()||'').toLowerCase().replace(/\.html?$/,''); return p==='next'?'next':(p==='prev'?'prev':'index'); }
   W.__HNX_PAGE=page();
   W.__hnxRouteWant=function(){
     var G=Storage.prototype.getItem, ls=localStorage, ctl={};
@@ -44,7 +45,9 @@
     W.__HNX_SAFE = sessionStorage.getItem('hnx_safe')==='1';
     var G=Storage.prototype.getItem;
     if(G.call(localStorage,'hnx_test_harness')==='1' && G.call(localStorage,'hnx_router_test')!=='1') return;
-    if(q.get('stay')==='1') return; /* manual override: ?stay=1 opens exactly the copy asked for */
+    /* manual override: ?stay=1 opens exactly the copy asked for — but this PREVIOUS copy (older, weaker access gates: no owner-granted
+       office pay / loyalty) only while the owner's rollback is on (synced hydroPro_release_ctl_v1). v22.54 audit PRIV-5 */
+    if(q.get('stay')==='1' && !(W.__HNX_PAGE==='prev' && W.__hnxRouteWant()!=='prev')) return;
     var want=W.__hnxRouteWant(); W.__HNX_ROUTE_WANT=want;
     if(want!==W.__HNX_PAGE && G.call(localStorage,'hnx_router_dry')!=='1'){
       location.replace(location.pathname.replace(/[^\/]*$/,'')+(want==='index'?'index.html':want+'.html')+location.search+location.hash);

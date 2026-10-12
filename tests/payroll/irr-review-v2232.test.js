@@ -167,7 +167,7 @@ module.exports=[
     const td=RX('P01')?RX('P01').closest('td'):null;return {label:td?getComputedStyle(td,'::before').content:'no row'};`),
   expect:{label:'none'} },
 
-{ name:'🎨 v22.36 every parameter has its own coloured picture in its cell (Eyal: "each parameter should be with colored image in motion 3d"): Pool 1 at 29.9 cm, EC 1.62, pH 6.3, 24.5 °C, air pump working, ozone 55 s → thermometer 24.5°, pump with bubbles, ozone ring 55s, a pure drop, the tank +607L, 3 A jugs, 3 B jugs, C beaker 165cc; the EC meter shows the target →1.80 and the pH meter →6.20; Pool 2 with a drum log shows the A/B/C take pills (3.1L, 3.1L)',
+{ name:'🎨 v22.36 every parameter has its own coloured picture in its cell (Eyal: "each parameter should be with colored image in motion 3d"): Pool 1 at 29.9 cm, EC 1.62, pH 6.3, 24.5 °C, air pump working, ozone 55 s → thermometer 24.5°, pump with bubbles, ozone ring 55s, a pure drop, the tank +607L, 6 A jugs and 6 B jugs (v22.56: EC 1.62 → 1 + 0.8 = 1.8 L per 10 cm × 30 cm = 5.4 L), C beaker 165cc; the EC meter shows the target →1.80 and the pH meter →6.20; Pool 2 with a drum log shows the A/B/C take pills (3.1L, 3.1L)',
   requires:"typeof window.hnxIrrCellViz==='function'",
   run:fn(`irrSavePool('P01','water','29.9');irrSavePool('P01','EC','1.62');irrSavePool('P01','pH','6.3');irrSavePool('P01','waterTemp','24.5');irrSavePool('P01','airPump','working');irrSavePool('P01','ozoneSec','55');
     await sleep(400);renderIrrPoolMonitor();await sleep(1200);
@@ -176,7 +176,7 @@ module.exports=[
     const has=re=>labels.some(l=>re.test(l));
     const ecT=[...document.querySelectorAll('.hnx-iv[data-ivk="ec"][data-pool="P01"] .ivx-tgtl')].map(e=>e.textContent).join('|');
     const phT=[...document.querySelectorAll('.hnx-iv[data-ivk="ph"][data-pool="P01"] .ivx-tgtl')].map(e=>e.textContent).join('|');
-    return {temp:has(/Water temperature 24.5/),air:has(/Air pump working/),ozone:has(/Ozone 55 s/),src:has(/Water source pure/),water:has(/fill to 60 cm, add 607 L/),a:has(/^A 3 L = 3 jugs/),b:has(/^B 3 L = 3 jugs/),c:has(/^C 165 cc/),ecT,phT};`),
+    return {temp:has(/Water temperature 24.5/),air:has(/Air pump working/),ozone:has(/Ozone 55 s/),src:has(/Water source pure/),water:has(/fill to 60 cm, add 607 L/),a:has(/^A 5\\.4 L = 6 jugs/),b:has(/^B 5\\.4 L = 6 jugs/),c:has(/^C 165 cc/),ecT,phT};`),
   expect:{temp:true,air:true,ozone:true,src:true,water:true,a:true,b:true,c:true,ecT:'→1.80',phT:'→6.20'} },
 
 { name:'☁ (review 3) A LOWERED dose is not undone by the cloud: Pool 1 at 40 cm, EC 1.7 → A 2 L; the daily target 50 → A 1 L (dated by Nexi); merging with the old cloud copy either way keeps A 1 L and the 50 cm dose (it went back to 2 L — the merge kept the larger undated number); a value a PERSON typed (5 L, older) beats Nexi\'s newer automatic 1 L',
