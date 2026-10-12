@@ -156,19 +156,19 @@ module.exports=[
       last:(CHIP('P01','last')||'').replace(/\\d$/,'x'),csv:String(line[i]||'').replace(/\\d$/,'x')};`),
   expect:{ahead:true,ft:true,p1:'10:0x',p3:'Sat 10 Oct 10:0x',last:'Last reading Sat 10 Oct · 08:00 round · saved 10:0x',csv:'2026-10-10 10:0x'} },
 
-{ name:'📒 Readings report counts only rounds a person filled in: Pool 2’s 08:00 level typed 40 and then cleared leaves Nexi’s ⚡ water added / A / B / C and the stamped finish time behind → "Rounds entered 0 of 1", one "— not entered —" row, "No reading in this period", CSV status "not entered"; Pool 4 with only A 1.5 L typed by hand → "Rounds entered 1 of 1"',
+{ name:'📒 Readings report counts only rounds a person filled in: Pool 2’s 08:00 level typed 40 and then cleared — v22.56 audit: Nexi’s ⚡ water added / A / B / C are cleared with it, only the stamped finish time stays behind → "Rounds entered 0 of 1", one "— not entered —" row, "No reading in this period", CSV status "not entered"; Pool 4 with only A 1.5 L typed by hand → "Rounds entered 1 of 1"',
   requires:NEW, tz:'Asia/Manila', seed,
   run:fn(`at(T,'08:00','P02','water','40');at(T,'08:00','P02','water','');at(T,'08:00','P04','A','1.5');
     await back();
     try{delete window._perfCache._irrPool;}catch(e){}
     const r=loadIrrPool()[T].P02['08:00'],af=r._autoFilled||{};
-    const left={water:r.water,finish:!!r.finishTime,auto:['waterAdded','A','B'].every(k=>af[k]===true&&r[k]!==''&&r[k]!=null)};
+    const left={water:r.water,finish:!!r.finishTime,cleared:['waterAdded','A','B'].every(k=>r[k]===''||r[k]==null)&&!r._dose}; /* v22.56 audit: a cleared level empties Nexi's own boxes and drops the stored dose */
     await REP('today');
     const p2=ROWS('P02'),csv=hnxIrrReadingsCsv({from:T,to:T,pools:['P02','P04']}).split('\\n');
     return {left,r2:CHIP('P02','rounds'),p2rows:p2.length,p2missing:p2.length===1&&p2[0].classList.contains('hnx-rr-missing')&&p2[0].textContent.indexOf('— not entered —')>=0,
       last2:CHIP('P02','last'),r4:CHIP('P04','rounds'),a4:CELL('P04',T,'08:00','A'),
       status:csv.slice(1).map(l=>l.split(',').slice(0,1).concat(l.split(',')[5]).join(':'))};`),
-  expect:{left:{water:'',finish:true,auto:true},r2:'Rounds entered 0 of 1',p2rows:1,p2missing:true,last2:'No reading in this period',
+  expect:{left:{water:'',finish:true,cleared:true},r2:'Rounds entered 0 of 1',p2rows:1,p2missing:true,last2:'No reading in this period',
     r4:'Rounds entered 1 of 1',a4:{v:'1.5',sev:'',auto:false},status:['Pool 2:not entered','Pool 4:entered']} },
 
 { name:'⌨ Readings report Custom dates typed with the keyboard: From typed 09/01/2026 → 1 Sep, Pool 1 "Rounds entered 0 of 157" (39 days × 4 + 1); To day ArrowDown ×2 → 8 Oct, "Rounds entered 0 of 152"; the field keeps the focus between keys and no page error',
