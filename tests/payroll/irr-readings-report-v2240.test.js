@@ -31,7 +31,7 @@ module.exports=[
       active:document.getElementById('view-irr_readings').classList.contains('active'),view:window.currentView};`),
   expect:{n:12,ids:['P01','P02','P03','P04','P05','P06','P07','P08','P09','P10','P11A','P11B'],first:'Pool 1 · GH1 · Room 1&2',last:'PRJ11-B · PRJ11 · Room PRJ11',after:true,active:true,view:'irr_readings'} },
 
-{ name:'📒 Readings report, Today at 10:00 Manila: Pool 1’s 08:00 round shows EC 1.62 (warning), pH 6.9 (critical), level 40 cm (ok), 24 °C (ok), checked by Reven, water 405 L and A 2 L marked ⚡ (worked out by Nexi) while typed values carry no ⚡ → "Rounds entered 1 of 1", "Out of range 1"; Pool 2 → "Rounds entered 0 of 1" with one "— not entered —" row; the 11:00–16:00 rounds are not shown yet',
+{ name:'📒 Readings report, Today at 10:00 Manila: Pool 1’s 08:00 round shows EC 1.62 (warning), pH 6.9 (critical), level 40 cm (ok), 24 °C (ok), checked by Reven, water 405 L and A 3.6 L marked ⚡ (worked out by Nexi — v22.56: EC 1.62 → 1.8 L per 10 cm × 20 cm) while typed values carry no ⚡ → "Rounds entered 1 of 1", "Out of range 1"; Pool 2 → "Rounds entered 0 of 1" with one "— not entered —" row; the 11:00–16:00 rounds are not shown yet',
   requires:NEW, tz:'Asia/Manila', seed,
   run:fn(`at(T,'08:00','P01','water','40');at(T,'08:00','P01','EC','1.62');at(T,'08:00','P01','pH','6.9');at(T,'08:00','P01','waterTemp','24');at(T,'08:00','P01','airPump','working');at(T,'08:00','P01','checkedBy','Reven');
     await back();await REP('today');
@@ -42,7 +42,7 @@ module.exports=[
       r2:CHIP('P02','rounds'),p2rows:p2.length,p2missing:p2.length===1&&p2[0].classList.contains('hnx-rr-missing')&&p2[0].textContent.indexOf('— not entered —')>=0,
       future:document.querySelectorAll('#irrReadingsBody tr[data-round="11:00"],#irrReadingsBody tr[data-round="14:00"],#irrReadingsBody tr[data-round="16:00"]').length};`),
   expect:{ec:{v:'1.62',sev:'warn',auto:false},ph:{v:'6.9',sev:'crit',auto:false},lvl:{v:'40',sev:'ok',auto:false},temp:{v:'24',sev:'ok',auto:false},
-    w:{v:'405',sev:'',auto:true},a:{v:'2',sev:'',auto:true},by:'Reven',air:'✓ working',
+    w:{v:'405',sev:'',auto:true},a:{v:'3.6',sev:'',auto:true},by:'Reven',air:'✓ working',
     r1:'Rounds entered 1 of 1',o1:'Out of range 1',last:true,r2:'Rounds entered 0 of 1',p2rows:1,p2missing:true,future:0} },
 
 { name:'📒 Readings report, Last 7 days (Sun 4 – Sat 10 Oct, today at 10:00): Pool 3 with 9 Oct 08:00 + 14:00 entered → "Rounds entered 2 of 25", 25 rows newest first (10 Oct 08:00 on top, then 9 Oct 16:00 … 4 Oct 08:00 at the bottom), 23 "— not entered —", last reading Fri 9 Oct 14:00; all 12 pools → rounds entered 2 of 300',
@@ -58,7 +58,7 @@ module.exports=[
   expect:{r3:'Rounds entered 2 of 25',rows:25,missing:23,top:'2026-10-10 08:00',second:'2026-10-09 16:00',bottom:'2026-10-04 08:00',newestFirst:true,last:true,
     ec:{v:'1.8',sev:'ok',auto:false},sum:true} },
 
-{ name:'📒 Readings report CSV (hnxIrrReadingsCsv): Pool 1 + Pool 3 for 9–10 Oct at 10:00 → the header + 10 lines (5 rounds each: the four of 9 Oct + 08:00 today), a Pool column, 7 "not entered"; Pool 1’s 10 Oct 08:00 line: EC meter 1.62, level 40 cm, A 2, "EC meter warning", worked out by Nexi lists A; Today for the 12 default pools → header + 12 lines',
+{ name:'📒 Readings report CSV (hnxIrrReadingsCsv): Pool 1 + Pool 3 for 9–10 Oct at 10:00 → the header + 10 lines (5 rounds each: the four of 9 Oct + 08:00 today), a Pool column, 7 "not entered"; Pool 1’s 10 Oct 08:00 line: EC meter 1.62, level 40 cm, A 3.6 (v22.56 EC step), "EC meter warning", worked out by Nexi lists A; Today for the 12 default pools → header + 12 lines',
   requires:NEW, tz:'Asia/Manila', seed,
   run:fn(`at(T,'08:00','P01','water','40');at(T,'08:00','P01','EC','1.62');at(Y,'08:00','P03','water','50');at(Y,'14:00','P03','water','45');
     await back();await REP('today');
@@ -72,7 +72,7 @@ module.exports=[
       p1:{status:p1.Status,ec:p1['EC meter'],lvl:p1['Level cm'],a:p1['A L'],out:p1['Out of range'],nexiA:/(^|, )A(,|$)/.test(p1['Worked out by Nexi']||'')},
       def:def.length,defPools:[...new Set(def.slice(1).map(l=>parse(l)[0]))].length};`),
   expect:{head:'Pool,Room,GH,Date,Round,Status,Finish time,EC meter,EC manual,pH meter,pH manual,Level cm,Temp °C,Air pump,Ozone s,Source,Water added L,A L,B L,C L,Checked by,Saved at,Saved by,Out of range,Worked out by Nexi',
-    n:11,p1n:5,p3n:5,missing:7,p1:{status:'entered',ec:'1.62',lvl:'40',a:'2',out:'EC meter warning',nexiA:true},def:13,defPools:12} },
+    n:11,p1n:5,p3n:5,missing:7,p1:{status:'entered',ec:'1.62',lvl:'40',a:'3.6',out:'EC meter warning',nexiA:true},def:13,defPools:12} },
 
 { name:'📒 Readings report is read-only: opening it, switching Today / Yesterday / Last 7 days / This month / Custom (1 Sep – 10 Oct, 40 days) and building the CSV makes 0 writes to hydroPro_irr_pool (byte-identical before and after); the only key it writes is the per-computer period hnxlocal_irr_readings_period_v1',
   requires:NEW, tz:'Asia/Manila', seed,
@@ -156,19 +156,19 @@ module.exports=[
       last:(CHIP('P01','last')||'').replace(/\\d$/,'x'),csv:String(line[i]||'').replace(/\\d$/,'x')};`),
   expect:{ahead:true,ft:true,p1:'10:0x',p3:'Sat 10 Oct 10:0x',last:'Last reading Sat 10 Oct · 08:00 round · saved 10:0x',csv:'2026-10-10 10:0x'} },
 
-{ name:'📒 Readings report counts only rounds a person filled in: Pool 2’s 08:00 level typed 40 and then cleared leaves Nexi’s ⚡ water added / A / B / C and the stamped finish time behind → "Rounds entered 0 of 1", one "— not entered —" row, "No reading in this period", CSV status "not entered"; Pool 4 with only A 1.5 L typed by hand → "Rounds entered 1 of 1"',
+{ name:'📒 Readings report counts only rounds a person filled in: Pool 2’s 08:00 level typed 40 and then cleared — v22.56 audit: Nexi’s ⚡ water added / A / B / C are cleared with it, only the stamped finish time stays behind → "Rounds entered 0 of 1", one "— not entered —" row, "No reading in this period", CSV status "not entered"; Pool 4 with only A 1.5 L typed by hand → "Rounds entered 1 of 1"',
   requires:NEW, tz:'Asia/Manila', seed,
   run:fn(`at(T,'08:00','P02','water','40');at(T,'08:00','P02','water','');at(T,'08:00','P04','A','1.5');
     await back();
     try{delete window._perfCache._irrPool;}catch(e){}
     const r=loadIrrPool()[T].P02['08:00'],af=r._autoFilled||{};
-    const left={water:r.water,finish:!!r.finishTime,auto:['waterAdded','A','B'].every(k=>af[k]===true&&r[k]!==''&&r[k]!=null)};
+    const left={water:r.water,finish:!!r.finishTime,cleared:['waterAdded','A','B'].every(k=>r[k]===''||r[k]==null)&&!r._dose}; /* v22.56 audit: a cleared level empties Nexi's own boxes and drops the stored dose */
     await REP('today');
     const p2=ROWS('P02'),csv=hnxIrrReadingsCsv({from:T,to:T,pools:['P02','P04']}).split('\\n');
     return {left,r2:CHIP('P02','rounds'),p2rows:p2.length,p2missing:p2.length===1&&p2[0].classList.contains('hnx-rr-missing')&&p2[0].textContent.indexOf('— not entered —')>=0,
       last2:CHIP('P02','last'),r4:CHIP('P04','rounds'),a4:CELL('P04',T,'08:00','A'),
       status:csv.slice(1).map(l=>l.split(',').slice(0,1).concat(l.split(',')[5]).join(':'))};`),
-  expect:{left:{water:'',finish:true,auto:true},r2:'Rounds entered 0 of 1',p2rows:1,p2missing:true,last2:'No reading in this period',
+  expect:{left:{water:'',finish:true,cleared:true},r2:'Rounds entered 0 of 1',p2rows:1,p2missing:true,last2:'No reading in this period',
     r4:'Rounds entered 1 of 1',a4:{v:'1.5',sev:'',auto:false},status:['Pool 2:not entered','Pool 4:entered']} },
 
 { name:'⌨ Readings report Custom dates typed with the keyboard: From typed 09/01/2026 → 1 Sep, Pool 1 "Rounds entered 0 of 157" (39 days × 4 + 1); To day ArrowDown ×2 → 8 Oct, "Rounds entered 0 of 152"; the field keeps the focus between keys and no page error',

@@ -12,7 +12,7 @@ const H=`window.__hnxPulledOk=true;localStorage.setItem('_v2_46_97_dose_migratio
     _dose:{v:'22.32',gap:30,waterL:607,ec:1.659,ph:6.3,row:'',factor:1,aCC:6975,bCC:6975,cCC:165,ecHigh:false,calibrate:'',note:'',target:60,mode:'per10',per10L:1,srcMult:1},updatedAt:1},o||{});`;
 const fn=body=>new Function('return (async()=>{'+H+body+'})();');
 module.exports=[
-{ name:'🩹 A mixed result from an old computer is corrected on TODAY\'s screen: Pool 1 at 29.9 cm (hand EC 1.659) stored "A 6.98 L / 6975 cc" under the 1 L per 10 cm rule → opening the Pool Monitor gives A 3 L, B 3 L (3000 cc), "Nexi says … A 3000 cc", the drawing "A 3 L"; Pool 2 with A TYPED 5 L keeps 5 (B auto → 3); 9 Oct\'s same mixed record is left as it was',
+{ name:'🩹 A mixed result from an old computer is corrected on TODAY\'s screen: Pool 1 at 29.9 cm (hand EC 1.659) stored "A 6.98 L / 6975 cc" under the 1 L per 10 cm rule → opening the Pool Monitor gives A 4.2 L, B 4.2 L (4200 cc — v22.56: EC 1.66 is 0.4 under 1.70 → 1 + 0.4 = 1.4 L per 10 cm × 30 cm), "Nexi says … A 4200 cc", the drawing "A 4.2 L"; Pool 2 with A TYPED 5 L keeps 5 (B auto → 4.2); 9 Oct\'s same mixed record is left as it was',
   requires:NEW,
   run:fn(`const T=hnxLocalToday(),Y='2026-10-09';const st={};st[T]={P01:{'08:00':mixed()},P02:{'08:00':mixed({A:5,_autoFilled:{waterAdded:true,A:false,B:true,C:true}})}};st[Y]={P01:{'08:00':mixed()}};
     localStorage.setItem('hydroPro_irr_pool',JSON.stringify(st));try{delete window._perfCache._irrPool;}catch(e){}
@@ -21,8 +21,8 @@ module.exports=[
     const r1=rec('P01'),r2=rec('P02');const says=(card('P01').querySelector('.irr-nexi-says')||{}).textContent||'';
     const step=[...(card('P01').querySelectorAll('.irr-rx-step b'))].map(b=>b.textContent);
     _irrDate=Y;renderIrrPoolMonitor();await sleep(500);try{delete window._perfCache._irrPool;}catch(e){}const pastAfter=JSON.stringify(loadIrrPool()[Y]);_irrDate=T;
-    return {A:r1.A,B:r1.B,aCC:r1._dose.aCC,says:/A 3000 cc · B 3000 cc/.test(says),drawA:step[1],typedA:r2.A,autoB:r2.B,past:pastBefore===pastAfter};`),
-  expect:{A:3,B:3,aCC:3000,says:true,drawA:'A 3 L',typedA:5,autoB:3,past:true} },
+    return {A:r1.A,B:r1.B,aCC:r1._dose.aCC,says:/A 4200 cc · B 4200 cc/.test(says),drawA:step[1],typedA:r2.A,autoB:r2.B,past:pastBefore===pastAfter};`),
+  expect:{A:4.2,B:4.2,aCC:4200,says:true,drawA:'A 4.2 L',typedA:5,autoB:4.2,past:true} },
 
 { name:'🗜 Squeezed card (1920×1200, text 120 %): Pool 1\'s card is under 55 % of the window (two pools a screen), the hand EC box sits UNDER the EC gauge, the water / A / B / C boxes are one row UNDER "Nexi says" — v22.46: each with its own picture, and the drawing\'s pictures are not repeated in the card — nothing scrolls sideways',
   requires:NEW, viewport:{width:1920,height:1200}, seed:new Function(`localStorage.setItem('hydroPro_ui_textscale','1.2');`),
