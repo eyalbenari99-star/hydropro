@@ -162,20 +162,20 @@ module.exports=[
     return {wDays:wl.daysWorked,wBasic:wl.basicPay,days:o.daysWorked,basic:o.basicPay,paidElsewhere:(o.paidElsewhere||[]).length};},
   expect:{wDays:0,wBasic:0,days:10,basic:6000,paidElsewhere:0} },
 
-{ name:'office cut-off 11–25/26–10 → 1–15/16–end from Oct 2026: the 20-day switch-over cut-off 26 Sep–15 Oct pays 16,000 × 12 ÷ 365 × 20 = ₱10,520.55 (₱751.4677 × 14 days), not a flat ₱8,000; 11–25 Sep and 16–31 Oct stay ₱8,000 (÷11); the reverse change makes a 10-day 1–10 Oct cut-off paying ₱5,260.27, not ₱8,000 (v20.97)',
+{ name:'office cut-off 11–25/26–10 → 1–15/16–end from Oct 2026: the 20-day switch-over cut-off 26 Sep–15 Oct pays 16,000 × 12 ÷ 365 × 20 = ₱10,520.55 (its share ₱751.4677 × 14 days; the DAY rate is 16,000 ÷ 22 = ₱727.2727 since v22.62), not a flat ₱8,000; 11–25 Sep and 16–31 Oct stay ₱8,000 (÷11); the reverse change makes a 10-day 1–10 Oct cut-off paying ₱5,260.27, not ₱8,000 (v20.97)',
   seed:()=>{localStorage.setItem('hydroPro_ph_holidays','{}');
     localStorage.setItem('hydroPro_payroll_cutoff_v1',JSON.stringify({office:{d1:15,d2:'end'},labor:{closeDow:3,paydayOffset:2},effectiveFrom:'2026-10-01',
       history:[{office:{d1:10,d2:25},labor:{closeDow:3,paydayOffset:2},until:'2026-10-01'}]}));},
   run:async()=>{
     const emp={id:'O1',name:'OFFICE',monthlyBasic:16000};const H={};
-    const R=(s,e)=>{const r=HNXPeriod.rateFor(emp,s,e,{holidays:H});return {rate:r.rate,div:r.divisor,total:Math.round(r.rate*r.divisor*100)/100};};
+    const R=(s,e)=>{const r=HNXPeriod.rateFor(emp,s,e,{holidays:H});return {rate:r.rate,share:r.periodRate,div:r.divisor,total:Math.round(r.periodRate*r.divisor*100)/100};}; /* v22.62: the cut-off's share × its days = what a full cut-off pays */
     const p=getSemiMonthPeriod('2026-09-28');
     const fwd={period:p.start+'_'+p.end,sw:R(p.start,p.end),sep:R('2026-09-11','2026-09-25'),oct:R('2026-10-16','2026-10-31')};
     localStorage.setItem('hydroPro_payroll_cutoff_v1',JSON.stringify({office:{d1:10,d2:25},labor:{closeDow:3,paydayOffset:2},effectiveFrom:'2026-10-01',
       history:[{office:{d1:15,d2:'end'},labor:{closeDow:3,paydayOffset:2},until:'2026-10-01'}]}));
     const q=getSemiMonthPeriod('2026-10-05');
     return Object.assign(fwd,{revPeriod:q.start+'_'+q.end,rev:R(q.start,q.end),revSep:R('2026-09-16','2026-09-30').total});},
-  expect:{period:'2026-09-26_2026-10-15','sw.rate':751.4677,'sw.div':14,'sw.total':10520.55,'sep.total':8000,'oct.total':8000,
+  expect:{period:'2026-09-26_2026-10-15','sw.rate':727.2727,'sw.share':751.4677,'sw.div':14,'sw.total':10520.55,'sep.total':8000,'oct.total':8000,
     revPeriod:'2026-10-01_2026-10-10','rev.total':5260.27,revSep:8000} },
 
 { name:'office switch-over cut-off in the engine: basic and a ₱2,000/month allowance both follow monthly × 12 ÷ 365 × the cut-off\'s days (a 21-day 26 Jul–15 Aug cut-off on ₱16,000 = ₱11,046.58 basic, ₱1,380.82 allowance), an ordinary cut-off after it = ₱8,000 + ₱1,000 (v20.97)',
