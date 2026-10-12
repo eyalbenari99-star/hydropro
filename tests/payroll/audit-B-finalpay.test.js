@@ -52,7 +52,7 @@ module.exports=[
   },
   expect:{aDays:11,aUnpaid:8000,aRate:727.27,bRate:727.27,bUnpaid:8000,bSun:0} },
 
-{ name:'final pay calculator: office ₱16,000, 26 Aug → Wed 2 Sep 2026 (31 Aug regular holiday), 5 SIL days: rate ₱727.27 not ₱666.67, unpaid ₱3,636.36 not ₱4,000.02, SIL ₱3,636.35 not ₱3,333.35; a six-day card is priced ₱615.38',
+{ name:'final pay calculator: office ₱16,000, 26 Aug → Wed 2 Sep 2026 (31 Aug regular holiday), 5 SIL days: rate ₱727.27 not ₱666.67, unpaid ₱3,636.36 not ₱4,000.02, SIL ₱3,636.35 not ₱3,333.35; a six-day card is priced ₱727.27 (16,000 ÷ 22 since v22.62, Eyal 11 Oct "for all office"; was ₱615.38 = 8,000/13)',
   seed:()=>{localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({'2026-08-31':{name:'National Heroes Day',kind:'regular'}}));},
   run:async()=>{
     const ann=office('ANN','ANN',{monthlyBasic:16000,status:'Resigned',lastWorkingDay:'2026-09-02'});
@@ -62,7 +62,7 @@ module.exports=[
     const r2=hnxFinalPayCompute('ED',{lastDay:'2026-09-02',unpaidFrom:'2026-08-26'});
     return {rate:r.dailyRate,unpaid:r.unpaidSalary,sil:r.silPay,days:r.basicDays,edRate:r2.dailyRate};
   },
-  expect:{rate:727.27,unpaid:3636.36,sil:3636.35,days:5,edRate:615.38} },
+  expect:{rate:727.27,unpaid:3636.36,sil:3636.35,days:5,edRate:727.27} },
 
 { name:'final pay carries the allowances of its days: office ₱4,000/mo, last day Mon 14 Sep 2026 = ₱363.64 (2 of 11 days); weekly ₱2,600/mo over 5 Mon–Sat days = ₱500.00 + ₱100/day × 5 = ₱500.00 (₱1,000.00) beside basic ₱3,290.00',
   run:async()=>{

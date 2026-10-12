@@ -119,14 +119,14 @@ module.exports=[
     const F=e=>{const l=calcEmployeePayroll(e,'2026-09-01','2026-09-15','semi_monthly');return {days:l.daysWorked,basic:l.basicPay};};
     return {ov:F(ov),st:F(st),nd:F(nd)};},
   expect:{'ov.days':3,'ov.basic':2181.82,'st.days':3,'st.basic':2181.82,'nd.days':3,'nd.basic':2181.82} },
-{ name:'six-day office card: Saturday is a scheduled basic day, so a full half-month pays 8,000.00 not 11/13 (v20.68)',
+{ name:'six-day office card: Saturday is a scheduled basic day, so a full half-month pays 8,000.00 not 11/13 (v20.68); day rate 16,000 ÷ 22 = 727.27 (v22.62, Eyal 11 Oct: "for all office"; was 615.38 = 8,000/13)',
   seed:()=>{localStorage.setItem('hydroPro_ph_holidays',JSON.stringify({'2026-08-31':{name:'National Heroes Day',kind:'regular'}}));},
   run:async()=>{const ed=office('ED','EDERLYN',{monthlyBasic:16000,sixDayWeek:true});setE([ed]);setA({});
     const empty=calcEmployeePayroll(ed,'2026-08-26','2026-09-10','semi_monthly');
     setA({'2026-08-29':{ED:rec('present','07:00','17:00')},'2026-09-05':{ED:rec('present','07:00','17:00')}});
     const sat=calcEmployeePayroll(ed,'2026-08-26','2026-09-10','semi_monthly');
     return {rate:Math.round(empty.dailyRate*100)/100,basic:empty.basicPay,sun:empty.sundaysWorked,gap:empty.daysGap,satBasic:sat.basicPay,satSun:sat.sundaysWorked,satPrem:sat.sundayPremium};},
-  expect:{rate:615.38,basic:8000,sun:0,gap:0,satBasic:8000,satSun:0,satPrem:0} },
+  expect:{rate:727.27,basic:8000,sun:0,gap:0,satBasic:8000,satSun:0,satPrem:0} },
 { name:'management: a run generated BEFORE the cut-off\'s regular holiday does not pay the holiday twice (v20.68)',
   run:async()=>{const d=daysEnding(today,1)[0];const t=new Date(d+'T00:00:00');
     /* a 15-day window that starts today, with a regular holiday on its last weekday */
