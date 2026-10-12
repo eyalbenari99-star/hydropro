@@ -34,7 +34,7 @@ module.exports=[
     return {sp:{sun:sp.sundayPremium,hol:sp.holidayPay,gap:sp.daysGap},sw:{sun:sw.sundayPremium,hol:sw.holidayPay}};},
   expect:{'sp.sun':945.45,'sp.hol':145.45,'sp.gap':0,'sw.sun':945.45,'sw.hol':0} },
 
-{ name:'rest-day holiday rule does not reach the wrong people: six-day card Sat 15 Aug regular worked = scheduled day, holiday ₱666.67 (200%, rate 8,000/12) and no Sun OT; management ₱30,000 = ₱15,000.00 and holiday ₱0; weekly Regular labourer ₱500 Sunday regular = flat ₱500 + ₱500 (unchanged) (audit ot-holiday-06)',
+{ name:'rest-day holiday rule does not reach the wrong people: six-day card Sat 15 Aug regular worked = scheduled day, holiday ₱727.27 (200%, day rate 16,000 ÷ 22 since v22.62 — was ₱666.67 = 8,000/12) and no Sun OT; management ₱30,000 = ₱15,000.00 and holiday ₱0; weekly Regular labourer ₱500 Sunday regular = flat ₱500 + ₱500 (unchanged) (audit ot-holiday-06)',
   run:async()=>{
     const W=o=>{let c={};try{c=JSON.parse(localStorage.getItem('hydroPro_weekend_approvals_v1')||'{}')||{};}catch(e){}const k={};Object.keys(c).forEach(x=>{if(x.charAt(0)==='_')k[x]=c[x];});localStorage.setItem('hydroPro_weekend_approvals_v1',JSON.stringify(Object.assign(k,o)));}; /* keeps the store's one-time amnesty flags, so the 4-second amnesty pass never re-runs over the fixture */
     localStorage.removeItem('hydroPro_pay_holiday_policy_v1');
@@ -49,7 +49,7 @@ module.exports=[
     const mg=calcEmployeePayroll(m,'2026-08-11','2026-08-25','semi_monthly');
     const wk=calcEmployeePayroll(jo,'2026-08-27','2026-09-02','weekly');
     return {six:{rate:Math.round(six.dailyRate*100)/100,basic:six.basicPay,sun:six.sundayPremium,hol:six.holidayPay},mg:{basic:mg.basicPay,hol:mg.holidayPay,sun:mg.sundayPremium},wk:{basic:wk.basicPay,hol:wk.holidayPay}};},
-  expect:{'six.rate':666.67,'six.basic':8000,'six.sun':0,'six.hol':666.67,'mg.basic':15000,'mg.hol':0,'mg.sun':0,'wk.basic':500,'wk.hol':500} },
+  expect:{'six.rate':727.27,'six.basic':8000,'six.sun':0,'six.hol':727.27,'mg.basic':15000,'mg.hol':0,'mg.sun':0,'wk.basic':500,'wk.hol':500} },
 
 { name:'final pay (priced by the payroll engine): an office leaver\'s worked Sun 16 Aug 2026 that is a REGULAR holiday, SIGNED in Weekend Approvals = unpaid salary ₱1,890.90 (Sun OT ₱945.45 + holiday ₱945.45, 260%; was ₱945.45); UNSIGNED = unpaid ₱0.00 and 1 weekend day waiting "up to ₱1,890.90" (audit ot-holiday-06, H round 2)',
   run:async()=>{
