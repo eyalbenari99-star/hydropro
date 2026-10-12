@@ -40,18 +40,18 @@ module.exports=[
     return {out};`),
   expect:{out:['3000/1/-','3000/1/-','3000/1/-']} },
 
-{ name:'🧪 EC over 1.80 takes off the same: Pool 1 at 30 cm, EC 1.85 → 1 − 0.5 = 0.5 L per 10 cm → A 1.5 L (1500 cc), "EC over 1.80 → 0.5 L per 10 cm (1 − 0.5)"; EC 1.90 → 1 − 1 = 0 → "EC 1.9 too high — add 607 L water only, no A/B (over 1.80: 1 L − 1 L per 10 cm = 0); re-check · C 150 cc", A and B boxes emptied, the drawing crosses A/B out; EC 2.10 → still water only',
+{ name:'🧪 EC over 1.80 takes off the same: Pool 1 at 30 cm, EC 1.85 → 1 − 0.5 = 0.5 L per 10 cm → A 1.5 L (1500 cc), "EC over 1.80 → 0.5 L per 10 cm (1 − 0.5)"; EC 1.90 → 1 − 1 = 0 → "EC 1.9 is over 1.80 — add 607 L water only, no A/B (1 L − 1 L per 10 cm = 0); re-check · C 150 cc" (1.90 is green on the gauge, so never "too high"), A and B boxes emptied, the drawing crosses A/B out with "EC 1.9 over 1.80"; EC 2.10 → still water only',
   requires:NEW,
   run:fn(`irrSavePool('P01','water','30');await setEc('P01','1.85');const a=D('P01');const saysA=SAYS('P01');
-    await setEc('P01','1.90');renderIrrPoolMonitor();await sleep(300);const b=D('P01');const saysB=SAYS('P01');const x=!!(RX('P01')&&RX('P01').querySelector('.irr-rx-x'));
+    await setEc('P01','1.90');renderIrrPoolMonitor();await sleep(300);const b=D('P01');const saysB=SAYS('P01');const xe=RX('P01')&&RX('P01').querySelector('.irr-rx-x');const x=xe?xe.querySelector('small').textContent:'';
     await setEc('P01','2.10');const c=D('P01');
     return {a:{a:a.a,A:a.A,per10:a.per10},saysA:/· EC over 1\\.80 → 0\\.5 L per 10 cm \\(1 − 0\\.5\\)$/.test(saysA),b:{a:b.a,b:b.b,A:b.A,B:b.B},saysB,x,c:{a:c.a}};`),
-  expect:{a:{a:1500,A:1.5,per10:0.5},saysA:true,b:{a:0,b:0,A:'',B:''},saysB:'EC 1.9 too high — add 607 L water only, no A/B (over 1.80: 1 L − 1 L per 10 cm = 0); re-check · C 150 cc',x:true,c:{a:0}} },
+  expect:{a:{a:1500,A:1.5,per10:0.5},saysA:true,b:{a:0,b:0,A:'',B:''},saysB:'EC 1.9 is over 1.80 — add 607 L water only, no A/B (1 L − 1 L per 10 cm = 0); re-check · C 150 cc',x:'EC 1.9 over 1.80',c:{a:0}} },
 
-{ name:'🧪 GH9 steps 1.5 L: Pool 9 at 30 cm (daily 50 → 20 cm), EC 1.50 → 2 + 3 = 5 L per 10 cm → A 10 L (10000 cc); EC 1.90 → 2 − 1.5 = 0.5 L per 10 cm → A 1 L; EC 2.00 → 2 − 3 → 0 → water only, A 0',
+{ name:'🧪 GH9 steps 1.5 L: Pool 9 at 30 cm (daily 50 → 20 cm), EC 1.50 → 2 + 3 = 5 L per 10 cm → A 10 L (10000 cc); EC 1.90 → 2 − 1.5 = 0.5 L per 10 cm → A 1 L; EC 2.00 → 2 − 3 → 0 → "EC 2 is over 1.80 — add 670 L water only, no A/B (2 L − 3 L per 10 cm = 0)", A 0',
   requires:NEW,
   run:fn(`irrSavePool('P09','water','30');await setEc('P09','1.50');const lo=D('P09');await setEc('P09','1.90');const hi=D('P09');await setEc('P09','2.00');const z=D('P09');
-    return {lo:{gap:lo.gap,a:lo.a,A:lo.A,per10:lo.per10},hi:{a:hi.a,A:hi.A,per10:hi.per10},z:{a:z.a,water:/^EC 2 too high — add 670 L water only, no A\\/B \\(over 1\\.80: 2 L − 3 L per 10 cm = 0\\)/.test(SAYS('P09'))}};`),
+    return {lo:{gap:lo.gap,a:lo.a,A:lo.A,per10:lo.per10},hi:{a:hi.a,A:hi.A,per10:hi.per10},z:{a:z.a,water:/^EC 2 is over 1\\.80 — add 670 L water only, no A\\/B \\(2 L − 3 L per 10 cm = 0\\)/.test(SAYS('P09'))}};`),
   expect:{lo:{gap:20,a:10000,A:10,per10:5},hi:{a:1000,A:1,per10:0.5},z:{a:0,water:true}} },
 
 { name:'🧪 GH7 & GH8 step 0.75 L: Pool 7 at 80 cm (daily 100 → 20 cm), EC 1.50 → 1 + 1.5 = 2.5 L per 10 cm → A 5 L; EC 1.90 → 1 − 0.75 = 0.25 L per 10 cm → A 0.5 L; Pool 8 at 90 cm (10 cm), EC 1.60 → 1.75 L per 10 cm → A 1.8 L (an exact half rounds up)',
@@ -75,11 +75,12 @@ module.exports=[
     return {n:{gap:n.gap,a:n.a,A:n.A},says:/^Add \\d+ L pure water · A 1500 cc · B 1500 cc · C 75 cc · no EC reading — 1 L per 10 cm \\(enter the EC to adjust it\\)$/.test(says),e:{a:e.a,A:e.A}};`),
   expect:{n:{gap:15,a:1500,A:1.5},says:true,e:{a:4500,A:4.5}} },
 
-{ name:'🧪 An EC under 1.00 is counted as 1.00: Pool 5 at 50 cm (10 cm), EC 0.80 → 7 steps → 1 + 7 = 8 L per 10 cm → A 8 L, and Nexi says "EC 0.8 looks wrong — re-measure (counted as 1.00) · EC under 1.70 → 8 L per 10 cm (1 + 7)"',
+{ name:'🧪 An EC under 1.00 is a wrong reading (a dry probe, 0.17 typed for 1.7) — no EC step until re-measured: Pool 5 at 50 cm (10 cm), EC 0.80 → A 1 L (counting it as 1.00 would give 8 L), Nexi says "EC 0.8 looks wrong — re-measure; until then 1 L per 10 cm (no EC step under 1.00)"; EC 0 → A 1 L; EC 1.00 → 1 + 7 = 8 L per 10 cm → A 8 L',
   requires:NEW,
-  run:fn(`irrSavePool('P05','water','50');await setEc('P05','0.80');const d=D('P05');
-    return {a:d.a,A:d.A,per10:d.per10,says:/ · EC 0\\.8 looks wrong — re-measure \\(counted as 1\\.00\\) · EC under 1\\.70 → 8 L per 10 cm \\(1 \\+ 7\\)$/.test(SAYS('P05'))};`),
-  expect:{a:8000,A:8,per10:8,says:true} },
+  run:fn(`irrSavePool('P05','water','50');await setEc('P05','0.80');const d=D('P05');const says=/ · EC 0\\.8 looks wrong — re-measure; until then 1 L per 10 cm \\(no EC step under 1\\.00\\)$/.test(SAYS('P05'));
+    await setEc('P05','0');const z=D('P05');await setEc('P05','1.00');const one=D('P05');
+    return {a:d.a,A:d.A,per10:d.per10,says,z:{a:z.a,A:z.A},one:{a:one.a,A:one.A,per10:one.per10}};`),
+  expect:{a:1000,A:1,per10:1,says:true,z:{a:1000,A:1},one:{a:8000,A:8,per10:8}} },
 
 { name:'🧪 PRJ11 has no EC step until one is set: PRJ11-A at 80 cm (20 cm), EC 1.50 → still 0.5 L per 10 cm → A 1 L, no EC part; Pool & Drum Setup "EC step" 0.5 → 0.5 + 1 = 1.5 L per 10 cm → A 3 L at once; cleared → A 1 L',
   requires:NEW,
@@ -113,6 +114,25 @@ module.exports=[
     return out;`),
   expect:{panel:true,heads:['GH1, GH2, GH3, GH4, GH5, GH6, GH10','GH7, GH8','GH9','PRJ11'],rows:28,
     e150:['3 L','2.5 L','5 L','0.5 L'],e175:['1 L','1 L','2 L','0.5 L'],e185:['0.5 L','0.6 L','1.3 L','0.5 L'],e200:['0 · water only','0 · water only','0 · water only','0.5 L'],cm30:'9 L'} },
+
+{ name:'🌱 A pool on the Fill rule keeps its own rule: Pool 3 switched to 🌱 Fill rule → 🧪 A/B by EC leaves GH3 out of the first column ("GH1, GH2, GH4, GH5, GH6, GH10") and lists "Pool 3" under "On the Fill rule"; its card says it is on the Fill rule and the EC step applies once it is back on 📐 Matrix',
+  requires:NEW,
+  run:fn(`updatePoolField('P03','dosingMode','rule');await sleep(300);switchView('pool_setup');await sleep(1200);
+    window._showAbEc=true;renderPoolSetup();await sleep(500);const pan=document.getElementById('hnxAbEcPanel');
+    const head=pan?pan.querySelector('thead th:nth-child(2)').firstChild.textContent.trim():'';const ruled=(document.getElementById('hnxAbEcRuled')||{}).textContent||'';
+    const v=document.getElementById('view-pool_setup');const card=v?/this pool is on 🌱 Fill rule, which keeps its own rule — the EC step applies once it is back on 📐 Matrix/.test(v.innerText):false;
+    updatePoolField('P03','dosingMode','matrix');await sleep(300);
+    return {head,ruled:/Pool 3/.test(ruled),card};`),
+  expect:{head:'GH1, GH2, GH4, GH5, GH6, GH10',ruled:true,card:true} },
+
+{ name:'🎯 Smart Dosing follows: Pool 1 at 30 cm, EC 1.50 → A 9 L with "3 L per 10 cm at EC 1.5" under it, and "How it works (v22.56)" gives the EC rule; EC 1.90 → no A/B with "EC over 1.80 → water only"',
+  requires:NEW,
+  run:fn(`irrSavePool('P01','water','30');await setEc('P01','1.50');switchView('irr_smart_dose');await sleep(900);if(typeof renderIrrSmartDose==='function')renderIrrSmartDose();await sleep(300);
+    const body=document.getElementById('stubIrrSmartDoseBody');const row=()=>[...body.querySelectorAll('tr')].find(tr=>/Pool 1\\b/.test(tr.textContent)&&!/Pool 1\\d/.test(tr.cells[0].textContent));
+    const r1=row();const t1=r1?r1.textContent:'';const how=/How it works \\(v22\\.56\\)[\\s\\S]*under 1\\.70 \\+ 1 L per 10 cm for every 0\\.1/.test(body.textContent);
+    await setEc('P01','1.90');renderIrrSmartDose();await sleep(300);const t2=(row()||{}).textContent||'';
+    return {nine:/9 L|\\b9\\b/.test(t1),note:/3 L per 10 cm at EC 1\\.5/.test(t1),how,water:/EC over 1\\.80 → water only/.test(t2)};`),
+  expect:{nine:true,note:true,how:true,water:true} },
 
 { name:'🩹 Today\'s round worked out by the old 1 L per 10 cm engine is worked out again: Pool 1 08:00 stored at 30 cm, EC 1.5 with A 3 L (auto, engine 22.32) → opening the Pool Monitor gives A 9 L, B 9 L (engine 22.56); Pool 2 with A and B TYPED 4 L keeps 4',
   requires:NEW,

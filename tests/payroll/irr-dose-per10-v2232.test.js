@@ -19,12 +19,12 @@ module.exports=[
     return {d:D('P01'),instr:irrInstruction(P('P01'),rec('P01')),rx:!!rx,jugsA:steps[1]?steps[1].querySelectorAll('svg').length:0,jugsB:steps[2]?steps[2].querySelectorAll('svg').length:0,
       water:steps[0]?steps[0].querySelector('b').textContent:'',levels:steps[0]?steps[0].querySelector('small').textContent:'',
       ratio:rx?(rx.querySelector('.irr-rx-ratio')||{}).textContent:''};`),
-  expect:{d:{gap:30,water:607,a:3000,b:3000,A:3,B:3,W:607,per10:1,x:1,v:'22.32'},instr:'Add 607 L pure water · A 3000 cc · B 3000 cc · C 150 cc',rx:true,jugsA:3,jugsB:3,
+  expect:{d:{gap:30,water:607,a:3000,b:3000,A:3,B:3,W:607,per10:1,x:1,v:'22.56'},instr:'Add 607 L pure water · A 3000 cc · B 3000 cc · C 150 cc',rx:true,jugsA:3,jugsB:3,
     water:'+607 L',levels:'29.9 → 60 cm · pure',ratio:'Proportion: every 10 cm (≈ 202 L of water) → 1 L A + 1 L B · 30 cm here = 3 L each'} },
 
-{ name:'🧪 Over-tank doubles A and B: Pool 2 at 29 cm, Source over-tank → gap 31 → 3.1 L × 2 = 6.2 L each (6200 cc); mix 50% → × 1.5 = 4.7 L (4650 cc rounded to 0.1 L); back to pure → 3.1 L; the drawing says "over-tank water ×2"',
+{ name:'🧪 Over-tank doubles A and B: Pool 2 at 29 cm, EC 1.75 (inside 1.70–1.80 — v22.56; the EC step with over-tank is in irr-dose-ec-v2256), Source over-tank → gap 31 → 3.1 L × 2 = 6.2 L each (6200 cc); mix 50% → × 1.5 = 4.7 L (4650 cc rounded to 0.1 L); back to pure → 3.1 L; the drawing says "over-tank water ×2"',
   requires:NEW,
-  run:fn(`irrSavePool('P02','water','29');irrSavePool('P02','EC','1.6');irrSavePool('P02','source','overtank');await sleep(300);const ot=D('P02');
+  run:fn(`irrSavePool('P02','water','29');irrSavePool('P02','EC','1.75');irrSavePool('P02','source','overtank');await sleep(300);const ot=D('P02');
     renderIrrPoolMonitor();await sleep(300);const ratio=(RX('P02')&&RX('P02').querySelector('.irr-rx-ratio')||{}).textContent||'';
     irrSavePool('P02','source','mix');irrSavePool('P02','mixPct','50');await sleep(300);const mix=D('P02');
     irrSavePool('P02','source','pure');await sleep(300);const pure=D('P02');
@@ -85,7 +85,7 @@ module.exports=[
     return {mix,ot,hi};`),
   expect:{mix:{A:3,a:3000,says:true},ot:{A:4,a:4000},hi:{a:0,instr:true}} },
 
-{ name:'🗓 A past day keeps the recommendation Nexi gave then: 9 Oct Pool 1 08:00 stored by the v22.20 engine (54 cm, A 2.1 L auto, _dose 22.20) → opening 9 Oct leaves A 2.1 L and "Nexi says … A 2100 cc"; today the same reading is worked out with the v22.32 rule (A 0.6 L)',
+{ name:'🗓 A past day keeps the recommendation Nexi gave then: 9 Oct Pool 1 08:00 stored by the v22.20 engine (54 cm, A 2.1 L auto, _dose 22.20) → opening 9 Oct leaves A 2.1 L and "Nexi says … A 2100 cc"; today the same reading is worked out with the current rule — v22.56: EC 1.0 is 7 × 0.1 under 1.70 → 1 + 7 = 8 L per 10 cm × 6 cm → A 4.8 L (v22.32 gave 0.6 L)',
   requires:NEW,
   seed:new Function(`const RD=Date;const off=RD.parse('2026-10-10T02:00:00Z')-RD.now();
     function FD(){const a=[].slice.call(arguments);if(!(this instanceof FD))return new RD(RD.now()+off).toString();return a.length?new (Function.prototype.bind.apply(RD,[null].concat(a)))():new RD(RD.now()+off);}
@@ -99,7 +99,7 @@ module.exports=[
     _irrDate=hnxLocalToday();renderIrrPoolMonitor();await sleep(500);try{delete window._perfCache._irrPool;}catch(e){}
     const t=((loadIrrPool()['2026-10-10']||{}).P01||{})['08:00']||{};
     return {y:{A:y.A,v:(y._dose||{}).v,says:ysays},t:{A:t.A,v:(t._dose||{}).v}};`),
-  expect:{y:{A:2.1,v:'22.20',says:true},t:{A:0.6,v:'22.32'}} },
+  expect:{y:{A:2.1,v:'22.20',says:true},t:{A:4.8,v:'22.56'}} },
 
 { name:'🎞 The drawing moves with the 🎞 Motion setting: "always" → the jugs fill (animation irrRxFill, infinite); "off" → still (animation none); a computer set to reduce motion → still',
   requires:NEW,

@@ -30645,7 +30645,7 @@ function renderPoolSetup(){
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:10px;">
                 <div style="font-size:10px;color:var(--accent2);font-family:var(--mono);text-transform:uppercase;font-weight:700;">🧪 A/B Dosing — choose mode for this pool</div>
                 <div style="flex-basis:100%;padding:8px 10px;border-radius:6px;background:rgba(41,182,246,.08);border:1px solid rgba(41,182,246,.35);font-size:11px;color:var(--text2);line-height:1.5;">
-                  ${(typeof irrAbPer10==='function'&&irrAbPer10(p)!=null)?`<b>v22.32 (Eyal, 10 Oct):</b> A and B for this pool — <b>${irrAbPer10(p)} L of A + ${irrAbPer10(p)} L of B per 10 cm</b> of water added, pure water; over-tank water × 2. The EC matrix, the template and ml/L below no longer set its A/B (a pool switched to 🌱 Fill rule keeps its own rule). <b>v22.56 (Eyal, 12 Oct):</b> that is at EC 1.70–1.80; ${(typeof irrEcStepL==='function'&&irrEcStepL(p)>0)?`under 1.70 <b>+ ${irrEcStepL(p)} L</b> for every 0.1, over 1.80 <b>− ${irrEcStepL(p)} L</b> for every 0.1 (never below 0) — see 🧪 A/B by EC above`:'this pool has no EC step — the EC does not change its A/B'}.`:`<b>v22.32:</b> this pool was not named in Eyal's 10 Oct rule (GH1–GH10, 1 L of A and B per 10 cm) — it keeps the EC matrix below. Type its litres per 10 cm to put it on the rule.`}
+                  ${(typeof irrAbPer10==='function'&&irrAbPer10(p)!=null)?`<b>v22.32 (Eyal, 10 Oct):</b> A and B for this pool — <b>${irrAbPer10(p)} L of A + ${irrAbPer10(p)} L of B per 10 cm</b> of water added, pure water; over-tank water × 2. The EC matrix, the template and ml/L below no longer set its A/B (a pool switched to 🌱 Fill rule keeps its own rule). <b>v22.56 (Eyal, 12 Oct):</b> that is at EC 1.70–1.80; ${(typeof irrRuleFor==='function'&&irrRuleFor(p))?'this pool is on 🌱 Fill rule, which keeps its own rule — the EC step applies once it is back on 📐 Matrix':(typeof irrEcStepL==='function'&&irrEcStepL(p)>0)?`under 1.70 <b>+ ${irrEcStepL(p)} L</b> for every 0.1, over 1.80 <b>− ${irrEcStepL(p)} L</b> for every 0.1 (never below 0) — see 🧪 A/B by EC above`:'this pool has no EC step — the EC does not change its A/B'}.`:`<b>v22.32:</b> this pool was not named in Eyal's 10 Oct rule (GH1–GH10, 1 L of A and B per 10 cm) — it keeps the EC matrix below. Type its litres per 10 cm to put it on the rule.`}
                   <label style="margin-left:6px;white-space:nowrap;">This pool: L per 10 cm <input type="number" step="0.1" min="0" inputmode="decimal" value="${p.abPer10||''}" placeholder="${(typeof IRR_AB_PER10!=='undefined'&&IRR_AB_PER10[p.id])||1}" style="width:64px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);" onchange="const v=String(this.value).trim();if(v!==''&&!(parseFloat(v)>=0)){this.value='';return;}updatePoolField('${p.id}','abPer10',v)"></label>
                   <label style="margin-left:6px;white-space:nowrap;" title="v22.56: litres of A (and of B) per 10 cm added for every 0.1 of EC under 1.70, taken off for every 0.1 over 1.80. Empty = the default (GH1–GH6, GH10 1 · GH7 & GH8 0.75 · GH9 1.5 · PRJ11 0).">EC step: L per 0.1 <input type="number" step="0.05" min="0" inputmode="decimal" value="${p.ecStepL!=null?p.ecStepL:''}" placeholder="${(typeof irrEcStepL==='function')?irrEcStepL(Object.assign({},p,{ecStepL:''})):1}" style="width:64px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);" onchange="const v=String(this.value).trim();if(v!==''&&!(parseFloat(v)>=0)){this.value='';return;}updatePoolField('${p.id}','ecStepL',v)"></label>
                 </div>
@@ -31095,7 +31095,8 @@ function _renderAbEcPanel(){
   const cm=Math.max(1,Math.min(100,Math.round(parseFloat(window._abEcCm)||10)));
   const pools=(typeof loadIrrPools==='function'?loadIrrPools():IRR_POOLS)||[];
   const groups=[];
-  pools.forEach(p=>{const b=irrAbPer10(p);if(b==null)return;const s=irrEcStepL(p),k=b+'|'+s;let g=groups.find(x=>x.k===k);if(!g){g={k,base:b,step:s,pools:[],p};groups.push(g);}g.pools.push(p.greenhouse||p.label||p.id);});
+  const ruled=[];
+  pools.forEach(p=>{const b=irrAbPer10(p);if(b==null)return;if(typeof irrRuleFor==='function'&&irrRuleFor(p)){ruled.push(p.label||p.id);return;} /* (review) a pool on the 🌱 Fill rule keeps its own rule */const s=irrEcStepL(p),k=b+'|'+s;let g=groups.find(x=>x.k===k);if(!g){g={k,base:b,step:s,pools:[],p};groups.push(g);}g.pools.push(p.greenhouse||p.label||p.id);});
   groups.forEach(g=>{g.name=[...new Set(g.pools)].join(', ');});
   const rows=[];for(let c=100;c<=235;c+=5)rows.push(c/100);
   const fmt=x=>String(+(+x).toFixed(2));
@@ -31109,10 +31110,11 @@ function _renderAbEcPanel(){
     <div id="hnxAbEcPanel" style="background:var(--surface);border:2px solid var(--accent2);border-radius:10px;padding:14px;margin-bottom:18px;">
       <div style="font-size:13px;font-weight:800;color:var(--accent2);font-family:var(--mono);text-transform:uppercase;">🧪 A/B by EC — litres of A (and the same of B) · Eyal 12 Oct</div>
       <div style="font-size:11px;color:var(--text2);margin:6px 0 10px;line-height:1.55;max-width:900px;">
-        Per 10 cm of water added: EC <b>1.70–1.80</b> → the pool's litres per 10 cm (green rows). <b>Under 1.70</b> → + the EC step for every 0.1 under 1.70; <b>over 1.80</b> → − the step for every 0.1 over 1.80, never below 0 (then water only, no A/B). Between the rows Nexi works it out to 0.01 of EC (EC 1.66 → + 0.4 of a step). Over-tank water × 2. EC above 2.35 → water only. An EC under 1.00 counts as 1.00 (re-measure). Each pool's litres per 10 cm and EC step are in its card below.
+        Per 10 cm of water added: EC <b>1.70–1.80</b> → the pool's litres per 10 cm (green rows). <b>Under 1.70</b> → + the EC step for every 0.1 under 1.70; <b>over 1.80</b> → − the step for every 0.1 over 1.80, never below 0 (then water only, no A/B). Between the rows Nexi works it out to 0.01 of EC (EC 1.66 → + 0.4 of a step). Over-tank water × 2. EC above 2.35 → water only. An EC under 1.00 is a wrong reading: re-measure (no EC step until then). Each pool's litres per 10 cm and EC step are in its card below.
       </div>
       <label style="font-size:11px;color:var(--text2);font-family:var(--mono);">cm of water to add: <input id="hnxAbEcCm" type="number" min="1" max="100" step="1" inputmode="numeric" value="${cm}" style="width:64px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);" onchange="window._abEcCm=this.value;renderPoolSetup();"></label>
       <span style="font-size:10px;color:var(--text3);font-family:var(--mono);margin-left:8px;">the table shows litres of A for ${cm} cm (the same litres of B)</span>
+      ${ruled.length?`<div id="hnxAbEcRuled" style="font-size:11px;color:#ff9800;margin-top:6px;">🌱 On the Fill rule (their own rule — the EC step does not apply): ${esc(ruled.join(', '))}</div>`:''}
       <div style="overflow-x:auto;margin-top:10px;max-height:460px;overflow-y:auto;">
         <table style="border-collapse:collapse;"><thead><tr><th style="padding:6px 8px;font-family:var(--mono);font-size:10px;color:var(--text3);background:var(--bg2);border:1px solid var(--border);position:sticky;left:0;">EC</th>${head}</tr></thead><tbody>${body}</tbody></table>
       </div>
@@ -43310,7 +43312,8 @@ function irrAbPer10(p){if(!p)return null;
    1.70 → + the pool's EC step for every 0.1 under 1.70; over 1.80 → − the step for every 0.1 over 1.80, never below 0 (then water
    only, no A/B). Between whole 0.1s it is proportional, to 0.01 of EC (EC 1.65 → + half a step). Step: GH1–GH6 and GH10 1 L,
    GH7 & GH8 0.75 L, GH9 1.5 L; PRJ11 none (500 ml per 10 cm stays) until a step is set in Pool & Drum Setup. No EC reading → the
-   litres per 10 cm as before. An EC under 1.00 is counted as 1.00 (re-measure). Over-tank × 2, the C dose, CALIBRATE and
+   litres per 10 cm as before. An EC under 1.00 is taken as a wrong reading (a dry probe, 0.17 typed for 1.7): no EC step until it is
+   re-measured (review: counting it as 1.00 gave the largest dose). A pool on the 🌱 Fill rule keeps its own rule. Over-tank × 2, the C dose, CALIBRATE and
    "EC above 2.35 → water only" are unchanged. */
 const IRR_EC_BAND={lo:1.7,hi:1.8,floor:1.0,per:0.1};window.IRR_EC_BAND=IRR_EC_BAND;
 const IRR_EC_STEP={P07:0.75,P08:0.75,P09:1.5,P11A:0,P11B:0}; /* litres of A — and of B — per 10 cm for every 0.1 of EC outside 1.70–1.80; GH1–GH10 otherwise 1 */
@@ -43326,7 +43329,7 @@ function irrAbRate(p,ec){const base=irrAbPer10(p);if(base==null)return null;
   const step=irrEcStepL(p),out={base:base,step:step,ec:null,steps:0,adj:0,rate:base,held:false,zero:false};
   const e0=parseFloat(ec);if(!isNaN(e0))out.ec=Math.round(e0*100+1e-9)/100;
   if(isNaN(e0)||!(step>0)||!(base>0))return out;
-  let c=Math.round(e0*100+1e-9);const fl=Math.round(IRR_EC_BAND.floor*100);if(c<fl){c=fl;out.held=true;}
+  const c=Math.round(e0*100+1e-9);if(c<Math.round(IRR_EC_BAND.floor*100)){out.held=true;return out;} /* (review) under 1.00: a wrong reading — the litres per 10 cm as set, no EC step */
   const lo=Math.round(IRR_EC_BAND.lo*100),hi=Math.round(IRR_EC_BAND.hi*100),per=Math.round(IRR_EC_BAND.per*100);
   out.steps=c<lo?(lo-c)/per:c>hi?-(c-hi)/per:0;
   out.adj=+(out.steps*step).toFixed(3);
@@ -43335,8 +43338,8 @@ function irrAbRate(p,ec){const base=irrAbPer10(p);if(base==null)return null;
 /* the EC part of "Nexi says" for a per-10-cm pool (nothing inside 1.70–1.80) */
 function irrEcTxt(d){if(!d||d.mode!=='per10'||!(d.ecStepL>0))return '';const f=x=>String(+(+x||0).toFixed(3));
   if(d.ecNone)return ' · no EC reading — '+f(d.per10Base)+' L per 10 cm (enter the EC to adjust it)';
-  const held=d.ecHeld?' · EC '+d.ec+' looks wrong — re-measure (counted as '+IRR_EC_BAND.floor.toFixed(2)+')':'';
-  if(d.ecSteps>0)return held+' · EC under '+IRR_EC_BAND.lo.toFixed(2)+' → '+f(d.per10L)+' L per 10 cm ('+f(d.per10Base)+' + '+f(d.ecAdjL)+')';
+  if(d.ecHeld)return ' · EC '+d.ec+' looks wrong — re-measure; until then '+f(d.per10L)+' L per 10 cm (no EC step under '+IRR_EC_BAND.floor.toFixed(2)+')';
+  if(d.ecSteps>0)return ' · EC under '+IRR_EC_BAND.lo.toFixed(2)+' → '+f(d.per10L)+' L per 10 cm ('+f(d.per10Base)+' + '+f(d.ecAdjL)+')';
   if(d.ecSteps<0)return ' · EC over '+IRR_EC_BAND.hi.toFixed(2)+' → '+f(d.per10L)+' L per 10 cm ('+f(d.per10Base)+' − '+f(-d.ecAdjL)+')';
   return '';}
 window.irrEcStepL=irrEcStepL;window.irrAbRate=irrAbRate;window.irrEcTxt=irrEcTxt;
@@ -43432,7 +43435,7 @@ function irrInstruction(p,r){
   if(!(d.gap>0))return 'Level OK ('+r.water+' cm, daily target '+d.target+' cm) — add nothing'+note;
   if(d.rule&&d.ecHigh)return (d.rule.charAt(0).toUpperCase()+d.rule.slice(1))+': EC '+d.ec+' too high — add '+d.waterL+' L water only, no A/B; re-check'+(d.cCC?' · C '+d.cCC+' cc':'')+hotTxt+note;
   if(d.rule)return (d.rule.charAt(0).toUpperCase()+d.rule.slice(1))+': add '+d.waterL+' L '+srcTxt+' water · A '+(Math.round(d.aCC/100)/10)+' L · B '+(Math.round(d.bCC/100)/10)+' L'+(d.cCC?' · C '+d.cCC+' cc':'')+(d.topUp?' · EC '+d.ec+' < '+d.topUp+': add 1 L more A and B after mixing, re-check, until ≈ '+d.topUp:'')+hotTxt+note;
-  if(d.ecHigh)return 'EC '+d.ec+' too high — add '+d.waterL+' L water only, no A/B'+(d.ecZero?' (over '+IRR_EC_BAND.hi.toFixed(2)+': '+(+d.per10Base)+' L − '+(+(-d.ecAdjL).toFixed(3))+' L per 10 cm = 0)':'')+'; re-check'+(d.cCC?' · C '+d.cCC+' cc':'')+note; /* v22.56: EC over 1.80 can take A/B to 0 */
+  if(d.ecHigh)return 'EC '+d.ec+(d.ecZero?' is over '+IRR_EC_BAND.hi.toFixed(2):' too high')+' — add '+d.waterL+' L water only, no A/B'+(d.ecZero?' ('+(+d.per10Base)+' L − '+(+(-d.ecAdjL).toFixed(3))+' L per 10 cm = 0)':'')+'; re-check'+(d.cCC?' · C '+d.cCC+' cc':'')+note; /* v22.56: EC over 1.80 can take A/B to 0 */
   if(d.ec===''&&d.mode!=='simple'&&d.mode!=='per10')return 'Add '+d.waterL+' L '+srcTxt+' water · C '+d.cCC+' cc · A/B: enter the EC reading first'+note;
   return 'Add '+d.waterL+' L '+srcTxt+' water · A '+d.aCC+' cc · B '+d.bCC+' cc · C '+d.cCC+' cc'+irrEcTxt(d)+note; /* v22.56: the EC part */
 }
@@ -43488,7 +43491,7 @@ function renderIrrSmartDose(){
     const tW=(pastDay&&d&&d.target!=null&&+d.target>0)?+d.target:irrDailyTarget(p); /* (review 2) a past day is judged on the target it was dosed with */
     const out={poolId:p.id,label:p.label,room:p.room||'',water:parseFloat(r.water),ec:d.ec===''?NaN:d.ec,ph:d.ph===''?NaN:d.ph,
       tWater:tW,tClean:p.dim&&p.dim.target?parseFloat(p.dim.target):null,tEc:(p.ec||{}).target?parseFloat(p.ec.target):null,tPh:(p.ph||{}).target?parseFloat(p.ph.target):(parseFloat(IRR_RANGES.doseTargetPh)||6.2),
-      gap:d.gap,waterAddL:null,row:d.row,factor:d.factor,doseA:null,doseB:null,doseC:null,calibrate:d.calibrate||'',instr:'',flags:[],ready:false};
+      gap:d.gap,waterAddL:null,row:d.row,factor:d.factor,abNote:(d&&d.mode==='per10')?(d.ecZero?'EC over 1.80 → water only':d.ecHeld?'EC looks wrong — re-measure':d.ecAdjL?(+d.per10L)+' L per 10 cm at EC '+d.ec:''):'', /* v22.56 */doseA:null,doseB:null,doseC:null,calibrate:d.calibrate||'',instr:'',flags:[],ready:false};
     if(!tW){out.flags.push('no_target_water');return out;}
     if(!p.dim||!p.dim.L||!p.dim.W){out.flags.push('no_dim');return out;}
     if(isNaN(out.water)){out.flags.push('no_water_reading');return out;}
@@ -43588,8 +43591,8 @@ function renderIrrSmartDose(){
       <td style="padding:9px 11px;font-family:var(--mono);font-size:12px;color:${ecCol};font-weight:700;">${isNaN(r.ec)?'—':r.ec}<div style="font-size:9px;color:var(--text3);font-weight:400;">OK ${(()=>{const b=irrBand(_P,'EC');return b.min+'–'+b.max;})()}</div></td>
       <td style="padding:9px 11px;font-family:var(--mono);font-size:12px;color:${phCol};font-weight:700;">${isNaN(r.ph)?'—':r.ph}<div style="font-size:9px;color:var(--text3);font-weight:400;">OK ${(()=>{const b=irrBand(_P,'pH');return b.min+'–'+b.max;})()}</div></td>
       <td style="padding:9px 11px;text-align:center;">${apply('waterAdded',r.waterAddL)}</td>
-      <td style="padding:9px 11px;text-align:center;">${apply('A',r.doseA)}<div style="font-size:9px;${ecFactorStyle}">${r.row?'row '+r.row:''}${r.factor!==1?' ×'+r.factor:''}</div></td>
-      <td style="padding:9px 11px;text-align:center;">${apply('B',r.doseB)}<div style="font-size:9px;${ecFactorStyle}">${r.row?'row '+r.row:''}${r.factor!==1?' ×'+r.factor:''}</div></td>
+      <td style="padding:9px 11px;text-align:center;">${apply('A',r.doseA)}<div style="font-size:9px;${ecFactorStyle}">${r.row?'row '+r.row:''}${r.factor!==1?' ×'+r.factor:''}${r.abNote?'<br>'+r.abNote:''}</div></td>
+      <td style="padding:9px 11px;text-align:center;">${apply('B',r.doseB)}<div style="font-size:9px;${ecFactorStyle}">${r.row?'row '+r.row:''}${r.factor!==1?' ×'+r.factor:''}${r.abNote?'<br>'+r.abNote:''}</div></td>
       <td style="padding:9px 11px;text-align:center;">${apply('C',r.doseC)}<div style="font-size:9px;${phFactorStyle}">pH ${isNaN(r.ph)?'—':r.ph}</div></td>
       <td style="padding:9px 11px;text-align:center;">
         ${pastDay?'<span style="font-size:10px;color:var(--text3);font-family:var(--mono);" title="A past day keeps the dose it was given — open today to apply">🔒 past day</span>':''}<button ${pastDay?'hidden ':''}onclick="_smartDoseApplyAll('${r.poolId}',${r.waterAddL},${r.doseA},${r.doseB},${r.doseC})" style="padding:5px 12px;background:linear-gradient(135deg,#4caf50,#66bb6a);color:#0a0e0c;border:none;border-radius:5px;font-size:10px;cursor:pointer;font-weight:800;font-family:var(--mono);" title="Apply all 4 recommendations to Pool Monitor">✓ APPLY ALL</button>
@@ -43600,10 +43603,10 @@ function renderIrrSmartDose(){
   body.innerHTML=`
     <div class="section-title">🎯 Smart Dosing Matrix</div>
     <div style="padding:12px 14px;background:var(--surface2);border-left:3px solid var(--info);border-radius:8px;margin-bottom:14px;font-size:11px;color:var(--text2);line-height:1.55;">
-      <strong>📐 How it works (v22.32):</strong> the same numbers as <strong>Nexi says</strong> in 🏊 Pool Monitor:
+      <strong>📐 How it works (v22.56):</strong> the same numbers as <strong>Nexi says</strong> in 🏊 Pool Monitor:
       <ul style="margin:6px 0 0 20px;padding:0;">
         <li><strong>Water gap</strong> = DAILY target − actual level (whole cm) → liters = L × W × gap ÷ 1000</li>
-        <li><strong>A &amp; B</strong> (each), GH1–GH10 = cm to add ÷ 10 × 1 L (GH9: 2 L) · pure water ×1, over-tank ×2 (Eyal, 10 Oct) · project pools: EC matrix × template × water source · EC above 2.35 → water only</li>
+        <li><strong>A &amp; B</strong> (each), GH1–GH10 = cm to add ÷ 10 × 1 L (GH9: 2 L) at EC 1.70–1.80; under 1.70 + 1 L per 10 cm for every 0.1 (GH7 &amp; GH8 0.75, GH9 1.5), over 1.80 − the same, never below 0 → water only (Eyal, 12 Oct) · pure water ×1, over-tank ×2 (Eyal, 10 Oct) · project pools: EC matrix × template × water source · EC above 2.35 → water only</li>
         <li><strong>C</strong> = gap × 5 cc/cm × pH factor (1 + pH − 6.2, kept between 0.5 and 2) · two meters apart → CALIBRATE, no dose</li>
       </ul>
       <div style="margin-top:6px;color:var(--text3);font-size:10px;">Click any green dose button to apply that single value to Pool Monitor. Click <strong>✓ APPLY ALL</strong> to send water + A + B + C in one shot.</div>
@@ -291804,12 +291807,12 @@ hookUnified();setTimeout(hookUnified,2000);setInterval(hookUnified,5000);
       var label=esc(p.label||p.id||'Pool');
       /* (review) a matrix pool (project pools, or an old day) with no EC reading has no A/B yet — say so, never two empty jugs */
       var needEc=!d.ecHigh&&(d.ec===''||d.ec==null)&&d.mode!=='per10'&&d.mode!=='simple'&&d.mode!=='rule'&&!(+d.aCC>0)&&!(+d.bCC>0);
-      var abTxt=d.ecHigh?'no A/B (EC too high)':needEc?'A/B: enter EC first':('A '+fmtL(A)+' L, B '+fmtL(B)+' L');
+      var abTxt=d.ecHigh?(d.ecZero?'no A/B (EC over 1.80)':'no A/B (EC too high)'):needEc?'A/B: enter EC first':('A '+fmtL(A)+' L, B '+fmtL(B)+' L');
       var h='<div class="irr-rx'+(o.preview?' prev':'')+'" data-rxpool="'+esc(p.id||'')+'" role="img" aria-label="'+esc((p.label||p.id)+': add '+Wl+' L '+srcTxt+' water, '+abTxt+(Ccc>0?', C '+Ccc+' cc':''))+'">'
         +'<div class="irr-rx-h">🧪 What to add — '+label+(o.preview?' <span class="tag">(from the last reading'+(o.from?' '+esc(o.from):'')+' — enter this round\'s level to confirm)</span>':'')+' <span class="tag">① water → ② A, stir → ③ B, stir → ④ C · each jug = 1 L</span></div>'
         +'<div class="irr-rx-step">'+tankSvg(level,target,max)+'<b style="color:'+COL.W+'">+'+esc(Wl)+' L</b><small>'+esc(r1(level))+' → '+esc(Math.round(target))+' cm · '+esc(srcTxt)+'</small></div>';
       if(d.ecHigh){
-        h+='<div class="irr-rx-op">+</div><div class="irr-rx-step irr-rx-x">'+jugs(0,COL.A,'a')+'<b>no A / B</b><small>EC '+esc(d.ec)+' too high</small></div>';
+        h+='<div class="irr-rx-op">+</div><div class="irr-rx-step irr-rx-x">'+jugs(0,COL.A,'a')+'<b>no A / B</b><small>EC '+esc(d.ec)+(d.ecZero?' over 1.80':' too high')+'</small></div>';
       }else if(needEc){
         h+='<div class="irr-rx-op">+</div><div class="irr-rx-step irr-rx-x">'+jugs(0,COL.A,'a')+'<b>A / B: enter EC first</b><small>EC reading needed</small></div>';
       }else{
@@ -292181,7 +292184,7 @@ hookUnified();setTimeout(hookUnified,2000);setInterval(hookUnified,5000);
       if(d.calibrate){s+='<rect x="6" y="4" width="12" height="30" rx="3" fill="url(#cvs)" stroke="#90a4ae" stroke-width=".6"/><rect x="8" y="8" width="8" height="8" rx="1" fill="#0b1912" stroke="#ff9e9e" stroke-width=".5"/>'
         +'<rect x="40" y="4" width="12" height="30" rx="3" fill="url(#cvs)" stroke="#90a4ae" stroke-width=".6"/><rect x="42" y="8" width="8" height="8" rx="1" fill="#0b1912" stroke="#ff9e9e" stroke-width=".5"/>'
         +'<text class="cv-shim" x="29" y="25" font-size="14" text-anchor="middle" fill="#ff9e9e">Δ</text>';return svg(58,40,s,'Calibrate: the two EC meters disagree — no dose until they agree');}
-      if(d.ecHigh){s+=cyl(6,10,24,26,'w',.7,'')+'<path d="M36 14l14 14M50 14L36 28" stroke="#ff5252" stroke-width="2.4" stroke-linecap="round"/>';return svg(58,42,s,'EC too high: water only, no A or B');}
+      if(d.ecHigh){s+=cyl(6,10,24,26,'w',.7,'')+'<path d="M36 14l14 14M50 14L36 28" stroke="#ff5252" stroke-width="2.4" stroke-linecap="round"/>';return svg(58,42,s,d.ecZero?'EC over 1.80: water only, no A or B':'EC too high: water only, no A or B');}
       if(!(d.gap>0)){s+=cyl(14,8,30,28,'w',.86,'')+'<path class="cv-draw" d="M22 24l5 5 9-10" fill="none" stroke="#a5f0a8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="16"/>';return svg(58,46,s,'At the daily target: nothing to add this round');}
       var per=num(d.per10L),mult=num(d.srcMult)||1,ja=per!=null?per*mult:(num(d.aCC)||0)/1000,cm=per!=null?10:Math.round(d.gap),wl=per!=null?num(o.per10W):num(d.waterL);
       s+='<path d="M3 16v10a13 3.4 0 0 0 26 0V16z" fill="url(#cvw)"/><ellipse cx="16" cy="16" rx="13" ry="3.4" fill="#8fe0ff" opacity=".9"/><path d="M3 16v10a13 3.4 0 0 0 26 0V16" fill="url(#cvglass)" stroke="#78909c" stroke-width=".6"/>';
@@ -293295,8 +293298,8 @@ window.HNX_HELP_MODULES_A = [
   {h:'What to add: A and B per 10 cm, by the EC (Eyal, 10 and 12 Oct)', p:[
    'Water: gap = daily target − level, in whole cm. Water (L) = L × W × gap ÷ 1000.',
    'A and B (each): 1 litre per 10 cm of water added — GH1, GH2, GH3 & GH4, GH5, GH6, GH7 & GH8 and GH10; GH9: 2 litres per 10 cm. Shown to 0.1 L (6 cm → 0.6 L = 600 cc). PRJ11 (PRJ11-A and PRJ11-B): 500 ml of A and 500 ml of B per 10 cm (Eyal, 11 Oct — v22.46), also to 0.1 L, so 20 cm → 1 L and 21 cm → 1.1 L. The other project pools (PRJ12, PRJ15, PRJ16), not named in the rule, keep the EC matrix until their litres per 10 cm are set in Pool & Drum Setup.',
-   'The EC changes the litres per 10 cm (v22.56, Eyal 12 Oct: “its just if 1.7 EC — if less any 0.1 its 1 more AB, GH9 1.5, GH7&8 0.75 … if above 1.8 then same but minus”): the litres above are for an EC of 1.70 – 1.80. Under 1.70: + 1 litre of A and + 1 litre of B per 10 cm for every 0.1 under 1.70 (GH7 & GH8: 0.75 litre, GH9: 1.5 litres). Over 1.80: the same taken off for every 0.1 over 1.80, never below 0 — then water only, no A/B. Between whole 0.1s it is worked out to 0.01 of EC (EC 1.66 is 0.04 under → + 0.4 litre). The EC used is the one the dose already uses (the average of the two meters when they agree, else the one reading). No EC reading: the litres per 10 cm as set, and Nexi asks for the EC. An EC under 1.00 looks wrong: Nexi says re-measure and counts it as 1.00. PRJ11 has no EC step (500 ml per 10 cm stays) until one is set.',
-   'Examples (pure water): Pool 1 at 30 cm (30 cm to add) — EC 1.50 → 1 + 2 = 3 L per 10 cm → A 9 L and B 9 L; EC 1.66 → 1.4 L per 10 cm → A 4.2 L; EC 1.75 → A 3 L; EC 1.85 → 0.5 L per 10 cm → A 1.5 L; EC 1.90 → 0 → water only. GH9 at 30 cm (20 cm to add), EC 1.50 → 2 + 3 = 5 L per 10 cm → A 10 L. GH7 at 80 cm (20 cm), EC 1.50 → 1 + 1.5 = 2.5 L per 10 cm → A 5 L. “Nexi says” ends with the EC part, e.g. “EC under 1.70 → 3 L per 10 cm (1 + 2)”, the drawing’s proportion line shows it (“EC 1.5: 1 + 2 L”) and over-tank water still doubles the result.',
+   'The EC changes the litres per 10 cm (v22.56, Eyal 12 Oct: “its just if 1.7 EC — if less any 0.1 its 1 more AB, GH9 1.5, GH7&8 0.75 … if above 1.8 then same but minus”): the litres above are for an EC of 1.70 – 1.80. Under 1.70: + 1 litre of A and + 1 litre of B per 10 cm for every 0.1 under 1.70 (GH7 & GH8: 0.75 litre, GH9: 1.5 litres). Over 1.80: the same taken off for every 0.1 over 1.80, never below 0 — then water only, no A/B. Between whole 0.1s it is worked out to 0.01 of EC (EC 1.66 is 0.04 under → + 0.4 litre). The EC used is the one the dose already uses (the average of the two meters when they agree, else the one reading). No EC reading: the litres per 10 cm as set, and Nexi asks for the EC. An EC under 1.00 looks wrong (a dry probe, or 0.17 typed for 1.7): Nexi says re-measure and, until then, gives the litres per 10 cm without the EC step. PRJ11 has no EC step (500 ml per 10 cm stays) until one is set. A pool switched to 🌱 Fill rule keeps its own rule — the EC step does not apply to it (🧪 A/B by EC lists it apart).',
+   'Examples (pure water): Pool 1 at 30 cm (30 cm to add) — EC 1.50 → 1 + 2 = 3 L per 10 cm → A 9 L and B 9 L; EC 1.66 → 1.4 L per 10 cm → A 4.2 L; EC 1.75 → A 3 L; EC 1.85 → 0.5 L per 10 cm → A 1.5 L; EC 1.90 → 0 → water only (“EC 1.9 is over 1.80 — add 607 L water only, no A/B”; 1.90 is still green on the gauge). GH9 at 30 cm (20 cm to add), EC 1.50 → 2 + 3 = 5 L per 10 cm → A 10 L. GH7 at 80 cm (20 cm), EC 1.50 → 1 + 1.5 = 2.5 L per 10 cm → A 5 L. “Nexi says” ends with the EC part, e.g. “EC under 1.70 → 3 L per 10 cm (1 + 2)”, the drawing’s proportion line shows it (“EC 1.5: 1 + 2 L”) and over-tank water still doubles the result.',
    'The whole table is in ⚙️ Pool & Drum Setup → 🧪 A/B by EC: one column for each rule (GH1 – GH6 & GH10, GH7 & GH8, GH9, PRJ11), EC rows 1.00 – 2.35 every 0.05, green rows 1.70 – 1.80; type the cm of water to add to see the litres for that fill. Each pool’s card there has “L per 10 cm” and “EC step: L per 0.1” (empty = the default above; 0 = the EC does not change that pool).',
    'Water is pure unless somebody sets the Source of that pool to over-tank: over-tank water doubles A and B (a mix: × 1 + its over-tank share, e.g. 50% → × 1.5). For the project pools over-tank still reduces A/B as before.',
    'If the EC is above 2.35 (or the EC step takes A/B to 0): water only, no A/B, then re-check. Two meters apart (CALIBRATE): no dose until they agree.',
