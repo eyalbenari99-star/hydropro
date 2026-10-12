@@ -39879,7 +39879,7 @@ function renderIrrPoolMonitor(){
         // (and the empty fields haven't been explicitly cleared by the user)
         const wasManuallyCleared=(r._autoFilled||{})._manualClear;
         /* v22.20: also when the stored result was made by an older dose engine (the v21.71 rule / cleaning target) */
-        if(hasWater&&!wasManuallyCleared&&(emptyA||emptyB||emptyW||!r._dose||!(typeof irrDoseCurrent==='function'?irrDoseCurrent(r):(r._dose.v===IRR_DOSE_V))||(_irrToday&&typeof irrDoseStale==='function'&&irrDoseStale(p,r,_irrCurrentPoolTime)))){ /* v22.42: today's stale or mixed result too */ /* v22.32: a past day keeps its recommendation */
+        if(hasWater&&!window.__hnxStaleApp&&!wasManuallyCleared&&(emptyA||emptyB||emptyW||!r._dose||!(typeof irrDoseCurrent==='function'?irrDoseCurrent(r):(r._dose.v===IRR_DOSE_V))||(_irrToday&&typeof irrDoseStale==='function'&&irrDoseStale(p,r,_irrCurrentPoolTime)))){ /* v22.42: today's stale or mixed result too */ /* v22.32: a past day keeps its recommendation */
           if(autoFillRecommendations(p.id,'_render'))anyChanged=true;
         }
       });
@@ -43274,7 +43274,12 @@ function irrAbPer10(p){if(!p)return null;
   return (n>=1&&n<=10)?(n===9?2:1):null;}
 /* v22.32: the dose Nexi worked out for a round — a PAST day keeps the one it was given then (opening an old day never rewrites its
    recommendation); today and later are worked out with the current engine */
-function irrDoseCurrent(r,date){if(!r||!r._dose)return null;if(r._dose.v===IRR_DOSE_V)return r._dose;
+/* v22.56 (audit): a result worked out by a NEWER engine is current here — an older copy (prev.html, a tab not yet reloaded) never
+   rewrites it back to its own rule, so the two copies no longer flip today's round between them; during the owner's rollback the
+   previous copy follows its own rule */
+function irrDoseVerOk(v){if(String(v)===IRR_DOSE_V)return true;try{if(window.__HNX_PAGE==='prev'&&typeof window.__hnxRouteWant==='function'&&window.__hnxRouteWant()==='prev')return false;}catch(e){}return parseFloat(v)>parseFloat(IRR_DOSE_V);}
+window.irrDoseVerOk=irrDoseVerOk;
+function irrDoseCurrent(r,date){if(!r||!r._dose)return null;if(irrDoseVerOk(r._dose.v))return r._dose;
   try{const d=date||(typeof _irrDate!=='undefined'?_irrDate:''),t=(typeof hnxLocalToday==='function')?hnxLocalToday():'';if(d&&t&&d<t)return r._dose;}catch(e){}return null;}
 window.irrDoseCurrent=irrDoseCurrent;
 /* v22.42 (Eyal 10 Oct screenshot: Pool 1 at 29.9 cm showed "A 6.98 L" under "1 L per 10 cm · 30 cm here"): a computer still on an old
@@ -43283,6 +43288,7 @@ window.irrDoseCurrent=irrDoseCurrent;
    stale; TODAY's round is worked out again when the Pool Monitor shows it. A value a person typed is never touched (auto boxes only). */
 function irrDoseStale(p,r,round){
   try{
+    if(r&&r._dose&&r._dose.v!==IRR_DOSE_V&&irrDoseVerOk(r._dose.v))return false; /* v22.56 (audit): a newer engine's result is not stale here */
     if(!p||!r||r.water===''||r.water==null)return false;
     const f=irrComputeDose(p,r,round),d=r._dose||{};
     const K=['gap','waterL','aCC','bCC','cCC','mode','ecHigh','calibrate','target','per10L','srcMult'];
@@ -148328,13 +148334,13 @@ body.hnx-mobile-locked { overflow: hidden; }
          nothing was uploaded. Now only the keys changed on this PC go out, in batches under 60 KB; a key too big for a batch stays
          dirty (persisted) and leaves with the next normal upload. */
       function __hnxFlushKeepalive(){
-        try{ if(IS_LOCAL||!getToken()||!window.__hnxPulledOk) return;
+        try{ if(IS_LOCAL||!getToken()||!window.__hnxPulledOk||window.__hnxStaleApp) return; /* v22.56 (audit): a tab older than the server uploads nothing, not even on hide */
           clearTimeout(_qpT); var data=collectData(false), ks=Object.keys(data); if(!ks.length) return;
           var LIMIT=60000, batch={}, size=0;
           function send(){ var bk=Object.keys(batch); if(!bk.length) return; var b=batch; batch={}; size=0;
             try{ fetch(WORKER+'/sync/push',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+getToken()},body:JSON.stringify({data:b}),keepalive:true})
               .then(function(r){ if(r&&r.ok) __hnxClearDirty(bk); }).catch(function(){}); }catch(e){} }
-          ks.forEach(function(k){ var n=String(data[k]).length+k.length+8; if(n>LIMIT) return; if(size+n>LIMIT) send(); batch[k]=data[k]; size+=n; });
+          ks.forEach(function(k){ var n=String(data[k]).length+k.length+8; if(n>LIMIT) return; try{ if(window.__hnxMergeOwed&&window.__hnxMergeOwed[k]) return; }catch(e){} /* v22.56 (audit): a store whose cloud copy is still to be merged waits, as pushAll does */ if(size+n>LIMIT) send(); batch[k]=data[k]; size+=n; });
           send();
         }catch(e){}
       }
