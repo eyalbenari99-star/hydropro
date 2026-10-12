@@ -139,7 +139,7 @@ module.exports=[
   `),
   expect:{a:false,same:true,b:true,st:'✅ Received',rr:['MX1012-U',1,48],code:'MX1012-U001',c:true,nc:1} },
 
-{ name:'🟠 Part, over, undo: D001 500 of 1,200 → Part, 700 to come; Jomel (warehouse, not admin) +800 → refused; admin +800 with confirm → Over-received 1,300; admin undo of the 800 → Part 500; Jomel undo → refused; after 200 go out on an item request (balance 300, Container 1 holds 300), undoing the 500 → refused (v22.64)',
+{ name:'🟠 Part, over, undo: D001 500 of 1,200 → Part, 700 to come; Jomel (warehouse, not admin) +800 → refused; admin +800 with confirm → Over-received 1,300; admin undo of the 800 → Part 500; Jomel undo → refused; after 400 of the 500 go out on an item request (approval counts the request\'s own reservation once — balance 100, Container 1 holds 100), undoing the 500 → refused (v22.64)',
   requires:REQ,
   run:run(`
     await settle();
@@ -151,7 +151,7 @@ module.exports=[
     const r4=SH.undo('15',r3.ids[0],'typed twice');
     const s4=row('MX1012-D001');
     asUser(JOMEL);const r5=SH.undo('15',r1.ids[0],'x');asMe();
-    const q=mkReq('MX1012-D001',200);
+    const q=mkReq('MX1012-D001',400);
     const st=[go(q.id,'SUBMITTED'),go(q.id,'APPROVED'),go(q.id,'RELEASED')];
     const r6=SH.undo('15',r1.ids[0],'wrong');
     const it=PRJ.itemOf('15','MX1012-D',1);
@@ -159,7 +159,7 @@ module.exports=[
       bal:PRJ.bal('15',it),adj:it.adj,onHand:PRJLOC.onHand('15','Container 1','MX1012-D',1),undos:mvs().filter(m=>m.kind==='unreceipt').length};
   `),
   expect:{r1:true,s1:['part',500,700],r2:false,r3:true,s3:['over',1300],r4:true,s4:['part',500],r5:false,lines:1,st:['SUBMITTED','APPROVED','RELEASED'],r6:false,
-    bal:300,adj:500,onHand:300,undos:1} },
+    bal:100,adj:500,onHand:100,undos:1} },
 
 { name:'🛑 Every refusal writes nothing (all Project 15/16 keys unchanged): cloud token before the first download, an old copy of Nexi, into GH15, into the supplier, register unreadable, ledger unreadable, qty 0 / −5 / "abc", tomorrow\'s date, signed in as the guard (v22.64)',
   requires:REQ,
@@ -322,6 +322,35 @@ module.exports=[
       memo:a1===a2,same:JSON.stringify(a1)===JSON.stringify(a3),rebuilt:a1!==a3,nR,fast:ms<5000,ms};
   `),
   expect:{moves:2,distinct:true,rev:4,dest:'GH15',w:0,memo:true,same:true,rebuilt:true,nR:292,fast:true} },
+
+{ name:'🧷 Review fixes: D001 500 received — a request of 400 is APPROVED (own reservation counted once), a second of 150 stays SUBMITTED (100 free); a group move before the first cloud download or on an old copy is refused and the group store is unchanged; a synced receipt id carrying &#39; cannot break out of the Undo button; a hand-recorded supplier receipt of 20 on top of 50 keeps recv = adj = 70 and the check empty; Add an item into container MX1012-D is refused (v22.64)',
+  requires:REQ,
+  run:run(`
+    await settle();
+    SH.receive('15',[{code:'MX1012-D001',qty:500}],'Container 1','',today);
+    const a=mkReq('MX1012-D001',400);const sa=[go(a.id,'SUBMITTED'),go(a.id,'APPROVED')];
+    const b=mkReq('MX1012-D001',150);const sb=[go(b.id,'SUBMITTED'),go(b.id,'APPROVED')];
+    const ed0=localStorage.getItem('hydroPro_prj15_ship_v1');
+    const pOk=window.__hnxPulledOk;let g1,g2;
+    localStorage.setItem('hnx_cloud_token','test-token');window.__hnxPulledOk=false;
+    try{g1=SH.setGroup('15',['MX1012-U017'],'G3');}finally{localStorage.removeItem('hnx_cloud_token');window.__hnxPulledOk=pOk;}
+    window.__hnxStaleApp='99.9';try{g2=SH.setGroup('15',['MX1012-U017'],'G3');}finally{delete window.__hnxStaleApp;}
+    const edSame=localStorage.getItem('hydroPro_prj15_ship_v1')===ed0;
+    const mv=mvs();mv.push({id:"x&#39;);window.__pwnU=1;//",ct:'MX1012-D',no:1,name:'x',date:today,from:'Supplier (not yet sent)',to:'Container 1',qty:1,kind:'receipt',src:'MX1012 RCV-X',code:'MX1012-D001',by:'t',note:'',at:''});
+    localStorage.setItem('hydroPro_prj15_movs_v1',JSON.stringify(mv));await sleep(5);
+    PRJ.tab('15','ship');
+    const op=window.prompt;window.prompt=()=>null;
+    [...body().querySelectorAll('button')].filter(x=>/hnxShipUndo/.test(x.getAttribute('onclick')||'')).forEach(x=>{try{x.click();}catch(e){}});
+    window.prompt=op;
+    const pwn=!!window.__pwnU;
+    SH.receive('15',[{code:'MX1012-D007',qty:50}],'Container 1','',today);
+    const mok=PRJ.move('15','MX1012-D',7,'Supplier (not yet sent)','Warehouse C',20,'by hand');
+    const it=PRJ.itemOf('15','MX1012-D',7);
+    const n0=reg().length,ans=['Odd thing','MX1012-D','Pcs','5'];let i=0;window.prompt=()=>ans[i++];
+    PRJ.addItem('15');window.prompt=op;
+    return {sa,sb,g:[g1.ok,g2.ok],edSame,pwn,mok,d7:[it.recv,it.adj,row('MX1012-D007').rcv],chk:SH.check('15').filter(c=>c==='MX1012-D007'),added:reg().length-n0};
+  `),
+  expect:{sa:['SUBMITTED','APPROVED'],sb:['SUBMITTED','SUBMITTED'],g:[false,false],edSame:true,pwn:false,mok:true,d7:[70,70,70],chk:[],added:0} },
 
 { name:'🆘 Help centre: Projects has the "A supplier shipment — Myxl MX1012" section naming MX1012-D001, G1 Greenhouse, Receive and Put them back (v22.64)',
   requires:REQ,
