@@ -1,6 +1,6 @@
 /* v21.65: one Purchasing module; local vs import sourcing; numbering; inventory inbox. */
 module.exports=[
-{ name:'🏘🌏 Local vs import: "Portland cement 40kg" is LOCAL (no Alibaba link, the Alibaba vendor is folded away); "NFT hydroponic pipes 3m" is IMPORT — 🌏 Imported before shows Alibaba Hydro Co (2 orders) and the Search Alibaba link; the override dropdown turns cement into BOTH and is remembered (v21.65)',
+{ name:'🏘🌏 Local vs import: "Portland cement 40kg" is LOCAL (no Alibaba link, the Alibaba vendor is not listed — only found through 🔍 Pick another supplier since v22.84); "NFT hydroponic pipes 3m" is IMPORT — 🌏 Imported before shows Alibaba Hydro Co (2 orders) and the Search Alibaba link; the override dropdown turns cement into BOTH and is remembered (v21.65)',
   seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));
     localStorage.setItem('hydroPro_acct_vendors',JSON.stringify([{id:'v1',name:'Alibaba Hydro Co',category:'Import — Alibaba'},{id:'v2',name:'Silang Hardware',category:'Construction materials',phone:'0917'}]));
     localStorage.setItem('hydroPro_acct_purch_history',JSON.stringify([{id:'h1',date:'2026-05-01',product:'NFT pipe hydroponic channel 3m',supplier:'Alibaba Hydro Co',qty:100,unitCost:400,source:'alibaba'},{id:'h2',date:'2026-06-01',product:'NFT pipes 3m',supplier:'Alibaba Hydro Co',qty:50,unitCost:380,source:'alibaba'},{id:'h3',date:'2026-07-01',product:'Portland cement 40kg',supplier:'Silang Hardware',qty:100,unitCost:260}]));
@@ -8,12 +8,12 @@ module.exports=[
   run:new Function(`return (async()=>{await sleep(4000);switchView('acct_purch_pro');await sleep(600);
     __PURPRO.openPR('pr1');await sleep(400);const v=document.getElementById('view-acct_purch_pro');const h1=v.innerHTML,t1=v.innerText;
     const c1=__PURPRO.sourceClass('pr1').cls;const cementAli=/alibaba\\.com\\/trade/.test(h1);const cementLocalTxt=/LOCAL — buy near the farm/.test(t1)&&/Importing makes no sense/.test(t1);
-    [...v.querySelectorAll('details')].forEach(d=>d.open=true);const folded=(v.innerText.split('Other known suppliers')[1]||'').includes('Alibaba Hydro Co');
+    [...v.querySelectorAll('details')].forEach(d=>d.open=true);__PURPRO.srcFind('pr1','alib');const hidden=!v.innerText.split('Pick another supplier')[0].includes('Alibaba Hydro Co')&&((document.getElementById('ppSrcFindList')||{}).innerText||'').includes('Alibaba Hydro Co');
     __PURPRO.openPR('pr2');await sleep(400);const h2=v.innerHTML,t2=v.innerText;const c2=__PURPRO.sourceClass('pr2').cls;
     const impSec=(t2.split('Imported before')[1]||'').split('Local alternatives')[0];const impHas=impSec.includes('Alibaba Hydro Co')&&/2 orders/.test(impSec);const aliLink=h2.indexOf('alibaba.com/trade/search?SearchText=')>=0;const chip=/IMPORTED BEFORE/.test(t2);
     __PURPRO.srcClass('pr1','both');await sleep(300);const c1b=__PURPRO.sourceClass('pr1').cls;const saved=JSON.parse(localStorage.getItem('hydroPro_purch_source_class_v1')||'{}');
-    return {c1,cementAli,cementLocalTxt,folded,c2,impHas,aliLink,chip,c1b,remembered:Object.values(saved)[0]};})();`),
-  expect:{c1:'local',cementAli:false,cementLocalTxt:true,folded:true,c2:'import',impHas:true,aliLink:true,chip:true,c1b:'both',remembered:'both'} },
+    return {c1,cementAli,cementLocalTxt,hidden,c2,impHas,aliLink,chip,c1b,remembered:Object.values(saved)[0]};})();`),
+  expect:{c1:'local',cementAli:false,cementLocalTxt:true,hidden:true,c2:'import',impHas:true,aliLink:true,chip:true,c1b:'both',remembered:'both'} },
 { name:'🛒 One module: Quick Tools is gone from the Accounting sidebar; 🛒 Purchasing has 📥 From Inventory and 🧰 Suppliers & tools tabs; an Inventory purchase request (Rockwool cubes × 500) becomes PR-2026-000008 (max of records 000007 + 1, counter reset) in Submitted with the link both ways and updatedAt; the Suppliers & tools screen carries the same tab bar (v21.65)',
   seed:()=>{localStorage.setItem('hydroPro_users',JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}]));
     localStorage.setItem('hydroPro_purch_counters',JSON.stringify({}));

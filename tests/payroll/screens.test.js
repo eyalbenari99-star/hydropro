@@ -169,15 +169,15 @@ module.exports=[
   run:async()=>{upsertPayrollRun({id:'ops_2026-09-07_2026-09-13',type:'weekly',periodStart:'2026-09-07',periodEnd:'2026-09-13',status:'draft',lines:[{empId:'X'}],totals:{netPay:1},createdAt:1});
     const r=JSON.parse(localStorage.getItem('hydroPro_payroll_runs'))[0];return {reopenedAt:r.reopenedAt,by:r.reopenedBy,hist:(r.approvalHistory||[]).length,lines:r.lines.length};},
   expect:{reopenedAt:1758000000000,by:'eyal',hist:1,lines:1} },
-{ name:'Approve & Lock asks about pending memos and unsigned weekends, not only lates (v20.70)',
+{ name:'Approve & Lock asks about memos not yet approved and unsigned weekends, not only lates (v20.70 · v23.10)',
   seed:()=>{localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'JO',name:'SANTOS, JO',status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',employmentType:'Regular',dailyRate:658,dateHired:'2025-01-01'}]));
     const a={};['2026-09-07','2026-09-08','2026-09-09','2026-09-10','2026-09-11','2026-09-12'].forEach(d=>{a[d]={JO:{status:'present',timeIn:'07:00',timeOut:'17:00',lateMinutes:0,source:'fingerprint'}};});localStorage.setItem('hydroPro_attendance',JSON.stringify(a));
     localStorage.setItem('hydroPro_memos',JSON.stringify([{id:'M1',category:'hr',type:'good',empId:'JO',date:'2026-09-08',status:'pending',totalAmount:500,reasonLabel:'bonus',signatures:{}},{id:'M2',category:'hr',type:'good',empId:'JO',date:'2026-09-09',status:'pending',totalAmount:700,reasonLabel:'bonus',signatures:{}}]));},
-  run:async()=>{const asked=[];window.confirm=m=>{asked.push(String(m).slice(0,120));return !/memo\(s\) not yet signed/.test(String(m));};
+  run:async()=>{const asked=[];window.confirm=m=>{asked.push(String(m).slice(0,120));return !/memo\(s\) not yet approved/.test(String(m));};
     window._payOpsCurrentPeriod={start:'2026-09-07',end:'2026-09-13',payday:'2026-09-19',label:'w'};renderPayrollOps();await sleep(1500);
     payOpsApprove();await sleep(400);const ov=document.getElementById('hnxAnomOv');if(ov&&window.__hnxAnomGo){ov.remove();window.__hnxAnomGo();} /* the pre-sign anomaly check is a separate gate */
     await sleep(500);const r=JSON.parse(localStorage.getItem('hydroPro_payroll_runs')).find(x=>x.id==='ops_2026-09-07_2026-09-13');
-    return {asked:asked.some(m=>/2 memo\(s\) not yet signed/.test(m)),status:r&&r.status,pend:r&&r.lines[0]&&r.lines[0].pending&&r.lines[0].pending.memo.n};},
+    return {asked:asked.some(m=>/2 memo\(s\) not yet approved/.test(m)),status:r&&r.status,pend:r&&r.lines[0]&&r.lines[0].pending&&r.lines[0].pending.memo.n};},
   expect:{asked:true,status:'draft',pend:2} },
 { name:'tardiness policy is one snapshot (last writer wins), memo delete and attendance clear leave tombstones (v20.70)',
   seed:()=>{localStorage.setItem('hydroPro_memos',JSON.stringify([{id:'M9',category:'hr',type:'good',empId:'X',date:'2026-09-14',status:'pending',totalAmount:500,signatures:{}}]));
@@ -545,4 +545,15 @@ module.exports=[
     for(let i=0;i<4;i++)localStorage.removeItem('hnx_test_fill_'+i);
     return {full:!!(btn&&/STORAGE FULL/.test(btn.textContent)),canSave:u.canSave,under70:u.pct<70};},
   expect:{full:false,canSave:true,under70:true} },
+{ name:'🌱 every Production screen renders with 0 page errors (v22.72 pictures on): production_brain, dashboard, wall, checklist, supervisor, prod_supervisor_matrix, prod_recurring, prod_open_calls, training, prod_seeds, prod_seedling_plan, indoor_projects, open_issues, prod_tech_per_gh, crops_matrix, history — each becomes the active view, the dashboard farm carries its 14 pictures, and the Production pictures sit only on the Production screens (stats().reason "no view" on HR)',
+  requires:"window.hnxProdVisual&&window.hnxProdVisual.__v==='22.72'",
+  run:async()=>{
+    window.showToast=()=>{};try{switchModule('production');}catch(e){}await sleep(1800);
+    const VIEWS=['production_brain','dashboard','wall','checklist','supervisor','prod_supervisor_matrix','prod_recurring','prod_open_calls','training','prod_seeds','prod_seedling_plan','indoor_projects','open_issues','prod_tech_per_gh','crops_matrix','history'];
+    const out={};for(const v of VIEWS){switchView(v,true);await sleep(/brain|wall/.test(v)?3000:1600);const a=document.querySelector('.view.active');out[v]=a?a.id:'';}
+    out.crops_matrix=/^view-(dashboard|crops_matrix)$/.test(out.crops_matrix); /* crops_matrix opens either the dashboard in matrix-only mode or its own view (the transplant race, out of scope) */
+    const pics=document.querySelectorAll('#view-dashboard #pvFarmGrid > article .pv-gc-pic svg').length;
+    switchView('hr',true);await sleep(800);const off=window.hnxProdVisual.stats();
+    return {views:out,pics,offReason:off.reason,offRunning:off.running};},
+  expect:{'views.production_brain':'hnxModBrainView','views.dashboard':'view-dashboard','views.wall':'view-wall','views.checklist':'view-checklist','views.supervisor':'view-supervisor','views.prod_supervisor_matrix':'view-prod_supervisor_matrix','views.prod_recurring':'view-prod_recurring','views.prod_open_calls':'view-prod_open_calls','views.training':'view-training','views.prod_seeds':'view-prod_seeds','views.prod_seedling_plan':'view-prod_seedling_plan','views.indoor_projects':'view-indoor_projects','views.open_issues':'view-open_issues','views.prod_tech_per_gh':'view-prod_tech_per_gh','views.crops_matrix':true,'views.history':'view-history',pics:14,offReason:'no view',offRunning:false} },
 ];

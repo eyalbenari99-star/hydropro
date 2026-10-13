@@ -91,7 +91,7 @@ module.exports=[
     localStorage.setItem('hydroPro_memos',JSON.stringify([m]));loadMemos();
     const memoTotal=calcMemoImpact(m).total;
     let asked='';const oc=window.confirm;window.confirm=x=>{asked=x;return true;};
-    hnxMemoApproveDo('M1','final');window.confirm=oc;
+    chainApprove('M1');window.confirm=oc; /* v23.10: ① Jinky, then ② Dr Amy's FINAL (the last confirm, with the pesos) */
     const stored=JSON.parse(localStorage.getItem('hydroPro_memos'))[0];
     const payroll=()=>E.reduce((s,e)=>s+(calcEmployeePayroll(e,'2026-09-10','2026-09-16','weekly').memoDed||0),0);
     const paid=payroll();
@@ -399,7 +399,7 @@ module.exports=[
     localStorage.setItem('hydroPro_memos',JSON.stringify([m]));loadMemos();
     const imp=calcMemoImpact(m);
     let asked='';const oc=window.confirm;window.confirm=x=>{asked=x;return true;};
-    hnxMemoApproveDo('M9','final');window.confirm=oc;
+    chainApprove('M9');window.confirm=oc; /* v23.10: ① Jinky, then ② Dr Amy's FINAL */
     const stored=JSON.parse(localStorage.getItem('hydroPro_memos'))[0];
     const paid=E.reduce((s,e)=>s+(calcEmployeePayroll(e,'2026-09-10','2026-09-16','weekly').memoDed||0),0);
     return {memo:[imp.total,(imp.impact||[]).length],approval:/Payroll will move: −₱300\.00 \(3 lines\)/.test(asked),stored:[stored.status,stored.totalAmount],paid};},

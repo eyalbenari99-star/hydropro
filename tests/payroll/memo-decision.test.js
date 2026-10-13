@@ -1,6 +1,7 @@
-/* v21.62: the memo Decision dropdown — Approve / Reject with a note (Eyal, Dr Amy, Admin). */
+/* v21.62: the memo Decision dropdown — Approve / Reject with a note (Eyal, Dr Amy, Admin).
+   v23.10: the FINAL approval needs Jinky's ① first; a re-open sends the memo back to its creator (RETURNED). */
 module.exports=[
-{ name:'✖ Reject a memo: GH3 BAD memo (8 workers × ₱200 + 2 supervisors × ₱100 = −₱1,800) FINAL-approved counts ₱1,800 in payroll; the Decision dropdown appears in the view modal for the admin; ✖ Reject with note "Wrong GH" → status REJECTED, note stamped, payroll memoDed = ₱0, list filter has Rejected, re-open returns it to pending (v21.62)',
+{ name:'✖ Reject a memo: GH3 BAD memo (8 workers × ₱200 + 2 supervisors × ₱100 = −₱1,800) after ① Jinky ✔ + ② Dr Amy FINAL → payroll ₱1,800; the Decision dropdown appears in the view modal for the admin; ✖ Reject with note "Wrong GH" → status REJECTED, note stamped, payroll memoDed = ₱0, list filter has Rejected, re-open returns it to its creator (RETURNED) (v21.62 · v23.10)',
   run:async()=>{
     localStorage.setItem('hydroPro_memo_rates_v1',JSON.stringify({teamLeader:150,worker:200,supervisor:100}));
     const E=[];for(let i=1;i<=8;i++)E.push(labour('W'+i,'WORKER, '+i,{ghAssigned:['GH3']}));
@@ -10,7 +11,7 @@ module.exports=[
     const m={id:'M1',category:'production',type:'bad',gh:'GH3',date:'2026-09-15',status:'pending',title:'GH3 bad',reasons:[],signatures:{supervisor:null,hrManager:null},createdAt:new Date().toISOString(),createdBy:'tester'};
     localStorage.setItem('hydroPro_memos',JSON.stringify([m]));loadMemos();
     window.confirm=()=>true;window.alert=()=>{};
-    hnxMemoApproveDo('M1','final');
+    const chain=chainApprove('M1');
     const payroll=()=>Math.round(E.reduce((s,e)=>s+(calcEmployeePayroll(e,'2026-09-10','2026-09-16','weekly').memoDed||0),0));
     const paidBefore=payroll();
     openMemoView('M1');await sleep(2500);
@@ -23,6 +24,6 @@ module.exports=[
     const rejShown=/REJECTED/.test(txt)&&/Wrong GH/.test(txt);
     const filt=/value="rejected"/.test(document.getElementById('view-memos')?document.getElementById('view-memos').innerHTML:'');
     memoReopen('M1');const st2=JSON.parse(localStorage.getItem('hydroPro_memos'))[0];
-    return {paidBefore,hasSel,opts,status:st.status,note:st.rejection&&st.rejection.note,by:st.rejection&&st.rejection.by,paidAfter,rejShown,reopened:st2.status,trail:!!(st2.reopens&&st2.reopens[0].prior.rejection)};},
-  expect:{paidBefore:1800,hasSel:true,opts:',reject',status:'rejected',note:'Wrong GH',by:'tester',paidAfter:0,rejShown:true,reopened:'pending',trail:true} }
+    return {chain,paidBefore,hasSel,opts,status:st.status,note:st.rejection&&st.rejection.note,by:st.rejection&&st.rejection.by,paidAfter,rejShown,reopened:st2.status,trail:!!(st2.reopens&&st2.reopens[0].prior.rejection)};},
+  expect:{chain:[true,true],paidBefore:1800,hasSel:true,opts:',reject',status:'rejected',note:'Wrong GH',by:'tester',paidAfter:0,rejShown:true,reopened:'returned',trail:true} }
 ];
