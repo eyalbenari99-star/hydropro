@@ -95,10 +95,12 @@ module.exports=[
       const cover=[[3,3],[innerWidth-3,3],[3,innerHeight-3],[innerWidth-3,innerHeight-3],[120,300]].every(p=>{const e=document.elementFromPoint(p[0],p[1]);return !!(e&&f.contains(e));});
       return {on:hnxProdVisual.isFullScreen(),cls:f.classList.contains('pv-fs'),cover,inside:rs.every(b=>b.top>=0&&b.bottom<=innerHeight+0.5&&b.right<=innerWidth+0.5),btn:document.getElementById('pvFarmFsBtn').textContent.trim(),home:f.parentNode.id+'>'+(f.nextElementSibling&&f.nextElementSibling.id)};});
     await pg.evaluate(async()=>{try{switchModule('production');}catch(e){}await new Promise(r=>setTimeout(r,1500));switchView('dashboard',true);await new Promise(r=>setTimeout(r,2500));});
-    await pg.click('#pvFarmFsBtn');await pg.waitForTimeout(900);const a=await st();
+    /* the farm sits just under the sticky header first, so the real mouse reaches the button (a busy CI box scrolls slowly) */
+    const press=async()=>{await pg.evaluate(()=>{const f=document.getElementById('pvFarm');if(f&&!f.classList.contains('pv-fs'))f.scrollIntoView({block:'start'});});await pg.waitForTimeout(500);await pg.click('#pvFarmFsBtn',{timeout:20000});};
+    await press();await pg.waitForTimeout(900);const a=await st();
     await pg.keyboard.press('Escape');await pg.waitForTimeout(700);const b=await st();
-    await pg.click('#pvFarmFsBtn');await pg.waitForTimeout(700);const c=await st();await pg.click('#pvFarmFsBtn');await pg.waitForTimeout(700);const d=await st();
-    await pg.click('#pvFarmFsBtn');await pg.waitForTimeout(600);await pg.evaluate(()=>switchView('hr',true));await pg.waitForTimeout(900);
+    await press();await pg.waitForTimeout(700);const c=await st();await press();await pg.waitForTimeout(700);const d=await st();
+    await press();await pg.waitForTimeout(600);await pg.evaluate(()=>switchView('hr',true));await pg.waitForTimeout(900);
     const e=await pg.evaluate(()=>({on:hnxProdVisual.isFullScreen(),fsClass:document.body.classList.contains('pv-farm-fs')}));
     return {a:{on:a.on,cls:a.cls,cover:a.cover,inside:a.inside,btn:a.btn},b:{on:b.on,cover:b.cover,home:b.home,btn:b.btn},c:c.on,d:d.on,e};},
   expect:{'drive.a':{on:true,cls:true,cover:true,inside:true,btn:'✕ Exit full screen'},'drive.b':{on:false,cover:false,home:'view-dashboard>statGrid',btn:'⛶ Full screen'},'drive.c':true,'drive.d':false,'drive.e':{on:false,fsClass:false}} },
@@ -115,7 +117,7 @@ module.exports=[
   requires:NEW, seed:SEED,
   run:fn(`hnxIrrViz.setMotion('always');HNX_LITE.set(false,true);await go('dashboard');await show();
     PV.settle(null,true);await sleep(100);const s1=PV.stats();let a1=0;for(let i=0;i<20&&a1<10;i++){a1=pvAnims();if(a1<10)await sleep(150);}
-    let s2=PV.stats();for(let i=0;i<40&&s2.running;i++){await sleep(250);s2=PV.stats();}
+    let s2=PV.stats();for(let i=0;i<80&&s2.running;i++){await sleep(250);s2=PV.stats();} /* ~1.7 s on a normal PC; up to 20 s allowed for a starved CI box whose frames come seconds apart */
     await go('hr',500);const a3=pvAnims(),s3=PV.stats();await go('dashboard');await show();let a4=0;for(let i=0;i<20&&a4<10;i++){a4=pvAnims();if(a4<10)await sleep(150);}
     return {anims:a1>=10,running:s1.running,idle:!s2.running&&s2.reason==='idle',away:a3,awayRunning:s3.running,awayReason:s3.reason,back:a4>=10};`),
   expect:{anims:true,running:true,idle:true,away:0,awayRunning:false,awayReason:'no view',back:true} },
