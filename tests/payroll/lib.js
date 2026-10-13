@@ -62,6 +62,15 @@ const PAGE_HELPERS=`
   const setA=a=>localStorage.setItem('hydroPro_attendance',JSON.stringify(a));
   const labour=(id,name,extra)=>Object.assign({id,name,status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',employmentType:'Regular',dailyRate:658,dateHired:'2025-01-01',hireDate:'2025-01-01'},extra||{});
   const office=(id,name,extra)=>Object.assign({id,name,status:'Active',salaryCategory:'accounting',dept:'Accounting',payType:'semi',employmentType:'Regular',dailyRate:700,dateHired:'2025-01-01',hireDate:'2025-01-01'},extra||{});
+  /* v23.10 memo chain: the four people of the chain, and acting as one of them (getCurrentUser + session) */
+  const memoUsers=()=>{let U=[];try{U=JSON.parse(localStorage.getItem('hydroPro_users')||'[]')||[];}catch(e){}
+    [['eyal','Eyal Ben Ari','admin'],['dramy','Dr Amy Patdu','admin_secondary'],['jinky','Jinky Pagtama','accounting'],['mea','Meajean Magracia','supervisor']]
+     .forEach(([u,f,r])=>{if(!U.some(x=>x&&x.username===u))U.push({username:u,fullname:f,passwordHash:'x',role:r,active:true});});
+    localStorage.setItem('hydroPro_users',JSON.stringify(U));return U;};
+  const actAs=un=>{const U=memoUsers();const x=U.find(y=>y.username===un);if(!window.__tGCU)window.__tGCU=window.getCurrentUser;
+    sessionStorage.setItem('hydroPro_session',JSON.stringify({username:un,loginAt:Date.now()}));window.getCurrentUser=()=>x;return x;};
+  const actAsTester=()=>{sessionStorage.setItem('hydroPro_session',JSON.stringify({username:'tester',loginAt:Date.now()}));if(window.__tGCU)window.getCurrentUser=window.__tGCU;};
+  const chainApprove=(id,fin)=>{actAs('jinky');const a=window.hnxMemoApproveDo(id,'acct')||{};actAs(fin||'dramy');const b=window.hnxMemoApproveDo(id,'final')||{};actAsTester();return [!!a.ok,!!b.ok];};
   const L=l=>({days:l.daysWorked,sun:l.sundaysWorked,absU:l.daysAbsentUnauth,absA:l.daysAbsentAuth,basic:l.basicPay,gap:l.daysGap,rest:l.dayAudit&&l.dayAudit.rest,satNoProof:l.dayAudit&&l.dayAudit.satNoProof,satNoRec:l.dayAudit&&l.dayAudit.satNoRec,todayWait:l.dayAudit&&l.dayAudit.todayWait,absentDates:l.absentDates,tardy:l.tardyDeduction,latePending:l.latePending,memoAdd:l.memoAdd,net:l.netPay,pending:l.pending&&{late:[l.pending.late.n,l.pending.late.amt],memo:[l.pending.memo.n,l.pending.memo.amt],sun:[l.pending.sun.n,l.pending.sun.amt]}});
 `;
 module.exports={runCase,PAGE_HELPERS};

@@ -54,13 +54,13 @@ module.exports=[
     const o=office('O1','ANN OFFICE',{monthlyBasic:16000});setE([o]);
     localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:'office_2026-09-11_2026-09-25',type:'semi_monthly',periodStart:'2026-09-11',periodEnd:'2026-09-25',status:'approved',approvedAt:Date.now()-5000,approvedBy:'eyal',lines:[{empId:'O1',name:'ANN OFFICE',dailyRate:727.27,daysWorked:11,netPay:8000}],totals:{}}]));
     localStorage.setItem('hydroPro_memos',JSON.stringify([{id:'M1',category:'hr',type:'bad',empId:'O1',date:'2026-09-20',status:'pending',totalAmount:1500,title:'Damage charge',signatures:{}}]));
-    window.confirm=()=>true;hnxMemoApproveDo('M1','final');await sleep(200);
+    window.confirm=()=>true;chainApprove('M1');await sleep(200); /* v23.10: ① Jinky, then the FINAL (it carries the memo) */
     const m=JSON.parse(localStorage.getItem('hydroPro_memos'))[0];
     const nx=calcEmployeePayroll(o,'2026-09-26','2026-10-10','semi_monthly'),own=calcEmployeePayroll(o,'2026-09-11','2026-09-25','semi_monthly');
     return {status:m.status,payDate:m.payDate,from:m.carriedFrom,next:nx.memoDed,own:own.memoDed};},
   expect:{status:'signed',payDate:'2026-09-26',from:'office_2026-09-11_2026-09-25',next:1500,own:0} },
 
-{ name:'production memo ₱100 a worker dated 8 Sep, fully signed after the 3–9 Sep week was approved, is taken in 10–16 Sep from the 2 workers present on 8 Sep (₱100 each), not from the absent one, and ₱0 in 3–9 (audit D runs-snapshots-postlock-memo-dropped)',
+{ name:'production memo ₱100 a worker dated 8 Sep, both signatures after the 3–9 Sep week was approved → still ₱0 (⏳ ①); Jinky ✔ + Dr Amy FINAL carry it into 10–16 Sep: ₱100 from each of the 2 workers present on 8 Sep, not from the absent one, and ₱0 in 3–9 (audit D runs-snapshots-postlock-memo-dropped · v23.10)',
   run:async()=>{
     const w=id=>labour(id,'WORKER '+id,{ghAssigned:['GH15']});const E=[w('W1'),w('W2'),w('W3')];setE(E);
     setA({'2026-09-08':{W1:rec('present','07:00','17:00'),W2:rec('present','07:00','17:00')}});
@@ -69,11 +69,15 @@ module.exports=[
     loadMemos();window._viewingMemoId='P1';window.confirm=()=>true;
     try{memoSign('hrManager');}catch(e){}
     await sleep(200);
+    /* v23.10: the signatures are history only — no status change, no carry, no money */
+    const s0=JSON.parse(localStorage.getItem('hydroPro_memos'))[0];
+    const afterSign=[s0.status,E.map(e=>calcEmployeePayroll(e,'2026-09-10','2026-09-16','weekly').memoDed||0)];
+    chainApprove('P1');await sleep(200);
     const m=JSON.parse(localStorage.getItem('hydroPro_memos'))[0];
     const n=E.map(e=>calcEmployeePayroll(e,'2026-09-10','2026-09-16','weekly').memoDed);
     const own=calcEmployeePayroll(E[0],'2026-09-03','2026-09-09','weekly').memoDed;
-    return {status:m.status,payDate:m.payDate,next:n,own};},
-  expect:{status:'signed',payDate:'2026-09-10',next:[100,100,0],own:0} },
+    return {afterSign,status:m.status,payDate:m.payDate,next:n,own};},
+  expect:{afterSign:['pending',[0,0,0]],status:'signed',payDate:'2026-09-10',next:[100,100,0],own:0} },
 
 { name:'office Sunday inside a LOCKED cut-off: a ✓ is refused (0 saved), "Approve all scanned" skips it (0 approved), the chip reads 🔒 IN LOCKED RUN instead of WILL BE PAID and the banner offers no Approve-all (audit D ot-holiday-03)',
   run:async()=>{
