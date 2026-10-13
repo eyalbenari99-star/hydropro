@@ -520,6 +520,8 @@ function healTaskTriggers_() {
 
 function isCustomerTask_(t) {
   if (!t) return false;
+  /* v23.10: a follow-up made on Overview ▸ 🚨 Escalation (link {type:'escalation'}) is reminded inside Nexi only — never e-mailed */
+  if ((t.links || []).some(function (l) { return l && typeof l === 'object' && l.type === 'escalation'; })) return false;
   if (t.module === 'crm') return true;
   return (t.links || []).some(function (l) { return /^(customer|customers|lead|crm):/i.test(String(l)); });
 }
