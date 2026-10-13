@@ -34,7 +34,7 @@ module.exports=[
     const boxLines=/3 commendations \(GH2, GH6, GH9\) × \+₱100 = \+₱300/.test(boxTxt)&&/2 reprimands \(GH5, GH10\) × −₱100 = −₱200/.test(boxTxt)&&/3 × \+₱100 − 2 × ₱100 = \+₱100/.test(boxTxt);
     memoSaveAndSend();await sleep(300);
     const saved=JSON.parse(localStorage.getItem('hydroPro_memos'))[0]||{};
-    asked='';hnxMemoApproveDo(saved.id,'final');
+    asked='';chainApprove(saved.id); /* v23.10: ① Jinky, ② Dr Amy */
     const st=JSON.parse(localStorage.getItem('hydroPro_memos'))[0]||{};
     const frozen=hnxMemoFreeze(st,true).total;
     const l=calcEmployeePayroll(ED,'2026-09-10','2026-09-16','weekly');
@@ -75,7 +75,7 @@ module.exports=[
     const typedBox=!!document.getElementById('memoHrCalcTyped');
     memoSaveAndSend();await sleep(300);
     const saved=JSON.parse(localStorage.getItem('hydroPro_memos'))[0]||{};
-    asked='';hnxMemoApproveDo(saved.id,'final');
+    asked='';chainApprove(saved.id); /* v23.10: ① Jinky, ② Dr Amy */
     const st=JSON.parse(localStorage.getItem('hydroPro_memos'))[0]||{};
     const frozen=hnxMemoFreeze(st,true).total;
     const l=calcEmployeePayroll(W,'2026-09-10','2026-09-16','weekly');
@@ -122,7 +122,7 @@ module.exports=[
     memoFilter.type='bad';renderMemos();const inBad=shown();
     memoFilter.type='good';renderMemos();const inGood=shown();
     memoFilter.type='';renderMemos();
-    hnxMemoApproveDo(saved.id,'final');
+    chainApprove(saved.id); /* v23.10: ① Jinky, ② Dr Amy */
     const st=JSON.parse(localStorage.getItem('hydroPro_memos'))[0]||{};
     const l=calcEmployeePayroll(S1,'2026-09-10','2026-09-16','weekly');
     const summary=hnxMemoMoneySummary(st);
@@ -183,7 +183,7 @@ module.exports=[
     const box=(document.getElementById('memoHrCalcResult')||{}).innerText||'';
     memoSaveAndSend();await sleep(300);
     const saved=JSON.parse(localStorage.getItem('hydroPro_memos'))[0]||{};
-    hnxMemoApproveDo(saved.id,'final');
+    chainApprove(saved.id); /* v23.10: ① Jinky, ② Dr Amy */
     const st=JSON.parse(localStorage.getItem('hydroPro_memos'))[0]||{};
     const frozen=hnxMemoFreeze(st,true).total;
     const lT=calcEmployeePayroll(T,'2026-09-10','2026-09-16','weekly'),lW=calcEmployeePayroll(W,'2026-09-10','2026-09-16','weekly');
