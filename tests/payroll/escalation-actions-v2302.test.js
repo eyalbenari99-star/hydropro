@@ -79,7 +79,7 @@ const AS=`const as=u=>sessionStorage.setItem('hydroPro_session',JSON.stringify({
   await sleep(500);`;
 const C3=`['iss:ISS_E2','maint:MT_E2','crm:TP_E1']`;
 const NR_NOTE=`'Checked on site — not relevant any more'`;
-/* v23.10: + sup2, a supervisor in packaging who is nobody's department head (passes the escalation screen's supervisor rule, has no Tasks
+/* v23.14: + sup2, a supervisor in packaging who is nobody's department head (passes the escalation screen's supervisor rule, has no Tasks
    rights over a task Eyal gave Maria) */
 const SUP2=`localStorage.setItem('hydroPro_users',JSON.stringify([
     {username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true},
@@ -155,7 +155,7 @@ module.exports=[
     return {afterReload,bList,re,a:[aN,aTT],b:[bN,bTT],state:JSON.parse(A2).find(x=>x.id==='ESCX_iss_ISS_E2').state};})()`),
   expect:{afterReload:{list:5,tt:5,closed:3},bList:5,re:true,a:[6,6],b:[6,6],state:'reopened',drive:{closedBeforeReload:3}} },
 
-{ name:'↩ Undo: close 1 → 7; Undo at +2 s → 8, the record\'s state \'reopened\'; at +12 s the source is unchanged and there is no device-only queue (v23.10: the synced record is the queue); the Undo bar is gone after 10 s (v23.04)',
+{ name:'↩ Undo: close 1 → 7; Undo at +2 s → 8, the record\'s state \'reopened\'; at +12 s the source is unchanged and there is no device-only queue (v23.14: the synced record is the queue); the Undo bar is gone after 10 s (v23.04)',
   requires:REQ,tz:'Asia/Manila',seed:seed(),
   run:new Function(`return (async()=>{${AS}as('eyal');await open();
     const r=hnxEscClose(['maint:MT_E2'],'not_relevant','Duplicate of the GH9 plastic job');hnxEscRender();const n1=rows().length;
@@ -182,7 +182,7 @@ module.exports=[
     return {c1:r1.closed,n1,s1,s2:mt.status,doneBy:mt.doneBy,src:rec.srcState,state:rec.state,c2:r2.closed,iss:iss.status,c3:r3.closed,u,mt2:loadMaintTasks().find(t=>t.id==='MT_E2').status};})()`),
   expect:{c1:1,n1:7,s1:'not_started',s2:'done',doneBy:'eyal',src:'applied',state:'closed',c2:1,iss:'resolved',c3:1,u:1,mt2:'ongoing'} },
 
-{ name:'📌 Plan on TP_E2 (critical) → Maria, follow-up tomorrow → Planned 1 · Needs action 7 · total 8; ONE task (owner maria, due tomorrow, priority critical, rule evidence, module crm, link escalation:ESC_crm_TP_E2); the task is not an escalated item (task: items stay 2); ONE inbox note ESCA_ESC_crm_TP_E2_maria_<assignedAt> with text (v23.10: one note per assignment); the row reads Maria Santos + the date + Eyal Ben Ari; save again with a new note → 1 task, 1 note; reassign to edelyn.n → the same task\'s owner is edelyn.n, 2 notes (v23.04)',
+{ name:'📌 Plan on TP_E2 (critical) → Maria, follow-up tomorrow → Planned 1 · Needs action 7 · total 8; ONE task (owner maria, due tomorrow, priority critical, rule evidence, module crm, link escalation:ESC_crm_TP_E2); the task is not an escalated item (task: items stay 2); ONE inbox note ESCA_ESC_crm_TP_E2_maria_<assignedAt> with text (v23.14: one note per assignment); the row reads Maria Santos + the date + Eyal Ben Ari; save again with a new note → 1 task, 1 note; reassign to edelyn.n → the same task\'s owner is edelyn.n, 2 notes (v23.04)',
   requires:REQ,tz:'Asia/Manila',seed:seed(),
   run:new Function(`return (async()=>{${AS}as('eyal');await open();
     const fu=day(1);
@@ -313,7 +313,7 @@ module.exports=[
     return {saved:!!r,link:link.type+':'+link.id,active,outlined,cleared:!!rw&&!rw.classList.contains('hnx-esc-focus')};})()`),
   expect:{saved:true,link:'escalation:ESC_crm_TP_E2',active:'view-task_escalation',outlined:true,cleared:true} },
 
-{ name:'🆘 Guide: m_overview has \'🚨 Escalation — one decision on every item (v23.04)\' and no longer says \'Nothing here is fixed from here\'; module_calendar has \'Tasks that come from 🚨 Escalation (v23.04)\' (v23.04); v23.10: \'When an item comes back, and what happens to its task (v23.10)\', the 🔁 Duplicate close and the task\'s ↗ Open on 🚨 Escalation are described',
+{ name:'🆘 Guide: m_overview has \'🚨 Escalation — one decision on every item (v23.04)\' and no longer says \'Nothing here is fixed from here\'; module_calendar has \'Tasks that come from 🚨 Escalation (v23.04)\' (v23.04); v23.14: \'When an item comes back, and what happens to its task (v23.14)\', the 🔁 Duplicate close and the task\'s ↗ Open on 🚨 Escalation are described',
   requires:REQ,tz:'Asia/Manila',seed:seed(),
   run:new Function(`return (async()=>{${AS}
     const g=HNX_HELP_GUIDES.find(x=>x.id==='m_overview'),txt=JSON.stringify(g),cal=HNX_HELP_GUIDES.find(x=>x.id==='module_calendar'),tk=JSON.stringify(HNX_HELP_GUIDES.find(x=>x.id==='tasks')||{});
@@ -322,11 +322,11 @@ module.exports=[
     return {has:heads.includes('🚨 Escalation — one decision on every item (v23.04)'),closing:heads.includes('Closing what is not relevant'),plans:heads.includes('Plans, follow-ups and reminders'),
       bulk:heads.includes('Filters, counts and many rows at once'),noOld:!/Nothing here is fixed from here/.test(txt),cal:cal.sections.some(s=>s.h==='Tasks that come from 🚨 Escalation (v23.04)'),
       tasks:/Tasks created from 🚨 Escalation are not listed again as escalated items/.test(tk),opened,
-      back:heads.includes('When an item comes back, and what happens to its task (v23.10)'),dup:/🔁 Duplicate of … — close/.test(txt),link:/↗ Open on 🚨 Escalation in the task/.test(JSON.stringify(cal))};})()`),
+      back:heads.includes('When an item comes back, and what happens to its task (v23.14)'),dup:/🔁 Duplicate of … — close/.test(txt),link:/↗ Open on 🚨 Escalation in the task/.test(JSON.stringify(cal))};})()`),
   expect:{has:true,closing:true,plans:true,bulk:true,noOld:true,cal:true,tasks:true,opened:true,back:true,dup:true,link:true} },
 
-/* ================= v23.10 — review of v23.04: every confirmed finding has a case (expected numbers in the names) ================= */
-{ name:'🛡 Data Safety (v23.10): bulk Not relevant on 40 info issues → the store at +11.5 s IS the copy the 4-second push uploaded (0 rewritten, uploaded); ↩ Reopen the 40, close again, ↩ Undo at +4.5 s → 40 changed, 40 forward, not big, uploaded; Already done on 20 → at +11.5 s 20 changed, 20 forward, not big, uploaded, 20 resolved (v23.04: 40 of 40 rewritten → HELD)',
+/* ================= v23.14 — review of v23.04: every confirmed finding has a case (expected numbers in the names) ================= */
+{ name:'🛡 Data Safety (v23.14): bulk Not relevant on 40 info issues → the store at +11.5 s IS the copy the 4-second push uploaded (0 rewritten, uploaded); ↩ Reopen the 40, close again, ↩ Undo at +4.5 s → 40 changed, 40 forward, not big, uploaded; Already done on 20 → at +11.5 s 20 changed, 20 forward, not big, uploaded, 20 resolved (v23.04: 40 of 40 rewritten → HELD)',
   requires:REQ,tz:'Asia/Manila',
   seed:seed(`for(let i=1;i<=40;i++)ISS.push(I('ISS_B'+pad(i),'hr','Memo 2026-0'+(40+i)+' not signed by the team','info',6));`),
   run:new Function(`return (async()=>{${AS}as('eyal');await open();
@@ -345,7 +345,7 @@ module.exports=[
     return {n:ids.length,ok1:r1.ok,same1:C1===L1,up1:g1.up,re,ok2:r2.ok,u,g2,ok3:r3.ok,g3,resolved};})()`),
   expect:{n:40,ok1:40,same1:true,up1:true,re:40,ok2:40,u:40,g2:{changed:40,fwd:40,removed:0,big:false,up:true},ok3:20,g3:{changed:20,fwd:20,removed:0,big:false,up:true},resolved:20} },
 
-{ name:'↺ Back when its module opens it again (v23.10): Already done on ISS_E2, TSK_E2, MT_E2 → resolved / done / done, Task Tracker 5; a computer whose issue copy is still the old open one (and never saw it closed) keeps it hidden (5, closed); the approver rejects ISS_E2, TSK_E2 is set back to To do, MT_E2 back to ongoing on the board → Task Tracker 8, all 3 rows back, state needs; the sweep flips the 3 closes to reopened "Reopened in Packaging / Maintenance / Production"; ✅ Closed 0',
+{ name:'↺ Back when its module opens it again (v23.14): Already done on ISS_E2, TSK_E2, MT_E2 → resolved / done / done, Task Tracker 5; a computer whose issue copy is still the old open one (and never saw it closed) keeps it hidden (5, closed); the approver rejects ISS_E2, TSK_E2 is set back to To do, MT_E2 back to ongoing on the board → Task Tracker 8, all 3 rows back, state needs; the sweep flips the 3 closes to reopened "Reopened in Packaging / Maintenance / Production"; ✅ Closed 0',
   requires:REQ,tz:'Asia/Manila',seed:seed(),
   run:new Function(`return (async()=>{${AS}as('eyal');await open();
     const ISSK='hydroPro_issues_v2',SEEN='hnxlocal_esc_seen_v1',oldIss=localStorage.getItem(ISSK),K3=['iss:ISS_E2','task:TSK_E2','maint:MT_E2'];
@@ -369,7 +369,7 @@ module.exports=[
   expect:{closed:3,src1:['resolved','done','done'],tt1:5,lag:5,lagState:'closed',rj:true,st:true,tt2:8,onList:[true,true,true],states:['needs','needs','needs'],sw:3,
     recs:[['iss:ISS_E2','reopened','Reopened in Packaging'],['maint:MT_E2','reopened','Reopened in Maintenance'],['task:TSK_E2','reopened','Reopened in Production']],closedRows:0,tt3:8} },
 
-{ name:'👥 A supervisor without rights over the follow-up task (v23.10): sup2 re-plans Eyal\'s TP_E2 plan (Maria) to Edelyn → refused "The follow-up task was given by Eyal Ben Ari…", plan and task stay Maria, Edelyn 0 notes; sup2 closes TP_E2 (Not relevant) and MT_E2 (Already done) → MT_E2 done, 0 "Not allowed" toasts, both tasks still To do at +11.5 s, Maria and Eyal 1 note per task (4); Eyal\'s session 3 min later → TP_E2 task Cancelled, MT_E2 task Done with "Closed on 🚨 Escalation as already done by Sam Supervisor…"',
+{ name:'👥 A supervisor without rights over the follow-up task (v23.14): sup2 re-plans Eyal\'s TP_E2 plan (Maria) to Edelyn → refused "The follow-up task was given by Eyal Ben Ari…", plan and task stay Maria, Edelyn 0 notes; sup2 closes TP_E2 (Not relevant) and MT_E2 (Already done) → MT_E2 done, 0 "Not allowed" toasts, both tasks still To do at +11.5 s, Maria and Eyal 1 note per task (4); Eyal\'s session 3 min later → TP_E2 task Cancelled, MT_E2 task Done with "Closed on 🚨 Escalation as already done by Sam Supervisor…"',
   requires:REQ,tz:'Asia/Manila',seed:seed(SUP2),
   run:new Function(`return (async()=>{${AS}as('eyal');await open();
     const p1=hnxEscSave('crm:TP_E2',{action:'c_call',who:'user:maria',followUp:day(1),note:'Call the chef'});
@@ -389,7 +389,7 @@ module.exports=[
       before:[t1.status,t2.status],notAllowed,notes,swTasks:sw.tasks,after:[a1.status,a2.status],ev:/Closed on 🚨 Escalation as already done by Sam Supervisor/.test(JSON.stringify(a2.evidence||[]))};})()`),
   expect:{rp:false,why:true,planWho:'maria',taskOwner:'maria',edNotes:0,c1:1,c2:1,mt:'done',before:['todo','todo'],notAllowed:0,notes:['eyal','eyal','maria','maria'],swTasks:2,after:['cancelled','done'],ev:true} },
 
-{ name:'🔧 Fixed in its module (v23.10): plans on MT_E2 and ISS_E1 → Maria; MT_E2 marked done on the Maintenance board, ISS_E1 only lowered to info → the sweep marks 1 task Done (MT_E2: evidence "Closed in Maintenance — the escalated item is fixed", logged on the plan); ISS_E1\'s task stays To do; after 8 saves the plan log keeps 6',
+{ name:'🔧 Fixed in its module (v23.14): plans on MT_E2 and ISS_E1 → Maria; MT_E2 marked done on the Maintenance board, ISS_E1 only lowered to info → the sweep marks 1 task Done (MT_E2: evidence "Closed in Maintenance — the escalated item is fixed", logged on the plan); ISS_E1\'s task stays To do; after 8 saves the plan log keeps 6',
   requires:REQ,tz:'Asia/Manila',seed:seed(),
   run:new Function(`return (async()=>{${AS}as('eyal');await open();
     const p1=hnxEscSave('maint:MT_E2',{action:'m_repair',who:'user:maria',followUp:day(1)});
@@ -404,7 +404,7 @@ module.exports=[
     return {tasks:sw.tasks,t1:t1.status,ev:(t1.evidence||[]).map(e=>e.note),t2:t2.status,log:/Follow-up task done — Closed in Maintenance/.test(JSON.stringify(pl.log)),logN:pl2.log.length};})()`),
   expect:{tasks:1,t1:'done',ev:['Closed in Maintenance — the escalated item is fixed'],t2:'todo',log:true,logN:6} },
 
-{ name:'💻💻 Two computers (v23.10): B plans TP_E2 (task T → Maria) while A, not yet synced, closes TP_E2 as not relevant → merged both ways, the sweep cancels T; TP_E1 planned on two computers at once (X → Maria, then Y → Edelyn) → the merged plan keeps Y and the sweep cancels X (1 open: Edelyn); a third computer that has task Y but not the plan saves a plan → it adopts Y (still 2 linked tasks)',
+{ name:'💻💻 Two computers (v23.14): B plans TP_E2 (task T → Maria) while A, not yet synced, closes TP_E2 as not relevant → merged both ways, the sweep cancels T; TP_E1 planned on two computers at once (X → Maria, then Y → Edelyn) → the merged plan keeps Y and the sweep cancels X (1 open: Edelyn); a third computer that has task Y but not the plan saves a plan → it adopts Y (still 2 linked tasks)',
   requires:REQ,tz:'Asia/Manila',seed:seed(),
   run:new Function(`return (async()=>{${AS}as('eyal');await open();
     const K=HNX_ESC_KEY,TK='hydroPro_tasks_v1',E0=localStorage.getItem(K),T0=localStorage.getItem(TK);
@@ -430,7 +430,7 @@ module.exports=[
     return {closed:cA.closed,sw1:sw1.tasks,tB:tB.status,planIs,sw2:sw2.tasks,xs,open1,adopted:pZ&&pZ.taskId===pY.taskId,linked:linked().length};})()`),
   expect:{closed:1,sw1:1,tB:'cancelled',planIs:'Y',sw2:1,xs:'cancelled',open1:[['Y','edelyn.n']],adopted:true,linked:2} },
 
-{ name:'📦 Archive (v23.10): 120 Not relevant closes of issues resolved 40 days ago + 10 recent closes = 130 records → 3 runs move 26, 20, 16 (a fifth each — never "big" for Data Safety), the live store keeps 68, the monthly archive holds 62 in 1 store, 62 tombstones make a stale 130-record copy merge back to 68; the 10 recent stay; a 4th run the same day moves 0; Task Tracker 8',
+{ name:'📦 Archive (v23.14): 120 Not relevant closes of issues resolved 40 days ago + 10 recent closes = 130 records → 3 runs move 26, 20, 16 (a fifth each — never "big" for Data Safety), the live store keeps 68, the monthly archive holds 62 in 1 store, 62 tombstones make a stale 130-record copy merge back to 68; the 10 recent stay; a 4th run the same day moves 0; Task Tracker 8',
   requires:REQ,tz:'Asia/Manila',
   seed:seed(`const old=ago(40),rec=ago(1);
     for(let i=1;i<=120;i++){const id='ISS_A'+String(i).padStart(3,'0');ISS.push(I(id,'hr','Old alert '+i,'info',50,{status:'resolved',resolvedAt:ago(39)}));
@@ -450,7 +450,7 @@ module.exports=[
     return {start:JSON.parse(orig).length,moved,big,live,arch,keys:Object.keys(keys).length,merged,tomb,fourth,recentKept,tt:ttCount()};})()`),
   expect:{start:130,moved:[26,20,16],big:[false,false,false],live:68,arch:62,keys:1,merged:68,tomb:62,fourth:0,recentKept:10,tt:8} },
 
-{ name:'📅 Postpone never earlier (v23.10): TSK_E2 due today+10 → its row offers +10 (was +3); Postpone to +3 → "⛔ Postpone needs a date after …", due stays +10; Postpone to +12 → due +12; MT_E2 planned to +12, then bulk Postpone with no date → plan and task +13 (was +3)',
+{ name:'📅 Postpone never earlier (v23.14): TSK_E2 due today+10 → its row offers +10 (was +3); Postpone to +3 → "⛔ Postpone needs a date after …", due stays +10; Postpone to +12 → due +12; MT_E2 planned to +12, then bulk Postpone with no date → plan and task +13 (was +3)',
   requires:REQ,tz:'Asia/Manila',seed:seed(`TASKS[1].due=ymd(ago(-10));TASKS[1].dueOriginal=ymd(ago(-10));`),
   run:new Function(`return (async()=>{${AS}as('eyal');await open();
     const rel=d=>{for(let i=-3;i<40;i++)if(day(i)===d)return '+'+i;return d;};
@@ -464,7 +464,7 @@ module.exports=[
     return {fuShown:rel(fuShown),a,why:/Postpone needs a date after/.test(why||''),due1:rel(due1),b:!!b,due2:rel(due2),bk:bk.ok,planFu:rel(pl.followUp),taskDue:rel(tk.due)};})()`),
   expect:{fuShown:'+10',a:false,why:true,due1:'+10',b:true,due2:'+12',bk:1,planFu:'+13',taskDue:'+13'} },
 
-{ name:'⏳ Closed, then another person signs in on that computer (v23.10): Maria closes ISS_E2 and TP_E1 as Already done, Eyal signs in at once → at +11.5 s ISS_E2 is still in_progress, srcState pending, Task Tracker 6; Eyal ↩ Reopens TP_E1 while it waits → 7, TP_E1 not done; Eyal\'s session 11 minutes later applies ISS_E2 (1) → resolved, applied, srcBy eyal; Task Tracker 7',
+{ name:'⏳ Closed, then another person signs in on that computer (v23.14): Maria closes ISS_E2 and TP_E1 as Already done, Eyal signs in at once → at +11.5 s ISS_E2 is still in_progress, srcState pending, Task Tracker 6; Eyal ↩ Reopens TP_E1 while it waits → 7, TP_E1 not done; Eyal\'s session 11 minutes later applies ISS_E2 (1) → resolved, applied, srcBy eyal; Task Tracker 7',
   requires:REQ,tz:'Asia/Manila',seed:seed(),
   run:new Function(`return (async()=>{${AS}as('maria');await open();
     const c=hnxEscClose(['iss:ISS_E2'],'done','Reprinted the labels with a new ribbon');
@@ -478,7 +478,7 @@ module.exports=[
     return {c:c.closed,c2:c2.closed,s1,r1,tt1,re,tt2,n,s2,src:rec.srcState,by:rec.srcBy,tp,tt3:ttCount()};})()`),
   expect:{c:1,c2:1,s1:'in_progress',r1:'pending',tt1:6,re:true,tt2:7,n:1,s2:'resolved',src:'applied',by:'eyal',tp:false,tt3:7} },
 
-{ name:'☑ The selection follows the screen (v23.10): By module ▸ CRM, ☐ Select all → 2 selected; By module ▸ Maintenance → 0 selected, bar hidden; ☐ Select all → 2; 🚫 Not relevant → only MT_E1 and MT_E2 closed (the 2 CRM rows untouched); the banner reads "takes it out of every count"; a planned row keeps its action (c_call) with its note as placeholder, and changing only the date saves (+5, still 1 task)',
+{ name:'☑ The selection follows the screen (v23.14): By module ▸ CRM, ☐ Select all → 2 selected; By module ▸ Maintenance → 0 selected, bar hidden; ☐ Select all → 2; 🚫 Not relevant → only MT_E1 and MT_E2 closed (the 2 CRM rows untouched); the banner reads "takes it out of every count"; a planned row keeps its action (c_call) with its note as placeholder, and changing only the date saves (+5, still 1 task)',
   requires:REQ,tz:'Asia/Manila',seed:seed(),
   run:new Function(`return (async()=>{${AS}as('eyal');await open();
     const banner=(H().querySelector('.hnx-esc-banner')||{}).textContent||'';
@@ -500,7 +500,7 @@ module.exports=[
     return {banner:/takes it out of every count on every computer/.test(banner),n1,shown1,n2,n3,closed,act,ph,fu:pl.followUp===day(5),note:pl.note,tasks:escTasks().length,due:escTasks()[0].due===day(5)};})()`),
   expect:{banner:true,n1:2,shown1:['crm:TP_E1','crm:TP_E2'],n2:0,n3:2,closed:['maint:MT_E1','maint:MT_E2'],act:'c_call',ph:'Note: Call the chef before Friday',fu:true,note:'Call the chef before Friday',tasks:1,due:true} },
 
-{ name:'📝 Close again, hand back (v23.10): MT_E2 Not relevant "Duplicate of the GH9 plastic job" → ↩ Reopen → Already done with no note → reason "—" and the ✅ Closed row shows no old reason; TP_E2 → Maria → Edelyn → Maria again → Maria has 2 escalation notes, 1 unread, the task is hers',
+{ name:'📝 Close again, hand back (v23.14): MT_E2 Not relevant "Duplicate of the GH9 plastic job" → ↩ Reopen → Already done with no note → reason "—" and the ✅ Closed row shows no old reason; TP_E2 → Maria → Edelyn → Maria again → Maria has 2 escalation notes, 1 unread, the task is hers',
   requires:REQ,tz:'Asia/Manila',seed:seed(),
   run:new Function(`return (async()=>{${AS}as('eyal');await open();
     hnxEscClose(['maint:MT_E2'],'not_relevant','Duplicate of the GH9 plastic job');
@@ -516,7 +516,7 @@ module.exports=[
     return {re,c:c.closed,kind:rec.closeKind,reason:rec.reason,old:/GH9 plastic job/.test(line),notes:mine.length,unread:mine.filter(x=>!x.read).length,owner:escTasks()[0].owner};})()`),
   expect:{re:true,c:1,kind:'done',reason:'—',old:false,notes:2,unread:1,owner:'maria'} },
 
-{ name:'🧭 Options that fit (v23.10): "🔁 Duplicate of the maintenance task — close" sits in "Close it" and closes ISS_U1 as not relevant ("Duplicate of the maintenance task — MT_E1 on the board"), 0 tasks, All open 12 → 11; "Escalate to the department head" on Maria\'s ISS_P1 puts Edelyn in RESPONSIBLE → task owner edelyn.n + her note, and is not offered on ISS_E2 (packaging) or TP_E1 (CRM: no head); packaging has no nutrient / flush / Dr Amy; a SIM renewal offers "Load / renew the SIM", no vendor repair; the CCTV task (sourceModule it) defaults to Jun under "IT head"; Reassign on an unplanned item → "Handle it — reassigned by Eyal Ben Ari", done when "the item is fixed in its module or closed on 🚨 Escalation"',
+{ name:'🧭 Options that fit (v23.14): "🔁 Duplicate of the maintenance task — close" sits in "Close it" and closes ISS_U1 as not relevant ("Duplicate of the maintenance task — MT_E1 on the board"), 0 tasks, All open 12 → 11; "Escalate to the department head" on Maria\'s ISS_P1 puts Edelyn in RESPONSIBLE → task owner edelyn.n + her note, and is not offered on ISS_E2 (packaging) or TP_E1 (CRM: no head); packaging has no nutrient / flush / Dr Amy; a SIM renewal offers "Load / renew the SIM", no vendor repair; the CCTV task (sourceModule it) defaults to Jun under "IT head"; Reassign on an unplanned item → "Handle it — reassigned by Eyal Ben Ari", done when "the item is fixed in its module or closed on 🚨 Escalation"',
   requires:REQ,tz:'Asia/Manila',
   seed:seed(`localStorage.setItem('hydroPro_users',JSON.stringify([
     {username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true},
@@ -552,7 +552,7 @@ module.exports=[
     whoAfterPick:'user:edelyn.n',headWho:'edelyn.n',taskOwner:'edelyn.n',headNote:true,e2:{nutrient:false,flush:false,amy:false,parts:true},sim:{renew:true,repair:false},
     cam:{sel:'user:jun',group:'IT head'},raTitle:true,raOut:true,tasksEnd:2} },
 
-{ name:'↺ Repeat is the same alarm only (v23.10): closed B-1012, memo 2026-041, "Daily check missed 2026-10-12 07:00" and yesterday\'s pool P6 EC alarm → B-1013 and memo 042 are NOT a Repeat; the daily check of another date is a Repeat but nothing is pre-picked; today\'s pool alarm has Not relevant picked and "Same as <day>: Probe was out of the water — reading wrong" in the note, and one click on 💾 Save closes it (12 → 11)',
+{ name:'↺ Repeat is the same alarm only (v23.14): closed B-1012, memo 2026-041, "Daily check missed 2026-10-12 07:00" and yesterday\'s pool P6 EC alarm → B-1013 and memo 042 are NOT a Repeat; the daily check of another date is a Repeat but nothing is pre-picked; today\'s pool alarm has Not relevant picked and "Same as <day>: Probe was out of the water — reading wrong" in the note, and one click on 💾 Save closes it (12 → 11)',
   requires:REQ,tz:'Asia/Manila',
   seed:seed(`ISS.push(I('ISS_Q1','quality','Rejected lettuce batch B-1012 (tip burn)','critical',3));ISS.push(I('ISS_Q2','quality','Rejected lettuce batch B-1013 (tip burn)','critical',3));
     ISS.push(I('ISS_M1','hr','Memo 2026-041 not signed by the team','info',6));ISS.push(I('ISS_M2','hr','Memo 2026-042 not signed by the team','info',6));
@@ -572,7 +572,7 @@ module.exports=[
     return res;})()`),
   expect:{q2:false,m2:false,d2:true,d2act:'',irr:true,irrAct:'not_relevant',irrNote:true,before:12,after:11,closedNow:true} },
 
-{ name:'↗ Open opens the record (v23.10): ↗ Open on ISS_E1 opens #issueDetailModal titled with the issue, on MT_E1 the maintenance task window (🔧 Edit Task), the screen stays 🚨 Escalation; a follow-up task\'s drawer has "↗ Open on 🚨 Escalation" → the drawer closes, view-task_escalation, the TP_E2 row outlined',
+{ name:'↗ Open opens the record (v23.14): ↗ Open on ISS_E1 opens #issueDetailModal titled with the issue, on MT_E1 the maintenance task window (🔧 Edit Task), the screen stays 🚨 Escalation; a follow-up task\'s drawer has "↗ Open on 🚨 Escalation" → the drawer closes, view-task_escalation, the TP_E2 row outlined',
   requires:REQ,tz:'Asia/Manila',seed:seed(),
   run:new Function(`return (async()=>{${AS}as('eyal');await open();
     row('iss:ISS_E1').querySelector('.hnx-esc-open').click();await sleep(250);
@@ -587,7 +587,7 @@ module.exports=[
     return {issOpen,mtOpen,mtTitle,active1,btnText,drawerGone:!document.getElementById('hnxTaskF'),active2,outlined:!!rw&&rw.classList.contains('hnx-esc-focus')};})()`),
   expect:{issOpen:true,mtOpen:true,mtTitle:'🔧 Edit Task',active1:'view-task_escalation',btnText:'↗ Open on 🚨 Escalation',drawerGone:true,active2:'view-task_escalation',outlined:true} },
 
-{ name:'📱 The bulk bar is on the page body (v23.10): 3 rows ticked → at 400×800 and at 1366×768 the bar is a child of <body>, shown, ✕ Clear and 💾 Apply are the topmost element at their centre, and it ends above the phone tray and the cloud-sync banner docked at the bottom',
+{ name:'📱 The bulk bar is on the page body (v23.14): 3 rows ticked → at 400×800 and at 1366×768 the bar is a child of <body>, shown, ✕ Clear and 💾 Apply are the topmost element at their centre, and it ends above the phone tray and the cloud-sync banner docked at the bottom',
   requires:REQ,tz:'Asia/Manila',seed:seed(),
   drive:async pg=>{
     const probe=`(()=>{const b=document.getElementById('hnxEscBulk');if(!b)return {missing:true};const hit=s=>{const e=b.querySelector(s);const r=e.getBoundingClientRect();const x=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return !!x&&(x===e||e.contains(x));};
