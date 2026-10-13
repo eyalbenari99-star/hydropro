@@ -78,6 +78,7 @@
   `<script id="hnx-help-guides-v1991">` (`window.HNX_HELP_GUIDES`) — that block is
   the single source of truth for the in-app Help centre (🆘 button, `HNX_HELP`).
   A behaviour change with no guide change is an incomplete change.
+- Every guide carries `added` / `updated` `{date:'YYYY-MM-DD', version:'NN.NN'}` on its first (`{id:'…'`) line: when you change a guide's text, bump its `updated` to today (Manila) + that page's own APP_VERSION (index = stable number, next.html = trial number); `tests/payroll/guides-dated-v2304.test.js` fails when a guide's text differs from main's copy (where the branch left main) without an `updated` above main's APP_VERSION, or a stamp goes backwards. After merging/rebasing a main that edited guides, re-check those guides' stamps.
 - The Word guides under `nexidoc/` are GENERATED from the same content, so the
   in-app guide is what gets edited first; regenerate the .docx afterwards.
 - The Help centre is deliberately read-only: never add a download, export, print
