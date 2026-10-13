@@ -169,15 +169,15 @@ module.exports=[
   run:async()=>{upsertPayrollRun({id:'ops_2026-09-07_2026-09-13',type:'weekly',periodStart:'2026-09-07',periodEnd:'2026-09-13',status:'draft',lines:[{empId:'X'}],totals:{netPay:1},createdAt:1});
     const r=JSON.parse(localStorage.getItem('hydroPro_payroll_runs'))[0];return {reopenedAt:r.reopenedAt,by:r.reopenedBy,hist:(r.approvalHistory||[]).length,lines:r.lines.length};},
   expect:{reopenedAt:1758000000000,by:'eyal',hist:1,lines:1} },
-{ name:'Approve & Lock asks about pending memos and unsigned weekends, not only lates (v20.70)',
+{ name:'Approve & Lock asks about memos not yet approved and unsigned weekends, not only lates (v20.70 · v23.10)',
   seed:()=>{localStorage.setItem('hydroPro_employees',JSON.stringify([{id:'JO',name:'SANTOS, JO',status:'Active',salaryCategory:'Regular',dept:'Construction',payType:'weekly',employmentType:'Regular',dailyRate:658,dateHired:'2025-01-01'}]));
     const a={};['2026-09-07','2026-09-08','2026-09-09','2026-09-10','2026-09-11','2026-09-12'].forEach(d=>{a[d]={JO:{status:'present',timeIn:'07:00',timeOut:'17:00',lateMinutes:0,source:'fingerprint'}};});localStorage.setItem('hydroPro_attendance',JSON.stringify(a));
     localStorage.setItem('hydroPro_memos',JSON.stringify([{id:'M1',category:'hr',type:'good',empId:'JO',date:'2026-09-08',status:'pending',totalAmount:500,reasonLabel:'bonus',signatures:{}},{id:'M2',category:'hr',type:'good',empId:'JO',date:'2026-09-09',status:'pending',totalAmount:700,reasonLabel:'bonus',signatures:{}}]));},
-  run:async()=>{const asked=[];window.confirm=m=>{asked.push(String(m).slice(0,120));return !/memo\(s\) not yet signed/.test(String(m));};
+  run:async()=>{const asked=[];window.confirm=m=>{asked.push(String(m).slice(0,120));return !/memo\(s\) not yet approved/.test(String(m));};
     window._payOpsCurrentPeriod={start:'2026-09-07',end:'2026-09-13',payday:'2026-09-19',label:'w'};renderPayrollOps();await sleep(1500);
     payOpsApprove();await sleep(400);const ov=document.getElementById('hnxAnomOv');if(ov&&window.__hnxAnomGo){ov.remove();window.__hnxAnomGo();} /* the pre-sign anomaly check is a separate gate */
     await sleep(500);const r=JSON.parse(localStorage.getItem('hydroPro_payroll_runs')).find(x=>x.id==='ops_2026-09-07_2026-09-13');
-    return {asked:asked.some(m=>/2 memo\(s\) not yet signed/.test(m)),status:r&&r.status,pend:r&&r.lines[0]&&r.lines[0].pending&&r.lines[0].pending.memo.n};},
+    return {asked:asked.some(m=>/2 memo\(s\) not yet approved/.test(m)),status:r&&r.status,pend:r&&r.lines[0]&&r.lines[0].pending&&r.lines[0].pending.memo.n};},
   expect:{asked:true,status:'draft',pend:2} },
 { name:'tardiness policy is one snapshot (last writer wins), memo delete and attendance clear leave tombstones (v20.70)',
   seed:()=>{localStorage.setItem('hydroPro_memos',JSON.stringify([{id:'M9',category:'hr',type:'good',empId:'X',date:'2026-09-14',status:'pending',totalAmount:500,signatures:{}}]));
