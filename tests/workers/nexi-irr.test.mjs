@@ -18,13 +18,15 @@ const mkR2 = () => { const m = new Map(); return { m,
   async put(k, v) { m.set(k, typeof v === 'string' ? v : String(v)); },
   async head(k) { return m.has(k) ? {} : null; },
   async list({ prefix }) { return { objects: [...m.keys()].filter(k => k.startsWith(prefix)).sort().map(key => ({ key })), truncated: false }; } }; };
+const ALL = ['P01', 'P02', 'P03', 'P04', 'P05', 'P06', 'P07', 'P08', 'P09', 'P10', 'P11A', 'P11B'];
 const env = { R2: mkR2(), IRR_TOKEN: 'app-token-123',
-  NODE_TOKENS: JSON.stringify({ 'tap-room1-2': { token: 'node-token-abc', pools: ['P01', 'P02'] }, 'tap-room9': { token: 'node-token-xyz', pools: ['P09'] } }) };
+  NODE_TOKENS: JSON.stringify({ 'tap-room1-2': { token: 'node-token-abc', pools: ['P01', 'P02'] }, 'tap-room9': { token: 'node-token-xyz', pools: ['P09'] }, 'proleaf-mail': { token: 'node-token-mail', pools: ALL } }),
+  PROLEAF_MAP: JSON.stringify({ 'BHIDA17102B:tank1': 'P07' }) }; /* v22.78: the alarm-mail bridge's node + the device → pool map */
 const call = async (path, { method = 'GET', token, body } = {}) => {
   const r = await worker.fetch(new Request('https://irr.test' + path, { method, headers: token ? { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined }), env, {});
   return { status: r.status, body: await r.json() };
 };
-const now = Date.now(), iso = ms => new Date(ms).toISOString();
+const now = Date.now(), iso = ms => new Date(ms).toISOString(), round2 = v => Math.round(v * 100 + 1e-9) / 100;
 
 // 1. tokens
 { const a = await call('/irr/latest'), b = await call('/irr/latest', { token: 'node-token-abc' }), c = await call('/irr/push', { method: 'POST', token: 'app-token-123', body: { readings: [] } });
@@ -77,6 +79,49 @@ const now = Date.now(), iso = ms => new Date(ms).toISOString();
 // 8. normalize on its own: a reading older than 7 days is refused
 { const n = mod.normalize({ pool: 'P01', ts: now - 8 * 864e5, ec: 1.7 }, now);
   check('a reading 8 days old is refused ("older than 7 days")', n.error === 'older than 7 days', n); }
+
+// ---- v22.78 (pool meters, Eyal 13 Oct) ----
+// 9. /irr/health needs no token and holds nothing secret
+{ const h = await call('/irr/health');
+  const body = JSON.stringify(h.body);
+  check('/irr/health without a token → 200, version "22.78", nodes tap-room1-2 lastSeen > 0, body holds no token string',
+    h.status === 200 && h.body.ok === true && h.body.version === '22.78' && h.body.nodes && h.body.nodes['tap-room1-2'] > 0 && body.indexOf('app-token') < 0 && body.indexOf('node-token') < 0, h.body); }
+
+// 10. the alarm-mail bridge names a device + tank, not a pool: PROLEAF_MAP turns it into the pool; an unmapped device is refused
+{ const yday = new Date(now - 864e5 + 8 * 3600e3).toISOString().slice(0, 10); /* yesterday, Manila — always in the past and inside 7 days */
+  const ts1050 = yday + 'T02:50:00Z'; /* 10:50 Manila */
+  const r = await call('/irr/push', { method: 'POST', token: 'node-token-mail', body: { readings: [
+    { device: 'BHIDA17102B', tank: 'tank1', ts: ts1050, ec: 2.07, src: 'alarm', alarm: 'High EC Alarm', msgId: '191feff483a4d627' },
+    { device: 'BHI00000000', tank: 'tank1', ts: ts1050, ec: 2.0, src: 'alarm' } ] } });
+  const l = await call('/irr/latest', { token: 'app-token-123' });
+  const p = l.body.pools && l.body.pools.P07;
+  check('proleaf-mail node pushes {device BHIDA17102B, tank1, ec 2.07, src alarm} → stored as P07 EC 2.07 src "alarm" round "08:00" (ts 10:50 Manila), device + tank + alarm + msgId kept; {device BHI00000000} → refused "unmapped device BHI00000000:tank1"',
+    r.status === 200 && r.body.stored === 1 && r.body.refused.length === 1 && r.body.refused[0].error === 'unmapped device BHI00000000:tank1'
+    && p && p.ec === 2.07 && p.src === 'alarm' && p.round === '08:00' && p.device === 'BHIDA17102B' && p.tank === 'tank1' && p.alarm === 'High EC Alarm' && p.msgId === '191feff483a4d627' && p.node === 'proleaf-mail', { r: r.body, p }); }
+
+// 11. /irr/history: one point per 15-minute bucket (the last reading of the bucket), oldest first; hours outside 1-168 → 400
+{ const env2 = { ...env, R2: mkR2() };
+  const call2 = async (path, { method = 'GET', token, body } = {}) => {
+    const r = await worker.fetch(new Request('https://irr.test' + path, { method, headers: token ? { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined }), env2, {});
+    return { status: r.status, body: await r.json() }; };
+  const B = 15 * 60e3, base = Math.floor((now - 3600e3) / B) * B + 1000; /* the start of a 15-min bucket, an hour ago */
+  const readings = []; for (let i = 0; i < 10; i++) readings.push({ pool: 'P09', ts: base + i * 60e3, ec: round2(1.75 + i * 0.01) });
+  readings.push({ pool: 'P09', ts: base - 3 * 3600e3, ec: 1.7 }); /* one more, 3 h earlier, in its own bucket */
+  const r = await call2('/irr/push', { method: 'POST', token: 'node-token-xyz', body: { readings } });
+  const h = await call2('/irr/history?pool=P09&hours=24', { token: 'app-token-123' });
+  const bad = await call2('/irr/history?pool=P09&hours=200', { token: 'app-token-123' });
+  const pts = (h.body && h.body.points) || [];
+  check('/irr/history P09 24 h: 10 readings 1 min apart in one 15-min bucket → 1 point (the last, EC 1.84); with one more reading 3 h earlier (EC 1.70) → 2 points oldest first [1.70, 1.84], each {ts, ec, node}; hours=200 → 400',
+    r.body.stored === 11 && h.status === 200 && pts.length === 2 && pts[0].ec === 1.7 && pts[1].ec === 1.84 && pts[1].ts === base + 9 * 60e3 && pts[1].node === 'tap-room9' && pts[0].ts < pts[1].ts && bad.status === 400, { r: r.body, pts, bad: bad.status }); }
+
+// 12. a body over 64 KB is refused before it is parsed
+{ const big = { readings: [], pad: 'x'.repeat(70 * 1024) };
+  const r = await call('/irr/push', { method: 'POST', token: 'node-token-abc', body: big });
+  check('a 70 KB body → 413 "body too large"', r.status === 413 && r.body.error === 'body too large', { status: r.status, body: r.body }); }
+
+// 13. the round of a reading (Manila): the latest slot ≤ ts of 08:00 / 11:00 / 14:00 / 16:00, null before 08:00
+{ const a = mod.roundOf(Date.parse('2026-10-13T23:59:00Z')), b = mod.roundOf(Date.parse('2026-10-13T03:00:00Z')), c = mod.roundOf(Date.parse('2026-10-13T08:30:00Z'));
+  check('round: 07:59 Manila → null, 11:00 → "11:00", 16:30 → "16:00"', a === null && b === '11:00' && c === '16:00', [a, b, c]); }
 
 console.log(fails ? fails + ' failed' : total + '/' + total + ' passed');
 process.exit(fails ? 1 : 0);

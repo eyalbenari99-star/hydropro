@@ -1,12 +1,15 @@
 /* v22.11: 🩺 Health Guardian */
 module.exports=[
-{ name:'🩺 Guardian v22.11: a cycle measures this computer (status, store K, jobs, version), writes ONE record for this device into hydroPro_health_v1 (an id-list, updatedAt), keeps other computers’ records, and the 🩺 Nexi Health panel lists both (v22.11)',
+{ name:'🩺 Guardian v22.11: a cycle measures this computer (status, store K, jobs, version), writes ONE record for this device into hydroPro_health_v1 (an id-list, updatedAt), keeps other computers’ records, and the 🩺 Nexi Health panel lists both (v22.11); v22.78: the record has a `meters` string ("off" while the sensor feed is off) and the panel header has 11 columns incl. 🔌 Meters',
   seed:function(){localStorage.setItem('hnx_device_id','dev_test01');localStorage.setItem('hydroPro_health_v1',JSON.stringify([{id:'dev_other',updatedAt:Date.now()-60000,user:'meajean',ver:'22.10',status:'red',blocked1m:44,blocked10m:30,storeK:9000,failedSaves:3,vault:'ok',sync:'ok'}]));},
   run:async()=>{await sleep(3000);const m=window.__hnxGuardian.runNow();const arr=JSON.parse(localStorage.getItem('hydroPro_health_v1')||'[]');
     const mine=arr.filter(r=>r.id==='dev_test01');const other=arr.find(r=>r.id==='dev_other');
     window.hnxHealthPanel();const p=document.getElementById('hnxHealthPanel');const txt=p?p.textContent:'';
-    return {measured:!!m&&['green','amber','red'].indexOf(m.status)>=0&&m.storeK>0&&m.jobs>0,one:mine.length===1&&!!mine[0].updatedAt&&mine[0].ver===String(APP_VERSION),keptOther:!!other,panel:/meajean/.test(txt)&&/Nexi Health/.test(txt)};},
-  expect:{measured:true,one:true,keptOther:true,panel:true} },
+    /* v22.78 (pool meters): the record carries a `meters` string ("off" while the feed is off) and the panel has a 🔌 Meters column (11 headers) */
+    const metersStr=(typeof window.hnxIrrMeters==='object'&&window.hnxIrrMeters.v>=2278)?(typeof (mine[0]||{}).meters==='string'&&(mine[0]||{}).meters==='off'):true;
+    const cols=(typeof window.hnxIrrMeters==='object'&&window.hnxIrrMeters.v>=2278)?(p.querySelectorAll('thead th').length===11&&/🔌 Meters/.test([...p.querySelectorAll('thead th')].map(t=>t.textContent).join('|'))):true;
+    return {measured:!!m&&['green','amber','red'].indexOf(m.status)>=0&&m.storeK>0&&m.jobs>0,one:mine.length===1&&!!mine[0].updatedAt&&mine[0].ver===String(APP_VERSION),keptOther:!!other,panel:/meajean/.test(txt)&&/Nexi Health/.test(txt),metersStr,cols};},
+  expect:{measured:true,one:true,keptOther:true,panel:true,metersStr:true,cols:true} },
 { name:'🩺 Guardian v22.11: two minutes blocked > 50 % → emergency slow-down level 2 (a heavy 500 ms job then waits ≥ 15 s; a sync job keeps its pace), five healthy minutes release it; a memory refresh is never planned while someone used the computer in the last 3 minutes (v22.11)',
   run:async()=>{await sleep(2500);const G=window.__hnxGuardian;
     window.__eHeavy=0;window.__eSync=0;setInterval(function heavyForTest(){window.__eHeavy++;const t=performance.now();while(performance.now()-t<8){}},500);setInterval(function(){/* tryAutoSync */window.__eSync++;},500);
