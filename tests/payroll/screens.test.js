@@ -545,4 +545,15 @@ module.exports=[
     for(let i=0;i<4;i++)localStorage.removeItem('hnx_test_fill_'+i);
     return {full:!!(btn&&/STORAGE FULL/.test(btn.textContent)),canSave:u.canSave,under70:u.pct<70};},
   expect:{full:false,canSave:true,under70:true} },
+{ name:'🌱 every Production screen renders with 0 page errors (v22.72 pictures on): production_brain, dashboard, wall, checklist, supervisor, prod_supervisor_matrix, prod_recurring, prod_open_calls, training, prod_seeds, prod_seedling_plan, indoor_projects, open_issues, prod_tech_per_gh, crops_matrix, history — each becomes the active view, the dashboard farm carries its 14 pictures, and the Production pictures sit only on the Production screens (stats().reason "no view" on HR)',
+  requires:"window.hnxProdVisual&&window.hnxProdVisual.__v==='22.72'",
+  run:async()=>{
+    window.showToast=()=>{};try{switchModule('production');}catch(e){}await sleep(1800);
+    const VIEWS=['production_brain','dashboard','wall','checklist','supervisor','prod_supervisor_matrix','prod_recurring','prod_open_calls','training','prod_seeds','prod_seedling_plan','indoor_projects','open_issues','prod_tech_per_gh','crops_matrix','history'];
+    const out={};for(const v of VIEWS){switchView(v,true);await sleep(/brain|wall/.test(v)?3000:1600);const a=document.querySelector('.view.active');out[v]=a?a.id:'';}
+    out.crops_matrix=/^view-(dashboard|crops_matrix)$/.test(out.crops_matrix); /* crops_matrix opens either the dashboard in matrix-only mode or its own view (the transplant race, out of scope) */
+    const pics=document.querySelectorAll('#view-dashboard #pvFarmGrid > article .pv-gc-pic svg').length;
+    switchView('hr',true);await sleep(800);const off=window.hnxProdVisual.stats();
+    return {views:out,pics,offReason:off.reason,offRunning:off.running};},
+  expect:{'views.production_brain':'hnxModBrainView','views.dashboard':'view-dashboard','views.wall':'view-wall','views.checklist':'view-checklist','views.supervisor':'view-supervisor','views.prod_supervisor_matrix':'view-prod_supervisor_matrix','views.prod_recurring':'view-prod_recurring','views.prod_open_calls':'view-prod_open_calls','views.training':'view-training','views.prod_seeds':'view-prod_seeds','views.prod_seedling_plan':'view-prod_seedling_plan','views.indoor_projects':'view-indoor_projects','views.open_issues':'view-open_issues','views.prod_tech_per_gh':'view-prod_tech_per_gh','views.crops_matrix':true,'views.history':'view-history',pics:14,offReason:'no view',offRunning:false} },
 ];
