@@ -1,4 +1,4 @@
-/* v23.06 (Eyal, 13 Oct 2026): "Memos of the day should be Delia's [daily] option or to print out with all details of the day in any time" —
+/* v23.16 (Eyal, 13 Oct 2026): "Memos of the day should be Delia's [daily] option or to print out with all details of the day in any time" —
    📅 Memos of the day: for any day (or a range) every memo DATED that day with all its details; 🖨 print / PDF and 📊 Excel at any time.
    Fixture: GH3 = TORZAR (team leader ₱150), CRUZ, REYES (absent 13 Oct); GH5 = GARCIA, SANTOS; DELA CRUZ, MARK supervises GH3 + GH5 (₱100);
    memo rates 150 / 100 / 100; everyone present 8–14 Oct except REYES on 13 Oct; payroll week 8–14 Oct.
@@ -212,13 +212,13 @@ module.exports=[
   }),
   expect:{viewOk:true,ovOk:true,btns:true}},
 
-{ name:'Memo chain: an old pending memo Jinky signed as HR Manager (10:00) shows "① Jinky ✓ 10:00 (her HR Manager signature before v22.94) · ⏳ waiting ② Dr Amy / Eyal" and waits at ② (−₱200); labels come from the chain (✅ Approved / ✅ Applied / ⏳ ② Final / ⏳ ① Jinky / ↩ Returned / ✖ Rejected); waiting 3 (① 1 · ② 2) +₱300 / −₱500',
+{ name:'Memo chain: an old pending memo Jinky signed as HR Manager (10:00) shows "① Jinky ✓ 10:00 (her HR Manager signature before v23.10) · ⏳ waiting ② Dr Amy / Eyal" and waits at ② (−₱200); labels come from the chain (✅ Approved / ✅ Applied / ⏳ ② Final / ⏳ ① Jinky / ↩ Returned / ✖ Rejected); waiting 3 (① 1 · ② 2) +₱300 / −₱500',
   requires:"typeof window.hnxMemoStage==='function'&&!!window.hnxMemoDay",
   run:R(async()=>{
     FX({v1:true});
     const M=hnxMemoDay.model(D,D,{}),v1=M.memos.find(m=>m.id==='V1')||{},W=M.sum.waiting;
     return {v1:v1.steps,v1Total:v1.total,labels:M.memos.map(m=>m.id+':'+m.stageLabel).join('|'),wait:[W.n,W.acct,W.final,W.plus,W.minus]};
   }),
-  expect:{v1:'① Jinky ✓ 10:00 (her HR Manager signature before v22.94) · ⏳ waiting ② Dr Amy / Eyal',v1Total:-200,
+  expect:{v1:'① Jinky ✓ 10:00 (her HR Manager signature before v23.10) · ⏳ waiting ② Dr Amy / Eyal',v1Total:-200,
     labels:'D1:✅ Approved|D2:✅ Approved|D6:✅ Applied|D3:⏳ ② Final|D4:✅ Approved|D5:↩ Returned|V1:⏳ ② Final|D7:✖ Rejected|D8:⏳ ① Jinky',wait:[3,1,2,300,-500]}}
 ];

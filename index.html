@@ -245146,7 +245146,7 @@ console.log('[v16.21] memo matrix ready');
 </script>
 <script id="hnx-memo-day-v2306">
 /* ============================================================
-   v23.06 📅 MEMOS OF THE DAY (Eyal, 13 Oct 2026: "Memos of the day should be Delia's [daily] option or to print
+   v23.16 📅 MEMOS OF THE DAY (Eyal, 13 Oct 2026: "Memos of the day should be Delia's [daily] option or to print
    out with all details of the day in any time").
    For any day (‹ ›) or a range: every memo DATED that day, with all its details — summary by type, plus / minus /
    net, per greenhouse, per person, waiting for ① / ②; every memo in full (people at payroll's own rule, attachments,
@@ -245170,18 +245170,12 @@ function dayLbl(ymd){var p=String(ymd).split('-').map(Number),d=new Date(Date.UT
 function first(n){var w=String(n||'?').trim().split(/\s+/);return (/^dr\.?$/i.test(w[0])&&w[1])?w[0]+' '+w[1]:w[0];}            /* 'Dr Amy' */
 function peso(n){n=Math.round((+n||0)*100)/100;var a=Math.abs(n);return (n>0?'+':n<0?'−':'')+'₱'+a.toLocaleString('en-PH',{minimumFractionDigits:(a%1?2:0),maximumFractionDigits:2});} /* '+₱950' '−₱1,150' '₱0' */
 function cur(c,x){return !!(x&&(x.round==null||x.round===(c.round||0)));}
-function acctFirst(){try{if(typeof window.hnxMemoAcctFirst==='function')return window.hnxMemoAcctFirst();}catch(e){}return 'Jinky';}
-function sidesTxt(m){try{if(typeof window.hnxMemoFinalSides==='function'){var s=window.hnxMemoFinalSides(m);if(s.length===1)return window.hnxMemoSideName(s[0]);}}catch(e){}return 'Dr Amy / Eyal';}
-function chainOf(m){try{if(typeof window.hnxMemoChainOf==='function')return window.hnxMemoChainOf(m);}catch(e){}return (m&&m.chain&&typeof m.chain==='object')?m.chain:null;}
-function stageOf(m){ try{if(typeof window.hnxMemoStage==='function')return window.hnxMemoStage(m);}catch(e){}
-  if(!m)return 'none'; if(m.source==='late_approval')return 'record'; var st=m.status;
-  if(st==='rejected'||st==='draft'||st==='returned')return st; var c=chainOf(m);
-  if(c){var a=cur(c,c.acct),f=cur(c,c.final);if(a&&f&&(st==='signed'||st==='applied'))return st==='applied'?'applied':'approved';return a?'final':'acct';}
-  if(st==='pending')return 'acct';
-  if(st==='signed'){var nf=false;try{nf=typeof window.hnxMemoNeedsFinal==='function'&&window.hnxMemoNeedsFinal(m);}catch(e){}return nf?'final':'approved';}
-  if(st==='applied')return 'applied'; return 'none'; }
-function stageLabel(m){ try{if(typeof window.hnxMemoStageLabel==='function')return window.hnxMemoStageLabel(m,true);}catch(e){}
-  return {draft:'Draft',acct:'⏳ ① '+acctFirst(),final:'⏳ ② Final',approved:'✅ Approved',applied:'✅ Applied',returned:'↩ Returned',rejected:'✖ Rejected',record:'Late record'}[stageOf(m)]||String((m&&m.status)||'—'); }
+/* the memo chain (v23.10, block hnx-memo-chain-v2294) is the ONE rule: stage, label, chain, who gives ② */
+function acctFirst(){return window.hnxMemoAcctFirst();}
+function sidesTxt(m){var s=window.hnxMemoFinalSides(m);return s.length===1?window.hnxMemoSideName(s[0]):'Dr Amy / Eyal';}
+function chainOf(m){return window.hnxMemoChainOf(m);}
+function stageOf(m){return window.hnxMemoStage(m);}
+function stageLabel(m){return window.hnxMemoStageLabel(m,true);}
 
 /* ---------- small utilities ---------- */
 function r2(x){return Math.round((+x||0)*100)/100;}
@@ -245210,39 +245204,10 @@ function scope(){ var u=me(); if(!u)return {denied:true};
   var s=em&&em.supervisorGHs,ghs=s==='all'?ghList():(Array.isArray(s)?s.slice():(typeof s==='string'&&s?s.split(/[,\s]+/).filter(Boolean):[]));
   return ghs.length?{full:false,money:false,ghs:ghs,denied:false,hr:false,who:u.username}:{denied:true}; }
 
-/* ---------- category, direction, effect (the memo chain's helpers when present; else the same rule as payroll) ---------- */
-function catL(m){return (m&&(m.category==='hr'||m.type==='hr'))?'hr':((m&&(m.category==='production'||m.type==='production'))?'production':'');}
-function catOf(m){try{if(typeof window.hnxMemoCat==='function')return window.hnxMemoCat(m);}catch(e){}return catL(m);}
-function rawAmt(m){var a=parseFloat(m.amount);if(isNaN(a)||a===0)a=parseFloat(m.totalAmount);return isNaN(a)?0:a;}
-function dirL(m){if(!m)return 0;var k=m.kind||((m.type==='good'||m.type==='bad')?m.type:'bad');
-  if(catL(m)==='hr')return (rawAmt(m)<0||k==='bad')?-1:1; return k==='good'?1:-1;}
-function dirOf(m){try{if(typeof window.hnxMemoDir==='function')return window.hnxMemoDir(m);}catch(e){}return dirL(m);}
-function effL(m,ctx){
-  var out=[];if(!m)return out;ctx=ctx||{};
-  var emps=Array.isArray(ctx.emps)?ctx.emps:[];var dir=dirL(m);
-  if(catL(m)==='hr'){
-    var i0=(m.impact&&m.impact[0])||{};var id=m.empId||i0.empId||'';if(!id)return out;
-    var e=null;for(var i=0;i<emps.length;i++){if(emps[i]&&emps[i].id===id){e=emps[i];break;}}
-    var nm=(e&&e.name)||i0.empName||m.employeeName||String(id);
-    if(m.noMoney)return [{empId:id,empName:nm,amount:0,warn:true}];
-    var a=Math.abs(rawAmt(m));if(!a)return out;
-    return [{empId:id,empName:nm,amount:dir*a,warn:false}];
-  }
-  var gh=m.ghAffected||m.gh||'';if(!gh||!m.date)return out;
-  var att=(ctx.att&&typeof ctx.att==='object')?ctx.att:{};var day=att[m.date]||{};
-  emps.forEach(function(e){
-    if(!e||e.status!=='Active')return;
-    var sup=e.supervisorGHs,hit=(sup==='all')||(Array.isArray(sup)&&sup.indexOf(gh)>=0);
-    if(!((e.ghAssigned||[]).indexOf(gh)>=0||hit))return;
-    var r=day[e.id];if(!r||(r.status!=='present'&&r.status!=='late'))return;
-    if(m.noMoney){out.push({empId:e.id,empName:e.name,amount:0,warn:true});return;}
-    var a=0;try{a=Math.abs(Number(window.calcMemoAmountForEmp(m,e))||0);}catch(x){}
-    if(!a)return;
-    out.push({empId:e.id,empName:e.name,amount:dir*a,warn:false});
-  });
-  return out;
-}
-function effectOf(m,ctx){try{if(typeof window.hnxMemoEffect==='function')return window.hnxMemoEffect(m,ctx)||[];}catch(e){}return effL(m,ctx);}
+/* ---------- category, direction, effect: the memo chain's helpers — exactly payroll's rule ---------- */
+function catOf(m){return window.hnxMemoCat(m);}
+function dirOf(m){return window.hnxMemoDir(m);}
+function effectOf(m,ctx){return window.hnxMemoEffect(m,ctx)||[];}
 function isLate(m){return !!m&&(m.source==='late_approval'||/^LATE_/.test(String(m.id||'')));}
 function kindOf(m){if(isLate(m))return 'record';if(m.noMoney)return 'warning';if(catOf(m)==='hr')return 'hr';return dirOf(m)>0?'good':'bad';}
 function ghOf(m){return m.gh||m.ghAffected||'';}
@@ -245283,7 +245248,7 @@ function stepsOf(m,stage){
   var a=cur(c,c.acct)?c.acct:null,f=cur(c,c.final)?c.final:null;
   if(stage==='acct')return '⏳ waiting ① '+acctFirst();
   var aT=a?('① '+first(a.name||a.by)+' ✓ '+tm(a.at,day)+(a.covered?' (covering — the accountant wrote it)':'')
-    +(a.via?(/HR Manager/.test(a.via)?' (her HR Manager signature before v22.94)':' ('+a.via+')'):'')):'① —';
+    +(a.via?(/HR Manager/.test(a.via)?' (her HR Manager signature before '+((/before (v[\d.]+)/.exec(a.via)||[])[1]||'the chain')+')':' ('+a.via+')'):'')):'① —';
   if(stage==='final')return aT+' · ⏳ waiting ② '+sidesTxt(m);
   if(stage==='approved'||stage==='applied')return aT+' · '+(f?('② '+first(f.name||f.by)+' ✓ '+tm(f.at,day)):'② —')+(stage==='applied'?' · applied':'');
   return 'Status: '+(m.status||'—');
@@ -246013,7 +245978,7 @@ window.hnxMemoDay={
   refresh:repaint,
   state:function(){return JSON.parse(JSON.stringify(ST));}
 };
-console.log('[v23.06] memos of the day ready');
+console.log('[v23.16] memos of the day ready');
 })();
 </script>
 <script>
@@ -302181,7 +302146,7 @@ window.HNX_HELP_TASKS = [
 ];
 
 window.HNX_HELP_MODULES_A = [
-{id:'m_overview', icon:'🌍', title:'Overview — the whole company on one screen', who:'Managers · Eyal · Dr Amy', cat:'module', added:{date:'2026-09-13',version:'19.93'}, updated:{date:'2026-10-14',version:'23.04'},
+{id:'m_overview', icon:'🌍', title:'Overview — the whole company on one screen', who:'Managers · Eyal · Dr Amy', cat:'module', added:{date:'2026-09-13',version:'19.93'}, updated:{date:'2026-10-14',version:'23.16'},
  summary:'Where you look first: what is wrong right now across every module, what is overdue, and what the day produced.',
  sections:[
   {h:'Start your day here', p:[
@@ -302215,11 +302180,11 @@ window.HNX_HELP_MODULES_A = [
    'It is built from the day’s own records, so a band only appears when there is something in it. No faults band means no faults were raised — not that the check did not run.',
    'The 🚐 Fleet line counts what 🚛 Trip Log holds for the day: how many driver-days were logged, how many drops those cover, and how many different trucks ran. It is the same store payroll pays trip incentives from, so if the line looks light, the trips were not logged yet — and the incentive will be light too.'],
    note:{k:'THE FLEET LINE IS A LOGGING CHECK',t:'Deliveries ran and the Fleet line is missing? Nobody has logged them. Chase the log before the payroll cut-off, not after.'}},
-  {h:'📋 Memos on the Daily Summary (v23.06)', p:['For HR, the payroll people and the greenhouse supervisors, the Daily Summary Report shows a 📋 card with the memos dated on the report’s day: how many, of which type, and how many still wait for approval — counts only, never pesos. 📅 Open Memos of the day → shows the full report. A supervisor sees only his greenhouses’ memos; other users do not see the card.']},
+  {h:'📋 Memos on the Daily Summary (v23.16)', p:['For HR, the payroll people and the greenhouse supervisors, the Daily Summary Report shows a 📋 card with the memos dated on the report’s day: how many, of which type, and how many still wait for approval — counts only, never pesos. 📅 Open Memos of the day → shows the full report. A supervisor sees only his greenhouses’ memos; other users do not see the card.']},
   {h:'What to do with what you find', p:[
    'Decide on 🚨 Escalation: every escalated item gets an action, a responsible person and a follow-up date — or is closed as not relevant. To fix the record itself, open its module (↗ Open on the row) or raise a call from the header so it lands with the right team.']}]},
 
-{id:'m_production', icon:'🌱', title:'Production', who:'Supervisors · growers · Dr Amy', cat:'module', added:{date:'2026-09-13',version:'19.93'}, updated:{date:'2026-10-14',version:'23.10'},
+{id:'m_production', icon:'🌱', title:'Production', who:'Supervisors · growers · Dr Amy', cat:'module', added:{date:'2026-09-13',version:'19.93'}, updated:{date:'2026-10-14',version:'23.16'},
  summary:'The daily checklist across the greenhouses, the recurring cleaning tasks, seed studies and the seedling plan.',
  sections:[
   {h:'The screens are pictures now (v22.98)', p:[
@@ -302300,7 +302265,7 @@ window.HNX_HELP_MODULES_A = [
    'The 🧠 Nexi Cockpit shows every greenhouse as a card; press a card and its Digital Twin opens. Every figure on it is a link — checklist, warnings, open items, fan issues, attendance, requests, the critical in the Emergency box, each line in the Nexi AI box — press it and the screen holding the detail opens, already on that greenhouse.',
    'Below the summary the twin lists what is linked to that greenhouse: 🩺 today’s open problems with what is being done about each (red “no action yet” where nothing is), 📈 the last 14 days as squares (press one for the history), 📞 its open calls and issues one by one (press one to open the call), 🔧 its fan issues, 👷 who is present today, 📋 its memos (press one to read it), and 📦 its item requests. Each heading opens the full screen.'],
    note:{k:'NO SENSOR IS NOT A FAULT',t:'Climate, radio, NFC and photo rows say “no sensor” or “no device feed yet” because those devices are not wired to Nexi. They will fill in when they are; nothing is invented meanwhile.'}},
-  {h:'📅 Memos of your greenhouses (v23.06)', p:['A supervisor connected to greenhouses (⚙ Memo rates → supervisors) opens 📅 Memos of the day from the 📋 card on the 🌅 Daily Summary Report: every memo of his greenhouses on that day, with the reasons, the people, the photos and the approval steps — without peso amounts. 🖨 Print and 📊 Excel give the same, also without pesos.']},
+  {h:'📅 Memos of your greenhouses (v23.16)', p:['A supervisor connected to greenhouses (⚙ Memo rates → supervisors) opens 📅 Memos of the day from the 📋 card on the 🌅 Daily Summary Report: every memo of his greenhouses on that day, with the reasons, the people, the photos and the approval steps — without peso amounts. 🖨 Print and 📊 Excel give the same, also without pesos.']},
   {h:'What matters', note:{k:'A CRITICAL IS A PROMISE',t:'Marking something critical raises it to the people who can act. Marking everything critical means nobody can tell what is urgent. Use warning for what needs attention this week and critical for what stops production or risks the crop.'}}]},
 
 {id:'m_maintenance', icon:'🔧', title:'Maintenance', who:'Maintenance team · technicians', cat:'module', added:{date:'2026-09-13',version:'19.93'}, updated:{date:'2026-10-13',version:'22.96'},
@@ -302656,7 +302621,7 @@ window.HNX_HELP_MODULES_B = [
   {h:'Nexi AI is optional', p:[
    'The ✨ Ask Nexi AI to check button sends your instruction to the nexi-ai worker and shows how it reads it. That is a reading, not an activation, and it is only available when the AI brain is set up on the device.']}
  ]},
-{id:'m_hr', icon:'👥', title:'HR & People', who:'Mea · Chen · Jinky · HR', cat:'module', added:{date:'2026-09-13',version:'19.93'}, updated:{date:'2026-10-14',version:'23.10'},
+{id:'m_hr', icon:'👥', title:'HR & People', who:'Mea · Chen · Jinky · HR', cat:'module', added:{date:'2026-09-13',version:'19.93'}, updated:{date:'2026-10-14',version:'23.16'},
  summary:'The employee records, attendance, memos, policies and the final pay of anyone leaving.',
  sections:[
   {h:'🔒 Office pay and loyalty on the HR card (v22.54)', p:[
@@ -302675,7 +302640,7 @@ window.HNX_HELP_MODULES_B = [
    ['🐞 Issue Tracker','Any issue with a priority, an owner and a status, filtered by category or department.'],
    ['📁 Company Policies & Processes','The policies by department.'],
    ['💰 Final Pay (Separating)','What is owed when somebody leaves.'],
-   ['📅 Memos of the day','Every memo of one day (or a range) with all its details — people and pesos, approvals, payroll status — 🖨 print / PDF or 📊 Excel at any time (v23.06).']]}},
+   ['📅 Memos of the day','Every memo of one day (or a range) with all its details — people and pesos, approvals, payroll status — 🖨 print / PDF or 📊 Excel at any time (v23.16).']]}},
   {h:'Pay fields on the HR card save only with 💾 Save Employee', p:['While you type, the HR card saves itself, except for the pay fields: the Daily Rate Override, the monthly basic, the 💰 Salary Category, the DEPARTMENT (it decides whether the person is on the weekly labour or the office payroll) and the allowance rows. When any of those change, a yellow note appears under the rate. They are written only when you press 💾 Save Employee; Cancel throws them away. Phone, notes, address and the other fields still save as you type.',
    'When you press 💾 Save Employee, Nexi may ask a second time, showing the pesos. It only asks if you may change pay (Admin, Admin-Secondary, Accounting, or a user with salary access) and a pay field, the Pro Level or an allowance row really changed. It asks when:',
    'Cancel saves nothing: fix the figure and press Save again. Allowance rows you did not touch are not questioned again. A save that changes no pay, such as a phone number or a note, never asks, and people without salary access never see these figures.'],
@@ -302694,10 +302659,10 @@ window.HNX_HELP_MODULES_B = [
   {h:'Rejecting or cancelling a memo (v21.62)', p:['Open the memo. In 🏛 Approval, Eyal or Dr Amy pick a Decision: ✔ FINAL approve → payroll (only after Jinky’s ①), ↩ Return to creator, or ✖ Reject / cancel. Rejecting asks for the reason, which is required; the memo then shows REJECTED with who, when and why, and payroll does not count it. A memo that was already approved or applied can be rejected too — regenerate the payroll run that paid it. The Memos list has a Rejected filter. If it was rejected by mistake, Eyal or Dr Amy press ↩ Re-open: the memo goes back to the person who wrote it (RETURNED), the rejection stays in its trail, and after 📨 Submit it starts again at ①.'], steps:['Memos','open the memo','Decision dropdown','✖ Reject / cancel','type the reason','OK']},
   {h:'The 201 file', p:[
    'Each employee’s documents, contracts and signed assets live in their 201 file, and who may put something in it is controlled. The 201 files guide covers it.']},
-  {h:'📅 Memos of the day — every memo of a day, printed or in Excel (v23.06)', p:[
+  {h:'📅 Memos of the day — every memo of a day, printed or in Excel (v23.16)', p:[
    'Eyal, 13 Oct 2026: “Memos of the day … to print out with all details of the day at any time.” 📋 Memos → 📅 Memos of the day (also HR & People → 📅 Memos of the day, and the 📋 card on the 🌅 Daily Summary Report) shows every memo DATED on the day you pick — today when it opens. ‹ and › go one day back or forward; set a second date for a range (up to 92 days). Filter by greenhouse, department, type (🌟 Good, ⚠️ Bad, 👤 HR, 🚧 Warning) and approval status. ⏰ Late records are hidden unless you tick “Show late records”.',
    'At the top is the summary: how many memos of each type, the total plus, the total minus and the net, per greenhouse and per person — one line per employee with the plus and the minus apart and the net — and how many still wait for approval. The totals count approved memos and memos waiting for ① Jinky or ② Dr Amy / Eyal (the line under them splits the two). Returned, rejected and draft memos are listed but not counted, and a 🚧 warning moves ₱0.',
-   'Below it, every memo in full: number, time written, who wrote it, the greenhouse or the person, the type, title, reasons, the custom reason, what was not done, the outcome, the notes, the people it moves with their role and amount, the total, the attachments (photo thumbnails, PDF names, video links), each approval step — ① who checked it and when, ② who gave the final approval and when, or who returned or rejected it and why (memos from before v22.94 show their old signatures) — and where it is in payroll: waiting, approved, or the payroll run that paid it.',
+   'Below it, every memo in full: number, time written, who wrote it, the greenhouse or the person, the type, title, reasons, the custom reason, what was not done, the outcome, the notes, the people it moves with their role and amount, the total, the attachments (photo thumbnails, PDF names, video links), each approval step — ① who checked it and when, ② who gave the final approval and when, or who returned or rejected it and why (memos approved before the chain, v23.10, show their old signatures) — and where it is in payroll: waiting, approved, or the payroll run that paid it.',
    'Each person’s amount is the one payroll pays: everyone of the greenhouse (and its supervisors) present or late on the memo’s date, at the ⚙ Memo rates. An HR memo typed with a minus is a deduction even when it was marked GOOD. If attendance or the team changed after the memo was saved, the memo shows both figures (“Frozen on the memo … Payroll counts today …”).',
    '🖨 Print / PDF opens the report on white A4 with the company header, the date, the summary, every memo and the signature lines (Prepared by HR · Checked by the accountant · Approved by Dr Amy / Eyal). Choose “Save as PDF” as the printer to keep a PDF. 📊 Excel saves one row per memo and person, with the summary and the approval log on two more sheets. Both use the filters on the screen, and both work on the phone. Photos kept in the cloud need the internet and a signed-in Nexi to print; otherwise the report says “photo not loaded”.',
    'Who sees what: HR (whoever opens 📋 Memos) and the payroll people (Jinky, Eyal, Dr Amy) see every memo with the pesos. A supervisor without HR sees only the memos of his own greenhouses, from the 📋 card on the Daily Summary Report, without any peso amount — on screen, on paper and in Excel. His Nexi user must be linked to his employee card (same username or e-mail) and the card must list his greenhouses (⚙ Memo rates → supervisors). Nothing here changes a memo: opening, printing and Excel write nothing. Open the memo in 📋 Memos to edit, approve or return it.'],
