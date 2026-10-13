@@ -4,14 +4,15 @@
    Dr Amy or Eyal approve the award by item → one draft PO per supplier. The grid is frozen at the award; 🖨 Print comparison,
    🖨 Print buy list and 📊 Excel work from the first offer on. The whole-order award (award()) is unchanged.
    Request PR-2026-000031 "GH15 slab and formworks": cement 50 bag, rebar 120 pc, GI wire 20 kg, marine plywood 12 sheet; offers from
-   Famous Lumber, SWCC Hardware (₱300 delivery, 2 d, 30 days) and Triox (5 d, 15 days, no wire). */
+   Famous Lumber, SWCC Hardware (₱300 delivery, 2 d, 30 days) and Triox (5 d, 15 days, no wire).
+   v23.04 review (13 Oct): the cases after the 1️⃣ one-item case each reproduce one finding of the money / print / integration review. */
 const USERS=[{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true},
   {username:'jinky',fullname:'Jinky Pagtama',role:'accounting',department:'Purchasing',active:true},
   {username:'amy',fullname:'Dr Amy Patdu',role:'admin_secondary',active:true},
   {username:'eyal',fullname:'Eyal Ben Ari',role:'admin',active:true},
   {username:'joshane',fullname:'Joshane Espinosa',role:'operator',department:'Purchasing',active:true}];
 const SEED=new Function("localStorage.setItem('hydroPro_users',JSON.stringify("+JSON.stringify(USERS)+"));"+
-  "['hydroPro_purch_prs','hydroPro_purch_rfqs','hydroPro_purch_pos','hydroPro_purch_grns','hydroPro_purch_invoices','hydroPro_pa_inbox_v1','hydroPro_purch_audit','hydroPro_acct_purch_history'].forEach(k=>localStorage.setItem(k,'[]'));"+
+  "['hydroPro_purch_prs','hydroPro_purch_rfqs','hydroPro_purch_pos','hydroPro_purch_grns','hydroPro_purch_invoices','hydroPro_pa_inbox_v1','hydroPro_purch_audit','hydroPro_acct_purch_history','hydroPro_purch_cmpchecks'].forEach(k=>localStorage.setItem(k,'[]'));"+
   "localStorage.removeItem('hydroPro_purch_roles_v1');localStorage.removeItem('hnx_cloud_token');");
 const PRE=`const U=${JSON.stringify(USERS)};const g0=window.getCurrentUser;const as=k=>{const u=U.find(x=>x.username===k);window.getCurrentUser=()=>u;};
 const TS=[];window.showToast=m=>TS.push(String(m));const AL=[];window.alert=m=>AL.push(String(m));
@@ -128,9 +129,9 @@ module.exports=[
     const p1=P(),pp=(p1.buyFrom||{}).prepared||{},note1=((p1.workflow||[]).find(w=>/^Evaluation complete/.test(w.note||''))||{}).note||'';
     const tj=told(/comparison waits for your check/);
     as('jinky');__PURPRO.tab('mission');await sleep(250);const mis=/comparison check/.test(view());
-    as('joshane');TS.length=0;__PURPRO.cmpCheck('pr31','Approval');const jx=[TS.some(t=>/comparison check is Jinky's/.test(t)),!P().cmpCheck];
+    as('joshane');TS.length=0;__PURPRO.cmpCheck('pr31','Approval');const jx=[TS.some(t=>/comparison check is Jinky's/.test(t)),!(__PURPRO.cmpChecked&&__PURPRO.cmpChecked('pr31'))];
     as('jinky');__PURPRO.openPR('pr31');await sleep(250);const jbtn=[...document.querySelectorAll('#ppCmp button')].some(b=>/Checked — comparison OK/.test(b.textContent));
-    __PURPRO.cmpCheck('pr31','Approval');await sleep(150);const ta=told(/comparison checked — waiting for your award/),chk=(P().cmpCheck||{}).user;
+    __PURPRO.cmpCheck('pr31','Approval');await sleep(150);const ta=told(/comparison checked — waiting for your award/),chk=((__PURPRO.cmpChecked&&__PURPRO.cmpChecked('pr31'))||{}).user;
     as('amy');__PURPRO.tab('mission');await sleep(250);const amis=/award \(comparison checked\)/.test(view());
     __PURPRO.openPR('pr31');await sleep(300);const box=(document.getElementById('ppSplitBox')||{}).innerText||'';
     CF.length=0;PM.length=0;__PURPRO.awardSplit('pr31','Approval',R().updatedAt,(P().buyFrom.prepared||{}).sig);await sleep(250);
@@ -151,10 +152,10 @@ module.exports=[
     au:['award:split Famous Lumber & Construction Supply ₱14,090.00 + SWCC Hardware & Construction Supplies ₱20,460.00 + Triox Enterprise OPC ₱16,560.00 · saves ₱910.71 without VAT'],
     sheet:['frozen','split',3,'amy','split']} },
 
-{ name:'🔒 Award-by-item guards: Eyal prepared → Eyal refused; no Jinky check + No → nothing; a stale stamp → nothing; Triox offers 10 of 12 plywood → reason asked, PO Triox 10 sheet ₱13,800.00 and "Marine plywood 3/4 × 2 sheet short" not ordered; a second press makes no second set (3 POs) (v23.04)',
+{ name:'🔒 Award-by-item guards: Eyal prepared → Eyal refused; no Jinky check + No → nothing; a stale stamp → nothing; Triox offers 10 of 12 plywood and the buyer picks it (no reason — cheaper than SWCC\'s whole 12) → reason asked at the award, PO Triox 10 sheet ₱13,800.00 and "Marine plywood 3/4 × 2 sheet short" not ordered; a second press makes no second set (3 POs) (v23.04)',
   requires:NEED,seed:SEED,
   run:run(async()=>{
-    await S1({tx:{oq:[50,120,0,10]}});
+    await S1({tx:{oq:[50,120,0,10]}});__PURPRO.bfSet('pr31',3,TX,'Quotation Evaluation');await sleep(150); /* v23.04 review: the default buys the whole 12 from SWCC — the buyer picks Triox's 10 */
     const M0=__PURPRO.cmpModel('pr31');const plan=[M0.plan.total,M0.plan.landed,M0.plan.shorts,M0.diff,M0.plan.groups.map(g=>[g.sup,g.total,g.vatAmt,g.landed])];
     as('eyal');__PURPRO.cmpPropose('pr31','Quotation Evaluation');await sleep(200);
     AL.length=0;__PURPRO.awardSplit('pr31','Approval',R().updatedAt,(P().buyFrom.prepared||{}).sig);await sleep(100);
@@ -305,7 +306,7 @@ module.exports=[
       [SW,['Rebar 10 mm','Delivery ₱300.00','swcc@x.ph','Payment terms: 30 days · lead time 2 d'],['Portland cement','GI wire','Marine plywood'],'₱20,460.00'],
       [TX,['Marine plywood 3/4','triox@x.ph'],['Portland cement','Rebar 10 mm','GI wire'],'₱16,560.00']];
     const B0=sec(__PURPRO.cmpHtml('pr31','buy'));
-    const before=B0.map((t,k)=>chk(t,spec[k][0],spec[k][1].concat(['DRAFT — not yet approved','Deliver to: GH15','PO: — (after the approval)','Approval: pending','Page '+(k+1)+' of 3 · PR-2026-000031']),spec[k][2],spec[k][3]));
+    const before=B0.map((t,k)=>chk(t,spec[k][0],spec[k][1].concat(['DRAFT — not yet approved','Deliver to: GH15','PO: — (after the approval)','Approval: pending','Supplier '+(k+1)+' of 3 · PR-2026-000031']),spec[k][2],spec[k][3]));
     const o=PRINT();__PURPRO.cmpPrintBuy('pr31');const pr1=[o.opened,o.writes,/<title>Buy list PR-2026-000031 · RFQ-2026-000031<\/title>/.test(o.html)];
     await CHAIN();const pos=POS(),B1=sec(__PURPRO.cmpHtml('pr31','buy'));
     const after=B1.map((t,k)=>chk(t,spec[k][0],spec[k][1].concat(['PO: '+pos[k].number,'Approved: Dr Amy Patdu','Checked: Jinky Pagtama','Buyer: Joshane Espinosa']),spec[k][2].concat(['DRAFT']),spec[k][3]));
@@ -396,4 +397,216 @@ module.exports=[
   }),
   expect:{rows:1,dd:false,bf:[true,true],cells:[[SW,'unit',890,794.64,8900,true],[TX,'unit',1030,919.64,10300,false]],plan:null,nexi:[SW,95],buy0:[1,true,true,true],prep:'single',
     after:[SW,8900,true,true,'single',false,true,true]} },
+
+/* ---------- v23.04 review (13 Oct 2026): money, print and integration findings — each case reproduces one finding ---------- */
+{ name:'🧾 Whole-order award prints what was ordered: no plan → Dr Amy awards SWCC ₱52,150.00 → print, card and Excel Buy-from "4 of 4 · 1 PO", subtotal ₱51,850.00, delivery ₱300.00, VAT ₱5,587.50, landed ₱46,562.50, to pay 52150, no "Chosen plan" / "3 purchase orders" / "saves ₱910.71"; a sheet rebuilt for an older award the same; a checked 3-PO plan overridden by SWCC prints "Buyer\'s per-item plan — not used: 3 purchase orders · to pay ₱51,110.00"; at Approval with no plan "Lowest price per item (not confirmed by the buyer)" (v23.04 review)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    await S1({pr:{status:'Approval'}});as('amy');__PURPRO.openPR('pr31');await sleep(300);const v0=view();
+    const appr=[/Lowest price per item \(not confirmed by the buyer\): 3 purchase orders · to pay ₱51,110\.00/.test(v0),/Chosen plan/.test(v0)];
+    CF.length=0;PM.length=0;__PURPRO.award('pr31','','Approval',R().updatedAt);await sleep(250);
+    const bf=v=>['4 of 4 · 1 PO','₱51,850.00','₱300.00','₱5,587.50','₱46,562.50'].map(x=>v.includes('<td class="bf">'+x+'</td>'));
+    const chk=t=>[/Chosen plan/.test(t),/3 purchase orders/.test(t),/saves ₱910\.71/.test(t),/Awarded: the whole order to SWCC Hardware & Construction Supplies · 1 purchase order PO-\d{4}-\d{6} · to pay ₱52,150\.00/.test(t)];
+    const o=PRINT();__PURPRO.cmpPrint('pr31');const h=o.html,t=st(h);
+    __PURPRO.openPR('pr31');await sleep(300);const c=document.getElementById('ppCmp');if(c)c.open=true;await sleep(50);const cv=c?c.innerText:'';
+    const cap=XL();__PURPRO.cmpExcel('pr31');const s1=((cap.S||[])[0]||{}).rows||[],row=k=>(s1.find(r=>r[0]===k)||[]);
+    const xl=[row('To pay ₱')[15],row('Landed total ex-VAT ₱')[15],row('Items quoted')[15],!!s1.find(r=>r[0]==='Chosen plan'),!!s1.find(r=>r[0]==='Difference without VAT'),/^the whole order to SWCC Hardware & Construction Supplies · 1 purchase order/.test(row('Awarded')[1]||'')];
+    setP('pr31',p=>{delete p.cmpSheet;});const h2=__PURPRO.cmpHtml('pr31','sheet'),t2=st(h2);
+    const rebuilt=[/rebuilt from the offers on file/.test(t2)].concat(chk(t2),bf(h2));
+    put('hydroPro_purch_pos',[]);put('hydroPro_purch_audit',[]);await S1();__PURPRO.cmpPropose('pr31','Quotation Evaluation');await sleep(200);as('jinky');__PURPRO.cmpCheck('pr31','Approval');await sleep(100);
+    as('amy');__PURPRO.openPR('pr31');await sleep(300);PM.length=0;__PURPRO.award('pr31','','Approval',R().updatedAt);await sleep(250);
+    const p3=P(),t3=st(__PURPRO.cmpHtml('pr31','sheet')).replace(/&#39;/g,"'");
+    const unused=[POS().length,(POS()[0]||{}).supplier,(p3.cmpSheet||{}).planUsed,/Buyer's per-item plan — not used: 3 purchase orders · to pay ₱51,110\.00 · without VAT ₱45,633\.93/.test(t3),/Chosen plan/.test(t3),/The plan saves/.test(t3),
+      (t3.match(/the per-item plan was not used — whole order awarded/g)||[]).length,/Prepared by — Buyer Joshane Espinosa/.test(t3),/Checked by — Accountant Jinky Pagtama/.test(t3)];
+    return {appr,po:[(POS()[0]||{}).supplier,(POS()[0]||{}).total],print:chk(t).concat(bf(h)),card:[/Chosen plan/.test(cv),/3 purchase orders/.test(cv),/4 of 4 · 1 PO/.test(cv)],xl,rebuilt,unused};
+  }),
+  expect:{appr:[true,false],po:[SW,52150],print:[false,false,false,true,true,true,true,true,true],card:[false,false,true],xl:[52150,46562.5,'4 of 4 · 1 PO',false,false,true],
+    rebuilt:[true,false,false,false,true,true,true,true,true,true],unused:[1,SW,false,true,false,false,2,true,true]} },
+
+{ name:'🔒 The plan\'s preparer does not approve it: Eyal confirms everything from Famous (₱52,130.00) → Eyal\'s 🏅 Approve award refused, 0 POs; Dr Amy before Jinky\'s check sees "an award made now is written … as made before her check" → PO Famous ₱52,130.00, note ends "· before Jinky\'s comparison check", Checked by empty; one-item PR-2026-000033: Eyal proposes → Eyal refused, Dr Amy → PO SWCC ₱8,900.00 "· before Jinky\'s comparison check" (v23.04 review)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    await S1();as('eyal');PR_ANS='Famous delivers everything in one trip';__PURPRO.bfSet('pr31',1,FAM,'Quotation Evaluation');await sleep(150);__PURPRO.bfSet('pr31',3,FAM,'Quotation Evaluation');await sleep(150);
+    __PURPRO.cmpPropose('pr31','Quotation Evaluation');await sleep(200);const prep=[((P().buyFrom||{}).prepared||{}).user,P().status];
+    __PURPRO.openPR('pr31');await sleep(300);const sel=(document.getElementById('ppAwardSel')||{}).value;AL.length=0;PM.length=0;__PURPRO.award('pr31','','Approval',R().updatedAt);await sleep(200);
+    const self=[sel,AL.some(a=>/You confirmed the buy-from plan of PR-2026-000031 — someone else approves it/.test(a)),POS().length,PM.length];
+    as('amy');__PURPRO.openPR('pr31');await sleep(300);const wait=/Waiting for Jinky's check of the comparison — an award made now is written in the workflow log as made before her check/.test(view());
+    PM.length=0;PR_ANS='one supplier, one delivery';__PURPRO.award('pr31','','Approval',R().updatedAt);await sleep(250);
+    const p=P(),po=POS()[0]||{};const amy=[POS().length,po.supplier,po.total,/^Awarded to Famous Lumber & Construction Supply · ₱52,130\.00 · PO draft PO-\d{4}-\d{6} · before Jinky's comparison check$/.test(lastWf().note||''),((p.cmpSheet||{}).people||{}).checked,(p.cmpSheet||{}).planUsed];
+    const IT4=[{desc:'3/4 Phenolic board',code:'',qty:10,unit:'pc',unitCost:850}];
+    const Q4=u=>({qty:10,unitPrice:u,vatIncl:true,delivery:0,total:u*10,brand:'',validUntil:'2027-12-31',deliveryDays:3,payTerms:'COD',warranty:'',notes:'',deliverToOk:false,file:null,at:T,by:'joshane'});
+    put('hydroPro_purch_pos',[]);put('hydroPro_purch_prs',[PR('pr33','PR-2026-000033',IT4,{title:'Phenolic board for GH15'})]);put('hydroPro_purch_rfqs',[RFQ('rfq33','RFQ-2026-000033','pr33',[sup(SW,Q4(890)),sup(TX,Q4(1030))])]);
+    as('eyal');__PURPRO.openPR('pr33');await sleep(250);__PURPRO.cmpPropose('pr33','Quotation Evaluation');await sleep(200);AL.length=0;__PURPRO.award('pr33','','Approval',R('rfq33').updatedAt);await sleep(150);
+    const one=[P('pr33').status,AL.some(a=>/You confirmed the buy-from plan of PR-2026-000033/.test(a)),POS().length];
+    as('amy');__PURPRO.openPR('pr33');await sleep(250);__PURPRO.award('pr33','','Approval',R('rfq33').updatedAt);await sleep(250);
+    const one2=[POS().length,(POS()[0]||{}).supplier,(POS()[0]||{}).total,/ · before Jinky's comparison check$/.test(lastWf('pr33').note||'')];
+    return {prep,self,wait,amy,one,one2};
+  }),
+  expect:{prep:['eyal','Approval'],self:[FAM,true,0,0],wait:true,amy:[1,FAM,52130,true,null,true],one:['Approval',true,0],one2:[1,SW,8900,true]} },
+
+{ name:'🔁 Jinky\'s ✔ check on a computer that has not pulled Dr Amy\'s award: the request record is not saved again, so after the sync merge PR-2026-000031 stays at Purchase Order with its 3 draft POs (₱14,090.00 + ₱20,460.00 + ₱16,560.00), its frozen sheet and "Awarded by item…"; the check is kept (1 record, Jinky) (v23.04 review)',
+  requires:NEED+"&&typeof window.__hnxMergeGeneric==='function'",seed:SEED,
+  run:run(async()=>{
+    const KS=['hydroPro_purch_prs','hydroPro_purch_rfqs','hydroPro_purch_pos','hydroPro_purch_cmpchecks'],snap=()=>{const o={};KS.forEach(k=>{o[k]=localStorage.getItem(k)||'[]';});return o;},load=s=>KS.forEach(k=>localStorage.setItem(k,s[k]));
+    await S1();__PURPRO.cmpPropose('pr31','Quotation Evaluation');await sleep(200);
+    const B0=snap(); /* Jinky's computer: what it holds before the award reaches it */
+    as('amy');__PURPRO.openPR('pr31');await sleep(250);CF.length=0;__PURPRO.awardSplit('pr31','Approval',R().updatedAt,(P().buyFrom.prepared||{}).sig);await sleep(250);
+    const A1=snap();
+    load(B0);as('jinky');__PURPRO.openPR('pr31');await sleep(250);TS.length=0;__PURPRO.cmpCheck('pr31','Approval');await sleep(200);
+    const B1=snap(),same=B1.hydroPro_purch_prs===B0.hydroPro_purch_prs;
+    KS.forEach(k=>{let m=null;try{m=window.__hnxMergeGeneric(k,A1[k],B1[k]);}catch(e){}localStorage.setItem(k,typeof m==='string'?m:A1[k]);});
+    as('amy');__PURPRO.openPR('pr31');await sleep(300);const p=P();
+    return {same,toast:TS.some(t=>/comparison checked — Eyal and Dr Amy are told/.test(t)),pr:[p.status,(p.poIds||[]).length,(p.cmpSheet||{}).kind,/^Awarded by item to 3 suppliers/.test(((p.workflow||[]).filter(w=>/^Awarded/.test(w.note||''))[0]||{}).note||'')],
+      pos:POS().map(x=>[x.status,x.total]),rfq:R().status,checks:J('hydroPro_purch_cmpchecks').map(c=>c.user),valid:((__PURPRO.cmpChecked&&__PURPRO.cmpChecked('pr31'))||{}).user};
+  }),
+  expect:{same:true,toast:true,pr:['Purchase Order',3,'frozen',true],pos:[['Draft',14090],['Draft',20460],['Draft',16560]],rfq:'Awarded',checks:['jinky'],valid:'jinky'} },
+
+{ name:'⏱ Jinky\'s PC clock 2 min behind Joshane\'s: her ✔ check still counts — Dr Amy\'s card "✔ Comparison checked by Jinky Pagtama", 🏅 Approve split award asks only to approve (1 confirm, no "NOT been checked"), no "before Jinky\'s comparison check", Checked by Jinky on the frozen sheet (v23.04 review)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    await S1();__PURPRO.cmpPropose('pr31','Quotation Evaluation');await sleep(200);
+    const now0=Date.now;Date.now=()=>now0()-120000;try{as('jinky');__PURPRO.cmpCheck('pr31','Approval');}finally{Date.now=now0;}await sleep(150);
+    as('jinky');__PURPRO.tab('mission');await sleep(250);const mis=/comparison check/.test(view());
+    as('amy');__PURPRO.openPR('pr31');await sleep(300);const card=/✔ Comparison checked by Jinky Pagtama/.test(view());
+    CF.length=0;__PURPRO.awardSplit('pr31','Approval',R().updatedAt,(P().buyFrom.prepared||{}).sig);await sleep(250);const p=P();
+    return {mis,card,cf:[CF.length,CF.some(c=>/NOT been checked/.test(c))],st:p.status,before:/before Jinky's comparison check/.test(lastWf().note||''),checked:(((p.cmpSheet||{}).people||{}).checked||{}).user};
+  }),
+  expect:{mis:false,card:true,cf:[1,false],st:'Purchase Order',before:false,checked:'jinky'} },
+
+{ name:'🙅 Only a buyer records the plan: with roles (buyers Joshane, checkers Jinky) and without, Jinky\'s ➡ Proceed to award moves PR-2026-000031 to Approval with NO plan in her name, nobody is asked to check, her ✔ check is refused ("not confirmed a plan"), Dr Amy\'s card says the buyer has not confirmed a per-item plan (v23.04 review)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    const one=async(roles)=>{if(roles)put('hydroPro_purch_roles_v1',roles);else localStorage.removeItem('hydroPro_purch_roles_v1');put('hydroPro_pa_inbox_v1',[]);
+      await S1({as:'jinky'});TS.length=0;__PURPRO.cmpPropose('pr31','Quotation Evaluation');await sleep(200);const p=P();
+      const r=[p.status,((p.buyFrom||{}).prepared||null),told(/comparison waits for your check/).length,TS.some(t=>/without a buy-from plan — only a buyer confirms the plan/.test(t))];
+      TS.length=0;__PURPRO.cmpCheck('pr31','Approval');await sleep(100);r.push(TS.some(t=>/has not confirmed a plan/.test(t)));
+      as('amy');__PURPRO.openPR('pr31');await sleep(250);r.push(/The buyer has not confirmed a per-item plan/.test(view()));return r;};
+    const withRoles=await one({buyers:['joshane'],checkers:['jinky']});const noRoles=await one(null);
+    return {withRoles,noRoles};
+  }),
+  expect:{withRoles:['Approval',null,0,true,true,true],noRoles:['Approval',null,0,true,true,true]} },
+
+{ name:'🧮 Default buys the whole quantity: Triox offers 10 of 12 plywood at ₱1,380★ → default plywood SWCC ₱1,420 (12 sheet): Famous ₱14,090.00 + SWCC ₱37,500.00 = ₱51,590.00 (₱46,062.50 without VAT), no shorts, saves ₱482.14; ★ stays on Triox; picking Triox asks no reason → 3 POs ₱48,350.00 "(valued at the quantities asked)", 2 sheet short (v23.04 review)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    await S1({tx:{oq:[50,120,0,10]}});const M=__PURPRO.cmpModel('pr31'),k=x=>(M.offers.find(o=>o.key===x)||{}).sup;
+    const before=[k(M.def[3]),M.lowest[3].map(k),M.plan.groups.map(g=>[g.sup,g.items,g.total]),M.plan.total,M.plan.landed,M.plan.shorts.length,M.diff,(document.getElementById('ppBf3')||{}).value];
+    PM.length=0;__PURPRO.bfSet('pr31',3,TX,'Quotation Evaluation');await sleep(200);const M2=__PURPRO.cmpModel('pr31'),v=view();
+    return {before,pm:PM.length,after:[M2.plan.n,M2.plan.total,M2.plan.landed,M2.plan.shorts.map(s=>[s.desc,s.qty,s.unit]),/Chosen plan: 3 purchase orders · to pay ₱48,350\.00 · without VAT ₱45,633\.93 \(valued at the quantities asked\)/.test(v)]};
+  }),
+  expect:{before:[SW,[TX],[[FAM,[0,2],14090],[SW,[1,3],37500]],51590,46062.5,0,{ex:482.14,pay:540},SW],pm:0,after:[3,48350,45633.93,[['Marine plywood 3/4',2,'sheet']],true]} },
+
+{ name:'≠ A plan that leaves plywood out is not "cheaper": Famous cement + rebar ₱32,890.00, Triox wire ₱1,900.00, plywood priced only inside SWCC\'s ₱60,000.00 total → no "saves", "Not comparable with one supplier — the plan leaves Marine plywood 3/4 out" on screen, print and Excel; the award:split audit says the same (v23.04 review)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    const swT=sup(SW,{qty:202,unitPrice:null,total:60000,vatIncl:true,vatExempt:false,delivery:0,brand:'',validUntil:'2027-12-31',deliveryDays:2,payTerms:'30 days',warranty:'',notes:'',deliverToOk:false,file:null,at:T,by:'joshane'});
+    put('hydroPro_purch_prs',[PR('pr31','PR-2026-000031',ITEMS)]);put('hydroPro_purch_rfqs',[RFQ('rfq31','RFQ-2026-000031','pr31',[sup(FAM,LQ(ITEMS,[245,172,null,null])),swT,sup(TX,LQ(ITEMS,[250,175,95,null]))])]);
+    as('joshane');__PURPRO.openPR('pr31');await sleep(300);const M=__PURPRO.cmpModel('pr31'),v=view(),NC=/Not comparable with one supplier — the plan leaves Marine plywood 3\/4 out/;
+    const t=st(__PURPRO.cmpHtml('pr31','sheet'));const cap=XL();__PURPRO.cmpExcel('pr31');const s1=((cap.S||[])[0]||{}).rows||[],d=s1.find(r=>r[0]==='Difference without VAT')||[];
+    __PURPRO.cmpPropose('pr31','Quotation Evaluation');await sleep(200);as('jinky');__PURPRO.cmpCheck('pr31','Approval');await sleep(100);
+    as('amy');__PURPRO.openPR('pr31');await sleep(300);PR_ANS='plywood on a new request';PM.length=0;__PURPRO.awardSplit('pr31','Approval',R().updatedAt,(P().buyFrom.prepared||{}).sig);await sleep(250);
+    const au=(J('hydroPro_purch_audit').find(a=>a.action==='award:split')||{}).detail||'';
+    return {model:[M.diff,M.diffNA,M.plan.groups.map(g=>[g.sup,g.items,g.total]),M.plan.unassigned,M.single&&M.single.label,M.single&&M.single.total],
+      screen:[NC.test(v),/The plan saves/.test(v)],print:[NC.test(t),/The plan saves/.test(t)],xl:d[1],audit:[/not comparable with one supplier — the plan leaves Marine plywood 3\/4 out/.test(au),/saves/.test(au)],pos:POS().length};
+  }),
+  expect:{model:[null,'the plan leaves Marine plywood 3/4 out',[[FAM,[0,1],32890],[TX,[2],1900]],[3],SW,60000],screen:[true,false],print:[true,false],
+    xl:'not comparable with one supplier — the plan leaves Marine plywood 3/4 out',audit:[true,false],pos:2} },
+
+{ name:'1️⃣ Total-only one-item offer, SWCC ₱9,200.00 for 10 pc incl. ₱300 delivery: buy list and Excel 10 × ₱890.00 = ₱8,900.00 + delivery ₱300.00 = ₱9,200.00 to pay (not ₱920.00), the same ₱890.00 as Dr Amy\'s PO (v23.04 review)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    const IT4=[{desc:'3/4 Phenolic board',code:'',qty:10,unit:'pc',unitCost:850}];
+    const base={vatIncl:true,brand:'',validUntil:'2027-12-31',deliveryDays:3,payTerms:'COD',warranty:'',notes:'',deliverToOk:false,file:null,at:T,by:'joshane'};
+    put('hydroPro_purch_prs',[PR('pr33','PR-2026-000033',IT4,{title:'Phenolic board for GH15'})]);
+    put('hydroPro_purch_rfqs',[RFQ('rfq33','RFQ-2026-000033','pr33',[sup(SW,Object.assign({qty:10,unitPrice:null,total:9200,delivery:300},base)),sup(TX,Object.assign({qty:10,unitPrice:1030,total:10300,delivery:0},base))])]);
+    as('joshane');__PURPRO.openPR('pr33');await sleep(300);const M=__PURPRO.cmpModel('pr33'),c=(M.offers.find(o=>o.sup===SW)||{cells:[{}]}).cells[0];
+    const t=st(__PURPRO.cmpHtml('pr33','buy'));const cap=XL();__PURPRO.cmpExcel('pr33');const s2=((cap.S||[])[1]||{}).rows||[],line=s2.find(r=>r[0]===SW&&r[2]==='3/4 Phenolic board')||[];
+    setP('pr33',x=>{x.status='Approval';});as('amy');__PURPRO.openPR('pr33');await sleep(300);PM.length=0;CF.length=0;__PURPRO.award('pr33',SW,'Approval',R('rfq33').updatedAt);await sleep(250);const po=POS()[0]||{};
+    return {cell:[c.unitPrice,c.line],buy:[/10 pc ₱890\.00 ₱8,900\.00/.test(t),/Delivery ₱300\.00/.test(t),/Total to pay ₱9,200\.00/.test(t),/₱920\.00/.test(t)],xl:[line[6],line[7]],po:[po.supplier,((po.items||[])[0]||{}).unitCost,po.total]};
+  }),
+  expect:{cell:[890,8900],buy:[true,true,true,false],xl:[890,8900],po:[SW,890,9200]} },
+
+{ name:'⚖ Different VAT bases on paper and in Excel, PR-2026-000032: the printout shows elbow Neltex ₱72.00 · ₱72.00 without VAT and ★ Atlanta ₱78.40 · ₱70.00 without VAT; Excel adds a "₱/unit without VAT" column per offer (pipe 500 / 500, elbow 72 / 70) (v23.04 review)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    await S2();const t=st(__PURPRO.cmpHtml('pr32','sheet'));const cap=XL();__PURPRO.cmpExcel('pr32');const s1=((cap.S||[])[0]||{}).rows||[],hi=s1.findIndex(r=>r[0]==='Item');
+    return {print:[/₱72\.00 ₱72\.00 without VAT/.test(t),/★ ₱78\.40 ₱70\.00 without VAT/.test(t),/★ ₱560\.00 ₱500\.00 without VAT/.test(t),/different VAT bases — each price also shows its amount without VAT/.test(t)],
+      hdr:s1[hi],pipe:s1[hi+1],elbow:s1[hi+2]};
+  }),
+  expect:{print:[true,true,true,true],
+    hdr:['Item','Qty','Unit',NL+' ₱/unit',NL+' line ₱',NL+' ₱/unit without VAT',NL+' brand / spec',AT+' ₱/unit',AT+' line ₱',AT+' ₱/unit without VAT',AT+' brand / spec','Lowest','Buy from','Buy-from ₱/unit','Buy-from line ₱','Reason'],
+    pipe:['PVC pipe 2" Sch 40 (3 m)',20,'length',500,10000,500,'',560,11200,500,'',NL+' / '+AT,NL,500,10000,''],
+    elbow:['PVC elbow 90° 2"',30,'pcs',72,2160,72,'',78.4,2352,70,'',AT,AT,78.4,2352,'']} },
+
+{ name:'🖨 Print layout: no custom logo → both printouts carry the app logo; the summary box and the signatures + footer never split across pages; the buy list has ONE fixed DRAFT watermark, a caption "BUY LIST — supplier · PR-2026-000031 · RFQ-2026-000031 · DRAFT — not yet approved" that repeats on every page of each of the 3 suppliers, and "Supplier 1 of 3" (v23.04 review)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    await S1();localStorage.removeItem('hydroPro_company_logo');const h=__PURPRO.cmpHtml('pr31','sheet'),b=__PURPRO.cmpHtml('pr31','buy');
+    const lg='<img src="'+new URL(window._HNX_LOGO_PNG||'media/app/img01_4e3c415254.png',location.href).href+'" alt="">';
+    const caps=(b.match(/<th class="cap" colspan="7">BUY LIST — [^<]*<span class="d">DRAFT — not yet approved<\/span><\/th>/g)||[]).length;
+    return {logo:[h.includes(lg),b.includes(lg)],sum:/\.sum\{[^}]*break-inside:avoid/.test(h),end:/<div class="end"><div class="sigs">[\s\S]*<div class="ftr">Nexi · Purchasing[^<]*<\/div><\/div>/.test(h)&&/\.end\{break-inside:avoid/.test(h),
+      wm:[(b.match(/<div class="wm">/g)||[]).length,/\.wm\{position:fixed/.test(b)],caps,cap1:b.includes('BUY LIST — '+FAM.replace(/&/g,'&amp;')+' · PR-2026-000031 · RFQ-2026-000031 · '),ftr:[st(b).includes('Supplier 1 of 3 · PR-2026-000031'),/Page \d of/.test(st(b))]};
+  }),
+  expect:{logo:[true,true],sum:true,end:true,wm:[1,true],caps:3,cap1:true,ftr:[true,false]} },
+
+{ name:'📊 Excel shows what the grid shows: "One Price Trading" (one ₱240 price for the whole order) is "—" on all 4 item rows; SWCC Option B ₱255 on the cement row says "Option B is for Marine plywood 3/4"; a cancelled request is "Cancelled — not approved" in Excel and "cancelled — not approved" on its card (v23.04 review)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    const swB=sup(SW,LQ(ITEMS,P1[SW],{delivery:300,deliveryDays:2,payTerms:'30 days'}),{options:[{id:'opt_b1',label:'B',spec:'Phenolic board 3/4',itemIdx:3,quote:LQ(ITEMS,[255,168,95,1300],{delivery:300,deliveryDays:2,payTerms:'30 days'}),addedBy:'joshane',addedAt:T}]});
+    const one=sup('One Price Trading',{qty:202,unitPrice:240,total:48480,vatIncl:true,vatExempt:false,delivery:0,brand:'',validUntil:'2027-12-31',deliveryDays:3,payTerms:'COD',warranty:'',notes:'',deliverToOk:false,file:null,at:T,by:'joshane'});
+    await S1({sw:swB,more:[one]});const cap=XL();__PURPRO.cmpExcel('pr31');const s1=((cap.S||[])[0]||{}).rows||[],hi=s1.findIndex(r=>r[0]==='Item'),hdr=s1[hi]||[];
+    const ci=hdr.indexOf('One Price Trading ₱/unit'),bi=hdr.indexOf(SW+' · Option B brand / spec'),rows=[1,2,3,4].map(k=>s1[hi+k]||[]);
+    const onePrice=rows.map(r=>[r[ci],r[ci+1]]),optNote=(rows[0]||[])[bi];
+    setP('pr31',x=>{x.status='Cancelled';x.cancelled={at:Date.now(),by:'Dr Amy Patdu',reason:'not needed',fromStage:'Quotation Evaluation'};});
+    const cap2=XL();__PURPRO.cmpExcel('pr31');const st2=(((cap2.S||[])[0]||{}).rows||[])[1];
+    as('amy');__PURPRO.openPR('pr31');await sleep(300);const det=document.getElementById('ppCmp'),chip=det?det.textContent:'';
+    return {onePrice,optNote,status:st2,chip:[/cancelled — not approved/.test(chip),/rebuilt from the offers on file/.test(chip)]};
+  }),
+  expect:{onePrice:[['—',''],['—',''],['—',''],['—','']],optNote:'Option B is for Marine plywood 3/4',status:['Status','Cancelled — not approved'],chip:[true,false]} },
+
+{ name:'🧷 A draft left at Receiving (the previous version moved PR-2026-000031 on with PO-…2 and PO-…3 still Draft): receiving PO-…1 is refused "PO-…2 is Draft — issue it first (📤 Issue PO on its tab)", the draft tab shows ⚠ and 📤 Issue PO, both are issued there (2 confirms), then PO-…1 receives 50 bag + 20 kg → Fully Delivered (v23.04 review)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    await S1();await CHAIN();const ids=(P().poIds||[]).slice(),num=i=>(POS().find(x=>x.id===ids[i])||{}).number;
+    as('amy');__PURPRO.openPR('pr31');await sleep(250);CF.length=0;__PURPRO.issuePO('pr31',ids[0]);await sleep(150);
+    setP('pr31',x=>{x.status='Receiving';x.workflow.push({stage:'Receiving',at:Date.now(),by:'Dr Amy Patdu',note:'PO issued — awaiting delivery'});}); /* what the previous version does */
+    __PURPRO.openPR('pr31');await sleep(250);__PURPRO.poSel('pr31',ids[0]);await sleep(200);TS.length=0;val('ppGacc0','50');__PURPRO.recordGRN('pr31',ids[0]);await sleep(200);
+    const ref=[TS.some(t=>t.indexOf(num(1)+' is Draft — issue it first (📤 Issue PO on its tab)')>=0),J('hydroPro_purch_grns').length];
+    __PURPRO.poSel('pr31',ids[1]);await sleep(250);const banner=!!document.getElementById('ppDraftAtRecv'),btn=[...document.querySelectorAll('#view-acct_purch_pro button')].some(b=>/📤 Issue PO/.test(b.textContent));
+    CF.length=0;__PURPRO.issuePO('pr31',ids[1]);await sleep(150);__PURPRO.issuePO('pr31',ids[2]);await sleep(150);const conf=CF.length,sts=ids.map(id=>(POS().find(x=>x.id===id)||{}).status);
+    __PURPRO.poSel('pr31',ids[0]);await sleep(250);val('ppGacc0','50');val('ppGacc1','20');__PURPRO.recordGRN('pr31',ids[0]);await sleep(250);
+    return {ref,banner,btn,conf,sts,grn:J('hydroPro_purch_grns').length,po0:(POS().find(x=>x.id===ids[0])||{}).status,status:P().status};
+  }),
+  expect:{ref:[true,0],banner:true,btn:true,conf:2,sts:['Issued','Issued','Issued'],grn:1,po0:'Fully Delivered',status:'Receiving'} },
+
+{ name:'⏪ Rollback on: 🏅 Approve split award refused and its button replaced by the rollback note (0 POs, stays at Approval); after the rollback 3 POs; ⏪ Roll everyone back first lists "PR-2026-000031 (PO-…1, PO-…2, PO-…3 — not issued: PO-…1, PO-…2, PO-…3)" and, after PO-…1 is issued, only PO-…2 and PO-…3 (v23.04 review)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    await S1();__PURPRO.cmpPropose('pr31','Quotation Evaluation');await sleep(200);as('jinky');__PURPRO.cmpCheck('pr31','Approval');await sleep(100);
+    const RB='hydroPro_release_ctl_v1';localStorage.setItem(RB,JSON.stringify({rollback:true,to:'23.02',at:Date.now(),by:'eyal'}));
+    let out={};try{
+      as('amy');__PURPRO.openPR('pr31');await sleep(300);const box=(document.getElementById('ppSplitBox')||{}).innerText||'';
+      AL.length=0;__PURPRO.awardSplit('pr31','Approval',R().updatedAt,(P().buyFrom.prepared||{}).sig);await sleep(200);
+      out.box=[/waits until the rollback is cancelled/.test(box),/Approve split award →/.test(box)];out.refused=[AL.some(a=>/rolled back to the previous version/.test(a)),POS().length,P().status];
+    }finally{localStorage.setItem(RB,JSON.stringify({rollback:false,at:Date.now(),by:'eyal'}));}
+    __PURPRO.openPR('pr31');await sleep(250);CF.length=0;__PURPRO.awardSplit('pr31','Approval',R().updatedAt,(P().buyFrom.prepared||{}).sig);await sleep(250);
+    const ids=(P().poIds||[]).slice(),num=ids.map(id=>(POS().find(x=>x.id===id)||{}).number),w=typeof window.__hnxRollbackWarn==='function'?window.__hnxRollbackWarn():'';
+    __PURPRO.openPR('pr31');await sleep(250);CF.length=0;__PURPRO.issuePO('pr31',ids[0]);await sleep(150);const w2=typeof window.__hnxRollbackWarn==='function'?window.__hnxRollbackWarn():'';
+    const wired=[...document.scripts].some(s=>s.id==='hnx-release-ctl-v2216'&&s.textContent.includes('__hnxRollbackWarn'));
+    out.after=[POS().length,P().status];
+    out.w=w.indexOf('⚠ Open awards by item: PR-2026-000031 ('+num.join(', ')+' — not issued: '+num.join(', ')+')')===0&&/previous version shows only the FIRST purchase order/.test(w);
+    out.w2=w2.indexOf('PR-2026-000031 ('+num.join(', ')+' — not issued: '+num[1]+', '+num[2]+')')>0;out.wired=wired;
+    return out;
+  }),
+  expect:{box:[true,false],refused:[true,0,'Approval'],after:[3,'Purchase Order'],w:true,w2:true,wired:true} },
+{ name:'✕ Cancel PO on an award by item (trial): Dr Amy cancels PO-…2 of 3 draft POs with "supplier late" → all 3 Cancelled, PR-2026-000031 back at Approval, the toast and the workflow name every purchase order: "Award by item cancelled — PO-…1, PO-…2, PO-…3 — award again" (v23.04 review)',
+  requires:NEED+"&&!!window.__PURPRO.cancelPO",seed:SEED,
+  run:run(async()=>{
+    await S1();await CHAIN();const ids=(P().poIds||[]).slice(),nums=ids.map(id=>(POS().find(x=>x.id===id)||{}).number);
+    as('amy');__PURPRO.openPR('pr31');await sleep(250);TS.length=0;PR_ANS='supplier late';__PURPRO.cancelPO('pr31',ids[1]);await sleep(250);
+    const p=P();
+    return {pos:POS().map(x=>x.status),st:p.status,toast:TS.some(t=>t==='Award by item cancelled — '+nums.join(', ')+' — award again'),
+      note:(lastWf().note||'').indexOf('Award by item cancelled ('+nums.join(', ')+'): supplier late — award again')>=0};
+  }),
+  expect:{pos:['Cancelled','Cancelled','Cancelled'],st:'Approval',toast:true,note:true} },
 ];
