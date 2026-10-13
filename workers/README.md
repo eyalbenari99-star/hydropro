@@ -116,3 +116,43 @@ the readings (R2) and Nexi (Irrigation → 🏊 Pool Monitor / 🔌 Meters) pull
    It posts the value of every alarm mail (EC, water temperature, level — the units mail no pH) with `src:'alarm'`; one warning mail a day when no Pro-Leaf mail came for 24 h.
 4. **In Nexi (v22.78)**: Irrigation → 🔌 Meters → ⚙ Feed settings → worker URL + On + token on ONE computer (it becomes the feeder; a 10-minute lease, the others watch) → map each BeHive-I device id to its pool (the seven 2024 ids are prefilled).
 5. Tests: `node tests/workers/nexi-irr.test.mjs` (mock R2, no network).
+
+## nexi-cold (cold-room temperature) — v22.96, Eyal 13 Oct 2026 ("connect the cold storage … online temp … maintenance check list to check daily … warn below 4 / above 8 … critical below 2 / above 12")
+
+The new cold-room control box (blue lid, DELIXI D32 breaker QF, contactors KM1 / KM2) has an **Elitech Wi-Fi controller** on the Elitech
+**iCold** cloud (app "Elitech iCold", web new.i-elitech.com). `workers/nexi-cold.js` receives the readings (R2, prefix `cold/`) and Nexi
+(Maintenance → ❄ Cold storage, also Packaging) pulls them every 3 minutes from ONE computer (the feeder). Rooms: `CS1` "Cold storage 1"
+(CCTV CAM-055) and `CS2` "Cold storage 2" (CAM-081); bands 4–8 °C OK, <4 / >8 warning, <2 / >12 critical (Nexi applies them, the worker
+only stores −40 … 60 °C). What the OWNER does, once:
+
+1. **Cloudflare → Workers → create `nexi-cold`** — paste `workers/nexi-cold.js`.
+   ```toml
+   name = "nexi-cold"
+   main = "nexi-cold.js"
+   compatibility_date = "2026-01-01"
+   [[r2_buckets]]
+   binding = "R2"
+   bucket_name = "<SAME BUCKET AS nexi-bio>"
+   # no [triggers] yet — add crons = ["*/5 * * * *"] only when pollElitech is wired to the Access API document
+   ```
+   - Secrets (names only here — generate long random strings yourself, never paste them in chat):
+     - `COLD_TOKEN` — what Nexi uses to read (`/cold/latest`, `/cold/history`, `/cold/readings`); pasted on ONE computer in ❄ Cold storage → ⚙ Settings.
+     - `NODE_TOKENS` — JSON, one entry per source that may push: `{"elitech-mail":{"token":"…","rooms":["CS1","CS2"]}}` (add e.g. `"probe-cs1":{"token":"…","rooms":["CS1"]}` for our own probe later).
+     - optional var `ROOMS` — `CS1,CS2` (an allowlist; a reading for another room is refused "unknown room").
+     - optional `COLD_MAP` — `{"Cold storage 1":"CS1","Cold storage 2":"CS2"}` (device names as in the iCold app; the bridge holds the same map).
+     - optional `ELITECH_KEY_ID` / `ELITECH_KEY_SECRET` — only when Elitech sends the "Access API document" (today `pollElitech` records "not configured" and never guesses an address).
+   - Check: `https://nexi-cold.<account>.workers.dev/cold/health` answers `{"ok":true,"version":"22.96",…}` (no token needed, nothing secret in it).
+2. **Routes**: `POST /cold/push` (node token; `{readings:[{room|device, ts, t|temp|temperature, src, alarm, msgId}]}`, ≤ 200 readings, ≤ 64 KB; `readings:[]` = heartbeat) ·
+   `GET /cold/latest` (COLD_TOKEN) · `GET /cold/history?room=CS1&hours=24` (COLD_TOKEN; the last reading per 15 min, hours 1–168) · `GET /cold/readings?room=&day=` (COLD_TOKEN) · `GET /cold/health` (no token).
+   A node's clock in the future is clamped to the receive time; > 7 days old is refused; an older reading never replaces the latest; the device name is not stored.
+3. **Bridge (alarm mails only, starts in DRY RUN)**: script.google.com under nexi@abapardes.com.ph → new project → paste `workers/elitech-alarm-bridge.gs` →
+   Project Settings → Script Properties `COLD_URL`, `COLD_NODE_TOKEN` (the `elitech-mail` token), `COLD_MAP` `{"Cold storage 1":"CS1","Cold storage 2":"CS2"}`,
+   `ALERT_TO` (company addresses), `DRY_RUN` `1` → run `installBridge` once and allow. It reads the iCold alarm e-mails every 15 minutes; in DRY RUN it only logs
+   "would post CS1 x.x °C" and sends a heartbeat. **Test**: in the iCold app set the high alarm to 2.0 °C for a few minutes so an alarm mail reaches nexi@; Apps Script →
+   Executions shows "would post CS1 x.x °C"; if the room and the value are right set `DRY_RUN` to `0`; forward that one real alarm mail to the developer (the parser
+   test uses synthetic samples until then); set the high alarm back to 8.0. One mail a day when no Elitech mail came for 24 h ("a silent room is not a fine room").
+4. **In Nexi (v22.96)**: Maintenance → ❄ Cold storage → ⚙ Settings (admin) → worker URL + On + paste `COLD_TOKEN` on ONE computer in the maintenance office (it becomes the
+   feeder; a 10-minute lease, the others watch) → set each room's Elitech device name → 💾 Save. The technician's typed daily check (✅ Monitoring Checklist → ❄ Daily, due 10:00)
+   stays the daily reading. The full owner / IT checklist (electrician, probes, controller settings, Wi-Fi, iCold account, pairing, alarm limits, API request) is on the
+   ❄ Cold storage screen and in the Maintenance help guide.
+5. Tests: `node tests/workers/nexi-cold.test.mjs` and `node tests/workers/elitech-bridge.test.mjs` (mock R2 / stubbed Apps Script, no network).
