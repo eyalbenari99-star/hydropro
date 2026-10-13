@@ -35,6 +35,10 @@ const PRE="const U="+JSON.stringify(USERS)+";const g0=window.getCurrentUser;cons
   "const FOUR=async()=>{await logOffer(0,[85,80,120],'incl',100);await logOffer(1,[90,88,130],'incl',150);await logOffer(2,[82,80,118],'excl',0);await logOffer(3,[70,68,null],'incl',0);};"+
   "const start=async(prs,rfqs,u)=>{put('hydroPro_purch_prs',prs);put('hydroPro_purch_rfqs',rfqs);as(u||'jinky');__PURPRO.openPR(prs[0].id);await sleep(300);};";
 const NEED="!!(window.__PURPRO&&window.__PURPRO.offerLines)";
+/* v22.74: the two screen cases need the signed-in harness user to exist, or the login screen covers the view and nothing is laid out */
+const SEED_UI=new Function("localStorage.setItem('hydroPro_users',JSON.stringify("+JSON.stringify([{username:'tester',fullname:'Tester',passwordHash:'x',role:'admin',active:true}].concat(USERS))+"));"+
+  "['hydroPro_purch_prs','hydroPro_purch_rfqs','hydroPro_purch_pos','hydroPro_purch_grns','hydroPro_purch_invoices','hydroPro_pa_inbox_v1','hydroPro_purch_audit','hydroPro_acct_purch_history'].forEach(k=>localStorage.setItem(k,'[]'));"+
+  "localStorage.removeItem('hydroPro_purch_roles_v1');localStorage.removeItem('hnx_cloud_token');");
 /* the case body is a real function: its source is pasted after PRE, so it sees FAM, logOffer, put… */
 const run=fn=>new Function('return (async()=>{'+PRE+'await sleep(3000);const __r=await ('+fn.toString()+')();window.getCurrentUser=g0;return __r;})()');
 module.exports=[
@@ -45,7 +49,7 @@ module.exports=[
     await start([PR11(),PR12],[RFQ11(),RFQ11({id:'rfq12',number:'RFQ-2026-000012',prId:'pr12',suppliers:[sup(FAM)]})]);
     __PURPRO.quoteToggle('rfq11:0');await sleep(150);
     const qty=['ppQlq0','ppQlq1','ppQlq2'].map(gv),ids={};['ppQq','ppQu','ppQb','ppQl2','ppQlb2'].forEach(id=>{ids[id]=!!document.getElementById(id);});
-    const cell=(document.getElementById('ppQl0')||document.body).closest('td'),form=((document.getElementById('ppQl0')||document.body).closest('td[colspan]')||{}).innerText||'';
+    const cell=(document.getElementById('ppQl0')||document.body).closest('td'),form=(document.getElementById('ppQForm')||{}).innerText||''; /* v22.74: the form is a card under the supplier table */
     const perKg=/\/kg/.test(cell?cell.innerText:'');
     ['85','80','120'].forEach((p,j)=>val('ppQl'+j,p));val('ppQdc','100');val('ppQv','incl');val('ppQvu','2027-01-31');val('ppQd','3');
     __PURPRO.qTot();const tot=(document.getElementById('ppQtot')||{}).textContent;
@@ -202,5 +206,184 @@ module.exports=[
     val('ppQl3','350');__PURPRO.saveQuote('rfq11',0);await sleep(200);
     const A2=__PURPRO.a2a('pr11'),r2=A2.rows[0]||{};
     return {before,empty,after:[r2.covers,r2.of,A2.best?A2.best.label:null,(R().suppliers[0].quote||{}).total,rd(r2.normTotal)]};}),
-  expect:{before:[3,4,null,true],empty:'',after:[4,4,'Famous Lumber & Construction Supply',1875,1674.11]} }
+  expect:{before:[3,4,null,true],empty:'',after:[4,4,'Famous Lumber & Construction Supply',1875,1674.11]} },
+/* ---- v22.74: the money / compatibility / phone review of v22.68 ---- */
+{ name:'💰 One item, 5 kg asked, Famous offers 10 kg @ ₱85 VAT in: the PO orders the 5 kg approved — line 5 × ₱85 = ₱425.00 = PO total (was total ₱850 over a ₱425 line), Dr Amy is told "10 kg offered for 5 asked — the PO orders the 5 kg approved" (no reason asked), rfq.awardedTotal ₱425, workflow "₱425.00", the offer keeps ₱850 as quoted; GRN 5 → Fully Delivered, INV ₱425 → Matched (v22.74)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    const PR12=PR11({id:'pr12',number:'PR-2026-000012',title:'Nails',items:[Object.assign({},ITEMS[0])],rfqId:'rfq12'});
+    await start([PR12],[RFQ11({id:'rfq12',number:'RFQ-2026-000012',prId:'pr12',suppliers:[sup(FAM)]})]);
+    __PURPRO.quoteToggle('rfq12:0');await sleep(150);val('ppQq','10');val('ppQu','85');val('ppQv','incl');val('ppQvu','2027-01-31');val('ppQd','3');__PURPRO.saveQuote('rfq12',0);await sleep(200);
+    const q=R('rfq12').suppliers[0].quote||{};
+    setP('pr12',p=>{p.status='Approval';});as('amy');__PURPRO.openPR('pr12');await sleep(300);CF.length=0;
+    __PURPRO.award('pr12','','Approval',R('rfq12').updatedAt);await sleep(200);const cfA=CF.slice();
+    const po=J('hydroPro_purch_pos')[0]||{},w=(P('pr12').workflow||[]).slice(-1)[0]||{};
+    __PURPRO.openPR('pr12');await sleep(300);const card=view();
+    __PURPRO.issuePO('pr12');await sleep(100);__PURPRO.simpleAdvance('pr12','PO issued — awaiting delivery','Purchase Order',po.id);await sleep(100);
+    as('jinky');__PURPRO.openPR('pr12');await sleep(300);val('ppGacc0','5');__PURPRO.recordGRN('pr12',po.id);await sleep(200);
+    mk('ppInvPo',po.id);mk('ppInvNum','INV-12');mk('ppInvAmt','425');__PURPRO.addInvoice();await sleep(150);
+    return {offer:[q.qty,q.unitPrice,q.total],po:(po.items||[]).map(it=>[it.qty,it.unitCost]),total:po.total,asQuoted:po.asQuoted,awardedTotal:R('rfq12').awardedTotal,
+      note:/^Awarded to Famous Lumber & Construction Supply · ₱425\.00 · PO draft/.test(w.note||''),confirm:cfA.length===1&&/Common Wire Nail #2: 10 kg offered for 5 asked — the PO orders the 5 kg approved/.test(cfA[0]),prompts:PM.length,
+      card:/Total ₱425\.00/.test(card),st:(J('hydroPro_purch_pos')[0]||{}).status,match:(J('hydroPro_purch_invoices')[0]||{}).matchStatus,alerts:AL};}),
+  expect:{offer:[10,85,850],po:[[5,85]],total:425,asQuoted:850,awardedTotal:425,note:true,confirm:true,prompts:0,card:true,st:'Fully Delivered',match:'Matched',alerts:[]} },
+
+{ name:'💰 One item 10 kg asked (estimate ₱90): Famous offers 12 kg × ₱100 → PO 10 kg @ ₱100 = ₱1,000.00 (told "12 kg offered for 10 asked"), GRN 10 → Fully Delivered, INV ₱1,000 → Matched; Famous offers 8 kg × ₱100 → flag "offers 8 of 10", the award asks a reason ("offers less than asked: 8 kg of Common Wire Nail #2 for 10 asked … × 2 kg short is NOT ordered"), PO 8 × ₱100 = ₱800.00, notOrdered 2 kg short, audit award:partial (no override of anybody), workflow "NOT ordered: Common Wire Nail #2 × 2 kg short", Receiving shows it; GRN 8 → Fully Delivered, INV ₱800 → Matched (v22.74)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    const one=(id,n)=>PR11({id:id,number:'PR-2026-0000'+n,title:'Nails',status:'Approval',rfqId:'rfq'+n,items:[{desc:'Common Wire Nail #2',code:'',qty:10,unit:'kg',unitCost:90}]});
+    await start([one('pr12','12'),one('pr13','13')],[RFQ11({id:'rfq12',number:'RFQ-2026-000012',prId:'pr12',suppliers:[sup(FAM,OQ({qty:12,unitPrice:100,total:1200}))]}),RFQ11({id:'rfq13',number:'RFQ-2026-000013',prId:'pr13',suppliers:[sup(FAM,OQ({qty:8,unitPrice:100,total:800}))]})],'amy');
+    const cyc=async(prId,rfqId,invAmt,invNo)=>{__PURPRO.openPR(prId);await sleep(300);CF.length=0;PM.length=0;PR_ANS='only 8 in stock';
+      __PURPRO.award(prId,'','Approval',R(rfqId).updatedAt);await sleep(200);const cfA=CF.slice();
+      const po=J('hydroPro_purch_pos').find(p=>p.prId===prId)||{},w=(P(prId).workflow||[]).slice(-1)[0]||{};
+      __PURPRO.issuePO(prId);await sleep(100);__PURPRO.simpleAdvance(prId,'PO issued — awaiting delivery','Purchase Order',po.id);await sleep(100);
+      as('jinky');__PURPRO.openPR(prId);await sleep(300);const recv=view();val('ppGacc0',String((po.items||[{}])[0].qty));__PURPRO.recordGRN(prId,po.id);await sleep(200);
+      mk('ppInvPo',po.id);mk('ppInvNum',invNo);mk('ppInvAmt',String(invAmt));__PURPRO.addInvoice();await sleep(150);as('amy');
+      return {po:(po.items||[]).map(it=>[it.qty,it.unitCost]),total:po.total,notOrdered:po.notOrdered||null,cf:cfA,pm:PM.slice(),note:w.note||'',recv:/Not on this PO: Common Wire Nail #2 × 2 kg short/.test(recv),
+        st:(J('hydroPro_purch_pos').find(p=>p.prId===prId)||{}).status,match:(J('hydroPro_purch_invoices').find(i=>i.number===invNo)||{}).matchStatus};};
+    const a=await cyc('pr12','rfq12',1000,'INV-12');
+    const flag8=(__PURPRO.a2a('pr13').rows[0]||{flags:[]}).flags.join('|');
+    const b=await cyc('pr13','rfq13',800,'INV-13');
+    const p13=P('pr13'),au=J('hydroPro_purch_audit').filter(x=>/^award:/.test(x.action)).map(x=>x.action+' '+x.detail);
+    return {a:{po:a.po,total:a.total,notOrdered:a.notOrdered,cf:a.cf.length===1&&/Common Wire Nail #2: 12 kg offered for 10 asked — the PO orders the 10 kg approved/.test(a.cf[0]),pm:a.pm.length,st:a.st,match:a.match,note:/· ₱1,000\.00 · PO draft/.test(a.note)},
+      flag8,b:{po:b.po,total:b.total,notOrdered:b.notOrdered,cf:b.cf.length,pm:b.pm.length===1&&/^This award orders less than PR-2026-000013 asks\./.test(b.pm[0])&&/offers less than asked: 8 kg of Common Wire Nail #2 for 10 asked\. The PO orders what is offered — Common Wire Nail #2 × 2 kg short is NOT ordered/.test(b.pm[0]),
+        st:b.st,match:b.match,note:/^Awarded to Famous Lumber & Construction Supply · ₱800\.00 · PO draft PO-\d{4}-\d{6} · NOT ordered: Common Wire Nail #2 × 2 kg short$/.test(b.note),recv:b.recv},
+      overrides:(p13.overrides||[]).length,partial:((p13.partialAwards||[])[0]||{}).reason,audit:au,alerts:AL};}),
+  expect:{a:{po:[[10,100]],total:1000,notOrdered:null,cf:true,pm:0,st:'Fully Delivered',match:'Matched',note:true},flag8:'offers 8 of 10',
+    b:{po:[[8,100]],total:800,notOrdered:[{desc:'Common Wire Nail #2',qty:2,unit:'kg',short:true,offered:8,asked:10}],cf:0,pm:true,st:'Fully Delivered',match:'Matched',note:true,recv:true},
+    overrides:0,partial:'only 8 in stock',audit:['award:partial Famous Lumber & Construction Supply: only 8 in stock · not ordered: Common Wire Nail #2 × 2 kg short'],alerts:[]} },
+
+{ name:'💰 RFQ-2026-000011: Famous offers 10 kg of Nail #2 for 5 asked (85/80/120 + ₱100) → flag "10 kg offered for 5", ₱1,950.00 as quoted, landed ₱1,361.61 BEST; the award tells Dr Amy and the PO orders 5 kg: lines 5×85 / 5×80 / 5×120, total ₱1,525.00 (was 10 kg, ₱1,950.00, no word). Famous offers 3 kg for 5 → "offers 3 of 5 kg"; awarding it asks a reason naming "3 kg of Common Wire Nail #2 for 5 asked … × 2 kg short", PO 3 kg / 5 / 5, total ₱1,355.00, notOrdered 2 kg short, workflow and PO card "NOT ordered: Common Wire Nail #2 × 2 kg short" (v22.74)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    const famQ=async(qty0)=>{__PURPRO.quoteToggle('rfq11:0');await sleep(150);['85','80','120'].forEach((p,j)=>val('ppQl'+j,p));val('ppQlq0',String(qty0));val('ppQdc','100');val('ppQv','incl');val('ppQvu','2027-01-31');val('ppQd','3');__PURPRO.saveQuote('rfq11',0);await sleep(200);};
+    await start([PR11()],[RFQ11()]);await famQ(10);await logOffer(2,[82,80,118],'excl',0);
+    const q1=R().suppliers[0].quote||{},A1=__PURPRO.a2a('pr11'),r1=A1.rows.find(r=>r.sup===FAM)||{flags:[]};
+    setP('pr11',p=>{p.status='Approval';});as('amy');__PURPRO.openPR('pr11');await sleep(300);CF.length=0;
+    __PURPRO.award('pr11','','Approval',R().updatedAt);await sleep(200);
+    const po1=J('hydroPro_purch_pos')[0]||{},w1=(P().workflow||[]).slice(-1)[0]||{};
+    const over={q:[q1.total,rd(r1.normTotal),A1.best&&A1.best.label,r1.flags.join('|')],cf:CF.length===1&&/Common Wire Nail #2: 10 kg offered for 5 asked — the PO orders the 5 kg approved/.test(CF[0]),pm:PM.length,
+      po:(po1.items||[]).map(it=>[it.qty,it.unitCost]),total:po1.total,notOrdered:po1.notOrdered||null,note:/· ₱1,525\.00 · PO draft/.test(w1.note||'')};
+    await start([PR11()],[RFQ11()]);await famQ(3);await logOffer(2,[82,80,118],'excl',0);
+    const r2=(__PURPRO.a2a('pr11').rows.find(r=>r.sup===FAM))||{flags:[]};
+    setP('pr11',p=>{p.status='Approval';});as('amy');__PURPRO.openPR('pr11');await sleep(300);CF.length=0;PM.length=0;val('ppAwardSel',FAM);PR_ANS='Famous has only 3 kg left';
+    __PURPRO.award('pr11','','Approval',R().updatedAt);await sleep(200);
+    const po2=J('hydroPro_purch_pos').slice(-1)[0]||{},w2=(P().workflow||[]).slice(-1)[0]||{};
+    __PURPRO.openPR('pr11');await sleep(300);
+    return {over,short:{flag:r2.flags.join('|'),pm:PM.length===1&&/offers less than asked: 3 kg of Common Wire Nail #2 for 5 asked\. The PO orders what is offered — Common Wire Nail #2 × 2 kg short is NOT ordered/.test(PM[0]),cf:CF.length,
+      po:(po2.items||[]).map(it=>[it.qty,it.unitCost]),total:po2.total,notOrdered:po2.notOrdered,note:/· ₱1,355\.00 · PO draft PO-\d{4}-\d{6} · NOT ordered: Common Wire Nail #2 × 2 kg short$/.test(w2.note||''),card:/Not on this PO: Common Wire Nail #2 × 2 kg short — raise a new request for it/.test(view())},alerts:AL};}),
+  expect:{over:{q:[1950,1361.61,'Famous Lumber & Construction Supply','Common Wire Nail #2: 10 kg offered for 5'],cf:true,pm:0,po:[[5,85],[5,80],[5,120]],total:1525,notOrdered:null,note:true},
+    short:{flag:'Common Wire Nail #2: offers 3 of 5 kg',pm:true,cf:0,po:[[3,85],[5,80],[5,120]],total:1355,notOrdered:[{desc:'Common Wire Nail #2',qty:2,unit:'kg',short:true,offered:3,asked:5}],note:true,card:true},alerts:[]} },
+
+{ name:'✏ An item renamed at Draft after the offers (Common Wire Nail #2 → "Common Wire Nail #2 (2 in)"): Famous keeps 3 of 3, ₱1,361.61 and 🏅 BEST (was "2 of 3" and the one-price SWCC ₱1,473.21 became BEST), flagged "renamed after this offer (was Common Wire Nail #2)"; Triox keeps 3 of 3; ✏ Edit offer prefills 85 / 80 / 120 and says so; the award tells Dr Amy and the PO carries the renamed item at ₱85: 3 lines, ₱1,525.00 (v22.74)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    await start([PR11()],[RFQ11({suppliers:[sup(FAM),sup(SW,OQ({unitPrice:110,total:1650})),sup(TX),sup(CH)]})]);
+    await logOffer(0,[85,80,120],'incl',100);await logOffer(2,[82,80,118],'excl',0);
+    setP('pr11',p=>{p.items[0].desc='Common Wire Nail #2 (2 in)';p.itemsChangedAt=Date.now();p.itemsChangedWhy='revision 2';p.revision=2;p.status='Quotation Evaluation';});__PURPRO.openPR('pr11');await sleep(300);
+    const A=__PURPRO.a2a('pr11'),fam=A.rows.find(r=>r.sup===FAM)||{flags:[]},tx=A.rows.find(r=>r.sup===TX)||{};
+    __PURPRO.quoteToggle('rfq11:0');await sleep(150);const prefill=[0,1,2].map(j=>gv('ppQl'+j)),says=/renamed after this offer/.test(view());__PURPRO.quoteToggle(null);await sleep(100);
+    setP('pr11',p=>{p.status='Approval';});as('amy');__PURPRO.openPR('pr11');await sleep(300);CF.length=0;
+    __PURPRO.award('pr11','','Approval',R().updatedAt);await sleep(200);const po=J('hydroPro_purch_pos')[0]||{};
+    return {fam:[fam.covers,rd(fam.normTotal),fam.flags.some(f=>/^Common Wire Nail #2 \(2 in\): renamed after this offer \(was Common Wire Nail #2\)/.test(f))],tx:[tx.covers,rd(tx.normTotal)],best:A.best&&A.best.label,cheapest:A.cheapest&&A.cheapest.label,
+      prefill,says,cf:CF.length===1&&/renamed after this offer \(was Common Wire Nail #2\) — priced as quoted, ₱85\.00\/kg/.test(CF[0]),pm:PM.length,po:(po.items||[]).map(it=>[it.desc,it.qty,it.unitCost]),total:po.total,alerts:AL};}),
+  expect:{fam:[3,1361.61,true],tx:[3,1400],best:'Famous Lumber & Construction Supply',cheapest:'Famous Lumber & Construction Supply',prefill:['85','80','120'],says:true,cf:true,pm:0,
+    po:[['Common Wire Nail #2 (2 in)',5,85],['Common Wire Nail #3',5,80],['Tansi #200',5,120]],total:1525,alerts:[]} },
+
+{ name:'🧾 VAT: Triox 82/80/118 "not included" awarded (override, reason) → PO ₱1,400.00 ex-VAT, card "Total ₱1,400.00 + 12% VAT = ₱1,568.00 on the invoice · prices without VAT", Issue PO says "+ 12% VAT = 1568 on the invoice"; GRN 5/5/5 → Fully Delivered; INV ₱1,568 → Matched (was Exception); a second invoice ₱1,400 → Exception (v22.74)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    await start([PR11()],[RFQ11()]);await FOUR();
+    setP('pr11',p=>{p.status='Approval';});as('amy');__PURPRO.openPR('pr11');await sleep(300);
+    val('ppAwardSel',TX);PR_ANS='Triox delivers tomorrow';__PURPRO.award('pr11','','Approval',R().updatedAt);await sleep(200);
+    const po=J('hydroPro_purch_pos')[0]||{};__PURPRO.openPR('pr11');await sleep(300);const card=view();
+    CF.length=0;__PURPRO.issuePO('pr11');await sleep(100);const issue=CF[0]||'';__PURPRO.simpleAdvance('pr11','PO issued — awaiting delivery','Purchase Order',po.id);await sleep(100);
+    as('jinky');__PURPRO.openPR('pr11');await sleep(300);['0','1','2'].forEach(i=>val('ppGacc'+i,'5'));__PURPRO.recordGRN('pr11',po.id);await sleep(200);
+    mk('ppInvPo',po.id);mk('ppInvNum','INV-TX');mk('ppInvAmt','1568');__PURPRO.addInvoice();await sleep(150);
+    mk('ppInvNum','INV-TX2');mk('ppInvAmt','1400');__PURPRO.addInvoice();await sleep(150);
+    const inv=J('hydroPro_purch_invoices');
+    return {total:po.total,vat:[po.vatIncl,po.vatExempt],card:/Total ₱1,400\.00 \+ 12% VAT = ₱1,568\.00 on the invoice · prices without VAT/.test(card),issue:/for 1400 \+ 12% VAT = 1568 on the invoice\?/.test(issue),
+      st:(J('hydroPro_purch_pos')[0]||{}).status,m:inv.map(i=>[i.number,i.matchStatus]),alerts:AL};}),
+  expect:{total:1400,vat:[false,false],card:true,issue:true,st:'Fully Delivered',m:[['INV-TX','Matched'],['INV-TX2','Exception']],alerts:[]} },
+
+{ name:'🧾 VAT: SWCC logged as "none — non-VAT supplier" (90/88/130 + ₱150): no "VAT to add on invoice" flag, compared as quoted (₱1,690.00 landed), shown "no VAT"; awarded (override) → PO ₱1,690.00, card "non-VAT supplier — no VAT on the invoice", GRN all → INV ₱1,690 → Matched; Excel VAT column "none (non-VAT supplier)" (v22.74)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    const cap={};window.XLSX={utils:{book_new:()=>({S:[]}),aoa_to_sheet:r=>r,book_append_sheet:(wb,ws,n)=>wb.S.push({name:n,rows:ws})},writeFile:(wb,name)=>{cap.S=wb.S;}};
+    await start([PR11()],[RFQ11()]);await logOffer(0,[85,80,120],'incl',100);await logOffer(1,[90,88,130],'exempt',150);
+    const q=R().suppliers[1].quote||{};setP('pr11',p=>{p.status='Quotation Evaluation';});__PURPRO.openPR('pr11');await sleep(300);
+    const A=__PURPRO.a2a('pr11'),sw=A.rows.find(r=>r.sup===SW)||{flags:[]},noVat=/no VAT/.test(view());
+    __PURPRO.a2aExcel('pr11');const row=(((cap.S||[])[0]||{}).rows||[]).find(r=>r[0]===SW)||[];
+    setP('pr11',p=>{p.status='Approval';});as('amy');__PURPRO.openPR('pr11');await sleep(300);
+    val('ppAwardSel',SW);PR_ANS='SWCC has stock';__PURPRO.award('pr11','','Approval',R().updatedAt);await sleep(200);
+    const po=J('hydroPro_purch_pos')[0]||{};__PURPRO.openPR('pr11');await sleep(300);const card=view();
+    __PURPRO.issuePO('pr11');await sleep(100);__PURPRO.simpleAdvance('pr11','PO issued — awaiting delivery','Purchase Order',po.id);await sleep(100);
+    as('jinky');__PURPRO.openPR('pr11');await sleep(300);['0','1','2'].forEach(i=>val('ppGacc'+i,'5'));__PURPRO.recordGRN('pr11',po.id);await sleep(200);
+    mk('ppInvPo',po.id);mk('ppInvNum','INV-SW');mk('ppInvAmt','1690');__PURPRO.addInvoice();await sleep(150);
+    return {q:[q.vatIncl,q.vatExempt,q.total],sw:[rd(sw.normTotal),sw.flags.join('|')],noVat,excelVat:row[5],total:po.total,vat:[po.vatIncl,po.vatExempt],card:/Total ₱1,690\.00 · non-VAT supplier — no VAT on the invoice/.test(card),
+      match:(J('hydroPro_purch_invoices')[0]||{}).matchStatus,alerts:AL};}),
+  expect:{q:[false,true,1690],sw:[1690,''],noVat:true,excelVat:'none (non-VAT supplier)',total:1690,vat:[false,true],card:true,match:'Matched',alerts:[]} },
+
+{ name:'🕰 SWCC one-price offer from before v22.68 for 5 at ₱95 VAT in + ₱100 delivery (₱575): landed total ₱1,361.61 = 15 × ₱84.82 + ₱89.29 (was ₱1,540.18 — the delivery counted three times), the Item-by-item foot and the Excel "Landed total ex-VAT" agree (v22.74)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    const cap={};window.XLSX={utils:{book_new:()=>({S:[]}),aoa_to_sheet:r=>r,book_append_sheet:(wb,ws,n)=>wb.S.push({name:n,rows:ws})},writeFile:(wb,name)=>{cap.S=wb.S;}};
+    await start([PR11({status:'Quotation Evaluation'})],[RFQ11({suppliers:[sup(FAM),sup(SW,OQ({qty:5,unitPrice:95,delivery:100,total:575})),sup(TX),sup(CH)]})]);
+    const A=__PURPRO.a2a('pr11'),r=A.rows.find(x=>x.sup===SW)||{flags:[]};
+    __PURPRO.a2aExcel('pr11');const tot=((((cap.S||[])[1]||{}).rows||[]).find(x=>x[0]==='Landed total ex-VAT')||[]).slice(3);
+    return {landed:[rd(r.normTotal),rd(r.cmp),rd(r.delEx),rd(r.unitEx)],flag:r.flags.some(f=>/^offers 5 \(one price for all items\)/.test(f)),foot:/Landed total \(VAT-exclusive, delivery in\)\s*₱1,361\.61/.test(view()),excel:tot,alerts:AL};}),
+  expect:{landed:[1361.61,1361.61,89.29,84.82],flag:true,foot:true,excel:[1361.61],alerts:[]} },
+
+{ name:'💾 Famous Nail #2 typed 85.555 → saved ₱85.56, total ₱1,527.80 = PO lines + delivery (was ₱1,527.78, 2 centavos off its lines); a price of −5 is refused "the price cannot be below 0"; saving with Nail #2 left empty asks "Famous … has no price for: Common Wire Nail #2. Save those as NOT quoted …?" (was saved without a word) and saves 2 of 3, ₱1,100.00 (v22.74)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    await start([PR11()],[RFQ11()]);
+    __PURPRO.quoteToggle('rfq11:0');await sleep(150);['85.555','80','120'].forEach((p,j)=>val('ppQl'+j,p));val('ppQdc','100');val('ppQv','incl');val('ppQvu','2027-01-31');val('ppQd','3');CF.length=0;__PURPRO.saveQuote('rfq11',0);await sleep(200);
+    const q=R().suppliers[0].quote||{},cf0=CF.length;
+    __PURPRO.quoteToggle('rfq11:0');await sleep(150);val('ppQl0','-5');AL.length=0;__PURPRO.saveQuote('rfq11',0);await sleep(150);const neg=AL.slice();
+    val('ppQl0','');CF.length=0;__PURPRO.saveQuote('rfq11',0);await sleep(200);const q2=R().suppliers[0].quote||{};
+    return {line:[(q.lines||[{}])[0].unitPrice,(q.lines||[{}])[0].qty],total:q.total,cf0,neg,ask:CF.length===1&&/^Famous Lumber & Construction Supply has no price for: Common Wire Nail #2\.\n\nSave those as NOT quoted \(the offer will not count as covering every item\)\?$/.test(CF[0]),
+      saved:(q2.lines||[]).map(l=>l.quoted),total2:q2.total,chip:/QUOTED ₱1,100\.00 · 2 of 3 items/.test(view())};}),
+  expect:{line:[85.56,5],total:1527.8,cf0:0,neg:['Common Wire Nail #2: the price cannot be below 0'],ask:true,saved:[false,true,true],total2:1100,chip:true} },
+
+{ name:'🧾 Item by item: a total-only offer from before v21.64 (Famous ₱1,500 for 15, no unit price) shows "one total for all" in each of its 3 cells (was "not quoted" ×3 while the footer said "one price"), ₱1,339.29 landed (v22.74)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    const FQ=OQ({qty:15,total:1500});delete FQ.unitPrice;
+    await start([PR11({status:'Quotation Evaluation'})],[RFQ11({suppliers:[sup(FAM,FQ),sup(SW,OQ()),sup(TX),sup(CH)]})]);
+    const A=__PURPRO.a2a('pr11'),r=A.rows.find(x=>x.sup===FAM)||{},v=view();
+    return {landed:rd(r.normTotal),one:[r.one,r.oneMode],cells:(v.match(/one total for all(?! items)/g)||[]).length,notQuoted:(v.match(/not quoted/g)||[]).length};}),
+  expect:{landed:1339.29,one:[true,'total'],cells:3,notQuoted:0} },
+
+{ name:'✂ Only Chribas offers (nails, no Tansi) — Nexi recommends none: the award with reason "only nails for now" is recorded as award:partial "Chribas Trading Inc.: only nails for now · not ordered: Tansi #200 × 5 roll" (was award:override "… over :" and an override of nobody), pr.partialAwards[0], no pr.overrides entry; PO ₱690.00 (v22.74)',
+  requires:NEED,seed:SEED,
+  run:run(async()=>{
+    await start([PR11()],[RFQ11({suppliers:[sup(CH)]})]);await logOffer(0,[70,68,null],'incl',0);
+    setP('pr11',p=>{p.status='Approval';});as('amy');__PURPRO.openPR('pr11');await sleep(300);
+    const sel=document.getElementById('ppAwardSel'),empty=!!sel&&sel.value==='';val('ppAwardSel',CH);PR_ANS='only nails for now';__PURPRO.award('pr11','','Approval',R().updatedAt);await sleep(200);
+    const p=P(),po=J('hydroPro_purch_pos')[0]||{},au=J('hydroPro_purch_audit').filter(x=>/^award:/.test(x.action)).map(x=>x.action+' '+x.detail);
+    return {empty,pm:PM.length===1&&/^Nexi recommends no offer — none covers every item\./.test(PM[0]),au,overrides:(p.overrides||[]).length,partial:(p.partialAwards||[]).map(x=>[x.reason,(x.notOrdered||[]).map(n=>n.desc)]),total:po.total,alerts:AL};}),
+  expect:{empty:true,pm:true,au:['award:partial Chribas Trading Inc.: only nails for now · not ordered: Tansi #200 × 5 roll'],overrides:0,partial:[['only nails for now',['Tansi #200']]],total:690,alerts:[]} },
+
+{ name:'📱 Phone (400 px): ➕ Log offer at the RFQ opens the per-item form as a card under the supplier table (#ppQForm — not inside a table cell, where the phone layout squeezed it to 2 px) — the price box of Nail #2 is at least 100 px wide, its row cells carry their labels ("Qty offered", "Price per unit ₱") at once, "Total as quoted" is at least 200 px wide, the first price box has the cursor (v22.74)',
+  requires:NEED,seed:SEED_UI,viewport:{width:400,height:800},
+  run:run(async()=>{
+    try{switchView('acct_purch_pro');}catch(e){}await sleep(300);
+    await start([PR11()],[RFQ11()]);__PURPRO.quoteToggle('rfq11:0');await sleep(300);
+    const f=document.getElementById('ppQForm'),b=document.getElementById('ppQl0'),cell=b&&b.closest('td'),tot=document.getElementById('ppQtot');
+    return {card:!!f&&f.classList.contains('pp-card')&&f.contains(b),inCell:!!(b&&b.closest('td[colspan]')),wOk:!!b&&b.getBoundingClientRect().width>=100,labels:[document.getElementById('ppQlq0').closest('td').getAttribute('data-label'),cell.getAttribute('data-label')],
+      totOk:!!tot&&tot.getBoundingClientRect().width>=200,focus:document.activeElement&&document.activeElement.id,vw:innerWidth};}),
+  expect:{card:true,inCell:false,wOk:true,labels:['Qty offered','Price per unit ₱'],totOk:true,focus:'ppQl0',vw:400} },
+
+{ name:'🖥 1366 px, Quotation Evaluation with four offers: the Change column (✏ Edit offer) is the 2nd column of the comparison — all four buttons visible without sideways scrolling (were 1,800 px to the right); pressing ✏ Edit offer on Chribas (last row) brings the form into view with the cursor in the first price box (before: the form opened above the viewport, nothing visible happened) (v22.74)',
+  requires:NEED,seed:SEED_UI,viewport:{width:1366,height:768},
+  run:run(async()=>{
+    try{switchView('acct_purch_pro');}catch(e){}await sleep(300);
+    await start([PR11()],[RFQ11()]);await FOUR();setP('pr11',p=>{p.status='Quotation Evaluation';});__PURPRO.openPR('pr11');await sleep(300);
+    const v=document.getElementById('view-acct_purch_pro'),tb=[...v.querySelectorAll('table.pp-tbl')].find(t=>/Items quoted/.test((t.querySelector('thead')||{}).innerText||''));
+    const ths=[...tb.querySelectorAll('thead th')].map(x=>x.innerText.trim()),edit=[...v.querySelectorAll('button')].filter(b=>/Edit offer/.test(b.innerText));
+    const er=edit.map(b=>b.getBoundingClientRect()).every(r=>r.left>=0&&r.right<=innerWidth);
+    edit[edit.length-1].scrollIntoView();await sleep(100);__PURPRO.quoteToggle('rfq11:3');await sleep(400);
+    const f=document.getElementById('ppQForm'),r=f&&f.getBoundingClientRect();
+    return {ths:ths.slice(0,3),editVisible:er,n:edit.length,inView:!!r&&r.top>=-1&&r.top<innerHeight,title:f&&f.innerText.split('\n')[0],focus:document.activeElement&&document.activeElement.id};}),
+  expect:{ths:['Supplier','Change','Items quoted'],editVisible:true,n:4,inView:true,title:'✏ Offer — Chribas Trading Inc.',focus:'ppQl0'} }
 ];
