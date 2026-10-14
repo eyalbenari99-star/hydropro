@@ -156,7 +156,7 @@ module.exports=[
       {src:'📡 Not connected yet — readings are typed on the daily checklist',val:'—',chip:'— NO READING',state:'none',merc:false,tag:'—NO VALUE'}],missing:true,noDev:true,
     after:{v1:'5.0 °C',s1:'✍ hand · 07:52 · Eyal Ben Ari',st1:'ok',v2:'—',s2:'📡 Not connected yet — readings are typed on the daily checklist'},state:['notconnected','notconnected']} },
 
-{ name:'❄ Online feed: ⚙ Settings → URL + On + token → GET …/cold/latest with "Bearer tok-SECRET-cold-9f2" → CS1 5.6 at 07:35 live, card "📡 online · 07:35 · Elitech alarm mail", 24 h svg has the 4–8 band + the online line; the token is only in hnxlocal_cold_token_v1 (no hydroPro_ key, toast or console holds it); HTTP 401 → "worker not reached (HTTP 401)"; safe mode → "paused (safe mode)" and 0 fetch calls',
+{ name:'❄ Online feed: ⚙ Settings → URL + On + token → GET …/cold/latest with "Bearer tok-SECRET-cold-9f2" → CS1 5.6 at 07:35 live, card "📡 online · 07:35 · Elitech alarm mail", feed "… 1 of 2 rooms live · last pull 07:4x" (v23.22: the running clock may pass 07:40), 24 h svg has the 4–8 band + the online line; the token is only in hnxlocal_cold_token_v1 (no hydroPro_ key, toast or console holds it); HTTP 401 → "worker not reached (HTTP 401)"; safe mode → "paused (safe mode)" and 0 fetch calls',
   requires:NEW, tz:'Asia/Manila', seed:SEED,
   run:fn(`const logs=[];['log','info','warn','error','debug'].forEach(k=>{const o=console[k];console[k]=function(){try{logs.push([].map.call(arguments,a=>{try{return typeof a==='string'?a:JSON.stringify(a);}catch(e){return String(a);}}).join(' '));}catch(e){}return o.apply(console,arguments);};});
     let mode='ok';const fc=stubFetch(u=>{if(mode==='401')return {status:401,body:{error:'unauthorized'}};
@@ -170,7 +170,7 @@ module.exports=[
     const cfgRaw=localStorage.getItem('hydroPro_cold_cfg_v1'),cfg=JSON.parse(cfgRaw||'{}');
     const first=fc.filter(x=>/\\/cold\\/latest/.test(x.u))[0]||{};
     const svg=card('CS1').querySelector('svg.hnx-ct-line');
-    const ok={state:C.state('CS1'),src:cardTxt('CS1','src'),band:!!(svg&&svg.querySelector('rect.ct-l-band')),line:!!(svg&&svg.querySelector('polyline')),feed:(document.querySelector('#coldRoomsBody .hnx-cr-feed')||{}).textContent,
+    const ok={state:C.state('CS1'),src:cardTxt('CS1','src'),band:!!(svg&&svg.querySelector('rect.ct-l-band')),line:!!(svg&&svg.querySelector('polyline')),feed:/^📡 Online · feeder \\(this computer\\) · 1 of 2 rooms live · last pull 07:4\\d$/.test((document.querySelector('#coldRoomsBody .hnx-cr-feed')||{}).textContent||''),
       live:(JSON.parse(localStorage.getItem('hydroPro_cold_live_v1')||'{}').rooms||{}).CS1,hist:fc.some(x=>/\\/cold\\/history\\?room=CS1&hours=24/.test(x.u))};
     ok.live=ok.live&&{t:ok.live.t,pts:(ok.live.pts||[]).length};
     mode='401';C.clearToken();C.setToken('wrong-'+TOK);const s401=await C.pullNow();C.render('maint_cold');
@@ -181,7 +181,7 @@ module.exports=[
       tokKey:/wrong-tok-SECRET/.test(localStorage.getItem('hnxlocal_cold_token_v1')||''),leaks,toastLeak:toasts.filter(t=>t.indexOf(TOK)>=0).length,logLeak:logs.filter(t=>t.indexOf(TOK)>=0).length};`),
   expect:{feed0:'📡 Not connected yet — readings are typed on the daily checklist',cfg:{url:'https://nexi-cold.test.workers.dev',on:true,lww:true,by:'eyal'},cfgTok:false,
     first:{u:'https://nexi-cold.test.workers.dev/cold/latest',auth:'Bearer tok-SECRET-cold-9f2'},
-    ok:{state:'live',src:'📡 online · 07:35 · Elitech alarm mail',band:true,line:true,feed:'📡 Online · feeder (this computer) · 1 of 2 rooms live · last pull 07:40',live:{t:5.6,pts:3},hist:true},
+    ok:{state:'live',src:'📡 online · 07:35 · Elitech alarm mail',band:true,line:true,feed:true,live:{t:5.6,pts:3},hist:true},
     e:{http:401,err:'HTTP 401',feed:'📡 Online feed: worker not reached (HTTP 401)',health:'feeder · no reply 0 min (HTTP 401)'},safe:{calls:0,health:'paused (safe mode)'},
     tokKey:true,leaks:[],toastLeak:0,logLeak:0} },
 
@@ -287,5 +287,191 @@ module.exports=[
     switchView('maint_cold');await sleep(700);const li=[...document.querySelectorAll('#coldRoomsBody .hnx-cr-check li')].map(x=>x.textContent);
     return {cold:!!cold&&/\\(v22\\.96/.test(cold.h),rows:cold&&cold.table.rows.map(r=>r[1]),steps:conn&&conn.steps.length,same:!!conn&&JSON.stringify(li)===JSON.stringify(conn.steps),
       routine:routine.steps.some(x=>/^Before 10:00: ❄ Daily — Cold storage temperature \\(°C\\)/.test(x)),rest:rest.table.rows.some(r=>r[0]==='❄ Cold storage'),prow,screens:HNX_HELP.screensFor('m_maintenance').indexOf('maint_cold')>=0};`),
-  expect:{cold:true,rows:['✓ OK','⚠ WARNING','✕ CRITICAL'],steps:15,same:true,routine:true,rest:true,prow:1,screens:true} }
+  expect:{cold:true,rows:['✓ OK','⚠ WARNING','✕ CRITICAL'],steps:15,same:true,routine:true,rest:true,prow:1,screens:true} },
+
+/* ================= v23.22 — the review of v22.96 (23 findings): every real bug has a case, the expected numbers in its name ================= */
+{ name:'❄ v23.22 Typo 56 for 5.6: 56 at 07:52 asks "56.0 °C in a cold room? Did you mean 5.6 °C?" (OK) → CALL_cold_2026-10-13_CS1 CRITICAL HIGH (56.0 °C); ✎ correct to 5.6 at 07:53 → the call is WITHDRAWN (closed_fixed, "withdrawn — the reading that raised it (56.0 °C 07:52) was corrected to 5.6 °C by Eyal Ben Ari"), task done, issue resolved, notices COLD_wd_CS1_2026-10-13_1_eyal/_jomel, History "✎ corrected from 56.0 °C (07:52)"; Cancel on 45 → not saved (why unconfirmed); next day 14 Oct 07:50 a real 1.5 °C → NEW CALL_cold_2026-10-14_CS1 (LOW, not escalated), COLD_crit_CS1_2026-10-14_1_* — no COLD_esc_ notice',
+  requires:NEW, tz:'Asia/Manila', seed:SEED,
+  run:fn(`const asked=[];window.confirm=q=>{asked.push(String(q));return true;};
+    at('07:52');const a=C.saveDaily('CS1','56');const c0=calls().map(c=>[c.id,c.status,c.subject]);
+    at('07:53');const b=C.saveDaily('CS1','5.6');
+    const c=calls()[0]||{},t=tasks()[0]||{},i=issues()[0]||{};
+    const prev=((C.daily('CS1')||{}).check||{}).prev||[];
+    C.history();await sleep(100);const hist=((document.querySelector('#hnxColdHist [data-k="prev"]')||{}).textContent)||'';C.close();try{document.getElementById('hnxColdHist').remove();}catch(e){}
+    window.confirm=()=>false;at('07:56');const no=C.addReading('CS1','45');window.confirm=()=>true;
+    __tAt('2026-10-13T23:50:00Z');C.saveDaily('CS1','1.5');C.actAll({mail:false});C.act('CS1');
+    const all=calls().map(x=>[x.id,x.status,!!x.escalated,x.subject]).sort();
+    return {a:a.ok,q:asked[0],c0,b:b.ok,call:[c.status,c.closedBy,c.closeNote],task:t.status,issue:i.status,prev:prev.map(p=>p.v),hist,no:no.why,
+      inbox:inbox(),all};`),
+  expect:{a:true,q:'56.0 °C in a cold room? Did you mean 5.6 °C?\n\nOK = save 56.0 °C · Cancel = type it again',c0:[['CALL_cold_2026-10-13_CS1','new_call','❄ Cold storage 1 · temperature CRITICAL HIGH (56.0 °C)']],b:true,
+    call:['closed_fixed','system','🤖 withdrawn — the reading that raised it (56.0 °C 07:52) was corrected to 5.6 °C by Eyal Ben Ari — closed by Nexi'],task:'done',issue:'resolved',prev:[56],
+    hist:'✎ corrected from 56.0 °C (07:52)',no:'unconfirmed',
+    inbox:['COLD_crit_CS1_2026-10-13_1_eyal','COLD_crit_CS1_2026-10-13_1_jomel','COLD_crit_CS1_2026-10-14_1_eyal','COLD_crit_CS1_2026-10-14_1_jomel','COLD_wd_CS1_2026-10-13_1_eyal','COLD_wd_CS1_2026-10-13_1_jomel'],
+    all:[['CALL_cold_2026-10-13_CS1','closed_fixed',false,'❄ Cold storage 1 · temperature CRITICAL HIGH (56.0 °C)'],['CALL_cold_2026-10-14_CS1','new_call',false,'❄ Cold storage 1 · temperature CRITICAL LOW (1.5 °C)']]} },
+
+{ name:'❄ v23.22 A ✍ reading typed again within 5 min corrects the last one: CS2 13.0 at 09:00 → call; 6.0 at 09:03 (same user) → replaced, toast "✎ Cold storage 2: your 09:00 reading corrected 13.0 → 6.0 °C — OK. For a second reading wait until 09:08.", hand[0].prev [13], the call is withdrawn; a v22.96 orphan (CALL_cold_2026-10-12_CS1 open, its reading gone) + a real 12.6 at 10:00 → the orphan closed "superseded …", NEW CALL_cold_2026-10-13_CS1, not escalated at once',
+  requires:NEW, tz:'Asia/Manila', seed:SEED,
+  run:fn(`at('09:00');C.addReading('CS2','13.0');const raised=calls().map(c=>c.id);
+    at('09:03');const r=C.addReading('CS2','6.0');const toast=toasts.filter(t=>/corrected/.test(t)).slice(-1)[0];
+    const h=((C.daily('CS2')||{}).hand||[])[0]||{};const c=calls().find(x=>x.id==='CALL_cold_2026-10-13_CS2')||{};
+    /* a v22.96 orphan from yesterday: open, its reading no longer in the record */
+    const all=loadCalls();all.push({id:'CALL_cold_2026-10-12_CS1',subject:'❄ Cold storage 1 · temperature CRITICAL HIGH (56.0 °C)',status:'new_call',priority:'urgent',sourceModule:'maint_cold',coldRoom:'CS1',coldDay:'2026-10-12',
+      coldTs:M('07:52')-864e5,raisedAt:M('07:52')-864e5,coldOpenedAt:M('07:52')-864e5,coldOpenCount:1,updates:[],department:'maintenance'});saveCalls(all);
+    at('10:00');C.addReading('CS1','12.6');C.actAll({mail:false});
+    const o=calls().find(x=>x.id==='CALL_cold_2026-10-12_CS1')||{},n=calls().find(x=>x.id==='CALL_cold_2026-10-13_CS1')||{};
+    return {raised,rep:r.replaced,toast,prev:(h.prev||[]).map(p=>p.v),v:h.v,c:[c.status,/^🤖 withdrawn — the reading that raised it \\(13\\.0 °C 09:00\\) was corrected to 6\\.0 °C/.test(c.closeNote||'')],
+      orphan:[o.status,/^🤖 superseded/.test(o.closeNote||'')],fresh:[n.status,!!n.escalated,n.coldOpenCount],esc:inbox().filter(x=>/^COLD_esc_/.test(x)).length};`),
+  expect:{raised:['CALL_cold_2026-10-13_CS2'],rep:true,toast:'✎ Cold storage 2: your 09:00 reading corrected 13.0 → 6.0 °C — OK. For a second reading wait until 09:08.',prev:[13],v:6,c:['closed_fixed',true],
+    orphan:['closed_fixed',true],fresh:['new_call',false,1],esc:0} },
+
+{ name:'❄ v23.22 72-h gap: CS2 1.5 °C typed Sat 10 Oct 07:52 → CALL_cold_2026-10-10_CS2; nothing on Sun / Mon; Tue 13 Oct 5.0 at 08:00 and 5.1 at 08:10 → closed_fixed "two readings back inside 4–8 °C: 5.0 °C 08:00 and 5.1 °C 08:10", issue resolved (the record reaches back to the call\'s first reading)',
+  requires:NEW, tz:'Asia/Manila', seed:SEED,
+  run:fn(`__tAt('2026-10-09T23:52:00Z');C.saveDaily('CS2','1.5');const id=(calls()[0]||{}).id;
+    at('08:00');C.addReading('CS2','5.0');at('08:10');C.addReading('CS2','5.1');C.actAll({mail:false});
+    const c=calls()[0]||{},i=issues()[0]||{};
+    return {id,status:c.status,note:c.closeNote,issue:i.status};`),
+  expect:{id:'CALL_cold_2026-10-10_CS2',status:'closed_fixed',note:'🤖 two readings back inside 4–8 °C: 5.0 °C 08:00 and 5.1 °C 08:10 — closed by Nexi',issue:'resolved'} },
+
+{ name:'❄ v23.22 A person closes the call: 1.9 at 07:52 → call; jomel closes it 08:20 (closed_fixed, task done) → 6.0 at 08:30 and 9.0 at 08:35 keep it CLOSED (no …_2_ notice, issue still open); 6.1 at 08:45 + 6.2 at 08:55 → issue resolved (autoResolved); 12.6 at 09:30 (a NEW critical) → re-opened, coldOpenCount 2, subject "… CRITICAL HIGH (12.6 °C)", notice _2_ "✕ CRITICAL — Cold storage 1 at 12.6 °C" whose text says 12.6 °C at 09:30, issue title "… (12.6 °C)"',
+  requires:NEW, tz:'Asia/Manila', seed:SEED,
+  run:fn(`at('07:52');C.saveDaily('CS1','1.9');
+    at('08:20');const cs=loadCalls(),c0=cs.find(x=>x.id==='CALL_cold_2026-10-13_CS1');c0.status='closed_fixed';c0.closedAt=Date.now();c0.closedBy='jomel';c0.closeNote='Door was left open overnight - closed it, compressor running';c0.updatedAt=Date.now();saveCalls(cs);
+    const ts=loadMaintTasks(),t0=ts.find(x=>x.id==='TSK_cold_2026-10-13_CS1');t0.status='done';t0.updatedAt=Date.now();saveMaintTasks(ts);
+    at('08:30');C.addReading('CS1','6.0');at('08:35');C.addReading('CS1','9.0');C.actAll({mail:false});
+    const mid={status:__hnxCallStatus.status(calls()[0]),n2:inbox().filter(x=>/_2_/.test(x)).length,issue:issues()[0].status};
+    at('08:45');C.addReading('CS1','6.1');at('08:55');C.addReading('CS1','6.2');C.actAll({mail:false});
+    const after={status:__hnxCallStatus.status(calls()[0]),issue:[issues()[0].status,!!issues()[0].autoResolved],task:tasks()[0].status};
+    at('09:30');C.addReading('CS1','12.6');
+    const c=calls()[0],i=issues()[0],n=JSON.parse(localStorage.getItem('hydroPro_pa_inbox_v1')||'[]').find(x=>x&&x.id==='COLD_crit_CS1_2026-10-13_2_jomel')||{};
+    return {mid,after,re:[__hnxCallStatus.status(c),c.coldOpenCount,c.subject,i.title,i.status],note:[n.title,/^Cold storage temperature is CRITICAL: 12\\.6 °C at 09:30/.test(n.text||'')]};`),
+  expect:{mid:{status:'closed_fixed',n2:0,issue:'open'},after:{status:'closed_fixed',issue:['resolved',true],task:'done'},
+    re:['new_call',2,'❄ Cold storage 1 · temperature CRITICAL HIGH (12.6 °C)','Cold storage 1 temperature CRITICAL (12.6 °C)','open'],note:['✕ CRITICAL — Cold storage 1 at 12.6 °C',true]} },
+
+{ name:'❄ v23.22 Re-open text: 13.0 HIGH at 08:00 → 6.0 at 08:10 + 6.1 at 08:20 close it → 1.5 at 09:00 re-opens the SAME call as "❄ Cold storage 1 · temperature CRITICAL LOW (1.5 °C)", task title the same, notice …_2_jomel text "Cold storage temperature is CRITICAL: 1.5 °C at 09:00" (never the old 13.0 °C HIGH)',
+  requires:NEW, tz:'Asia/Manila', seed:SEED,
+  run:fn(`[['08:00','13.0'],['08:10','6.0'],['08:20','6.1']].forEach(x=>{at(x[0]);C.addReading('CS1',x[1]);});const closed=calls()[0].status;
+    at('09:00');C.addReading('CS1','1.5');
+    const c=calls()[0],t=tasks()[0],n=JSON.parse(localStorage.getItem('hydroPro_pa_inbox_v1')||'[]').find(x=>x&&x.id==='COLD_crit_CS1_2026-10-13_2_jomel')||{};
+    return {closed,n:calls().length,subject:c.subject,task:t.title,text:String(n.text||'').split('\\n')[0],old:/13\\.0/.test(n.text||'')};`),
+  expect:{closed:'closed_fixed',n:1,subject:'❄ Cold storage 1 · temperature CRITICAL LOW (1.5 °C)',task:'❄ Cold storage 1 · temperature CRITICAL LOW (1.5 °C)',
+    text:'Cold storage temperature is CRITICAL: 1.5 °C at 09:00 (✍ typed by Eyal Ben Ari).',old:false} },
+
+{ name:'❄ v23.22 Mail: head + owner with @abapardes.com.ph e-mails, nexi-notify set → 1.9 at 07:52 posts ONE /notify/mail with to ["jomel@abapardes.com.ph","eyal@abapardes.com.ph"] (an ARRAY — "a,b" was refused 400); at 08:52 the 60-s tick (actAll mail:false) escalates and posts a 2nd /notify/mail "⏫ Cold storage 1 still critical after 60 min (1.9 °C)" to the same array',
+  requires:NEW, tz:'Asia/Manila', seed:new Function(`(${SEED.toString()})();
+    const U=JSON.parse(localStorage.getItem('hydroPro_users'));U.forEach(u=>{u.email=u.username+'@abapardes.com.ph';});localStorage.setItem('hydroPro_users',JSON.stringify(U));
+    localStorage.setItem('hydroPro_notify_cfg_v1',JSON.stringify({workerUrl:'https://nexi-notify.test.workers.dev',workerToken:'notify-tok-1'}));`),
+  run:fn(`const mails=[];const f0=window.fetch;window.fetch=function(u,o){if(String(u).indexOf('/notify/mail')>=0){try{mails.push(JSON.parse(o.body));}catch(e){}return Promise.resolve(new Response('{"ok":true}',{status:200}));}return f0.apply(this,arguments);};
+    try{delete window._perfCache._users;}catch(e){}
+    at('07:52');C.saveDaily('CS1','1.9');const m1=mails.slice();
+    at('08:52');await sleep(200);C.actAll({mail:false});
+    return {n1:m1.length,to1:m1[0]&&m1[0].to,arr:Array.isArray(m1[0]&&m1[0].to),n:mails.length,subj2:mails[1]&&mails[1].subject,to2:mails[1]&&mails[1].to};`),
+  expect:{n1:1,to1:['jomel@abapardes.com.ph','eyal@abapardes.com.ph'],arr:true,n:2,subj2:'⏫ Cold storage 1 still critical after 60 min (1.9 °C)',to2:['jomel@abapardes.com.ph','eyal@abapardes.com.ph']} },
+
+{ name:'❄ v23.22 Alarm + recovery in ONE pull: /cold/latest CS1 7.4 at 08:09 with recent [[08:01, 12.6], [08:09, 7.4]] → applied, the series holds 12.6 → CALL_cold_2026-10-13_CS1 raised (an Elitech 12.6 alarm that recovered inside one bridge run is no longer lost); the fold keeps the worst (12.6 at 08:01) AND the last (7.4 at 08:09) of the 08:00 slot',
+  requires:NEW, tz:'Asia/Manila', seed:SEED,
+  run:fn(`C.saveCfg({feed:{url:URL0,on:true}});C.setToken(TOK);at('08:12');
+    const rep=reply({CS1:R('CS1',7.4,'08:09')});rep.recent={CS1:[[M('08:01'),12.6,M('08:10')],[M('08:09'),7.4,M('08:10')]]};
+    const r=C.apply(rep,Date.now());
+    const s=C.series('CS1',24).map(x=>x.v),c=calls()[0]||{};
+    const f=C.fold([[M('08:01'),12.6],[M('08:05'),9.0],[M('08:09'),7.4]]).map(p=>p[1]);
+    return {applied:r.applied,s,call:[c.id,c.status],fold:f};`),
+  expect:{applied:['CS1'],s:[12.6,7.4],call:['CALL_cold_2026-10-13_CS1','new_call'],fold:[12.6,7.4]} },
+
+{ name:'❄ v23.22 Elitech faults: /cold/latest faults {CS1 offline 14:20} → card "⚠ Elitech: controller OFFLINE since 14:20 (alarm mail) — check power and Wi-Fi at the box", What is missing lists it, cockpit warn 1 "Cold storage 1 · Elitech controller offline", notice COLD_fault_CS1_2026-10-13_offline_jomel; a reading at 14:40 clears it (fault null)',
+  requires:NEW, tz:'Asia/Manila', seed:SEED,
+  run:fn(`C.saveCfg({feed:{url:URL0,on:true}});C.setToken(TOK);at('14:25');
+    const rep=reply({CS1:R('CS1',5.6,'07:35')});rep.faults={CS1:{fault:'offline',ts:M('14:20'),alarm:''}};C.apply(rep,Date.now());
+    switchView('maint_cold');await sleep(700);C.render('maint_cold');
+    const k=box('maintenance','Cold storage');const miss=(document.querySelector('#coldRoomsBody .hnx-cr-missing')||{}).textContent||'';
+    const a={card:cardTxt('CS1','fault'),miss:/Cold storage 1: ⚠ Elitech: controller OFFLINE since 14:20/.test(miss),warn:k.items.warn.map(x=>x.label).filter(l=>/Elitech/.test(l)),inbox:inbox().filter(x=>/^COLD_fault_/.test(x))};
+    at('14:40');C.apply(reply({CS1:R('CS1',5.8,'14:40')}),Date.now());
+    return {a,after:C.fault('CS1')};`),
+  expect:{a:{card:'⚠ Elitech: controller OFFLINE since 14:20 (alarm mail) — check power and Wi-Fi at the box',miss:true,warn:['Cold storage 1 · Elitech controller offline'],inbox:['COLD_fault_CS1_2026-10-13_offline_jomel']},after:null} },
+
+{ name:'❄ v23.22 Cockpit after an Elitech "recovered" mail: daily checks 10:05 (CS1 5.0, CS2 5.2); alarm 8.5 at 14:00 then recovered 6.2 at 14:20; at 14:51 (6.2 stale, inside 4–8) → Maintenance warn 0, text "2 / 2 checked today · OK"; a stale 8.6 (outside) at 15:30 seen at 16:05 → warn 1 "⏳ online reading 35 min old (8.6 °C)"',
+  requires:NEW, tz:'Asia/Manila', seed:SEED,
+  run:fn(`C.saveCfg({feed:{url:URL0,on:true}});C.setToken(TOK);
+    at('10:05');C.saveDaily('CS1','5.0');C.saveDaily('CS2','5.2');
+    at('14:00');C.apply(reply({CS1:R('CS1',8.5,'14:00')}),Date.now());at('14:20');C.apply(reply({CS1:R('CS1',6.2,'14:20')}),Date.now());
+    at('14:51');const k=box('maintenance','Cold storage');const p=box('packaging','Cold storage temperature');
+    at('15:30');C.apply(reply({CS1:R('CS1',8.6,'15:30')}),Date.now());at('16:05');const k2=box('maintenance','Cold storage');
+    return {stale:C.current('CS1').stale,warn:k.warn,text:k.text,pw:p.warn,warn2:k2.warn,l2:k2.items.warn.map(x=>x.label)};`),
+  expect:{stale:true,warn:0,text:'2 / 2 checked today · OK',pw:0,warn2:1,l2:['Cold storage 1 · ⏳ online reading 35 min old (8.6 °C)']} },
+
+{ name:'❄ v23.22 Daily off: ⚙ Settings CS2 Daily unchecked → at 10:05 overdue(CS2) false, CS2 card "Daily check: not required (⚙ Settings → Daily off)", CS1 5.0 typed → cockpit warn 0, text "Not connected · 1 / 1 checked today", mirror has only cold_storage::0; a typed CS2 reading still works through ✍ Add a reading',
+  requires:NEW, tz:'Asia/Manila', seed:SEED,
+  run:fn(`const ok=C.saveCfg({rooms:[{id:'CS2',daily:false}]});at('10:05');C.saveDaily('CS1','5.0');
+    switchView('maint_cold');await sleep(700);C.render('maint_cold');const k=box('maintenance','Cold storage');
+    return {ok,od:C.overdue('CS2'),card:cardTxt('CS2','daily'),warn:k.warn,text:k.text,keys:Object.keys(clst()).filter(x=>/^cold_storage/.test(x)),add:C.addReading('CS2','5.1').ok};`),
+  expect:{ok:true,od:false,card:'Daily check: not required (⚙ Settings → Daily off)',warn:0,text:'Not connected · 1 / 1 checked today',keys:['cold_storage::0'],add:true} },
+
+{ name:'❄ v23.22 A typed reading is current only on its day: CS2 5.0 typed Sun 11 Oct 07:52 → on Tue 13 Oct 09:30 the card chip says "✓ OK · ⏳ 2 days old", the source "⏳ 2 days old · ✍ hand · 11 Oct 07:52 · Eyal Ben Ari", the thermometer data-stale 1; the feed Off + a token → opening the screen makes 0 worker calls and the live store keeps okAt 07:00',
+  requires:NEW, tz:'Asia/Manila', seed:SEED,
+  run:fn(`__tAt('2026-10-10T23:52:00Z');C.saveDaily('CS2','5.0');
+    at('09:30');C.saveCfg({feed:{url:URL0,on:false}});C.setToken(TOK);C.takeLease(true);
+    localStorage.setItem('hydroPro_cold_live_v1',JSON.stringify({_lww:true,okAt:M('07:00'),rooms:{},nodes:{}}));
+    const fc=stubFetch(u=>({status:500,body:{error:'x'}}));
+    switchView('maint_cold');await sleep(900);C.render('maint_cold');await sleep(300);
+    const th=card('CS2').querySelector('.hnx-ct');
+    return {chip:cardTxt('CS2','chip'),src:cardTxt('CS2','src'),stale:th.getAttribute('data-stale'),calls:fc.length,okAt:JSON.parse(localStorage.getItem('hydroPro_cold_live_v1')).okAt===M('07:00')};`),
+  expect:{chip:'✓ OK · ⏳ 2 days old',src:'⏳ 2 days old · ✍ hand · 11 Oct 07:52 · Eyal Ben Ari',stale:'1',calls:0,okAt:true} },
+
+{ name:'❄ v23.22 Manila time on a computer in Asia/Jerusalem: at 10:05 Manila overdue(CS1) true and the cockpit says "2 overdue"; 1.5 °C at 02:30 Manila on 14 Oct (21:30 Jerusalem, 13 Oct) → CALL_cold_2026-10-14_CS1 and the reading stored under day 2026-10-14',
+  requires:NEW, tz:'Asia/Jerusalem', seed:SEED,
+  run:fn(`at('10:05');const od=C.overdue('CS1'),k=box('maintenance','Cold storage');
+    __tAt('2026-10-13T18:30:00Z');C.saveDaily('CS1','1.5');
+    return {od,text:k.text,call:(calls()[0]||{}).id,day:!!C.daily('CS1','2026-10-14')};`),
+  expect:{od:true,text:'2 overdue',call:'CALL_cold_2026-10-14_CS1',day:true} },
+
+{ name:'❄ v23.22 Settings box at a 400 × 860 phone (zoom 115 %): fully on screen (left ≥ 0, right ≤ 400) and the 💾 Save button reachable by scrolling the box (bottom ≤ 860 after scrolling it into view); the thermometer shimmer and frost do not replay on a same-value repaint (ct-rest → animationName "none")',
+  requires:NEW, tz:'Asia/Manila', seed:SEED, viewport:{width:400,height:860},
+  run:fn(`switchView('maint_cold');await sleep(800);C.addReading('CS1','5.6');await sleep(100);C.render('maint_cold');C.render('maint_cold');
+    const th=card('CS1').querySelector('.hnx-ct');const anim={rest:th.classList.contains('ct-rest'),shim:getComputedStyle(th.querySelector('.ct-shim')).animationName,frost:getComputedStyle(th.querySelector('.ct-frost')).animationName};
+    const b=C.open();await sleep(200);const r=b.getBoundingClientRect();
+    const sv=b.querySelector('[data-act="save"]');sv.scrollIntoView({block:'nearest'});await sleep(100);const rs=sv.getBoundingClientRect();C.close();
+    return {left:r.left>=0,right:r.right<=401,top:r.top>=0,bottom:r.bottom<=861,save:rs.bottom<=861&&rs.top>=0,anim};`),
+  expect:{left:true,right:true,top:true,bottom:true,save:true,anim:{rest:true,shim:'none',frost:'none'}} },
+
+{ name:'❄ v23.22 Merges while dirty (two computers, mocked cloud): A types CS1 5.0 at 07:52 while B\'s whole copy with only CS2 5.1 lands in the cloud → A\'s pull keeps CS1 AND takes CS2 (the key stays dirty) and A\'s push puts both in the cloud; Maintenance checklist: A marks PM 2 ✕ critical at 09:59, B\'s stale whole copy (PM 2 ok 07:00) lands while A is not dirty → A keeps critical (newest stamp wins, not "ok" > "critical"), marks it dirty and the cloud is corrected',
+  requires:NEW+"&&typeof window.__hnxMergeChecklistState==='function'", tz:'Asia/Manila',
+  seed:new Function(`(${SEED.toString()})();
+    localStorage.setItem("hnx_cloud_token","t");window.__pushes=[];window.__pulls=0;window.__cloud={};
+    const of=window.fetch;window.fetch=function(u,o){u=String(u);
+      if(u.indexOf("/sync/keys")>=0)return Promise.resolve(new Response(JSON.stringify({ok:true,keys:Object.keys(window.__cloud||{})}),{status:200}));
+      if(u.indexOf("/sync/pull")>=0){window.__pulls++;const snap=JSON.parse(JSON.stringify(window.__cloud));return Promise.resolve(new Response(JSON.stringify({ok:true,data:snap}),{status:200}));}
+      if(u.indexOf("/sync/push")>=0){try{const d=JSON.parse(o.body).data;window.__pushes.push(Object.keys(d));Object.keys(d).forEach(k=>window.__cloud[k]=typeof d[k]==='string'?d[k]:JSON.stringify(d[k]));}catch(e){}return Promise.resolve(new Response('{"ok":true}',{status:200}));}
+      if(u.indexOf("hnx-sync")>=0)return Promise.resolve(new Response('{"ok":true,"data":{}}',{status:200}));
+      return of.apply(this,arguments);};`),
+  run:fn(`for(let i=0;i<120;i++){if(window.__pulls>0&&!HNX_Cloud.state.syncing)break;await sleep(500);}await sleep(2000);
+    const DK='hydroPro_cold_daily_v1',SK='hydroPro_maintenance_checklist';
+    const dirty=k=>!!(JSON.parse(localStorage.getItem('hnxlocal_dirty_v1')||'{}')[k]);
+    const rooms=raw=>{try{return Object.keys((JSON.parse(raw)||{})['2026-10-13']||{}).sort();}catch(e){return [];}};
+    const waitIdle=async()=>{for(let i=0;i<60;i++){if(!HNX_Cloud.state.syncing)return;await sleep(250);}};
+    at('07:52');C.saveDaily('CS1','5.0');await sleep(300);await waitIdle();await HNX_Cloud.push();await sleep(300);
+    const cloud0=rooms(window.__cloud[DK]);
+    /* B (whose copy never had CS1) saved CS2 a second later and pushed its WHOLE copy over A's; A has typed again (dirty) */
+    const B={'2026-10-13':{CS2:{check:{v:5.1,band:'ok',side:'',src:'typed',by:'reven',byName:'Reven Estonio',at:M('07:52')+1000}}}};
+    await waitIdle();window.__cloud[DK]=JSON.stringify(B);window.__hnxMarkDirty(DK);await HNX_Cloud.pull();await sleep(800);
+    const local1=rooms(localStorage.getItem(DK)),dirty1=dirty(DK);
+    await waitIdle();await HNX_Cloud.push();await sleep(500);const cloud1=rooms(window.__cloud[DK]);
+    /* the checklist row */
+    at('09:59');window._modChecklistSet('maintenance','pm',1,'status','critical');window._modChecklistSet('maintenance','pm',1,'notes','pump 2 leaking');await sleep(300);
+    await waitIdle();await HNX_Cloud.push();await sleep(300);const cl0=(JSON.parse(window.__cloud[SK]||'{}')['pm::1']||{}).status;
+    /* B's stale whole copy (PM 2 ok at 07:00) lands in the cloud; A is NOT dirty — the generic merge used to keep "ok" ('ok' > 'critical') */
+    const st=JSON.parse(localStorage.getItem(SK)||'{}');const stale=JSON.parse(JSON.stringify(st));stale['pm::1']={status:'ok',lastChecked:'2026-10-13',checkedBy:'Reven Estonio',notes:'',updatedAt:M('07:00'),updatedBy:'reven'};
+    await waitIdle();window.__cloud[SK]=JSON.stringify(stale);await HNX_Cloud.pull();await sleep(800);
+    const loc=(JSON.parse(localStorage.getItem(SK)||'{}')['pm::1']||{});const dirty2=dirty(SK);
+    await waitIdle();await HNX_Cloud.push();await sleep(500);const cl=(JSON.parse(window.__cloud[SK]||'{}')['pm::1']||{});
+    return {cloud0,local1,dirty1,cloud1,cl0,loc:[loc.status,loc.notes],dirty2,cloud:[cl.status,cl.notes]};`),
+  expect:{cloud0:['CS1'],local1:['CS1','CS2'],dirty1:true,cloud1:['CS1','CS2'],cl0:'critical',loc:['critical','pump 2 leaking'],dirty2:true,cloud:['critical','pump 2 leaking']} },
+
+{ name:'❄ v23.22 Mirror outranks only: a computer whose daily copy lacks the 09:30 check computes "overdue" at 10:00 but does NOT overwrite the stored ok (rank 2 > rank 1); __hnxMergeChecklistState keeps the ok row against a remote overdue row and reports localAhead',
+  requires:NEW+"&&typeof window.__hnxMergeChecklistState==='function'", tz:'Asia/Manila', seed:SEED,
+  run:fn(`at('09:30');C.saveDaily('CS1','5.0');const okRow=clst()['cold_storage::0'];
+    const dl=JSON.parse(localStorage.getItem('hydroPro_cold_daily_v1'));delete dl['2026-10-13'].CS1;localStorage.setItem('hydroPro_cold_daily_v1',JSON.stringify(dl));
+    at('10:00');const wrote=C.mirror();const after=clst()['cold_storage::0'];
+    const remote=Object.assign({},clst(),{'cold_storage::0':{status:'warning',notes:'OVERDUE — not checked by 10:00',updatedAt:M('10:00'),updatedBy:'system'}});
+    const m=__hnxMergeChecklistState(localStorage.getItem('hydroPro_maintenance_checklist'),JSON.stringify(remote));
+    return {ok:okRow.status,rank:okRow.coldRank,after:[after.status,after.notes],merged:JSON.parse(m.out)['cold_storage::0'].status,ahead:m.localAhead,overdueRow1:clst()['cold_storage::1'].status};`),
+  expect:{ok:'ok',rank:2,after:['ok','5.0 °C 09:30 (✍ typed)'],merged:'ok',ahead:true,overdueRow1:'warning'} }
 ];

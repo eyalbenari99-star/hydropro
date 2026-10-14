@@ -1,5 +1,5 @@
 /** Nexi ⇄ Elitech ALARM-MAIL bridge — Google Apps Script (v22.96, Eyal 13 Oct 2026: "I need to connect the cold storage to set up
- *  online temp which should be in maintenance check list to check daily …")
+ *  online temp which should be in maintenance check list to check daily …"; v23.22 review fixes: steps 2, 5 and 6 below)
  *
  *  ⚠ STOPGAP — and it starts in DRY RUN. The new cold-room box has an Elitech Wi-Fi controller on the Elitech iCold cloud
  *  (app "Elitech iCold", web new.i-elitech.com). iCold has an API only after an order (the "Access API document"); until it arrives
@@ -20,17 +20,21 @@
  *      at every MESSAGE of every thread and skips the ids already done (cold_done_msg_ids, the last 400).
  *   2. parseElitechMail(subject, body, date, id, COLD_MAP) — pure:
  *        room   = the LONGEST COLD_MAP device name found in the text (case-insensitive) — "Cold storage 10" is not "Cold storage 1";
- *        fault  = offline / disconnected → counted for the daily mail, nothing posted;
+ *        fault  = offline / disconnected → POSTED as {room, fault:"offline"} (v23.22; Nexi shows "⚠ controller OFFLINE");
+ *                 back online (no temperature in the mail) → {room, fault:"online"};
  *        kind   = recovered · high · low · alarm;
  *        value  = the °C figure on the "current / temperature / reading" line; a figure on a "limit / upper / lower / threshold /
- *                 setpoint / range" line is never taken; if no line says which, it is taken only when exactly one figure is left;
- *        −40 … 60 °C only.
+ *                 setpoint / range / alarm value" line is never taken; if no line says which, it is taken only when exactly one
+ *                 figure is left; −40 … 60 °C only. v23.22: a mapped room whose value cannot be read is POSTED as
+ *                 {room, fault:"unread", alarm} — Nexi raises a warning instead of nobody hearing about it.
  *   3. Time = the mail's date; the worker clamps a future time and refuses anything older than 7 days.
- *   4. DRY_RUN '0': posts at most 200 readings per push {room, ts, t, src:'elitech-mail', alarm, msgId}; an id is marked done only on
- *      HTTP 200; a heartbeat {readings:[]} goes on runs with nothing to post. DRY_RUN '1': only the heartbeat; parsed ids are marked
- *      done so the log does not repeat.
- *   5. At most one mail a day: when no Elitech mail came for 24 h ("a silent room is not a fine room") and/or what was "would post /
- *      unmapped / ambiguous / faults / refused".
+ *   4. DRY_RUN '0': posts at most 200 readings per push {room, ts, t, src:'elitech-mail', alarm, msgId} (and the fault events); an id
+ *      is marked done only on HTTP 200; a heartbeat {readings:[]} goes on runs with nothing to post. DRY_RUN '1': only the heartbeat;
+ *      parsed ids are marked done so the log does not repeat.
+ *   5. v23.22: what is new in a run (would post / unmapped / unread / offline / refused) is mailed IN THAT RUN — each mail id once;
+ *      the "no Elitech mail for 24 h" mail ("a silent room is not a fine room") stays at most one a day.
+ *   6. v23.22: a message older than 4 days, or more than 6 h older than the newest mail already done (cold_last_msg_ts), is skipped
+ *      without parsing — the 400 done ids no longer let old alarm mails be posted again on every run.
  *
  *  SETUP (one time, at script.google.com under the nexi account) — the owner / IT checklist steps 11–12:
  *   1. New project → paste this file over Code.gs → Save.
@@ -45,10 +49,10 @@
  */
 
 var P_URL = 'COLD_URL', P_TOKEN = 'COLD_NODE_TOKEN', P_MAP = 'COLD_MAP', P_TO = 'ALERT_TO', P_SEARCH = 'ELITECH_SEARCH', P_DRY = 'DRY_RUN';
-var P_DONE = 'cold_done_msg_ids', P_RESCAN = 'cold_last_rescan', P_ALERT = 'cold_last_alert', P_SEEN = 'cold_last_mail_at';
+var P_DONE = 'cold_done_msg_ids', P_RESCAN = 'cold_last_rescan', P_ALERT = 'cold_last_alert', P_SEEN = 'cold_last_mail_at', P_WM = 'cold_last_msg_ts';
 var DEFAULT_URL = 'https://nexi-cold.eyalbenari99.workers.dev';
 var DEFAULT_SEARCH = 'from:(elitech OR i-elitech OR e-elitech OR elitechus OR icold OR icoldcloud) newer_than:2d';
-var EVERY_MIN = 15, ALERT_AFTER_H = 24, DONE_MAX = 400, MAX_PER_PUSH = 200;
+var EVERY_MIN = 15, ALERT_AFTER_H = 24, DONE_MAX = 400, MAX_PER_PUSH = 200, MAX_AGE_D = 4, WM_SLACK_H = 6;
 
 function cfg() {
   var p = PropertiesService.getScriptProperties();
@@ -73,7 +77,7 @@ function ensureTrigger() {
 }
 
 /* ---------- the parser (pure; node tests it from tests/workers/elitech-bridge.test.mjs) ---------- */
-var LIMIT_RE = /limit|upper|lower|threshold|set ?point|setting|range|上限|下限|阈值|设定/i;
+var LIMIT_RE = /limit|upper|lower|threshold|set ?point|setting|range|alarm ?(value|point|temp(erature)? ?(value|point))|上限|下限|阈值|设定|报警值|报警点/i;
 var CURRENT_RE = /current|temp(erature)?|reading|value|实时|当前|温度/i;
 function parseElitechMail(subject, body, msgDate, msgId, map) {
   var text = (String(subject || '') + '\n' + String(body || '')).replace(/：/g, ':').replace(/℃/g, '°C').replace(/－/g, '-').replace(/\r/g, '');
@@ -88,7 +92,8 @@ function parseElitechMail(subject, body, msgDate, msgId, map) {
     }
   });
   if (!room) return { skip: 'unmapped device' };
-  if (/offline|disconnect|离线|掉线/i.test(text)) return { fault: 'offline', room: room, msgId: msgId };
+  var ts = msgDate ? new Date(msgDate).toISOString() : new Date().toISOString();
+  if (/offline|disconnect|离线|掉线/i.test(text)) return { fault: 'offline', room: room, ts: ts, msgId: msgId };
   var kind = /recover|normal|restor|恢复/i.test(text) ? 'recovered' : /high|over|upper|超上限|高温/i.test(text) ? 'high' : /low|under|lower|超下限|低温/i.test(text) ? 'low' : 'alarm';
   var lines = text.split('\n'), cands = [];
   lines.forEach(function (ln) {
@@ -98,15 +103,16 @@ function parseElitechMail(subject, body, msgDate, msgId, map) {
       cands.push({ v: Number(m[1]), line: ln, limit: LIMIT_RE.test(before) || LIMIT_RE.test(segmentOf(ln, m.index)), current: CURRENT_RE.test(segmentOf(ln, m.index)) });
     }
   });
+  if (!cands.length && /\bonline\b|reconnect|上线/i.test(text)) return { fault: 'online', room: room, ts: ts, msgId: msgId };
   var left = cands.filter(function (c) { return !c.limit; });
   var cur = left.filter(function (c) { return c.current; });
   var pick = null;
   if (cur.length === 1) pick = cur[0];
   else if (cur.length > 1) { var vs = cur.map(function (c) { return c.v; }); pick = vs.every(function (v) { return v === vs[0]; }) ? cur[0] : null; }
   else if (left.length === 1) pick = left[0];
-  if (!pick) return { skip: 'ambiguous value', room: room };
-  if (!(pick.v >= -40 && pick.v <= 60)) return { skip: 'out of range', room: room };
-  var ts = msgDate ? new Date(msgDate).toISOString() : new Date().toISOString();
+  /* v23.22: a mapped room whose value cannot be read is still an alarm — it goes to Nexi as {fault:"unread"} (a warning there) */
+  if (!pick) return { skip: 'ambiguous value', room: room, fault: 'unread', alarm: kind, ts: ts, msgId: msgId };
+  if (!(pick.v >= -40 && pick.v <= 60)) return { skip: 'out of range', room: room, fault: 'unread', alarm: kind, ts: ts, msgId: msgId };
   return { room: room, t: Math.round(pick.v * 10) / 10, ts: ts, alarm: kind, msgId: msgId };
 }
 /* the part of a line around a figure that belongs to it: from the previous separator ("/", "|", ";", ",", "，", "；") to the figure */
@@ -132,20 +138,29 @@ function runBridge() {
   var rescan = props.getProperty(P_RESCAN) !== today;
   if (rescan) props.setProperty(P_RESCAN, today);
   var search = rescan ? C.search.replace(/newer_than:\d+d/, 'newer_than:3d') : C.search;
+  /* v23.22: never older than 4 days, nor more than 6 h older than the newest mail already done */
+  var wm = Number(props.getProperty(P_WM) || 0), cutoff = Math.max(Date.now() - MAX_AGE_D * 864e5, wm ? wm - WM_SLACK_H * 3600e3 : 0);
 
   var msgs = [];
   GmailApp.search(search, 0, 50).forEach(function (thread) { thread.getMessages().forEach(function (m) { msgs.push(m); }); });
-  var readings = [], faults = {}, unmapped = 0, ambiguous = 0, newest = 0, ids = [], would = [];
+  var readings = [], faults = {}, unmapped = 0, unread = [], newest = 0, ids = [], would = [], old = 0;
   msgs.forEach(function (m) {
     var id = m.getId(), t = m.getDate() ? m.getDate().getTime() : 0;
     if (t > newest) newest = t;
     if (doneSet[id]) return;
+    if (t && t < cutoff) { old++; return; }
     var r = parseElitechMail(m.getSubject(), m.getPlainBody(), m.getDate(), id, C.map);
-    if (r.skip) { if (r.skip === 'unmapped device') unmapped++; else if (r.skip === 'ambiguous value') ambiguous++; Logger.log('skip ' + id + ': ' + r.skip); ids.push(id); return; }
-    if (r.fault) { var k = r.room + ' ' + r.fault; faults[k] = (faults[k] || 0) + 1; ids.push(id); return; }
-    var line = 'would post ' + r.room + ' ' + r.t + ' °C (' + r.alarm + ') msg ' + id;
-    if (C.dry) { Logger.log(line); would.push(line); ids.push(id); return; }
-    readings.push({ id: id, body: { room: r.room, ts: r.ts, t: r.t, src: 'elitech-mail', alarm: r.alarm, msgId: String(id).slice(0, 40) } });
+    if (r.skip === 'unmapped device') { unmapped++; Logger.log('skip ' + id + ': unmapped device'); ids.push({ id: id, t: t }); return; }
+    var body;
+    if (r.fault) {
+      var k = r.room + ' ' + (r.fault === 'unread' ? 'alarm mail, value unread (' + (r.alarm || 'alarm') + ')' : r.fault); faults[k] = (faults[k] || 0) + 1;
+      if (r.fault === 'unread') unread.push(r.room + ' msg ' + id + (r.skip ? ' (' + r.skip + ')' : ''));
+      body = { room: r.room, fault: r.fault, ts: r.ts, src: 'elitech-mail', msgId: String(id).slice(0, 40) };
+      if (r.alarm) body.alarm = r.alarm;
+    } else body = { room: r.room, ts: r.ts, t: r.t, src: 'elitech-mail', alarm: r.alarm, msgId: String(id).slice(0, 40) };
+    var line = 'would post ' + r.room + ' ' + (r.fault ? r.fault.toUpperCase() + (r.alarm ? ' (' + r.alarm + ')' : '') : r.t + ' °C (' + r.alarm + ')') + ' msg ' + id;
+    if (C.dry) { Logger.log(line); would.push(line); ids.push({ id: id, t: t }); return; }
+    readings.push({ id: id, t: t, body: body });
   });
   if (newest) props.setProperty(P_SEEN, String(newest));
 
@@ -156,13 +171,17 @@ function runBridge() {
     var res = _post(C, { readings: slice.map(function (x) { return x.body; }) });
     if (res && res.ok) {
       (res.refused || []).forEach(function (f) { var x = slice[f.i]; if (x) refused[x.body.room + ' — ' + f.error] = (refused[x.body.room + ' — ' + f.error] || 0) + 1; });
-      slice.forEach(function (x) { ids.push(x.id); });
-      Logger.log('pushed ' + slice.length + ': stored ' + res.stored + ', duplicates ' + res.duplicates + ', refused ' + (res.refused || []).length);
+      slice.forEach(function (x) { ids.push({ id: x.id, t: x.t }); });
+      Logger.log('pushed ' + slice.length + ': stored ' + res.stored + ', faults ' + (res.faults || 0) + ', duplicates ' + res.duplicates + ', refused ' + (res.refused || []).length);
     } else Logger.log('push failed — ' + (res && res.error ? res.error : 'no answer') + ' (the ids stay for the next run)');
   }
   if (!readings.length) _post(C, { readings: [] }); /* heartbeat: the bridge is alive even when no alarm came (and always in DRY RUN) */
-  if (ids.length) _markDone(done, ids);
-  _dailyMail(C, props, newest, faults, unmapped, ambiguous, refused, would);
+  if (ids.length) {
+    _markDone(done, ids.map(function (x) { return x.id; }));
+    var top = wm; ids.forEach(function (x) { if (x.t > top) top = x.t; }); if (top > wm) props.setProperty(P_WM, String(top));
+  }
+  if (old) Logger.log('skipped ' + old + ' old message(s) (before ' + new Date(cutoff).toISOString() + ')');
+  _reportMail(C, props, newest, faults, unmapped, unread, refused, would);
 }
 
 function _post(C, body) {
@@ -178,26 +197,28 @@ function _markDone(done, ids) {
   var all = done.concat(ids); if (all.length > DONE_MAX) all = all.slice(all.length - DONE_MAX);
   PropertiesService.getScriptProperties().setProperty(P_DONE, JSON.stringify(all));
 }
-/* at most one mail a day: silence for 24 h, and what the bridge saw */
-function _dailyMail(C, props, newest, faults, unmapped, ambiguous, refused, would) {
+/* v23.22: what is NEW in this run (each mail id is done once) is mailed now — an offline controller or an unreadable alarm is no longer
+   swallowed by the once-a-day cap; the silence mail ("no Elitech mail for 24 h") stays at most once a day */
+function _reportMail(C, props, newest, faults, unmapped, unread, refused, would) {
   var last = Number(props.getProperty(P_SEEN) || newest || 0), hours = last ? Math.round((Date.now() - last) / 3600e3) : null;
   var lines = [];
+  var fk = Object.keys(faults); if (fk.length) lines.push((C.dry ? 'DRY RUN — would post these faults: ' : 'Elitech faults posted to Nexi (the room card shows them): ') + fk.map(function (k) { return k + ' ×' + faults[k]; }).join('; '));
+  if (unread.length) lines.push('Alarm mails whose temperature could not be read — forward one to the developer: ' + unread.slice(0, 10).join('; '));
   if (would.length) lines.push('DRY RUN — would post (' + would.length + '): ' + would.slice(0, 20).join('; '));
   if (unmapped) lines.push('Unmapped device (add it to COLD_MAP, the name exactly as in the iCold app): ' + unmapped);
-  if (ambiguous) lines.push('Ambiguous value (forward one of these mails to the developer): ' + ambiguous);
-  var fk = Object.keys(faults); if (fk.length) lines.push('Faults seen (not posted): ' + fk.map(function (k) { return k + ' ×' + faults[k]; }).join('; '));
   var rk = Object.keys(refused); if (rk.length) lines.push('Refused by nexi-cold: ' + rk.map(function (k) { return k + ' ×' + refused[k]; }).join('; '));
-  var silent = hours === null || hours >= ALERT_AFTER_H;
-  if (!silent && !lines.length) return;
   var today = Utilities.formatDate(new Date(), 'Asia/Manila', 'yyyy-MM-dd');
-  if (props.getProperty(P_ALERT) === today) return;
+  var silent = (hours === null || hours >= ALERT_AFTER_H) && props.getProperty(P_ALERT) !== today;
+  if (!silent && !lines.length) return;
   if (!C.to) { Logger.log('ALERT_TO not set — would mail: ' + lines.join(' | ')); return; }
-  props.setProperty(P_ALERT, today);
-  var subject = silent ? ('⚠ No Elitech alarm mail for ' + (hours === null ? '?' : hours) + ' hours — a silent room is not a fine room') : '❄ Elitech alarm bridge — things to check';
+  if (silent) props.setProperty(P_ALERT, today);
+  var offline = fk.some(function (k) { return / offline$/.test(k); });
+  var subject = silent ? ('⚠ No Elitech alarm mail for ' + (hours === null ? '?' : hours) + ' hours — a silent room is not a fine room')
+    : (offline ? '⚠ Elitech: a cold-room controller is OFFLINE' : '❄ Elitech alarm bridge — things to check');
   var body = (silent ? 'No Elitech alarm e-mail has reached ' + Session.getEffectiveUser().getEmail() + ' for ' + (hours === null ? 'as long as this bridge runs' : hours + ' hours') + '.\n\n'
     + '⚠ No Elitech alarm mail for ' + (hours === null ? '?' : hours) + ' hours — a silent room is not a fine room: check the iCold app shows the controller online.\n'
     + 'This bridge forwards ALARM mails only (a room inside its limits sends nothing). The typed daily check in Nexi (✅ Monitoring Checklist → ❄ Daily) is the daily reading.\n\n' : '')
     + (lines.length ? lines.join('\n') + '\n\n' : '')
     + 'Nexi → Maintenance → ❄ Cold storage shows per room whether a reading reached the worker.\n— Nexi Elitech alarm bridge (workers/elitech-alarm-bridge.gs)' + (C.dry ? ' · DRY RUN' : '');
-  try { MailApp.sendEmail({ to: C.to, subject: subject, body: body }); Logger.log('daily mail sent: ' + subject); } catch (e) { Logger.log('mail failed: ' + e); }
+  try { MailApp.sendEmail({ to: C.to, subject: subject, body: body }); Logger.log('mail sent: ' + subject); } catch (e) { Logger.log('mail failed: ' + e); }
 }

@@ -18,6 +18,7 @@ const mkR2 = () => { const m = new Map(); return { m,
   async get(k) { return m.has(k) ? { text: async () => m.get(k) } : null; },
   async put(k, v) { m.set(k, typeof v === 'string' ? v : String(v)); },
   async head(k) { return m.has(k) ? {} : null; },
+  async delete(k) { m.delete(k); },
   async list({ prefix }) { return { objects: [...m.keys()].filter(k => k.startsWith(prefix)).sort().map(key => ({ key })), truncated: false }; } }; };
 const mkEnv = extra => ({ R2: mkR2(), COLD_TOKEN: 'app-cold-token-123',
   NODE_TOKENS: JSON.stringify({ 'elitech-mail': { token: 'node-token-mail', rooms: ['CS1', 'CS2'] }, 'probe-cs1': { token: 'node-token-probe', rooms: ['CS1'] } }),
@@ -102,10 +103,10 @@ const now = Date.now(), iso = ms => new Date(ms).toISOString();
   const r = await call('/cold/readings?room=CS2&day=' + day, { token: 'app-cold-token-123' });
   check('/cold/readings CS2 today (Manila) → the stored readings, oldest first', r.status === 200 && r.body.readings.length === 3 && r.body.readings[0].ts <= r.body.readings[2].ts, r.body); }
 
-// 11. health: no token, version 22.96, nothing secret
+// 11. health: no token, version 23.22, nothing secret
 { const h = await call('/cold/health'); const body = JSON.stringify(h.body);
-  check('/cold/health without a token → 200, version "22.96", nodes elitech-mail, rooms CS1/CS2 with ts, no token or map value in the JSON',
-    h.status === 200 && h.body.ok === true && h.body.version === '22.96' && h.body.nodes['elitech-mail'] > 0 && h.body.rooms.CS1 > 0 && h.body.elitech === 'never ran'
+  check('/cold/health without a token → 200, version "23.22", nodes elitech-mail, rooms CS1/CS2 with ts, no token or map value in the JSON',
+    h.status === 200 && h.body.ok === true && h.body.version === '23.22' && h.body.nodes['elitech-mail'] > 0 && h.body.rooms.CS1 > 0 && h.body.elitech === 'never ran'
     && body.indexOf('token') < 0 && body.indexOf('app-cold') < 0 && body.indexOf('Cold storage 1') < 0, h.body); }
 
 // 12. scheduled(): no keys → "not configured"; with keys → "waiting for … (no address is guessed)"; 0 fetch calls either way
@@ -120,6 +121,47 @@ const now = Date.now(), iso = ms => new Date(ms).toISOString();
 { const big = { readings: [], pad: 'x'.repeat(70 * 1024) };
   const r = await call('/cold/push', { method: 'POST', token: 'node-token-mail', body: big }), r2 = await call('/cold/push', { method: 'POST', token: 'node-token-mail', raw: '{nope' });
   check('a 70 KB body → 413 "body too large"; a body that is not JSON → 400', r.status === 413 && r.body.error === 'body too large' && r2.status === 400, { s: r.status, s2: r2.status }); }
+
+// 14. v23.22 review: an alarm (12.6 °C 08:01 Manila) and the "recovered" mail (7.4 °C 08:09) in ONE push → /cold/latest says 7.4 but its
+// "recent" list carries BOTH, and /cold/history keeps the worst AND the last of that 15-minute slot
+{ const e8 = mkEnv(); const B = 15 * 60e3, slot = Math.floor((now - 2 * 3600e3) / B) * B, a = slot + 60e3, b = slot + 9 * 60e3;
+  const r = await call('/cold/push', { method: 'POST', token: 'node-token-mail', e: e8, body: { readings: [{ room: 'CS1', ts: a, t: 12.6, alarm: 'high' }, { room: 'CS1', ts: b, t: 7.4, alarm: 'recovered' }] } });
+  const l = await call('/cold/latest', { token: 'app-cold-token-123', e: e8 });
+  const h = await call('/cold/history?room=CS1&hours=24', { token: 'app-cold-token-123', e: e8 });
+  const rec = (l.body.recent || {}).CS1 || [], pts = (h.body.points || []).map(p => p.t);
+  check('alarm 12.6 + recovered 7.4 in one push (one 15-min slot) → latest CS1 7.4; recent CS1 = [[ts 12.6], [ts 7.4]] with received; history [12.6, 7.4] (worst + last of the slot)',
+    r.body.stored === 2 && l.body.rooms.CS1.t === 7.4 && rec.length === 2 && rec[0][1] === 12.6 && rec[1][1] === 7.4 && rec[0][0] === a && rec[0][2] > 0 && JSON.stringify(pts) === '[12.6,7.4]', { r: r.body, rec, pts }); }
+
+// 15. v23.22 review: a blank, a tab, false, true, [] and [7] are not temperatures ("no temperature"); "5.6" (a numeric string) is 5.6
+{ const bad = [' ', '\t', false, true, [], [7], 'abc'].map(t => mod.normalize({ room: 'CS1', t }, now, {}, null));
+  const good = mod.normalize({ room: 'CS1', t: ' 5.6 ' }, now, {}, null);
+  check('normalize t " " / "\\t" / false / true / [] / [7] / "abc" → all "no temperature" (never 0 °C or 1 °C); " 5.6 " → 5.6',
+    bad.every(x => x.error === 'no temperature') && good.reading && good.reading.t === 5.6, { bad, good }); }
+
+// 16. v23.22 review: a finished Manila day is folded at the first history call; a LATE reading for that day (23:58, 1.2 °C) deletes the fold,
+// so the next history shows it
+{ const e9 = mkEnv(); const day0 = Date.parse(new Date(now + 8 * 3600e3).toISOString().slice(0, 10) + 'T00:00:00+08:00');
+  const late1 = day0 - 10 * 60e3, late2 = day0 - 2 * 60e3;   /* 23:50 and 23:58 of yesterday (Manila) */
+  await call('/cold/push', { method: 'POST', token: 'node-token-mail', e: e9, body: { readings: [{ room: 'CS1', ts: late1, t: 13.4 }] } });
+  const h1 = await call('/cold/history?room=CS1&hours=48', { token: 'app-cold-token-123', e: e9 });
+  const yday = new Date(late1 + 8 * 3600e3).toISOString().slice(0, 10), folded = e9.R2.m.has(`cold/hist/${yday}/CS1.json`);
+  await call('/cold/push', { method: 'POST', token: 'node-token-mail', e: e9, body: { readings: [{ room: 'CS1', ts: late2, t: 1.2 }] } });
+  const gone = !e9.R2.m.has(`cold/hist/${yday}/CS1.json`);
+  const h2 = await call('/cold/history?room=CS1&hours=48', { token: 'app-cold-token-123', e: e9 });
+  check('yesterday 23:50 13.4 → history folds the day; a late 23:58 1.2 °C push deletes cold/hist/<day>/CS1.json → history now [13.4, 1.2]',
+    folded && gone && JSON.stringify((h1.body.points || []).map(p => p.t)) === '[13.4]' && JSON.stringify((h2.body.points || []).map(p => p.t)) === '[13.4,1.2]', { h1: h1.body.points, h2: h2.body.points, folded, gone }); }
+
+// 17. v23.22 review: Elitech fault events — {room, fault:"offline"} is stored per room (newest only) and returned by /cold/latest "faults";
+// a bad fault word, and a probe pushing another room's fault, are refused
+{ const e10 = mkEnv();
+  const r = await call('/cold/push', { method: 'POST', token: 'node-token-mail', e: e10, body: { readings: [{ room: 'CS1', fault: 'offline', ts: now - 120e3, src: 'elitech-mail', msgId: 'm-off' }, { room: 'CS2', fault: 'unread', alarm: 'high', ts: now - 60e3 }, { room: 'CS1', fault: 'melted', ts: now }] } });
+  const again = await call('/cold/push', { method: 'POST', token: 'node-token-mail', e: e10, body: { readings: [{ room: 'CS1', fault: 'offline', ts: now - 120e3 }] } });
+  const p = await call('/cold/push', { method: 'POST', token: 'node-token-probe', e: e10, body: { readings: [{ room: 'CS2', fault: 'offline', ts: now }] } });
+  const l = await call('/cold/latest', { token: 'app-cold-token-123', e: e10 });
+  const f = l.body.faults || {};
+  check('faults: CS1 offline + CS2 unread (high) stored (faults 2), "melted" → "bad fault melted", the same CS1 event again → duplicate, probe-cs1 → "room CS2 is not this node\'s"; /cold/latest faults CS1 offline / CS2 unread high, no temperature stored',
+    r.body.faults === 2 && r.body.stored === 0 && r.body.refused[0].error === 'bad fault melted' && again.body.duplicates === 1 && p.body.refused[0].error === 'room CS2 is not this node\'s'
+    && f.CS1 && f.CS1.fault === 'offline' && f.CS2 && f.CS2.fault === 'unread' && f.CS2.alarm === 'high' && !l.body.rooms.CS1, { r: r.body, again: again.body, p: p.body, f }); }
 
 console.log(fails ? fails + ' failed' : total + '/' + total + ' passed');
 process.exit(fails ? 1 : 0);
