@@ -12,7 +12,7 @@ const SEED=function(){
 };
 const AS="const as=u=>sessionStorage.setItem('hydroPro_session',JSON.stringify({username:u,loginAt:Date.now()}));";
 module.exports=[
-{ name:'🧭 Assistant: two users get different briefings from their own tasks (tester: overdue Hyatt forecast; syram: Golden Phoenix due today), the calendar item appears for both, saving the setup activates exactly one morning briefing, a manual run lands in the owner\'s inbox only, e-mail state is honest (nexi-notify not set up), and the team view never shows a personal item (v21.40)',
+{ name:'🧭 Assistant: two users get different briefings from their own tasks (tester: overdue Hyatt forecast; syram: Golden Phoenix due today), the calendar item appears for both, saving the setup activates exactly one morning briefing, a manual run lands in the owner\'s inbox only, e-mail state is honest (v23.30: \'by nexi@ (server) — see 📣 status\' — this device sends no e-mail, the nexi@ engine does), and the team view never shows a personal item (v21.40)',
   seed:SEED,
   run:new Function(`return (async()=>{${AS}await sleep(5000);as('tester');
     const bT=HNXPA.briefing('tester');const bS=HNXPA.briefing('syram');
@@ -29,7 +29,7 @@ module.exports=[
     return {tHas:/Hyatt/.test(bT.text),tNot:/Golden Phoenix/.test(bT.text),sHas:/Golden Phoenix/.test(bS.text),sNot:/Hyatt/.test(bS.text),cal:/Lunch with BPI/.test(bT.text)&&/Lunch with BPI/.test(bS.text),
       briefN:brief.length,active:brief[0].status,runState:r&&r.state,mail:r&&r.delivery.mail,inbT:inbT.length,inbS:inbS.length,inbOwner:inbT[0]&&inbT[0].user,
       sPersonal:sItems.filter(x=>x.scope==='personal').length,sActive:sItems[0]&&sItems[0].status,tvPersonal:tv.filter(x=>/doctor/i.test(x.title)).length,day:/Hyatt/.test(txt)};})();`),
-  expect:{tHas:true,tNot:false,sHas:true,sNot:false,cal:true,briefN:1,active:'active',runState:'done',mail:'unavailable: nexi-notify not set up on this device',inbT:2,inbS:0,inbOwner:'tester',sPersonal:1,sActive:'active',tvPersonal:0,day:true} },
+  expect:{tHas:true,tNot:false,sHas:true,sNot:false,cal:true,briefN:1,active:'active',runState:'done',mail:'by nexi@ (server) — see 📣 status',inbT:2,inbS:0,inbOwner:'tester',sPersonal:1,sActive:'active',tvPersonal:0,day:true} },
 { name:'🧭 Assistant: plain words are read without AI — "Brief me at 6:30 AM on weekdays" → schedule 06:30 Mon–Fri; "Follow up on my team\'s overdue work" → team follow-up; "Remind me about the dentist" with no date → draft with a question and Activate refused; "Call me for urgent production problems" → blocked (calling not connected) and Activate refused; "E-mail summaries" → blocked (no mailbox connection) (v21.40)',
   seed:SEED,
   run:new Function(`return (async()=>{${AS}await sleep(5000);as('tester');

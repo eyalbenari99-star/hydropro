@@ -23,13 +23,24 @@ module.exports=[
     return {avgHeavy:before.avgMs>8,deferred:during.deferred>0,runsDuring:during.runs-r0,fewDuring:(during.runs-r0)<=3,resumed:after.runs>during.runs};},
   expect:{avgHeavy:true,deferred:true,fewDuring:true,resumed:true} },
 
-{ name:'📦 Storage meter: usage() is memoised (second call within 10 s is instant) and measures the compressed size; the probe write runs once a minute (v21.19)',
-  seed:function(){localStorage.setItem('hydroPro_hk_big',JSON.stringify(Array.from({length:4000},function(_,i){return {id:i,note:'the same sentence again and again '+(i%7)};})));},
+{ name:'📦 Storage meter: usage() is memoised (second call within 10 s is instant) and measures the compressed size — a 4000-row repetitive store left raw by the last session is stored at under a third of its size once the idle compactor reaches it (first 15 s tick, then the first idle moment or at the latest the 60 s idle deadline: ≤ 75 s after the compressor starts, +10 s for a loaded PC); the probe write runs once a minute (v21.19)',
+  seed:function(){localStorage.setItem('hydroPro_hk_big',JSON.stringify(Array.from({length:4000},function(_,i){return {id:i,note:'the same sentence again and again '+(i%7)};})));
+    /* note when the compressor starts (it sets window.__hnxStoreShim) — its schedule counts from there */
+    try{Object.defineProperty(window,'__hnxStoreShim',{configurable:true,get:function(){return undefined;},set:function(v){window.__tLzStart=performance.now();Object.defineProperty(window,'__hnxStoreShim',{value:v,writable:true,configurable:true,enumerable:true});}});}catch(e){}},
   run:async()=>{
-    await sleep(5000);hnxStorageUsage();const t0=performance.now();hnxStorageUsage();const ms=performance.now()-t0;
-    const raw=Storage.prototype.getItem.call(localStorage,'hydroPro_hk_big'),dec=localStorage.getItem('hydroPro_hk_big');
-    return {memoFast:ms<20,compressed:raw.length<dec.length/3,decodeOk:JSON.parse(dec).length===4000};},
-  expect:{memoFast:true,compressed:true,decodeOk:true} },
+    /* Since v22.01 the start-up pass only QUEUES a raw store for the idle compactor: every 15 s it asks requestIdleCallback for an idle
+       moment (timeout 60 s). A page that never goes idle — a loaded PC (a shared test box at load 30-50 on 4 CPUs: no idle callback
+       ever ran early, even with every SVG animation paused) — gets that moment only at the 60 s deadline, ~75 s after the start, while
+       this case used to read the store at ~28 s: red on a busy machine, green on an idle CI runner. Wait as the app does, bounded by
+       its own schedule. */
+    const nat=()=>Storage.prototype.getItem.call(localStorage,'hydroPro_hk_big')||'';
+    const t0=window.__tLzStart||0;
+    await sleep(5000);
+    while(nat().indexOf('\u0001LZ\u0001')!==0&&performance.now()<t0+85000)await sleep(500);
+    hnxStorageUsage();const t1=performance.now();hnxStorageUsage();const ms=performance.now()-t1;
+    const raw=nat(),dec=localStorage.getItem('hydroPro_hk_big');
+    return {started:t0>0,memoFast:ms<20,compressed:raw.length<dec.length/3,decodeOk:JSON.parse(dec).length===4000};},
+  expect:{started:true,memoFast:true,compressed:true,decodeOk:true} },
 
 { name:'🗜 Decoded-store memo: reading an unchanged compressed store twice returns the same value without decompressing again (second read ≥ 5× faster); after a write the new value is returned (v21.19)',
   seed:function(){localStorage.setItem('hydroPro_hk_memo',JSON.stringify(Array.from({length:20000},function(_,i){return {id:i,v:'row '+i+' lorem ipsum dolor sit amet'};})));},
