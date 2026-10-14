@@ -34,17 +34,26 @@
 
    Storage (R2 prefix cold/, small objects, nothing overwritten by an older reading):
      cold/latest/<room>.json                        the newest reading of a room
+     cold/recent/<room>.json                        v23.22: every reading RECEIVED in the last 48 h (max 120) — /cold/latest returns
+                                                    the last 24 h of it as "recent", so an alarm followed by the "recovered" mail in
+                                                    ONE bridge run (or one 15-minute slot) still reaches Nexi
+     cold/fault/<room>.json                         v23.22: the newest Elitech fault event of a room ({fault:"offline"|"online"|
+                                                    "unread"}) — the bridge posts "device offline" and alarm mails it cannot read
      cold/day/<YYYY-MM-DD>/<room>/<ts>-<node>.json  every reading, Manila day (a repeat of the same ts + node is stored once)
-     cold/hist/<YYYY-MM-DD>/<room>.json             a finished day folded to one point per 15 minutes
+     cold/hist/<YYYY-MM-DD>/<room>.json             a finished day folded to the LAST and the WORST reading per 15 minutes; deleted
+                                                    again when a late reading lands in that day (v23.22)
      cold/node/<node>.json                          last seen, readings taken, rooms
      cold/elitech.json                              the cloud poll's last state
+   v23.22 (review of v22.96): a temperature must be a number or a numeric string (" ", false, [] were stored as 0 °C → a CRITICAL
+   LOW alarm in Nexi); OK_BAND (optional var, default "4,8") says which reading of a 15-minute slot is the worst.
 */
 
-const VERSION = '22.96';
+const VERSION = '23.22';
 const ROOM_RE = /^CS\d{1,3}$/;
 /* plausible range — a cold room, a freezer or a dead probe; outside it is a wiring fault or a typo, never a reading */
 const LIMITS = { t: [-40, 60] };
 const MAX_AHEAD_MS = 2 * 60e3, MAX_AGE_MS = 7 * 864e5, MAX_READINGS = 200, MAX_BODY = 65536, BUCKET_MS = 15 * 60e3, HIST_MAX_H = 168;
+const RECENT_KEEP_MS = 48 * 3600e3, RECENT_MAX = 120, RECENT_SHOW_MS = 24 * 3600e3, FAULTS = ['offline', 'online', 'unread'];
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -79,6 +88,24 @@ export function coldMap(env) {
   return out;
 }
 const manilaDay = ms => new Date(ms + 8 * 3600e3).toISOString().slice(0, 10);
+/* a temperature is a number or a numeric string — never a blank, a boolean or an array (Number(" ") === 0) */
+function tempOf(raw) {
+  if (typeof raw === 'number') return raw;
+  if (typeof raw === 'string' && /^\s*[-+]?(\d+(\.\d*)?|\.\d+)\s*$/.test(raw)) return Number(raw);
+  return NaN;
+}
+/* the OK band (for "the worst reading of a 15-minute slot"); OK_BAND "4,8" */
+export function okBand(env) { const m = String((env && env.OK_BAND) || '4,8').split(',').map(Number); return (m.length === 2 && m.every(isFinite) && m[0] < m[1]) ? m : [4, 8]; }
+/* per 15-minute slot the LAST reading and the WORST one (farthest outside the OK band), oldest first */
+export function foldSlots(list, ok) {
+  const d = t => t < ok[0] ? ok[0] - t : (t > ok[1] ? t - ok[1] : 0), m = new Map();
+  for (const r of list) { if (!r) continue; const k = Math.floor(r.ts / BUCKET_MS), e = m.get(k) || { last: null, worst: null };
+    if (!e.last || r.ts >= e.last.ts) e.last = r;
+    if (d(r.t) > 0 && (!e.worst || d(r.t) > d(e.worst.t))) e.worst = r;
+    m.set(k, e); }
+  const out = []; for (const e of m.values()) { out.push(e.last); if (e.worst && e.worst.ts !== e.last.ts) out.push(e.worst); }
+  return out.sort((a, b) => a.ts - b.ts);
+}
 const round1 = v => Math.round(v * 10) / 10;
 const str = (v, n) => (v === null || v === undefined) ? '' : String(v).trim().slice(0, n);
 
@@ -93,13 +120,25 @@ export function normalize(r, now, map, allow) {
   }
   if (!ROOM_RE.test(room)) return { error: 'bad room id' };
   if (allow && !allow.includes(room)) return { error: 'unknown room ' + room };
-  const raw = r.t ?? r.temp ?? r.temperature;
-  if (raw === null || raw === undefined || raw === '') return { error: 'no temperature' };
-  const t = Number(raw);
-  if (!isFinite(t) || t < LIMITS.t[0] || t > LIMITS.t[1]) return { error: 't out of range: ' + raw };
   let ts = typeof r.ts === 'number' ? r.ts : Date.parse(r.ts || '');
   if (!isFinite(ts)) ts = now;
   if (ts > now + MAX_AHEAD_MS) ts = now;                 /* a node with a wrong clock never writes into the future */
+  /* v23.22: an Elitech fault event (the bridge: "device offline" / back "online" / an alarm mail whose value it cannot read) */
+  const fault = str(r.fault, 20).toLowerCase();
+  if (fault) {
+    if (!FAULTS.includes(fault)) return { error: 'bad fault ' + fault };
+    if (ts < now - MAX_AGE_MS) return { error: 'older than 7 days' };
+    const f = { room, ts, fault };
+    const fs = str(r.src, 20); if (fs) f.src = fs;
+    const fa = str(r.alarm, 60); if (fa) f.alarm = fa;
+    const fm = str(r.msgId, 40); if (fm) f.msgId = fm;
+    return { fault: f };
+  }
+  const raw = r.t ?? r.temp ?? r.temperature;
+  if (raw === null || raw === undefined || raw === '') return { error: 'no temperature' };
+  const t = tempOf(raw);
+  if (!isFinite(t)) return { error: 'no temperature' };
+  if (t < LIMITS.t[0] || t > LIMITS.t[1]) return { error: 't out of range: ' + raw };
   if (ts < now - MAX_AGE_MS) return { error: 'older than 7 days' };
   const out = { room, ts, t: round1(t) };
   const src = str(r.src, 20); if (src) out.src = src;
@@ -116,9 +155,10 @@ async function listAll(env, prefix, max) {
   return keys;
 }
 
-/* store readings from one node; returns {stored, duplicates, refused:[{i, error}]} */
+/* store readings from one node; returns {stored, duplicates, faults, refused:[{i, error}]} */
 export async function store(env, node, allowedRooms, readings, now) {
-  const res = { stored: 0, duplicates: 0, refused: [] };
+  const res = { stored: 0, duplicates: 0, faults: 0, refused: [] };
+  const recentAdd = new Map(), today = manilaDay(now);
   const list = Array.isArray(readings) ? readings.slice(0, MAX_READINGS) : [];
   if (Array.isArray(readings) && readings.length > MAX_READINGS) res.refused.push({ i: MAX_READINGS, error: 'more than ' + MAX_READINGS + ' readings in one push' });
   const map = coldMap(env), allow = roomsAllow(env);
@@ -126,42 +166,57 @@ export async function store(env, node, allowedRooms, readings, now) {
   for (let i = 0; i < list.length; i++) {
     const n = normalize(list[i], now, map, allow);
     if (n.error) { res.refused.push({ i, error: n.error }); continue; }
+    if (n.fault) {
+      const f = n.fault;
+      if (allowedRooms && !allowedRooms.includes(f.room)) { res.refused.push({ i, error: 'room ' + f.room + ' is not this node\'s' }); continue; }
+      const fk = `cold/fault/${f.room}.json`, cur = await getJson(env, fk);
+      if (cur && cur.ts >= f.ts) { res.duplicates++; continue; }   /* the newest fault event of a room only */
+      await putJson(env, fk, { ...f, node, received: now });
+      res.faults++; rooms.add(f.room);
+      continue;
+    }
     const r = n.reading;
     if (allowedRooms && !allowedRooms.includes(r.room)) { res.refused.push({ i, error: 'room ' + r.room + ' is not this node\'s' }); continue; }
-    const key = `cold/day/${manilaDay(r.ts)}/${r.room}/${r.ts}-${node}.json`;
+    const day = manilaDay(r.ts), key = `cold/day/${day}/${r.room}/${r.ts}-${node}.json`;
     if (await env.R2.head(key)) { res.duplicates++; continue; }
     const rec = { ...r, node, received: now };
     await putJson(env, key, rec);
     const latest = await getJson(env, `cold/latest/${r.room}.json`);
     if (!latest || !(latest.ts > r.ts)) await putJson(env, `cold/latest/${r.room}.json`, rec); /* an older reading never replaces a newer one */
+    if (day < today && typeof env.R2.delete === 'function') await env.R2.delete(`cold/hist/${day}/${r.room}.json`); /* v23.22: a late reading re-opens a folded day */
+    if (!recentAdd.has(r.room)) recentAdd.set(r.room, []);
+    recentAdd.get(r.room).push({ ts: r.ts, t: r.t, received: now });
     res.stored++; rooms.add(r.room);
+  }
+  for (const [room, add] of recentAdd) {   /* v23.22: every reading received, not only the newest */
+    const rk = `cold/recent/${room}.json`, cur = (await getJson(env, rk)) || { room, pts: [] }, m = new Map();
+    for (const p of (Array.isArray(cur.pts) ? cur.pts : []).concat(add)) if (p && p.received >= now - RECENT_KEEP_MS) m.set(p.ts, p);
+    await putJson(env, rk, { room, pts: [...m.values()].sort((a, b) => a.ts - b.ts).slice(-RECENT_MAX) });
   }
   const prev = (await getJson(env, `cold/node/${node}.json`)) || { count: 0, rooms: [] };
   await putJson(env, `cold/node/${node}.json`, { node, lastSeen: now, count: (prev.count || 0) + res.stored, rooms: [...new Set([...(prev.rooms || []), ...rooms])].sort() });
   return res;
 }
 
-/* the readings of one room over the last `hours`, the LAST reading per 15-minute bucket, oldest first; finished days are folded
-   once into cold/hist/<day>/<room>.json and read from there afterwards */
+/* the readings of one room over the last `hours` — per 15-minute slot the LAST and the WORST reading (v23.22: an alarm followed by
+   an in-band reading in the same slot is no longer folded away), oldest first; finished days are folded into
+   cold/hist/<day>/<room>.json and read from there, until a late reading for that day deletes the fold (store) */
 export async function history(env, room, hours, now) {
-  const from = now - hours * 3600e3, today = manilaDay(now);
+  const from = now - hours * 3600e3, today = manilaDay(now), ok = okBand(env);
   const days = []; for (let t = from; manilaDay(t) <= today; t += 864e5) days.push(manilaDay(t)); if (!days.includes(today)) days.push(today);
-  const buckets = new Map();
-  const take = r => { if (!r || !(r.ts >= from) || r.ts > now + MAX_AHEAD_MS) return; const b = Math.floor(r.ts / BUCKET_MS); const cur = buckets.get(b); if (!cur || r.ts >= cur.ts) buckets.set(b, r); };
+  const all = [];
+  const take = r => { if (!r || !(r.ts >= from) || r.ts > now + MAX_AHEAD_MS) return; all.push(r); };
   for (const day of [...new Set(days)]) {
     const hk = `cold/hist/${day}/${room}.json`;
     const folded = day < today ? await getJson(env, hk) : null;
     if (folded && Array.isArray(folded.points)) { folded.points.forEach(take); continue; }
     const pts = [];
     for (const key of await listAll(env, `cold/day/${day}/${room}/`, 2000)) { const r = await getJson(env, key); if (r) pts.push(r); }
-    pts.sort((a, b) => a.ts - b.ts);
-    const dayBuckets = new Map();
-    for (const r of pts) { const b = Math.floor(r.ts / BUCKET_MS); const cur = dayBuckets.get(b); if (!cur || r.ts >= cur.ts) dayBuckets.set(b, r); }
-    const points = [...dayBuckets.values()].sort((a, b) => a.ts - b.ts).map(slim);
-    if (day < today) await putJson(env, hk, { room, day, points, foldedAt: now }); /* a finished day never changes */
+    const points = foldSlots(pts, ok).map(slim);
+    if (day < today) await putJson(env, hk, { room, day, points, foldedAt: now });
     points.forEach(take);
   }
-  return [...buckets.values()].sort((a, b) => a.ts - b.ts).map(slim);
+  return foldSlots(all, ok).map(slim);
 }
 const slim = r => ({ ts: r.ts, node: r.node, t: r.t });
 
@@ -182,6 +237,19 @@ async function latestAll(env) {
   const rooms = {};
   for (const key of await listAll(env, 'cold/latest/', 1000)) { const r = await getJson(env, key); if (r && ROOM_RE.test(String(r.room || ''))) rooms[r.room] = r; }
   return rooms;
+}
+/* v23.22: per room every reading received in the last 24 h as [ts, t, received], oldest first */
+async function recentAll(env, now) {
+  const out = {};
+  for (const key of await listAll(env, 'cold/recent/', 1000)) { const o = await getJson(env, key); if (!o || !ROOM_RE.test(String(o.room || ''))) continue;
+    out[o.room] = (Array.isArray(o.pts) ? o.pts : []).filter(p => p && p.received >= now - RECENT_SHOW_MS).map(p => [p.ts, p.t, p.received]); }
+  return out;
+}
+/* v23.22: per room the newest Elitech fault event */
+async function faultsAll(env) {
+  const out = {};
+  for (const key of await listAll(env, 'cold/fault/', 1000)) { const f = await getJson(env, key); if (f && ROOM_RE.test(String(f.room || ''))) out[f.room] = { fault: f.fault, ts: f.ts, alarm: f.alarm || '', node: f.node }; }
+  return out;
 }
 
 export default {
@@ -214,7 +282,7 @@ export default {
     if (!env.COLD_TOKEN || !same(bearer(req), env.COLD_TOKEN)) return json({ error: 'unauthorized' }, 401);
 
     if (p === '/cold/latest') {
-      return json({ ok: true, now, rooms: await latestAll(env), nodes: await nodeStates(env), elitech: await getJson(env, 'cold/elitech.json') });
+      return json({ ok: true, now, rooms: await latestAll(env), recent: await recentAll(env, now), faults: await faultsAll(env), nodes: await nodeStates(env), elitech: await getJson(env, 'cold/elitech.json') });
     }
 
     if (p === '/cold/history') {

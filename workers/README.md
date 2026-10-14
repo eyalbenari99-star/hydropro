@@ -141,17 +141,26 @@ only stores −40 … 60 °C). What the OWNER does, once:
      - optional var `ROOMS` — `CS1,CS2` (an allowlist; a reading for another room is refused "unknown room").
      - optional `COLD_MAP` — `{"Cold storage 1":"CS1","Cold storage 2":"CS2"}` (device names as in the iCold app; the bridge holds the same map).
      - optional `ELITECH_KEY_ID` / `ELITECH_KEY_SECRET` — only when Elitech sends the "Access API document" (today `pollElitech` records "not configured" and never guesses an address).
-   - Check: `https://nexi-cold.<account>.workers.dev/cold/health` answers `{"ok":true,"version":"22.96",…}` (no token needed, nothing secret in it).
-2. **Routes**: `POST /cold/push` (node token; `{readings:[{room|device, ts, t|temp|temperature, src, alarm, msgId}]}`, ≤ 200 readings, ≤ 64 KB; `readings:[]` = heartbeat) ·
-   `GET /cold/latest` (COLD_TOKEN) · `GET /cold/history?room=CS1&hours=24` (COLD_TOKEN; the last reading per 15 min, hours 1–168) · `GET /cold/readings?room=&day=` (COLD_TOKEN) · `GET /cold/health` (no token).
-   A node's clock in the future is clamped to the receive time; > 7 days old is refused; an older reading never replaces the latest; the device name is not stored.
+   - optional var `OK_BAND` — `4,8` (default): which reading of a 15-minute slot is the "worst" kept next to the last one.
+   - Check: `https://nexi-cold.<account>.workers.dev/cold/health` answers `{"ok":true,"version":"23.22",…}` (no token needed, nothing secret in it).
+   - **v23.22 — re-deploy** (the review fixes need the new file; until then Nexi keeps working with the v22.96 worker but without the fixes below):
+     paste the new `workers/nexi-cold.js` over the old one and Deploy; no new secret, no binding change.
+2. **Routes**: `POST /cold/push` (node token; `{readings:[{room|device, ts, t|temp|temperature, src, alarm, msgId}]}`, ≤ 200 readings, ≤ 64 KB; `readings:[]` = heartbeat;
+   v23.22: also fault events `{room, ts, fault:"offline"|"online"|"unread", alarm}` — the newest per room) ·
+   `GET /cold/latest` (COLD_TOKEN; v23.22 adds `recent` = every reading received in the last 24 h per room, and `faults`) · `GET /cold/history?room=CS1&hours=24`
+   (COLD_TOKEN; v23.22: the LAST and the WORST reading per 15 min, hours 1–168) · `GET /cold/readings?room=&day=` (COLD_TOKEN) · `GET /cold/health` (no token).
+   A node's clock in the future is clamped to the receive time; > 7 days old is refused; an older reading never replaces the latest; the device name is not stored;
+   v23.22: a temperature is a number or a numeric string (a blank / false / [] is "no temperature", never 0 °C); a late reading for a finished day deletes that day's fold.
 3. **Bridge (alarm mails only, starts in DRY RUN)**: script.google.com under nexi@abapardes.com.ph → new project → paste `workers/elitech-alarm-bridge.gs` →
    Project Settings → Script Properties `COLD_URL`, `COLD_NODE_TOKEN` (the `elitech-mail` token), `COLD_MAP` `{"Cold storage 1":"CS1","Cold storage 2":"CS2"}`,
    `ALERT_TO` (company addresses), `DRY_RUN` `1` → run `installBridge` once and allow. It reads the iCold alarm e-mails every 15 minutes; in DRY RUN it only logs
    "would post CS1 x.x °C" and sends a heartbeat. **Test**: in the iCold app set the high alarm to 2.0 °C for a few minutes so an alarm mail reaches nexi@; Apps Script →
    Executions shows "would post CS1 x.x °C"; if the room and the value are right set `DRY_RUN` to `0`; forward that one real alarm mail to the developer (the parser
    test uses synthetic samples until then); set the high alarm back to 8.0. One mail a day when no Elitech mail came for 24 h ("a silent room is not a fine room").
-4. **In Nexi (v22.96)**: Maintenance → ❄ Cold storage → ⚙ Settings (admin) → worker URL + On + paste `COLD_TOKEN` on ONE computer in the maintenance office (it becomes the
+   **v23.22 — paste the new `workers/elitech-alarm-bridge.gs` over Code.gs** (the trigger and the properties stay): "device offline" and alarm mails it cannot read are
+   now POSTED to nexi-cold as faults (Nexi shows "⚠ Elitech: controller OFFLINE" / "value unread" and tells the head of Maintenance) and mailed to ALERT_TO in the same run;
+   mails older than 4 days (or 6 h older than the newest one done) are skipped.
+4. **In Nexi (v22.96; v23.22 review fixes)**: Maintenance → ❄ Cold storage → ⚙ Settings (admin) → worker URL + On + paste `COLD_TOKEN` on ONE computer in the maintenance office (it becomes the
    feeder; a 10-minute lease, the others watch) → set each room's Elitech device name → 💾 Save. The technician's typed daily check (✅ Monitoring Checklist → ❄ Daily, due 10:00)
    stays the daily reading. The full owner / IT checklist (electrician, probes, controller settings, Wi-Fi, iCold account, pairing, alarm limits, API request) is on the
    ❄ Cold storage screen and in the Maintenance help guide.

@@ -41,7 +41,7 @@ const pick = r => r && (r.skip ? { skip: r.skip } : r.fault ? { fault: r.fault, 
 { const r = pick(parse('', 'Cold storage 1 temperature returned to normal 6.2°C'));
   check('"Cold storage 1 temperature returned to normal 6.2°C" → CS1 6.2 recovered', JSON.stringify(r) === JSON.stringify({ room: 'CS1', t: 6.2, alarm: 'recovered' }), r); }
 { const r = pick(parse('', 'Cold storage 1 device offline'));
-  check('"Cold storage 1 device offline" → fault offline (nothing posted)', JSON.stringify(r) === JSON.stringify({ fault: 'offline', room: 'CS1' }), r); }
+  check('"Cold storage 1 device offline" → fault offline (v23.22: posted to Nexi as {room, fault:"offline"})', JSON.stringify(r) === JSON.stringify({ fault: 'offline', room: 'CS1' }), r); }
 { const r = pick(parse('', 'Cold storage 1 9.1°C 8.0°C'));
   check('"Cold storage 1 9.1°C 8.0°C" → skip "ambiguous value"', JSON.stringify(r) === JSON.stringify({ skip: 'ambiguous value' }), r); }
 { const r = pick(parse('', 'Freezer 3 current temperature 3.0℃'));
@@ -82,6 +82,42 @@ const BASE = { COLD_NODE_TOKEN: 'node-token-mail', COLD_MAP: JSON.stringify(MAP)
 // no node token → nothing posted
 { const w = world({ COLD_MAP: JSON.stringify(MAP) }, [MAIL]); w.ctx.runBridge();
   check('COLD_NODE_TOKEN not set → nothing posted, the log says so', w.posts.length === 0 && w.logs.some(l => /COLD_NODE_TOKEN is not set/.test(l)), w.logs); }
+
+// ---- v23.22 review fixes ----
+{ const r = pick(parse('Elitech', 'Cold storage 2 high temperature alarm 13.6°C (alarm value 8.0°C)'));
+  check('"Cold storage 2 high temperature alarm 13.6°C (alarm value 8.0°C)" → CS2 13.6 high ("alarm value" is a limit, never the reading)', JSON.stringify(r) === JSON.stringify({ room: 'CS2', t: 13.6, alarm: 'high' }), r); }
+{ const r = parse('', 'Cold storage 1 9.1°C 8.0°C'), on = parse('', 'Cold storage 2 device is online again');
+  check('an unreadable mail of a mapped room → {fault:"unread", room CS1, alarm "alarm"} (posted, Nexi warns); "Cold storage 2 device is online again" (no °C) → {fault:"online", room CS2}',
+    r.fault === 'unread' && r.room === 'CS1' && r.alarm === 'alarm' && r.ts === '2026-10-13T00:15:00.000Z' && on.fault === 'online' && on.room === 'CS2', { r, on }); }
+
+// the reviewer's go-live case: the silence mail already went out today; then an "offline" mail and an alarm with "alarm value" arrive
+{ const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+  const mails = [{ id: 'msg-off', date: Date.now() - 20 * 60e3, subject: 'Elitech', body: 'Cold storage 1 device offline' },
+    { id: 'msg-a', date: Date.now() - 10 * 60e3, subject: 'Elitech', body: 'Cold storage 2 high temperature alarm 13.6°C (alarm value 8.0°C)' },
+    { id: 'msg-u', date: Date.now() - 5 * 60e3, subject: 'Elitech', body: 'Cold storage 1 9.1°C 8.0°C' }];
+  const w = world(Object.assign({ DRY_RUN: '0', cold_last_alert: today, cold_last_mail_at: String(Date.now() - 10 * 3600e3) }, BASE), mails);
+  w.ctx.runBridge(); const sent1 = w.sent.length, posts1 = w.posts.length;
+  w.ctx.runBridge();
+  const rd = (w.posts[0] && w.posts[0].body.readings) || [];
+  check('silence mail already sent today; run with offline + 13.6 (alarm value 8.0) + an unreadable mail → ONE push [{CS1 fault offline}, {CS2 13.6 high}, {CS1 fault unread}]; a mail IN THAT RUN "⚠ Elitech: a cold-room controller is OFFLINE" listing the unreadable mail; the next run posts only a heartbeat and mails nothing',
+    posts1 === 1 && rd.length === 3 && rd[0].room === 'CS1' && rd[0].fault === 'offline' && rd[1].room === 'CS2' && rd[1].t === 13.6 && rd[1].alarm === 'high' && rd[2].fault === 'unread' && rd[2].room === 'CS1'
+    && sent1 === 1 && w.sent[0].subject === '⚠ Elitech: a cold-room controller is OFFLINE' && /could not be read/.test(w.sent[0].body) && /CS1 offline ×1/.test(w.sent[0].body)
+    && w.sent.length === 1 && w.posts.length === 2 && JSON.stringify(w.posts[1].body) === '{"readings":[]}', { posts: w.posts.map(p => p.body), sent: w.sent }); }
+
+// 5 conversations × 90 alarm mails every 30 min (45 h): run 1 posts them; runs 2 and 3 post nothing again (the old ones are skipped, not re-posted)
+{ const mails = []; const t0 = Date.now() - 45 * 3600e3;
+  for (let c = 0; c < 5; c++) for (let k = 0; k < 90; k++) mails.push({ id: 'm' + c + '-' + k, date: t0 + k * 30 * 60e3 + c * 1000, subject: 'Elitech alarm', body: 'Current temperature: 13.' + (k % 10) + '℃ / Upper limit: 8.0℃ / Cold storage ' + (1 + c % 2) });
+  const w = world(Object.assign({ DRY_RUN: '0' }, BASE), mails);
+  w.ctx.runBridge(); const n1 = w.posts.reduce((a, p) => a + p.body.readings.length, 0);
+  w.ctx.runBridge(); const n2 = w.posts.reduce((a, p) => a + p.body.readings.length, 0) - n1;
+  w.ctx.runBridge(); const n3 = w.posts.reduce((a, p) => a + p.body.readings.length, 0) - n1 - n2;
+  check('450 alarm mails in the window: run 1 posts 450 (3 pushes of ≤200); run 2 and run 3 post 0 (watermark: older than the newest done mail − 6 h are skipped; the newest 6 h are in the 400 done ids)',
+    n1 === 450 && n2 === 0 && n3 === 0 && Number(w.P.cold_last_msg_ts) === t0 + 89 * 30 * 60e3 + 4000, { n1, n2, n3, wm: w.P.cold_last_msg_ts }); }
+
+// a mail older than 4 days is never parsed
+{ const w = world(Object.assign({ DRY_RUN: '0' }, BASE), [{ id: 'ancient', date: Date.now() - 5 * 864e5, subject: 'Elitech alarm', body: 'Current temperature: 13.4℃ / Cold storage 1' }]);
+  w.ctx.runBridge();
+  check('a 5-day-old alarm mail → skipped (heartbeat only, log "skipped 1 old message")', w.posts.length === 1 && JSON.stringify(w.posts[0].body) === '{"readings":[]}' && w.logs.some(l => /^skipped 1 old message/.test(l)), { posts: w.posts, logs: w.logs }); }
 
 console.log(fails ? fails + ' failed' : total + '/' + total + ' passed');
 process.exit(fails ? 1 : 0);
