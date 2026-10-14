@@ -1,4 +1,4 @@
-/* v23.16 (Eyal, 13 Oct 2026): "Memos of the day should be Delia's [daily] option or to print out with all details of the day in any time" —
+/* v23.28 (Eyal, 13 Oct 2026): "Memos of the day should be Delia's [daily] option or to print out with all details of the day in any time" —
    📅 Memos of the day: for any day (or a range) every memo DATED that day with all its details; 🖨 print / PDF and 📊 Excel at any time.
    Fixture: GH3 = TORZAR (team leader ₱150), CRUZ, REYES (absent 13 Oct); GH5 = GARCIA, SANTOS; DELA CRUZ, MARK supervises GH3 + GH5 (₱100);
    memo rates 150 / 100 / 100; everyone present 8–14 Oct except REYES on 13 Oct; payroll week 8–14 Oct.
@@ -13,9 +13,13 @@ function FX(o){o=o||{};
   const E=[labour('W1','TORZAR, EDERLYN',{ghAssigned:['GH3'],tier:'Team Leader'}),labour('W2','CRUZ, JUAN',{ghAssigned:['GH3']}),labour('W3','REYES, ANA',{ghAssigned:['GH3']}),
     labour('W4','GARCIA, PEDRO',{ghAssigned:['GH5']}),labour('W5','SANTOS, MARIA',{ghAssigned:['GH5']}),
     labour('S1','DELA CRUZ, MARK',{ghAssigned:[],tier:'supervisor',supervisorGHs:['GH3','GH5'],username:'mark'})];
+  /* (review) o.leaver: LEAVER, LEO resigned (last day 13 Oct, GH3) and NOSTATUS, NINA (a card with no status, GH5) — payroll pays both for the days they were present */
+  if(o.leaver){E.push(labour('L1','LEAVER, LEO',{ghAssigned:['GH3'],status:'Resigned',lastWorkingDay:'2026-10-13'}));const l2=labour('L2','NOSTATUS, NINA',{ghAssigned:['GH5']});delete l2.status;E.push(l2);}
+  /* (review) o.office: OFFICE, OLIVIA (accounting = an office employee) */
+  if(o.office)E.push({id:'O1',name:'OFFICE, OLIVIA',status:'Active',salaryCategory:'accounting',dept:'APTI_ACCOUNTING',payType:'semi_monthly',employmentType:'Regular',monthlyRate:30000,dateHired:'2025-01-01',hireDate:'2025-01-01'});
   setE(E);loadEmployees();
   const a={};['2026-10-08','2026-10-09','2026-10-10','2026-10-12','2026-10-13','2026-10-14'].forEach(d=>{a[d]={};E.forEach(e=>{a[d][e.id]=rec('present','07:00','17:00');});});
-  a[D].W3=rec('absent','','');setA(a);
+  a[D].W3=rec('absent','','');if(o.leaver)delete a['2026-10-14'].L1;setA(a);
   const J=h=>({by:'jinky',name:'Jinky Pagtama',at:Z(h),round:1}),A=h=>({by:'dramy',name:'Dr Amy Patdu',at:Z(h),round:1,side:'amy'}),Y=h=>({by:'eyal',name:'Eyal Ben Ari',at:Z(h),round:1,side:'eyal'});
   const ch=(ac,fi,re)=>({v:2294,round:1,since:Z('00:12'),submittedBy:'mea',submittedAt:Z('00:12'),acct:ac||null,final:fi||null,returned:re||null,notified:[]});
   const fin=f=>({name:f.name,username:f.by,at:f.at});
@@ -36,6 +40,7 @@ function FX(o){o=o||{};
    base({id:'D8',createdAt:Z('03:00'),category:'production',type:'good',gh:'GH5',title:'GH5 — early start',status:'pending',chain:ch(null,null)}),
    base({id:'LATE_2026-10-13_W5',source:'late_approval',category:'hr',noMoney:true,empId:'W5',title:'⏰ Late 25 min',status:'signed',createdAt:Z('08:00')}),
    base({id:'X0',date:'2026-10-12',createdAt:'2026-10-12T02:00:00.000Z',category:'production',type:'bad',gh:'GH3',title:'decoy — another day',status:'pending',chain:ch(null,null)})];
+  if(o.office)M.push(base({id:'O_HR1',createdAt:Z('03:40'),category:'hr',type:'bad',empId:'O1',title:'Office HR memo',totalAmount:-1200,impact:[{empId:'O1',empName:'OFFICE, OLIVIA',role:'HR Memo',amount:-1200}],status:'signed',chain:ch(J('04:00'),Y('05:00')),approvals:{final:fin(Y('05:00'))}}));
   if(o.v1)M.push(base({id:'V1',createdAt:Z('02:10'),category:'hr',type:'bad',empId:'W5',title:'virtual chain',totalAmount:-200,status:'pending',signatures:{supervisor:null,hrManager:{name:'Jinky Pagtama',username:'jinky',signedAt:Z('02:00')}}}));
   localStorage.setItem('hydroPro_memos',JSON.stringify(M));loadMemos();window.confirm=()=>true;window.alert=()=>{};return {E,a,M};}
 function RUNS(){localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([{id:'ops_2026-10-08_2026-10-14',type:'weekly',periodStart:'2026-10-08',periodEnd:'2026-10-14',payday:'2026-10-17',status:'approved',
@@ -73,7 +78,7 @@ module.exports=[
     person:'W2:3:100:-600:-500|S1:5:300:-200:100|W4:3:200:-100:100|W5:3:200:-100:100|W1:2:150:-150:0',
     pay:{W1:[150,150],W2:[100,600],W3:[0,0],W4:[100,0],W5:[100,0],S1:[200,100]},payMatch:true}},
 
-{ name:'Every memo in full (13 Oct): D1 "① Jinky ✓ 11:05 · ② Dr Amy ✓ 14:40", written 08:10 by Meajean Magracia, log 3 rows, 1 photo + report.pdf + 1 video (javascript: link dropped); D2 "① Jinky ✓ 11:10 · ② Eyal ✓ 15:15", frozen −₱450 (4 people) vs payroll today −₱350 (3 people), follow-up ✔ fixed; D3 "① Jinky ✓ 12:00 · ⏳ waiting ② Dr Amy / Eyal"; D8 "⏳ waiting ① Jinky"; D5 "↩ Returned by Jinky 13:20 at ①: add the photo"; D7 "✖ Rejected by Dr Amy 15:00: Wrong GH"; D6 "Before the chain (old rule): Supervisor ✓ Mark Dela Cruz 09:00 · HR Manager ✓ Meajean Magracia 09:30 · applied by @tester 10:00"; payroll D1/D2/D4 paid in weekly run 2026-10-08 → 2026-10-14, D6 not in a run yet; titles escaped',
+{ name:'Every memo in full (13 Oct): D1 "① Jinky ✓ 11:05 · ② Dr Amy ✓ 14:40", written 08:10 by Meajean Magracia, log 3 rows, 1 photo + report.pdf + 1 video (javascript: link dropped); D2 "① Jinky ✓ 11:10 · ② Eyal ✓ 15:15", frozen −₱450 (4 people) vs paid in the locked run −₱350 (3 people), follow-up ✔ fixed; D3 "① Jinky ✓ 12:00 · ⏳ waiting ② Dr Amy / Eyal"; D8 "⏳ waiting ① Jinky"; D5 "↩ Returned by Jinky 13:20 at ①: add the photo"; D7 "✖ Rejected by Dr Amy 15:00: Wrong GH"; D6 "Before the chain (old rule): Supervisor ✓ Mark Dela Cruz 09:00 · HR Manager ✓ Meajean Magracia 09:30 · applied by @tester 10:00"; payroll D1/D2/D4 paid in weekly run 2026-10-08 → 2026-10-14, D6 not in a run yet; titles escaped',
   run:R(async()=>{
     FX();RUNS();FU();
     const M=hnxMemoDay.model(D,D,{}),by={};M.memos.forEach(m=>{by[m.id]=m;});
@@ -84,7 +89,7 @@ module.exports=[
       d2:[by.D2.frozen&&by.D2.frozen.total,by.D2.frozen&&by.D2.frozen.n,by.D2.total,by.D2.people.length,by.D2.frozenDiff],fu:by.D2.followUp,
       pay:{D1:by.D1.payroll,D2:by.D2.payroll,D4:by.D4.payroll,D6:by.D6.payroll,D3:by.D3.payroll,D8:by.D8.payroll,D5:by.D5.payroll,D7:by.D7.payroll},
       esc:h.includes('GH3 &lt;b&gt;x&lt;/b&gt; wrong')&&!h.includes('<b>x</b>'),js:/javascript:/i.test(h),logRow:h.includes('Jinky Pagtama (accountant) — approved'),
-      frozenTxt:h.includes('Frozen on the memo when it was saved: −₱450 (4 people). Payroll counts today: −₱350 (3 people)'),
+      frozenTxt:h.includes('Frozen on the memo when it was saved: −₱450 (4 people). Paid in the locked run: −₱350 (3 people)'),
       video:h.includes('href="https://example.com/v1" target="_blank" rel="noopener noreferrer"'),dropTxt:h.includes('(1 link not shown — not a web address)'),pdfTxt:h.includes('📄 report.pdf (PDF, 1 KB)')};
   }),
   expect:{steps:{D1:'① Jinky ✓ 11:05 · ② Dr Amy ✓ 14:40',D2:'① Jinky ✓ 11:10 · ② Eyal ✓ 15:15',D3:'① Jinky ✓ 12:00 · ⏳ waiting ② Dr Amy / Eyal',D4:'① Jinky ✓ 11:20 · ② Dr Amy ✓ 14:50',
@@ -124,7 +129,7 @@ module.exports=[
   }),
   expect:{pops:1,ok:true,photos:1,brand:true,title:true,totals:true,ids:true,decoy:false,late:false,steps:true,thumb:true,pdfName:true,pdfData:false,js:false,esc:true,page:true,avoid:true,sigs:true,white:true,printed:1}},
 
-{ name:'Excel 13 Oct: Memos_2026-10-13.xlsx — sheets Memo lines / Summary / Approval log, 20 memo × person rows (D1 3, D2 3, D6 3, D3 3, D4 1, D5 1, D7 3, D8 3), 16 counted rows sum −₱200, 4 not counted (D5 warning, D7 rejected), CRUZ, JUAN rows +100 / −100 / −500 / −100, approval log 3 rows, landscape',
+{ name:'Excel 13 Oct: Memos_2026-10-13.xlsx — sheets Memo lines / Summary / Approval log, 20 memo × person rows (D1 3, D2 3, D6 3, D3 3, D4 1, D5 1, D7 3, D8 3), 16 counted rows sum −₱200, 4 not counted (D5 warning, D7 rejected), CRUZ, JUAN rows +100 / −100 / −500 / −100, approval log 3 rows, landscape; Summary by type (review): All = 8 memos, 6 counted, +950 / −1,150 / −200 (Bad 3 memos, 2 counted)',
   run:R(async()=>{
     FX();
     const {wb,file}=await XL(()=>hnxMemoDay.excel({from:D,to:D}));
@@ -132,9 +137,11 @@ module.exports=[
     const yes=rows.filter(r=>r['Counted']==='yes'),no=rows.filter(r=>String(r['Counted']).indexOf('no')===0);
     return {file,sheets:wb.worksheets.map(w=>w.name).join(','),rows:rows.length,yes:yes.length,no:no.length,sumYes:r2(yes.reduce((t,r)=>t+(+r['Amount (₱)']||0),0)),
       cruz:rows.filter(r=>r['Employee']==='CRUZ, JUAN').map(r=>r['Amount (₱)']).join(','),log:ROWS(wb.getWorksheet('Approval log')).out.length,
-      orient:ws.pageSetup&&ws.pageSetup.orientation,hasAmount:T.H.indexOf('Amount (₱)')>=0,noD5:rows.filter(r=>r['Memo no.']==='D5').map(r=>r['Counted']).join(',')};
+      orient:ws.pageSetup&&ws.pageSetup.orientation,hasAmount:T.H.indexOf('Amount (₱)')>=0,noD5:rows.filter(r=>r['Memo no.']==='D5').map(r=>r['Counted']).join(','),
+      byType:(()=>{const sm=wb.getWorksheet('Summary'),o={};sm.eachRow({includeEmpty:false},r=>{const v=(r.values||[]).slice(1);if(v[0]==='Type'||v[0]==='All'||v[0]==='⚠️ Bad')o[v[0]]=v.join('|');});return o;})()};
   }),
-  expect:{file:'Memos_2026-10-13.xlsx',sheets:'Memo lines,Summary,Approval log',rows:20,yes:16,no:4,sumYes:-200,cruz:'100,-100,-500,-100',log:3,orient:'landscape',hasAmount:true,noD5:'no — warning'}},
+  expect:{file:'Memos_2026-10-13.xlsx',sheets:'Memo lines,Summary,Approval log',rows:20,yes:16,no:4,sumYes:-200,cruz:'100,-100,-500,-100',log:3,orient:'landscape',hasAmount:true,noD5:'no — warning',
+    'byType.Type':'Type|Memos|Counted|Plus (₱)|Minus (₱)|Net (₱)','byType.All':'All|8|6|950|-1150|-200','byType.⚠️ Bad':'⚠️ Bad|3|2|0|-650|-650'}},
 
 { name:'Supervisor without HR (mark = DELA CRUZ, MARK, GH3 + GH5): 6 memos D1 D2 D6 D3 D7 D8 (HR D4 and warning D5 hidden), good 3 · bad 3 · waiting 2, NO peso anywhere — model amounts null, screen overlay, print and Excel (18 rows, no Amount column, no ₱); Daily Summary card "Memos of Tue 13 Oct 2026 in GH3, GH5: 6 memo(s)" without ₱ opens the overlay; operator joe (not linked) → 🔒, no card',
   run:R(async()=>{
@@ -222,3 +229,4 @@ module.exports=[
   expect:{v1:'① Jinky ✓ 10:00 (her HR Manager signature before v23.10) · ⏳ waiting ② Dr Amy / Eyal',v1Total:-200,
     labels:'D1:✅ Approved|D2:✅ Approved|D6:✅ Applied|D3:⏳ ② Final|D4:✅ Approved|D5:↩ Returned|V1:⏳ ② Final|D7:✖ Rejected|D8:⏳ ① Jinky',wait:[3,1,2,300,-500]}}
 ];
+module.exports.HELP=HELP; /* the fixture, shared with memo-daily-review-v2328.test.js */
