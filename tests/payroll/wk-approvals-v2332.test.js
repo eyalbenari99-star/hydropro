@@ -198,3 +198,138 @@ module.exports=[
   expect:{'jinky.lock':2,'jinky.ceaAcctStep':1,'jinky.ceaFinal':['pending',1,true],'jinky.dev':'escalated','jinky.recon':0,
     'amy.lock':[false,true],'amy.cea':['approved',2],'amy.dev':'approved','amy.recon':'Dr Amy Patdu'} },
 ];
+
+/* ---- v23.36 review fixes (7 confirmed findings) ---- */
+/* catch a file a screen would download: run fn, return the text of the first Blob it built */
+const GRAB=`const grab=async fn=>{const blobs=[];const _c=URL.createObjectURL,_r=URL.revokeObjectURL,_k=HTMLAnchorElement.prototype.click;
+    URL.createObjectURL=b=>{blobs.push(b);return '#';};URL.revokeObjectURL=()=>{};HTMLAnchorElement.prototype.click=function(){};
+    try{fn();}catch(e){}URL.createObjectURL=_c;URL.revokeObjectURL=_r;HTMLAnchorElement.prototype.click=_k;await sleep(50);return blobs[0]?await blobs[0].text():'';};
+  const csvRow=(csv,first)=>{const L=String(csv||'').split('\\n');const h=L[0].split(',');const r=(L.find(l=>l.indexOf(first)===0)||'').split(',');const o={};h.forEach((k,i)=>{o[k]=r[i];});return o;};`;
+module.exports.push(
+{ name:'🔁 Weekend sync (review) — Jinky ✗ on ANN’s Sunday (t0) meets Dr Amy’s one-click ✓ Approve all 🖐 scanned (t1) from a computer that had not pulled the ✗: the merge keeps ① no by jinky with no "covered by" (both ways) and sets the blind final back to pending (finalBlind dramy) → ANN ₱0.00, not ₱945.45 (16,000 ÷ 22 × 1.30); row REJECTED BY ACCOUNTING with the red "back to pending" line; BEA (no ✗) keeps the covered final → ₱945.45; Dr Amy’s deliberate ② ✓ after seeing the ✗ pays ANN ₱945.45 and survives a merge with the stale copy (both ways)',
+  seed:SEED,
+  run:new Function(`return (async()=>{${H}await sleep(3000);
+    as('jinky');hnxWkSet(K('O1'),'acct','no');hnxWkSave();const jin=ST();await sleep(20);
+    localStorage.setItem('hydroPro_weekend_approvals_v1','{}');           /* Dr Amy's laptop: Jinky's ✗ not pulled yet */
+    as('dramy');hnxWkApproveAll(SUN,SUN);const amy=ST();const a0=amy[K('O1')]||{};
+    const mA=JSON.parse(window.__hnxMergeWeekend(JSON.stringify(jin),JSON.stringify(amy)));
+    const mB=JSON.parse(window.__hnxMergeWeekend(JSON.stringify(amy),JSON.stringify(jin)));
+    const f=x=>[x.acct||null,x.acctByU||null,x.acctCovered||null,x.final||null,(x.finalBlind||{}).byU||null];
+    localStorage.setItem('hydroPro_weekend_approvals_v1',JSON.stringify(mA));
+    const sc=screen();const blindPaid=sunPay('O1'),beaPaid=sunPay('O2');
+    await sleep(20);hnxWkSet(K('O1'),'final','ok');hnxWkSave();const del=ST()[K('O1')]||{};const delPaid=sunPay('O1');
+    const now=ST();const mC=JSON.parse(window.__hnxMergeWeekend(JSON.stringify(now),JSON.stringify(amy)))[K('O1')]||{};
+    const mD=JSON.parse(window.__hnxMergeWeekend(JSON.stringify(amy),JSON.stringify(now)))[K('O1')]||{};
+    return {stale:[a0.final||null,a0.acctCovered||null],m:f(mA[K('O1')]||{}),mRev:f(mB[K('O1')]||{}),bea:[(mA[K('O2')]||{}).final,(mA[K('O2')]||{}).acctCovered||null],
+      chip:/REJECTED BY ACCOUNTING/.test((sc.rows['ANN OFFICE']||{}).chip),note:/was given before Jinky.s ✗ reached it — back to pending/.test(sc.txt),
+      blindPaid,beaPaid,del:[del.final,del.acct,del.finalBlind||null],delPaid,mC:[mC.acct,mC.final,mC.finalByU],mD:[mD.acct,mD.final,mD.finalByU]};})();`),
+  expect:{stale:['ok','final'],m:['no','jinky',null,null,'dramy'],mRev:['no','jinky',null,null,'dramy'],bea:['ok','final'],chip:true,note:true,
+    blindPaid:0,beaPaid:945.45,del:['ok','no',null],delPaid:945.45,mC:['no','ok','dramy'],mD:['no','ok','dramy']} },
+
+{ name:'🔁 Weekend sync (review) — Dr Amy’s ② ✓ on CEL covers ① (t1), Eyal turns ② to ✗ (t2): the cleared ① is dated (acctAt ≥ t1), so merging with the t1 copy both ways — and with an older undated clear — gives ① empty, no "covered by Dr Amy’s final", ② no → CEL ₱0.00; Eyal’s later ② ✓ writes a cover of HIS final (covered by Eyal’s final) → ₱945.45 (16,000 ÷ 22 × 1.30)',
+  seed:SEED,
+  run:new Function(`return (async()=>{${H}await sleep(3000);
+    as('dramy');hnxWkSet(K('O3'),'final','ok');hnxWkSave();const c1=JSON.parse(JSON.stringify(ST()));const t1=(c1[K('O3')]||{}).finalAt;await sleep(20);
+    as('eyal');hnxWkSet(K('O3'),'final','no');hnxWkSave();const c2=JSON.parse(JSON.stringify(ST()));const r2=c2[K('O3')]||{};
+    const mg=(l,r)=>JSON.parse(window.__hnxMergeWeekend(JSON.stringify(l),JSON.stringify(r)))[K('O3')]||{};
+    const und=JSON.parse(JSON.stringify(c2));und[K('O3')].acctAt=null;
+    const f=x=>[x.acct||null,x.acctCovered||null,x.final||null];
+    const m1=mg(c2,c1),m2=mg(c1,c2),m3=mg(und,c1),m4=mg(c1,und);
+    localStorage.setItem('hydroPro_weekend_approvals_v1',JSON.stringify(Object.assign({},c2,{[K('O3')]:m2})));const paidNo=sunPay('O3');
+    await sleep(20);hnxWkSet(K('O3'),'final','ok');hnxWkSave();const e3=ST()[K('O3')]||{};const sc=screen();
+    return {dated:[r2.acct||null,typeof r2.acctAt==='number'&&r2.acctAt>=t1,r2.final],m1:f(m1),m2:f(m2),m3:f(m3),m4:f(m4),paidNo,
+      eyal:[e3.acct,e3.acctBy,e3.acctCovered||null,e3.final],label:/covered by Eyal.s final/.test((sc.rows['CEL OFFICE']||{}).a),paid:sunPay('O3')};})();`),
+  expect:{dated:[null,true,'no'],m1:[null,null,'no'],m2:[null,null,'no'],m3:[null,null,'no'],m4:[null,null,'no'],paidNo:0,
+    eyal:['ok','Eyal Ben Ari','final','ok'],label:true,paid:945.45} },
+
+{ name:'🔑 Weekend ① fallback (review) — Joshane (admin_secondary, accounting, managePayroll by role) with an owner-granted 🏢 Office pay sees ₱945.45 but signs NOTHING while Jinky’s account exists: header "NOTHING", 0 boxes, his ① tick on ANN stores nothing; once 🏛 Approvers names him the accountant he signs ① (BEA ok by josh, header "① (before Dr Amy / Eyal)") and Jinky signs nothing (CEL nothing stored)',
+  seed:new Function('('+SEED.toString()+')();('+(function(){
+    localStorage.setItem('hydroPro_user_perms',JSON.stringify({josh:{sensitive:{office:{on:true,by:'eyal',at:new Date().toISOString()}}}}));}).toString()+')();'),
+  run:new Function(`return (async()=>{${H}await sleep(3000);
+    as('josh');const off=!!window.hnxCanOfficePay();const sc=screen();
+    hnxWkSet(K('O1'),'acct','ok');hnxWkSet(K('O1'),'final','ok');hnxWkSave();const o1=ST()[K('O1')]||null;
+    localStorage.setItem('hydroPro_memo_approvers_v1',JSON.stringify({acctUser:'josh'}));
+    const sc2=screen();hnxWkSet(K('O2'),'acct','ok');hnxWkSave();const o2=ST()[K('O2')]||{};
+    as('jinky');const sc3=screen();hnxWkSet(K('O3'),'acct','ok');hnxWkSave();const o3=ST()[K('O3')]||null;
+    return {josh:{office:off,who:sc.who,pay:(sc.rows['ANN OFFICE']||{}).pay,boxes:Object.values(sc.rows).reduce((a,r)=>a+r.c1+r.c2,0),o1},
+      named:{who:sc2.who,o2:[o2.acct||null,o2.acctByU||null]},jinky:{who:sc3.who,o3}};})();`),
+  expect:{'josh.office':true,'josh.who':'NOTHING','josh.pay':'₱945.45','josh.boxes':0,'josh.o1':null,
+    'named.who':'① (before Dr Amy / Eyal)','named.o2':['ok','josh'],'jinky.who':'NOTHING','jinky.o3':null} },
+
+{ name:'📦 HR import (review) — Mea’s ⬇ Export (no 🏢 Office pay) leaves ANN’s monthly basic / rate / allowances out and names them (_payLeftOut); Eyal’s ⬆ Import of that file keeps ₱16,000, rate 727.27 and the ₱1,000 allowance, so her Sunday still prices ₱945.45 (16,000 ÷ 22 × 1.30), not ₱455; an older file marked only payFieldsLeftOut keeps them too; a file that DOES carry ₱17,600 changes it; 🛟 Make this the truth with Mea’s older file keeps the stored ₱17,600',
+  seed:SEED,
+  run:new Function(`return (async()=>{${H}${GRAB}await sleep(3000);
+    const E0=JSON.parse(localStorage.getItem('hydroPro_employees'));E0.find(e=>e.id==='O1').allowances=[{name:'Rice',amount:1000,taxable:false}];
+    localStorage.setItem('hydroPro_employees',JSON.stringify(E0));try{loadEmployees();}catch(e){}
+    const ann=()=>(JSON.parse(localStorage.getItem('hydroPro_employees'))||[]).find(e=>e.id==='O1')||{};
+    const pick=x=>[x.monthlyBasic,x.rate,(x.allowances||[]).length,x._payLeftOut===undefined];
+    as('meajean');let file={};try{file=JSON.parse(await grab(()=>exportHR()));}catch(e){}
+    const fa=(file.employees||[]).find(x=>x.id==='O1')||{};
+    as('eyal');const imp=async o=>{importHR({files:[new File([JSON.stringify(o)],'hr.json',{type:'application/json'})],value:''});await sleep(900);return ann();};
+    const a1=await imp(file);const price=window.hnxWkPriceFor(a1,SUN).pay;
+    const old=JSON.parse(JSON.stringify(file));(old.employees||[]).forEach(e=>{delete e._payLeftOut;});const a2=await imp(old);
+    const full={employees:JSON.parse(localStorage.getItem('hydroPro_employees')).map(e=>e.id==='O1'?Object.assign({},e,{monthlyBasic:17600,rate:800}):e)};const a3=await imp(full);
+    const rf=new File([JSON.stringify(old)],'hr-old.json',{type:'application/json'});window.hnxRosterFile({files:[rf]});await sleep(600);
+    window.hnxRosterPick(0);const a4=ann();
+    return {file:{mb:fa.monthlyBasic===undefined,al:fa.allowances===undefined,list:['monthlyBasic','rate','allowances'].every(k=>(fa._payLeftOut||[]).indexOf(k)>=0)},
+      eyalImport:pick(a1),price,oldFile:pick(a2),fullFile:[a3.monthlyBasic,a3.rate],roster:[a4.monthlyBasic,a4.rate,(a4.allowances||[]).length,a4._payLeftOut===undefined]};})();`),
+  expect:{'file.mb':true,'file.al':true,'file.list':true,eyalImport:[16000,727.27,1,true],price:945.45,oldFile:[16000,727.27,1,true],
+    fullFile:[17600,800],roster:[17600,800,1,true]} },
+
+{ name:'💸 HR Final Pay dashboard (review) — a Joshane-like account (💰 labour rates, no 🏢 Office pay): PAID OUT reads "₱ 4,606.00 + 2 🔒 Office pay" (the labourer only; ANN ₱22,345.67 and a leaver no longer on the roster ₱9,999.99 left out), no 22,345 / 9,999 on screen, 💾 Export CSV has empty base_wages / net_final_pay for ANN and the unknown leaver (pay_left_out note) and 4606 for the labourer, the unknown leaver’s Final Pay window refused; Jinky’s PAID OUT is ₱ 36,951.66 and her CSV carries 22345.67 with no pay_left_out column',
+  seed:new Function('('+SEED.toString()+')();('+(function(){
+    localStorage.setItem('hydroPro_offboarding_v1',JSON.stringify({
+      O1:{empId:'O1',reason:'resignation',status:'completed',startedAt:'2026-09-20T00:00:00Z',finalizedAt:'2026-09-30T00:00:00Z'},
+      L1:{empId:'L1',reason:'resignation',status:'completed',startedAt:'2026-09-20T00:00:00Z',finalizedAt:'2026-09-30T00:00:00Z'},
+      X9:{empId:'X9',reason:'resignation',status:'completed',startedAt:'2026-09-20T00:00:00Z',finalizedAt:'2026-09-30T00:00:00Z'}}));
+    const fp=(id,c)=>({empId:id,status:'released',lastWorkingDay:'2026-09-30',calc:c,preparedBy:'Jinky',approvedBy:'Dr Amy',releasedBy:'Eyal',releasedAt:'2026-10-05T00:00:00Z'});
+    localStorage.setItem('hydroPro_final_pay_v1',JSON.stringify({
+      O1:fp('O1',{baseWagesLastPeriod:8000,prorated13thMonth:12000,leaveCashValue:3636.36,totalEarnings:23636.36,totalDeductions:1290.69,netFinalPay:22345.67}),
+      L1:fp('L1',{baseWagesLastPeriod:3948,prorated13thMonth:658,leaveCashValue:0,totalEarnings:4606,totalDeductions:0,netFinalPay:4606}),
+      X9:fp('X9',{baseWagesLastPeriod:9999.99,prorated13thMonth:0,leaveCashValue:0,totalEarnings:9999.99,totalDeductions:0,netFinalPay:9999.99})}));}).toString()+')();'),
+  run:new Function(`return (async()=>{${H}${GRAB}await sleep(3000);
+    const dash=()=>{window.renderHrFinalPayDashboard();const t=(document.getElementById('hrFinalPayHost')||{}).textContent||'';
+      return {t,paid:((t.match(/PAID OUT💸(.*?)TOTAL/)||[])[1]||'').trim()};};
+    const fpo=id=>{const o=document.getElementById('hnxFpModal');if(o)o.remove();try{hnxOpenFinalPay(id);}catch(e){}const m=!!document.getElementById('hnxFpModal');const o2=document.getElementById('hnxFpModal');if(o2)o2.remove();return m;};
+    as('josh');const d=dash();const csv=await grab(()=>window.__hnxFpExport());const o1=csvRow(csv,'O1,'),l1=csvRow(csv,'L1,'),x9=csvRow(csv,'X9,');const x9open=fpo('X9');
+    as('jinky');const dj=dash();const cj=await grab(()=>window.__hnxFpExport());const j1=csvRow(cj,'O1,');
+    return {josh:{paid:d.paid,clean:d.t.indexOf('22,345')<0&&d.t.indexOf('9,999')<0,o1:[o1.base_wages,o1.net_final_pay,/office pay/.test(o1.pay_left_out||'')],
+        l1:l1.net_final_pay,x9:[x9.net_final_pay,/office pay/.test(x9.pay_left_out||'')],csvClean:csv.indexOf('22345')<0&&csv.indexOf('9999')<0,x9open},
+      jinky:{paid:dj.paid,o1:j1.net_final_pay,col:cj.split('\\n')[0].indexOf('pay_left_out')>=0}};})();`),
+  expect:{'josh.paid':'3₱ 4,606.00 + 2 🔒 Office pay','josh.clean':true,'josh.o1':['','',true],'josh.l1':'4606','josh.x9':['',true],'josh.csvClean':true,'josh.x9open':false,
+    'jinky.paid':'3₱ 36,951.66','jinky.o1':'22345.67','jinky.col':false} },
+
+{ name:'🎓 Training (review) — a Joshane-like account (💰, no 🏢 Office pay): the employee profile of ANN shows Daily Rate "🔒 Office pay", the Skills-matrix CSV gives "🔒 Office pay" for ANN (no 727.27 = 16,000 ÷ 22) and a figure for the labourer, the training certificate says "Daily Rate: 🔒 Office pay"; Jinky sees ₱727.27 in all three; Mea (no 💰) gets RESTRICTED',
+  seed:SEED,
+  run:new Function(`return (async()=>{${H}${GRAB}await sleep(3000);
+    const prof=id=>{let b=document.getElementById('trainingBody');if(!b){b=document.createElement('div');b.id='trainingBody';document.body.appendChild(b);}
+      _trainSelEmp=id;try{renderTrainEmployee();}catch(e){return 'threw '+e.message;}return ((b.textContent||'').match(/Daily Rate\\s*(🔒 Office pay|🔒|₱[\\d,.]+)/)||['',''])[1];};
+    const cell=(csv,nm)=>{const r=String(csv).split('\\n').find(l=>l.indexOf('"'+nm+'"')===0)||'';const c=r.split('","');return (c[5]||'').replace(/"/g,'');};
+    const run=async u=>{as(u);const m=await grab(()=>exportTrainMatrix());const c=await grab(()=>exportEmpCert('O1'));
+      return {prof:prof('O1'),ann:cell(m,'ANN OFFICE'),lab:cell(m,'LAB WORKER'),no727:m.indexOf('727.27')<0&&c.indexOf('727.27')<0,cert:(c.match(/Daily Rate: [^"]*/)||[''])[0]};};
+    const j=await run('josh'),k=await run('jinky'),m=await run('meajean');
+    return {josh:{prof:j.prof,ann:j.ann,lab:/^\\d/.test(j.lab),no727:j.no727,cert:j.cert},jinky:{prof:k.prof,ann:k.ann,cert:k.cert},mea:{ann:m.ann,cert:m.cert}};})();`),
+  expect:{'josh.prof':'🔒 Office pay','josh.ann':'🔒 Office pay','josh.lab':true,'josh.no727':true,'josh.cert':'Daily Rate: 🔒 Office pay',
+    'jinky.prof':'₱727.27','jinky.ann':'727.27','jinky.cert':'Daily Rate: ₱727.27','mea.ann':'RESTRICTED','mea.cert':'Daily Rate: RESTRICTED'} },
+
+{ name:'⏰ Late memo (review) — Eyal’s ₱91.00 penalty on ANN’s 60-minute late (60 ÷ 480 × 727.27 = 90.91 → typed 91) writes the memo "Late — penalty (amount on ⏰ Late approvals)" with no ₱ in reason / description / notes (lateAmount 91 kept); an older memo saying "Late — penalty ₱82.00" is rewritten once (1, then 0) and dated; Mea opening either memo reads no ₱91 / ₱82; Jinky still sees PENALTY ₱91.00 on ⏰ Late approvals',
+  seed:SEED,
+  run:new Function(`return (async()=>{${H}await sleep(3000);
+    as('eyal');const ok=window.hnxLate.decide(MON,'O1','penalty',91,'','ANN OFFICE',60);
+    const id='LATE_'+MON+'_O1',idO='LATE_'+MON+'_L1';
+    const M=()=>JSON.parse(localStorage.getItem('hydroPro_memos'))||[];const mem=M().find(m=>m.id===id)||{};
+    const txt=[mem.reason,mem.description,mem.note,mem.notes].join(' | ');
+    const body='LAB WORKER was 60 minute(s) late on '+MON+'. Late — penalty ₱82.00. Decided by Eyal Ben Ari.';
+    const all=M();all.push({id:idO,category:'hr',type:'bad',kind:'bad',subject:'Late — '+MON,title:'Late — LAB WORKER · '+MON,reason:'Late — penalty ₱82.00',reasonKey:'tardiness',reasonLabel:'Tardiness',
+      reasons:['Tardiness'],description:body,note:body,notes:body,empId:'L1',employeeId:'L1',employees:['L1'],name:'LAB WORKER',date:MON,createdAt:'2026-10-06T01:00:00.000Z',createdBy:'Eyal Ben Ari',
+      status:'signed',noMoney:true,amount:0,amt:0,source:'late_approval',lateMinutes:60,lateDecision:'penalty',lateAmount:82});
+    localStorage.setItem('hydroPro_memos',JSON.stringify(all));
+    const n1=window.hnxLate.scrubPenaltyPesos(),n2=window.hnxLate.scrubPenaltyPesos();const old=M().find(m=>m.id===idO)||{};
+    const otxt=[old.reason,old.description,old.note,old.notes].join(' | ');
+    as('meajean');const view=mid=>{try{if(typeof loadMemos==='function')loadMemos();openMemoView(mid);return (document.getElementById('memoViewBody')||{}).textContent||'';}catch(e){return 'threw '+e.message;}};
+    const v1=view(id),v2=view(idO);
+    as('jinky');let lt='';try{let v=document.getElementById('view-hr_late');if(!v){v=document.createElement('div');v.className='view';v.id='view-hr_late';document.body.appendChild(v);}window.hnxLateSet('show','decided');window.renderHrLateView();lt=v.textContent||'';}catch(e){lt='threw '+e.message;}
+    return {ok,reason:mem.reason,peso:/₱/.test(txt)||/91/.test(txt),lateAmount:mem.lateAmount,scrub:[n1,n2],old:[/₱|82/.test(otxt),/amount on ⏰ Late approvals/.test(old.notes||''),!!old.updatedAt],
+      mea:[v1.indexOf('₱91')<0&&v1.indexOf('91.00')<0&&!/^threw/.test(v1)&&v1.length>0,v2.indexOf('₱82')<0&&v2.indexOf('82.00')<0&&!/^threw/.test(v2)&&v2.length>0],jinkyLate:/PENALTY ₱91\\.00/.test(lt)};})();`),
+  expect:{ok:true,reason:'Late — penalty (amount on ⏰ Late approvals)',peso:false,lateAmount:91,scrub:[1,0],old:[false,true,true],mea:[true,true],jinkyLate:true} }
+);
