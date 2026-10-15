@@ -172,3 +172,19 @@ only stores −40 … 60 °C). What the OWNER does, once:
 - Script properties (owner only): `USER_BRIEF` = `on` (send) · `dry`/absent (trial, log only) · `off`; `WA_<USERNAME>` = `63XXXXXXXXXX|key` per person (the name is shown in Nexi ▸ Administration ▸ 👥 Users ▸ 📨 Brief delivery); optional `USER_BRIEF_MAX_MAILS` (staff e-mails a day, default 400) and `USER_BRIEF_MAX_TESTS` (test briefs a day for everyone, default 15). Engine state lives in the script's User properties.
 - Privacy rules (v23.30 review): WhatsApp never carries an amount in any spelling, a memo / pay notice title or a Google Calendar title; leaders = usernames eyal / amy / dramy / amyp / chen / cheriet or their own mailboxes (never a name pattern); an HR e-mail that belongs to another user or to a leadership mailbox is never used; the snapshot only counts when its `by` is an active admin and never widens pay beyond the app's own pay list.
 - Writes only `nexibrief_log_v1` (states and times — no addresses, numbers, keys or titles); reads the app's test requests `nexibrief_req_<user>`. Works on the deployed hnx-sync 3.7.0 (`/auth/login`, `/sync/pull?keys=`, `/sync/push`). Tests: `node tests/workers/user-brief.test.mjs`.
+
+## nexi-pool-care.gs (🧽 pool reminders + alerts) — v23.48, Eyal + Eder 14 Oct 2026 ("each 2 weeks water replacement each gh/prj and every month cleaning pool … WhatsApp to Dr Amy … and to me also reminder for super visor day before … and in same day")
+A **second file in the nexi@ Apps Script project of `nexi-morning-brief.gs` v4** — it has no sender of its own and reuses v4's
+cloud login, pull / push, Manila clock, CallMeBot sender and money guard (it refuses to run without them). Every 15 minutes
+(`nexiPoolCareTick`) it reads `hydroPro_pool_jobs_v1`, `hydroPro_notify_outbox_v1`, `hydroPro_pool_care_cfg_v1` and
+`hydroPro_users` and sends: 17:00–21:00 the "tomorrow" reminder and 06:30–10:30 the "today" reminder to the Production
+supervisor + the GH person (v1.1: the evening one on the working day before the job — Saturday for Monday, PH holidays skipped —
+and the morning one also lists a job still open from an earlier day); from 08:00 a "no answer" for a job nobody answered (same id as
+the app's own outbox record, sent once; never when the job was answered or done meanwhile);
+06:00–21:00 every queued "not done" / "no answer" outbox record of the last 36 h to Dr Amy + Eyal. WhatsApp when `WA_<USERNAME>`
+(or, for v4's leader usernames eyal / amy / dramy / amyp only, the older `WA_EYAL` / `WA_AMY`) is set, else a company e-mail, else
+logged `no-key`; a text v4's money guard would drop is sent as its reason-free copy (`text2`). Switch: Script property `POOL_CARE` =
+`dry` (default, logs only) · `on` · `off`. Delivery status → cloud key `nexipool_log_v1` (the app shows it in 🧽 Pool care ▸ 📨 Messages).
+1. Same project as v4 → ➕ Script → `nexi-pool-care` → paste the file → 💾.  2. ▶ Run `installPoolCare` once (15-min trigger + setup mail).
+3. Add `WA_<supervisor username>`; check `WA_EYAL` / `WA_AMY`.  4. One day dry, then `POOL_CARE = on`.   Tests: `node tests/workers/pool-care.test.mjs`
+(runs the file next to the REAL `nexi-morning-brief.gs` v4.0 in one vm context).

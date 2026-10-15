@@ -1,5 +1,5 @@
 /* v21.40 (Eyal): 🧭 Nexi Personal Assistant — per-user briefings from real stores, plain-words instructions → bounded drafts, idempotent scheduled runs with quiet hours, personal items owner-only, permission-filtered modules */
-const SEED=function(){
+const SEED=function(){window.__hnxPoolNoTick=true;/* v23.48: 🧽 pool care's 60-s tick (notes to the admin when no supervisor exists) stays out of the inbox counts */
   localStorage.setItem('hydroPro_users',JSON.stringify([
     {username:'tester',fullname:'Tester Admin',passwordHash:'x',role:'admin',active:true,email:'tester@abapardes.com.ph',departments:['logistics']},
     {username:'syram',fullname:'Syra Mae Montesa',passwordHash:'x',role:'operator',department:'logistics',departments:['logistics'],active:true,email:'syram@gmail.com'}]));
