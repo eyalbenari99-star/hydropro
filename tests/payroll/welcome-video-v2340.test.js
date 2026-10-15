@@ -86,6 +86,14 @@ module.exports=[
       addsOverflow:sw1>sw0,hintFont:getComputedStyle(h).fontSize,hintInside:hr.left>=r2.left-1&&hr.right<=r2.right+1&&hr.bottom<=r2.bottom+1&&hr.width>100,hintText:h.textContent};},
   expect:{shown:true,vw:400,fits:true,leftOk:true,addsOverflow:false,hintFont:'12px',hintInside:true,hintText:'Choose a screen from the menu, or click to continue'} },
 
+{ name:'🧷 Welcome video v23.40 follows a layout that settles AFTER it shows (size observers, not the 400-ms tick the governor may stretch): the module tabs made 300 px taller → within 150 ms the film\'s top moves down by ≥ 200 px and still ends at the window bottom; tabs back → within 150 ms the top is back where it was',
+  seed:SEED, requires:"!!window.HNXWV",
+  run:async()=>{const OV=()=>document.getElementById('hnxWelcomeVideo');await sleep(2500);const ov=OV();if(!ov)return {shown:false};const mh=document.getElementById('moduleHeader');const R=()=>ov.getBoundingClientRect();
+    const top0=Math.round(R().top),h0=Math.round(mh.getBoundingClientRect().height);mh.style.height=(h0+300)+'px';mh.style.minHeight=(h0+300)+'px';await sleep(150);const r1=R();const grown={movedDown:Math.round(r1.top)-top0,bottomOk:Math.abs(Math.round(r1.bottom)-innerHeight)<=1};
+    mh.style.height='';mh.style.minHeight='';await sleep(150);const back={top:Math.round(R().top)===top0};
+    return {shown:true,grown:{movedDown:grown.movedDown>=200,bottomOk:grown.bottomOk},back};},
+  expect:{shown:true,grown:{movedDown:true,bottomOk:true},back:{top:true}} },
+
 { name:'🧱 Welcome video v23.40 never covers a notice: z-index 45 < .modal-overlay 500 < toast 9999 (all three fixed, the toast and the film direct children of <body>, the toast pointer-events none); a modal INSIDE the content area (#maintPartsModal lives in #appMain, a stacking context at z 1) opened while the film shows → within 600 ms the film hides (visibility hidden, hidden:true) and the video pauses, the modal box is the element at its own centre; closed → the film is back and playing; a modal at <body> level (#profileModal) paints above the film at its centre and the film stays',
   seed:SEED, requires:"!!window.HNXWV",
   run:async()=>{const OV=()=>document.getElementById('hnxWelcomeVideo');await sleep(2500);const ov=OV();if(!ov)return {shown:false};const v=ov.querySelector('video');const at=el=>{const b=el.getBoundingClientRect();return document.elementFromPoint(b.left+b.width/2,b.top+b.height/2);};

@@ -314158,7 +314158,7 @@ function show(opt){opt=opt||{};
   if(!document.body)return false;
   css();var st=still();var mode=st?'poster':'video';S.still=st;S.mode=mode;S.force=!!opt.force;
   var el=build(mode);S.el=el;S.reason='';S.dismissed='';S.shownAt=Date.now();S.shows++;
-  document.body.appendChild(el);place();
+  document.body.appendChild(el);place();watch();
   var v=el.querySelector('video');S.v=v||null;
   if(v){try{v.muted=true;v.defaultMuted=true;v.volume=0;v.loop=true;v.autoplay=true;v.playsInline=true;v.setAttribute('muted','');}catch(e){}
     var srcs=v.querySelectorAll('source'),last=srcs[srcs.length-1];
@@ -314181,7 +314181,13 @@ function tick(){try{if(!S.el){stop();return;}
   var m=needsScreen();if(m&&!S.hidden){S.hidden=true;S.el.style.visibility='hidden';if(S.v)try{S.v.pause();}catch(e){}}
   else if(!m&&S.hidden){S.hidden=false;S.el.style.visibility='';if(S.v)try{var p=S.v.play();if(p&&p.catch)p.catch(function(){});}catch(e){}}
   hookNav();place();}catch(e){}}
-function stop(){if(S.timer){clearInterval(S.timer);S.timer=0;}clearTimeout(S.armT);S.armT=0;}
+/* v23.40: the layout can settle AFTER the film shows (the phone rail / tabs wrap / fonts, or a slow computer whose 400-ms tick the timer
+   governor stretches): size observers on the content area, the sidebar, the tabs and the top bar re-place the box at once */
+function watch(){unwatch();try{if(typeof ResizeObserver==='function'){S.ro=new ResizeObserver(function(){place();});['appMain','moduleSidebar','moduleHeader','topbar'].forEach(function(id){var n=document.getElementById(id);if(n)S.ro.observe(n);});S.ro.observe(document.body);}}catch(e){}
+  try{S.mo=new MutationObserver(function(){place();});S.mo.observe(document.body,{attributes:true,attributeFilter:['class','style']});}catch(e){}
+  try{[150,600,1500,3000].forEach(function(ms){setTimeout(function(){if(S.el)place();},ms);});}catch(e){}}
+function unwatch(){try{if(S.ro){S.ro.disconnect();S.ro=null;}}catch(e){}try{if(S.mo){S.mo.disconnect();S.mo=null;}}catch(e){}}
+function stop(){if(S.timer){clearInterval(S.timer);S.timer=0;}clearTimeout(S.armT);S.armT=0;unwatch();}
 function dismiss(how){var el=S.el;if(!el)return false;S.el=null;var v=S.v;S.v=null;
   if(v)unload(v);try{el.remove();}catch(e){}
   S.dismissed=how||'';S.dismissedAt=Date.now();S.armed=false;S.force=false;S.hidden=false;stop();return true;}
