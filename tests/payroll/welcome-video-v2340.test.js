@@ -86,13 +86,24 @@ module.exports=[
       addsOverflow:sw1>sw0,hintFont:getComputedStyle(h).fontSize,hintInside:hr.left>=r2.left-1&&hr.right<=r2.right+1&&hr.bottom<=r2.bottom+1&&hr.width>100,hintText:h.textContent};},
   expect:{shown:true,vw:400,fits:true,leftOk:true,addsOverflow:false,hintFont:'12px',hintInside:true,hintText:'Choose a screen from the menu, or click to continue'} },
 
-{ name:'🧷 Welcome video v23.40 follows a layout that settles AFTER it shows (size observers, not the 400-ms tick the governor may stretch): the module tabs made 300 px taller → within 150 ms the film\'s top moves down by ≥ 200 px and still ends at the window bottom; tabs back → within 150 ms the top is back where it was',
+{ name:'🧷 Welcome video v23.40 follows a layout that settles AFTER it shows (size observers, not the 400-ms tick the governor may stretch): the sidebar made 400 px wide → within 150 ms the film\'s left edge is at 400 and it still ends at the right window edge; sidebar back → within 150 ms the left edge is back where it was',
   seed:SEED, requires:"!!window.HNXWV",
-  run:async()=>{const OV=()=>document.getElementById('hnxWelcomeVideo');await sleep(2500);const ov=OV();if(!ov)return {shown:false};const mh=document.getElementById('moduleHeader');const R=()=>ov.getBoundingClientRect();
-    const top0=Math.round(R().top),h0=Math.round(mh.getBoundingClientRect().height);mh.style.height=(h0+300)+'px';mh.style.minHeight=(h0+300)+'px';await sleep(150);const r1=R();const grown={movedDown:Math.round(r1.top)-top0,bottomOk:Math.abs(Math.round(r1.bottom)-innerHeight)<=1};
-    mh.style.height='';mh.style.minHeight='';await sleep(150);const back={top:Math.round(R().top)===top0};
-    return {shown:true,grown:{movedDown:grown.movedDown>=200,bottomOk:grown.bottomOk},back};},
-  expect:{shown:true,grown:{movedDown:true,bottomOk:true},back:{top:true}} },
+  run:async()=>{const OV=()=>document.getElementById('hnxWelcomeVideo');await sleep(2500);const ov=OV();if(!ov)return {shown:false};const sb=document.getElementById('moduleSidebar');const R=()=>ov.getBoundingClientRect();
+    const left0=Math.round(R().left),sbw0=Math.round(sb.getBoundingClientRect().width);['width','min-width','max-width'].forEach(p=>sb.style.setProperty(p,'400px','important'));await sleep(150);const r1=R(),sbr=Math.round(sb.getBoundingClientRect().right);
+    const wide={sbRight:sbr,leftFollows:Math.abs(Math.round(r1.left)-sbr)<=1&&sbr>=399,rightOk:Math.abs(Math.round(r1.right)-innerWidth)<=1};
+    ['width','min-width','max-width'].forEach(p=>sb.style.removeProperty(p));await sleep(150);const back={left:Math.round(R().left)===left0,sbw:Math.round(sb.getBoundingClientRect().width)===sbw0};
+    return {shown:true,wide:{leftFollows:wide.leftFollows,rightOk:wide.rightOk},back};},
+  expect:{shown:true,wide:{leftFollows:true,rightOk:true},back:{left:true,sbw:true}} },
+
+{ name:'📱 Welcome video v23.40 is never adopted by the phone layout as a widget (hnx-phonelayout tray): at 400×860, 4 s after it shows, the film is still a direct child of <body>, position fixed, outside #hnxPhoneTray, full width 400 and ending at the window bottom; moved into the tray by hand with position static → within 2.5 s it is back on <body>, fixed and full width (self-heal)',
+  viewport:{width:400,height:860}, seed:SEED, requires:"!!window.HNXWV",
+  run:async()=>{const OV=()=>document.getElementById('hnxWelcomeVideo');await sleep(4000);const ov=OV();if(!ov)return {shown:false,state:HNXWV.state()};const R=()=>ov.getBoundingClientRect();
+    const a={onBody:ov.parentElement===document.body,fixed:getComputedStyle(ov).position==='fixed',inTray:!!ov.closest('#hnxPhoneTray'),w:Math.round(R().width),bottom:Math.round(R().bottom)};
+    let tray=document.getElementById('hnxPhoneTray');if(!tray){tray=document.createElement('div');tray.id='hnxPhoneTray';tray.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99995;';document.body.appendChild(tray);}
+    tray.appendChild(ov);['position','max-width','overflow','white-space'].forEach((p,i)=>ov.style.setProperty(p,['static','140px','hidden','nowrap'][i],'important'));await sleep(2500);
+    const o2=OV();const b={onBody:o2.parentElement===document.body,fixed:getComputedStyle(o2).position==='fixed',w:Math.round(o2.getBoundingClientRect().width),bottom:Math.round(o2.getBoundingClientRect().bottom)};
+    return {shown:true,a,b};},
+  expect:{shown:true,a:{onBody:true,fixed:true,inTray:false,w:400,bottom:860},b:{onBody:true,fixed:true,w:400,bottom:860}} },
 
 { name:'🧱 Welcome video v23.40 never covers a notice: z-index 45 < .modal-overlay 500 < toast 9999 (all three fixed, the toast and the film direct children of <body>, the toast pointer-events none); a modal INSIDE the content area (#maintPartsModal lives in #appMain, a stacking context at z 1) opened while the film shows → within 600 ms the film hides (visibility hidden, hidden:true) and the video pauses, the modal box is the element at its own centre; closed → the film is back and playing; a modal at <body> level (#profileModal) paints above the film at its centre and the film stays',
   seed:SEED, requires:"!!window.HNXWV",
