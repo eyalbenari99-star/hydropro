@@ -48,6 +48,8 @@ const SEED=function(){
   const plan={};Object.keys(planted).forEach((g,i)=>{plan[g]={varieties:[{variety:'CGFE',planned:6+(i%4)*2,done:Math.max(0,4+(i%5)-(i>6?4:0))}],rockwoolPrepared:8};});
   localStorage.setItem('hnx_seedling_plans_v1',JSON.stringify({[WK]:plan}));
   localStorage.setItem('hnx_irrviz_motion_v2226','always');
+  /* v23.44: the 🏭 Farm Twin replaces these pictures; ▦ Classic (per computer) keeps every case below on the classic pictures it was written for */
+  localStorage.setItem('hnxlocal_twin_classic_v1','1');
 };
 const H=`window.__hnxPulledOk=true;window.showToast=()=>{};window.confirm=()=>true;const PV=window.hnxProdVisual;
   const go=async(v,ms)=>{switchView(v,true);await sleep(ms||2200);};
@@ -76,18 +78,20 @@ module.exports=[
       ringEq:Math.abs(parseFloat(ring.getAttribute('data-p'))-val(1)/val(0))<0.002,facTile:val(0),facN:GREENHOUSES.length,oldList:!!document.querySelector('#pvGhListFold #dbGhGrid')};`),
   expect:{order:'GH1,GH2,GH3,GH4,GH5,GH6,GH7,GH8,GH9,GH10,PRJ11,PRJ12,GH15,GH16',pics:14,first:'statGrid',kpiPics:6,st:'Critical ✕1 !3',pct:'80%',pctEq:true,bar:'checklist 56/70',warnLamp:true,critLamp:true,ringEq:true,facTile:14,facN:14,oldList:true} },
 
-{ name:'🗺 One screen (Eyal 13 Oct): at 1366×768 and at 1440×900 all 14 farm cards sit inside the window below the sticky header with no scrolling (7 × 2), each with its moving picture; at 400 px two cards per row and no sideways page scroll',
-  requires:NEW, seed:SEED,
+{ name:'🗺 One screen (Eyal 13 + 14 Oct): Production → Dashboard at 1366×768 and 1440×900 — the cockpit bar and all 14 houses (GH1–GH10, PRJ11, PRJ12, GH15, GH16) as live 3-D tiles sit inside the window below the sticky header with no scrolling (5 × 3, the 15th slot "Needs attention now"), each picture ≥ 180 × 90 px; at 400 px two per row and no sideways page scroll',
+  requires:NEW+"&&!!window.hnxTwin", seed:SEED,
   drive:async pg=>{const out={};
-    await pg.evaluate(async()=>{try{switchModule('production');}catch(e){}await new Promise(r=>setTimeout(r,1500));switchView('dashboard',true);await new Promise(r=>setTimeout(r,2500));});
-    const fit=()=>pg.evaluate(async()=>{const sleep=ms=>new Promise(r=>setTimeout(r,ms));const f=document.getElementById('pvFarm');
+    /* v23.44: this case measures the 🏭 Farm Twin (block hnx-twin-ui-v2324), so it leaves ▦ Classic first */
+    await pg.evaluate(async()=>{localStorage.removeItem('hnxlocal_twin_classic_v1');try{hnxTwin.classic(false);}catch(e){}try{switchModule('production');}catch(e){}await new Promise(r=>setTimeout(r,1500));switchView('dashboard',true);await new Promise(r=>setTimeout(r,2500));hnxTwin.show('dash');await new Promise(r=>setTimeout(r,1500));});
+    const fit=()=>pg.evaluate(async()=>{const sleep=ms=>new Promise(r=>setTimeout(r,ms));hnxTwin.show('dash');await sleep(700);const f=document.getElementById('hnxTwinDash');
       f.scrollIntoView({block:'start'});await sleep(900);f.scrollIntoView({block:'start'});await sleep(500);
-      const hdr=parseFloat(getComputedStyle(f).scrollMarginTop)||0,rs=[...document.querySelectorAll('#pvFarmGrid > article')].map(a=>a.getBoundingClientRect());
-      return {n:rs.length,cols:getComputedStyle(document.getElementById('pvFarmGrid')).gridTemplateColumns.split(' ').length,
-        inside:rs.every(b=>b.top>=hdr-1&&b.bottom<=innerHeight+0.5&&b.left>=0&&b.right<=innerWidth+0.5),pics:document.querySelectorAll('#pvFarmGrid > article > .pv-gc-pic svg').length,sw:document.documentElement.scrollWidth===innerWidth};});
+      const L=hnxTwin.layout('dash'),sb=L.stickyBottom,rs=[...f.querySelectorAll('.hnx-tw-bar, .hnx-tw-tile, .hnx-tw-attn')].map(a=>a.getBoundingClientRect()),
+        ps=[...f.querySelectorAll('.hnx-tw-tile .hnx-tw-pic')].map(a=>a.getBoundingClientRect()),attn=f.querySelector('.hnx-tw-attn');
+      return {n:f.querySelectorAll('.hnx-tw-tile').length,cols:L.cols,rows:L.rows,slot:L.slot,inside:rs.every(b=>b.top>=sb-1&&b.bottom<=innerHeight+0.5&&b.left>=0&&b.right<=innerWidth+0.5),
+        minPic:ps.length===14&&ps.every(b=>b.width>=180&&b.height>=90),attn:!!attn&&/Needs attention now/.test(attn.textContent),sw:document.documentElement.scrollWidth===innerWidth};});
     for(const [w,h] of [[1366,768],[1440,900],[400,860]]){await pg.setViewportSize({width:w,height:h});await pg.waitForTimeout(900);out[w+'x'+h]=await fit();}
     return out;},
-  expect:{'drive.1366x768':{n:14,cols:7,inside:true,pics:14,sw:true},'drive.1440x900':{n:14,cols:7,inside:true,pics:14,sw:true},'drive.400x860.cols':2,'drive.400x860.sw':true} },
+  expect:{'drive.1366x768':{n:14,cols:5,rows:3,slot:'attention',inside:true,minPic:true,attn:true,sw:true},'drive.1440x900':{n:14,cols:5,rows:3,slot:'attention',inside:true,minPic:true,attn:true,sw:true},'drive.400x860.cols':2,'drive.400x860.n':14,'drive.400x860.sw':true} },
 
 { name:'⛶ Full screen: the button lifts the farm over the whole window (header and side menu covered, all 14 cards inside 1366×768), Esc returns it to its place before the six numbers; the button toggles on and off; leaving the Dashboard ends it',
   requires:NEW, seed:SEED, viewport:{width:1366,height:768},
