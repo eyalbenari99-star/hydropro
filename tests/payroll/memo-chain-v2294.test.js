@@ -28,15 +28,14 @@ const R=fn=>eval('(async()=>{'+HELP+'\nreturn ('+fn.toString()+')();})');
 const REQ="typeof window.hnxMemoStage==='function'";
 
 module.exports=[
-{ name:'① → ②: GH3 BAD memo −₱100 × 4 present (12 Oct) submitted by Mea → payroll 8–14 Oct moves ₱0 (⏳ Memo 1 × ₱100 each); Dr Amy\'s and Eyal\'s FINAL before Jinky refused; Jinky cannot give the FINAL; Jinky ✔ ① → still ₱0; Dr Amy ✔ ② → memoDed ₱100 each = ₱400; a GH3 GOOD +₱100 × 4 finalised by EYAL → memoAdd ₱400 (either final approver is enough) (v23.10)',
+{ name:'① → ②: GH3 BAD memo −₱100 × 4 present (12 Oct) submitted by Mea → payroll 8–14 Oct moves ₱0 (⏳ Memo 1 × ₱100 each); Mea\'s FINAL before Jinky refused (since v23.38 Dr Amy\'s or Eyal\'s early ② is the override — memo-override-v2338); Jinky cannot give the FINAL; Jinky ✔ ① → still ₱0; Dr Amy ✔ ② → memoDed ₱100 each = ₱400; a GH3 GOOD +₱100 × 4 finalised by EYAL → memoAdd ₱400 (either final approver is enough) (v23.10)',
   requires:REQ,
   run:R(async()=>{
     const E=fx();
     seedMemo({id:'M1',category:'production',type:'bad',gh:'GH3',date:'2026-10-12',title:'GH3 bad — trays not cleaned'},'mea');
     actAs('mea');const sub=!!hnxMemoSubmit('M1').ok;
     const stage0=stageOf('M1');const P0=E.map(pay);
-    actAs('dramy');const amyEarly=!!hnxMemoApproveDo('M1','final').ok;
-    actAs('eyal');const eyalEarly=!!hnxMemoApproveDo('M1','final').ok;
+    actAs('mea');const meaEarly=!!hnxMemoApproveDo('M1','final').ok; /* v23.38: Dr Amy / Eyal may now override at ① — see memo-override-v2338 */
     const stageA=stageOf('M1');
     actAs('jinky');const jinkyAcct=!!hnxMemoApproveDo('M1','acct').ok;
     const stageB=stageOf('M1');const dedB=E.map(e=>pay(e)[0]);
@@ -47,9 +46,9 @@ module.exports=[
     seedMemo({id:'M2',category:'production',type:'good',gh:'GH3',date:'2026-10-13',title:'GH3 good — harvest on time'},'mea');
     actAs('mea');hnxMemoSubmit('M2');actAs('jinky');hnxMemoApproveDo('M2','acct');actAs('eyal');const eyalFinal=!!hnxMemoApproveDo('M2','final').ok;actAsTester();
     const add=E.map(e=>pay(e)[1]);
-    return {sub,stage0,pend0:P0.map(p=>p[2]),ded0:P0.map(p=>p[0]),amyEarly,eyalEarly,stageA,jinkyAcct,stageB,dedB,jinkyFinal,amyFinal,status:m.status,stage:hnxMemoStage(m),
+    return {sub,stage0,pend0:P0.map(p=>p[2]),ded0:P0.map(p=>p[0]),meaEarly,stageA,jinkyAcct,stageB,dedB,jinkyFinal,amyFinal,status:m.status,stage:hnxMemoStage(m),
       ded,dedSum:sum(ded),log:(m.approvalLog||[]).map(x=>x.step),logBy:(m.approvalLog||[]).map(x=>x.by),eyalFinal,addSum:sum(add),m2Side:(g('M2').chain.final||{}).side};}),
-  expect:{sub:true,stage0:'acct',pend0:[[1,100],[1,100],[1,100],[1,100]],ded0:[0,0,0,0],amyEarly:false,eyalEarly:false,stageA:'acct',jinkyAcct:true,stageB:'final',dedB:[0,0,0,0],
+  expect:{sub:true,stage0:'acct',pend0:[[1,100],[1,100],[1,100],[1,100]],ded0:[0,0,0,0],meaEarly:false,stageA:'acct',jinkyAcct:true,stageB:'final',dedB:[0,0,0,0],
     jinkyFinal:false,amyFinal:true,status:'signed',stage:'approved',ded:[100,100,100,100],dedSum:400,log:['submit','acct','final'],logBy:['mea','jinky','dramy'],eyalFinal:true,addSum:400,m2Side:'eyal'} },
 
 { name:'Nobody approves their own memo: Jinky\'s HR −₱300 for REYES → her ① refused, Eyal covers ①, Eyal\'s ② refused (same person), the System Admin login\'s ② refused (Eyal\'s side), Dr Amy ② → memoDed ₱300; Eyal\'s GH3 −₱100 × 4 → Jinky ①, Eyal\'s ② refused, Dr Amy ② → ₱400; Dr Amy\'s +₱250 bonus for GARCIA → Jinky ①, Dr Amy\'s ② refused, Eyal ② → memoAdd ₱250; the −₱300 memo keeps the type it was written with (GOOD) and still deducts (v23.10)',
@@ -261,7 +260,7 @@ module.exports=[
     return {refused:[r1,r2,r3,r4,r5],stageAfterMea:sA,stage,ded,cfgSame,amyCruz,decide:dec};}),
   expect:{refused:[false,false,false,false,false],stageAfterMea:'acct',stage:'final',ded:[0,0,0,0],cfgSame:true,amyCruz:false,decide:{eyal:true,dramy:true,jinky:false,mea:false}} },
 
-{ name:'🏛 Approvals screen: Jinky sees "① Waiting for Jinky (accountant) — 3" and "② Waiting for final (Dr Amy / Eyal) — 1" with the money (−₱400.00), "✔ Approve all 3" only for her; it moves all 3 to ② (4 waiting, ₱0 paid); Dr Amy\'s "✔ Approve all 4" pays memoDed ₱300 + memoAdd ₱100 per worker; on a ① memo Dr Amy\'s panel says "🔒 Opens after ①" with no FINAL button and Jinky\'s panel has "✔ Approve ①"; the card reads "① ✓ Jinky · ② ⏳" (v23.10)',
+{ name:'🏛 Approvals screen: Jinky sees "① Waiting for Jinky (accountant) — 3" and "② Waiting for final (Dr Amy / Eyal) — 1" with the money (−₱400.00), "✔ Approve all 3" only for her; it moves all 3 to ② (4 waiting, ₱0 paid); Dr Amy\'s "✔ Approve all 4" pays memoDed ₱300 + memoAdd ₱100 per worker; on a ① memo Dr Amy\'s panel offers "✅ FINAL now (override — covers Jinky’s check)" (v23.38) and no ① button, and Jinky\'s panel has "✔ Approve ①"; the card reads "① ✓ Jinky · ② ⏳" (v23.10)',
   requires:REQ,
   run:R(async()=>{
     const E=fx();
@@ -274,7 +273,7 @@ module.exports=[
     const bulkJinky=!!d.querySelector('[data-bulk="acct"]')&&/✔ Approve all 3/.test(t)&&!d.querySelector('[data-bulk="final"]');
     actAs('dramy');d=qd();const bulkAmyOnQ1=!!d.querySelector('[data-bulk="acct"]');
     openMemoView('Q1');await sleep(1800);
-    let pa=document.getElementById('hnxMemoAppr');const amyPanel=!!pa&&/🔒 Opens after ①/.test(pa.textContent)&&!pa.querySelector('[data-act="final"]')&&!pa.querySelector('[data-act="acct"]');
+    let pa=document.getElementById('hnxMemoAppr');const amyPanel=!!pa&&/✅ FINAL now \(override — covers Jinky’s check\)/.test(pa.textContent)&&!!pa.querySelector('[data-act="final"]')&&!pa.querySelector('[data-act="acct"]'); /* v23.38 */
     actAs('jinky');await sleep(1800);
     pa=document.getElementById('hnxMemoAppr');const jinkyBtn=!!pa&&!!pa.querySelector('[data-act="acct"]')&&/✔ Approve ①/.test(pa.textContent);
     document.getElementById('memoViewModal').classList.remove('open');
