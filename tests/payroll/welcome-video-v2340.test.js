@@ -86,14 +86,14 @@ module.exports=[
       addsOverflow:sw1>sw0,hintFont:getComputedStyle(h).fontSize,hintInside:hr.left>=r2.left-1&&hr.right<=r2.right+1&&hr.bottom<=r2.bottom+1&&hr.width>100,hintText:h.textContent};},
   expect:{shown:true,vw:400,fits:true,leftOk:true,addsOverflow:false,hintFont:'12px',hintInside:true,hintText:'Choose a screen from the menu, or click to continue'} },
 
-{ name:'🧷 Welcome video v23.40 follows a layout that settles AFTER it shows (size observers, not the 400-ms tick the governor may stretch): the sidebar made 400 px wide → within 150 ms the film\'s left edge is at 400 and it still ends at the right window edge; sidebar back → within 150 ms the left edge is back where it was',
+{ name:'🧷 Welcome video v23.40 follows a layout that settles AFTER it shows (size observers, not the 400-ms tick the governor may stretch): the content area pushed 256 px to the right → within 150 ms the film\'s left edge sits on the content\'s new left edge and it still ends at the right window edge; content back → within 150 ms the left edge is back where it was',
   seed:SEED, requires:"!!window.HNXWV",
-  run:async()=>{const OV=()=>document.getElementById('hnxWelcomeVideo');await sleep(2500);const ov=OV();if(!ov)return {shown:false};const sb=document.getElementById('moduleSidebar');const R=()=>ov.getBoundingClientRect();
-    const left0=Math.round(R().left),sbw0=Math.round(sb.getBoundingClientRect().width);['width','min-width','max-width'].forEach(p=>sb.style.setProperty(p,'400px','important'));await sleep(150);const r1=R(),sbr=Math.round(sb.getBoundingClientRect().right);
-    const wide={sbRight:sbr,leftFollows:Math.abs(Math.round(r1.left)-sbr)<=1&&sbr>=399,rightOk:Math.abs(Math.round(r1.right)-innerWidth)<=1};
-    ['width','min-width','max-width'].forEach(p=>sb.style.removeProperty(p));await sleep(150);const back={left:Math.round(R().left)===left0,sbw:Math.round(sb.getBoundingClientRect().width)===sbw0};
-    return {shown:true,wide:{leftFollows:wide.leftFollows,rightOk:wide.rightOk},back};},
-  expect:{shown:true,wide:{leftFollows:true,rightOk:true},back:{left:true,sbw:true}} },
+  run:async()=>{const OV=()=>document.getElementById('hnxWelcomeVideo');await sleep(2500);const ov=OV();if(!ov)return {shown:false};const am=document.getElementById('appMain');const R=()=>ov.getBoundingClientRect(),A=()=>am.getBoundingClientRect();
+    const left0=Math.round(R().left),am0=Math.round(A().left);am.style.setProperty('margin-left',(am0+256)+'px','important');await sleep(150);const r1=R(),a1=Math.round(A().left);
+    const pushed={moved:a1-am0>=200,leftFollows:Math.abs(Math.round(r1.left)-a1)<=1,rightOk:Math.abs(Math.round(r1.right)-innerWidth)<=1};
+    am.style.removeProperty('margin-left');await sleep(150);const back={am:Math.round(A().left)===am0,left:Math.round(R().left)===left0};
+    return {shown:true,pushed,back};},
+  expect:{shown:true,pushed:{moved:true,leftFollows:true,rightOk:true},back:{am:true,left:true}} },
 
 { name:'📱 Welcome video v23.40 is never adopted by the phone layout as a widget (hnx-phonelayout tray): at 400×860, 4 s after it shows, the film is still a direct child of <body>, position fixed, outside #hnxPhoneTray, full width 400 and ending at the window bottom; moved into the tray by hand with position static → within 2.5 s it is back on <body>, fixed and full width (self-heal)',
   viewport:{width:400,height:860}, seed:SEED, requires:"!!window.HNXWV",
