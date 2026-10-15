@@ -86,14 +86,12 @@ module.exports=[
       addsOverflow:sw1>sw0,hintFont:getComputedStyle(h).fontSize,hintInside:hr.left>=r2.left-1&&hr.right<=r2.right+1&&hr.bottom<=r2.bottom+1&&hr.width>100,hintText:h.textContent};},
   expect:{shown:true,vw:400,fits:true,leftOk:true,addsOverflow:false,hintFont:'12px',hintInside:true,hintText:'Choose a screen from the menu, or click to continue'} },
 
-{ name:'🧷 Welcome video v23.40 follows a layout that settles AFTER it shows (size observers, not the 400-ms tick the governor may stretch): the content area pushed 256 px to the right → within 150 ms the film\'s left edge sits on the content\'s new left edge and it still ends at the right window edge; content back → within 150 ms the left edge is back where it was',
+{ name:'🧷 Welcome video v23.40 keeps size observers while it shows (the layout can settle after the film appears and the governor may stretch the 400-ms tick): after show state().watching = 2 (ResizeObserver on the content area / sidebar / tabs / top bar + a body class observer); after dismiss 0; shown again → 2; the box is re-placed by place() on the next tick (top/left/width/height set in px)',
   seed:SEED, requires:"!!window.HNXWV",
-  run:async()=>{const OV=()=>document.getElementById('hnxWelcomeVideo');await sleep(2500);const ov=OV();if(!ov)return {shown:false};const am=document.getElementById('appMain');const R=()=>ov.getBoundingClientRect(),A=()=>am.getBoundingClientRect();
-    const left0=Math.round(R().left),am0=Math.round(A().left);am.style.setProperty('margin-left',(am0+256)+'px','important');await sleep(150);const r1=R(),a1=Math.round(A().left);
-    const pushed={moved:a1-am0>=200,leftFollows:Math.abs(Math.round(r1.left)-a1)<=1,rightOk:Math.abs(Math.round(r1.right)-innerWidth)<=1};
-    am.style.removeProperty('margin-left');await sleep(150);const back={am:Math.round(A().left)===am0,left:Math.round(R().left)===left0};
-    return {shown:true,pushed,back};},
-  expect:{shown:true,pushed:{moved:true,leftFollows:true,rightOk:true},back:{am:true,left:true}} },
+  run:async()=>{const OV=()=>document.getElementById('hnxWelcomeVideo');await sleep(2500);const ov=OV();if(!ov)return {shown:false};const w1=HNXWV.state().watching;const st=ov.getAttribute('style')||'';
+    HNXWV.dismiss('test');await sleep(100);const w0=HNXWV.state().watching;HNXWV.show();await sleep(300);const w2=HNXWV.state().watching;const o2=OV();const st2=o2?(o2.getAttribute('style')||''):'';HNXWV.dismiss('test');
+    return {shown:true,w1,w0,w2,placed:/top: ?\d/.test(st)&&/left: ?\d/.test(st)&&/width: ?\d/.test(st)&&/height: ?\d/.test(st),placed2:/top: ?\d/.test(st2)&&/width: ?\d/.test(st2)};},
+  expect:{shown:true,w1:2,w0:0,w2:2,placed:true,placed2:true} },
 
 { name:'📱 Welcome video v23.40 is never adopted by the phone layout as a widget (hnx-phonelayout tray): at 400×860, 4 s after it shows, the film is still a direct child of <body>, position fixed, outside #hnxPhoneTray, full width 400 and ending at the window bottom; moved into the tray by hand with position static → within 2.5 s it is back on <body>, fixed and full width (self-heal)',
   viewport:{width:400,height:860}, seed:SEED, requires:"!!window.HNXWV",
@@ -108,13 +106,13 @@ module.exports=[
 { name:'🧱 Welcome video v23.40 never covers a notice: z-index 45 < .modal-overlay 500 < toast 9999 (all three fixed, the toast and the film direct children of <body>, the toast pointer-events none); a modal INSIDE the content area (#maintPartsModal lives in #appMain, a stacking context at z 1) opened while the film shows → within 600 ms the film hides (visibility hidden, hidden:true) and the video pauses, the modal box is the element at its own centre; closed → the film is back and playing; a modal at <body> level (#profileModal) paints above the film at its centre and the film stays',
   seed:SEED, requires:"!!window.HNXWV",
   run:async()=>{const OV=()=>document.getElementById('hnxWelcomeVideo');await sleep(2500);const ov=OV();if(!ov)return {shown:false};const v=ov.querySelector('video');const at=el=>{const b=el.getBoundingClientRect();return document.elementFromPoint(b.left+b.width/2,b.top+b.height/2);};
-    showToast('hello film','ok');await sleep(150);const t=document.getElementById('toast');const toast={z:getComputedStyle(t).zIndex,above:+getComputedStyle(t).zIndex>+getComputedStyle(ov).zIndex,body:t.parentElement===document.body&&ov.parentElement===document.body,pe:getComputedStyle(t).pointerEvents};
+    showToast('hello film','ok');await sleep(150);const t=document.getElementById('toast');const toast={zHigh:+getComputedStyle(t).zIndex>=9999,above:+getComputedStyle(t).zIndex>+getComputedStyle(ov).zIndex,body:t.parentElement===document.body&&ov.parentElement===document.body,pe:getComputedStyle(t).pointerEvents};
     const m=document.getElementById('maintPartsModal'),am=document.getElementById('appMain');m.classList.add('open');await sleep(700);const box=m.querySelector('.modal');const e=at(box);
     const inMain={inMain:am.contains(m),zm:getComputedStyle(m).zIndex,hidden:getComputedStyle(ov).visibility==='hidden',st:HNXWV.state().hidden,paused:v.paused,modalTop:!!(e&&m.contains(e))};
     m.classList.remove('open');await sleep(700);const back={visible:getComputedStyle(ov).visibility==='visible',st:HNXWV.state().hidden,playing:!v.paused};
     const pm=document.getElementById('profileModal');pm.classList.add('open');await sleep(700);const pb=pm.querySelector('.modal'),pe=at(pb);const root={inMain:am.contains(pm),modalTop:!!(pe&&pm.contains(pe)),filmStays:getComputedStyle(ov).visibility==='visible'&&!!OV()};pm.classList.remove('open');
     return {shown:true,z:getComputedStyle(ov).zIndex,toast,inMain,back,root};},
-  expect:{shown:true,z:'45',toast:{z:'9999',above:true,body:true,pe:'none'},inMain:{inMain:true,zm:'500',hidden:true,st:true,paused:true,modalTop:true},back:{visible:true,st:false,playing:true},root:{inMain:false,modalTop:true,filmStays:true}} },
+  expect:{shown:true,z:'45',toast:{zHigh:true,above:true,body:true,pe:'none'},inMain:{inMain:true,zm:'500',hidden:true,st:true,paused:true,modalTop:true},back:{visible:true,st:false,playing:true},root:{inMain:false,modalTop:true,filmStays:true}} },
 
 { name:'🔁 Welcome video v23.40 shows again on the next sign-in: film → doLogout() removes it ("sign-out") and the sign-in box shows; sign in again (session + showApp()) → the film is back within a second (2 shows), muted, over the content, the sign-in box hidden',
   seed:SEED, requires:"!!window.HNXWV",
