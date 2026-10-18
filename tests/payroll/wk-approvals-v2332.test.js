@@ -136,7 +136,7 @@ module.exports=[
     bea:['Jinky Pagtama',null],cel:['Eyal Ben Ari',null],covered:['final','final','final'],coveredBy:'Eyal Ben Ari',ownSkipped:null,
     amyOnEyal:['ok','Dr Amy Patdu','final'],paid:[945.45,1772.73]} },
 
-{ name:'🔒 Office pay v23.34 — Mea (supervisor, HR, no 💰, no 🏢 Office pay) sees "🔒 Office pay" on all 6 Weekend rows instead of ₱945.45 / ₱1,772.73 (no "945", "1,772" or "727.27" in the screen), header "my sign: NOTHING" and "office pay no"; ⏰ Late approvals shows 🔒 for ANN’s 60-minute late (Jinky sees ₱90.91 = 60 ÷ 480 × 727.27) and for the labourer’s (Jinky sees ₱82.25 = 60 ÷ 480 × 658); HR ⬇ Export leaves monthlyBasic / rate out for ANN and the labourer (file says 7 people); an ⬆ Import by Mea saying ANN ₱99,999 keeps ₱16,000 (name change accepted)',
+{ name:'🔒 Office pay v23.34 — Mea (supervisor, HR, no 💰, no 🏢 Office pay) sees the 🔒 Office pay LOCK instead of the Weekend screen (v23.50: 0 rows, no "ANN OFFICE", no "130%", no "945" / "1,772" / "727.27"; v23.34 only hid the pesos); ⏰ Late approvals shows 🔒 for ANN’s 60-minute late (Jinky sees ₱90.91 = 60 ÷ 480 × 727.27) and for the labourer’s (Jinky sees ₱82.25 = 60 ÷ 480 × 658); HR ⬇ Export leaves monthlyBasic / rate out for ANN and the labourer (file says 7 people); an ⬆ Import by Mea saying ANN ₱99,999 keeps ₱16,000 (name change accepted)',
   seed:SEED,
   run:new Function(`return (async()=>{${H}await sleep(3000);
     const lateHtml=()=>{let v=document.getElementById('view-hr_late');if(!v){v=document.createElement('div');v.className='view';v.id='view-hr_late';document.body.appendChild(v);}
@@ -153,12 +153,12 @@ module.exports=[
     const f=new File([JSON.stringify({employees:fake})],'hr.json',{type:'application/json'});
     importHR({files:[f],value:''});await sleep(900);
     const ann=(JSON.parse(localStorage.getItem('hydroPro_employees'))||[]).find(e=>e.id==='O1')||{};
-    return {mea:{who:mw.who,office:/office pay no/.test(mw.txt),pays:Object.values(mw.rows).map(r=>r.pay),clean:mw.html.indexOf('945')<0&&mw.html.indexOf('1,772')<0&&mw.html.indexOf('727.27')<0,
+    return {mea:{lock:/data-wk-lock/.test(mw.html),rows:Object.keys(mw.rows).length,clean:mw.html.indexOf('945')<0&&mw.html.indexOf('1,772')<0&&mw.html.indexOf('727.27')<0&&mw.html.indexOf('130%')<0&&mw.html.indexOf('ANN OFFICE')<0,
         late:{lock:/🔒 Office pay/.test(ml),noAnn:ml.indexOf('90.91')<0,noLab:ml.indexOf('82.25')<0}},
       jinky:{pay:(jw.rows['ANN OFFICE']||{}).pay,office:/office pay yes/.test(jw.txt),late:[jl.indexOf('₱90.91')>=0,jl.indexOf('₱82.25')>=0]},
       exp:{gotFile:!!file.employees,annMb:fe('O1').monthlyBasic===undefined,annRate:fe('O1').rate===undefined,labRate:fe('L1').dailyRate===undefined,annName:fe('O1').name,left:(file.payFieldsLeftOut||{}).people},
       imp:{name:ann.name,mb:ann.monthlyBasic,rate:ann.rate}};})();`),
-  expect:{'mea.who':'NOTHING','mea.office':true,'mea.pays':['🔒 Office pay','🔒 Office pay','🔒 Office pay','🔒 Office pay','🔒 Office pay','🔒 Office pay'],'mea.clean':true,
+  expect:{'mea.lock':true,'mea.rows':0,'mea.clean':true,
     'mea.late.lock':true,'mea.late.noAnn':true,'mea.late.noLab':true,
     'jinky.pay':'₱945.45','jinky.office':true,'jinky.late':[true,true],
     'exp.gotFile':true,'exp.annMb':true,'exp.annRate':true,'exp.labRate':true,'exp.annName':'ANN OFFICE','exp.left':7,
