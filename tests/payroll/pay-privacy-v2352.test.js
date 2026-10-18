@@ -104,7 +104,7 @@ module.exports=[
     'josh.money':true,'josh.eder':{tot:-500,hid:false,p:[-500]},'josh.ann':{tot:null,hid:true,p:[null]},'josh.gh3':{tot:-200,hid:false,p:[-100,-100]},'josh.cols':2,
     'jinky.money':true,'jinky.ann':{tot:300,hid:false,p:[300]},'jinky.net':-600} },
 
-{ name:'📁 201 memos · 📈 GH Analytics · 🧮 Memo Matrix v23.52 — Mea: the 201 Memos Archived amount of EDER reads 🔒 (no ₱500), the 201 JSON export carries no dailyRate / monthlyBasic and amount "🔒"; the GH Analytics scorecard shows 🔒 for Net ₱ and the drill (no ₱ figure); the Memo Matrix chip tip ends "· 🔒" (no "· ₱"); Jinky: −₱500 on the 201 list, dailyRate 658 in the export, −₱500.00 on the scorecard, "· ₱500" on the chip',
+{ name:'📁 201 memos · 📈 GH Analytics · 🧮 Memo Matrix v23.52 — Mea: the 201 Memos Archived amount of EDER reads 🔒 (no ₱500), the 201 JSON export carries no dailyRate / monthlyBasic and amount "🔒"; the GH Analytics scorecard shows 🔒 for Net ₱ and the 2 drill rows (HR −₱500 + GH3 −₱100, no ₱ figure); the Memo Matrix chip tip ends "· 🔒" (no "· ₱"); Jinky: −₱500 on the 201 list, dailyRate 658 in the export, −₱600.00 net on the scorecard, "· ₱-500" on the chip',
   seed:SEED,
   run:new Function(`return (async()=>{${H}await sleep(2500);fix();
     const emp=employees.find(e=>e.id==='W1');
@@ -120,11 +120,11 @@ module.exports=[
       const tips=[...document.querySelectorAll('#view-memo_matrix span[title]')].map(x=>x.getAttribute('title'));
       return {amt:td.trim(),rate:pack.employee.dailyRate===undefined?'none':pack.employee.dailyRate,leftOut:!!pack.employee._payLeftOut,xAmt:pack.memos[0]&&pack.memos[0].amount,
         rowLock:/🔒/.test(row),rowPeso:peso(row),drillLock:/🔒/.test(dt),drillPeso:peso(dt),drillN:(dt.match(/\\[(paid|waiting ①|waiting ②)\\]/g)||[]).length,
-        tipLock:tips.some(t=>/· 🔒$/.test(t)),tipPeso:tips.some(t=>/· ₱/.test(t)),tip500:tips.some(t=>/· ₱500$/.test(t)),tips:tips.length};};
+        tipLock:tips.some(t=>/· 🔒$/.test(t)),tipPeso:tips.some(t=>/· ₱/.test(t)),tip500:tips.some(t=>/· ₱-?500$/.test(t)),tips:tips.length};};
     const mea=await look('meajean'),jinky=await look('jinky');
     return {mea,jinky};})();`),
-  expect:{'mea.amt':'🔒','mea.rate':'none','mea.leftOut':true,'mea.xAmt':'🔒','mea.rowLock':true,'mea.rowPeso':false,'mea.drillLock':true,'mea.drillPeso':false,'mea.drillN':1,'mea.tipLock':true,'mea.tipPeso':false,
-    'jinky.amt':'−₱500','jinky.rate':658,'jinky.leftOut':false,'jinky.xAmt':-500,'jinky.rowLock':false,'jinky.rowPeso':true,'jinky.drillPeso':true,'jinky.drillN':1,'jinky.tip500':true,'jinky.tipLock':false} },
+  expect:{'mea.amt':'🔒','mea.rate':'none','mea.leftOut':true,'mea.xAmt':'🔒','mea.rowLock':true,'mea.rowPeso':false,'mea.drillLock':true,'mea.drillPeso':false,'mea.drillN':2,'mea.tipLock':true,'mea.tipPeso':false,
+    'jinky.amt':'−₱500','jinky.rate':658,'jinky.leftOut':false,'jinky.xAmt':-500,'jinky.rowLock':false,'jinky.rowPeso':true,'jinky.drillPeso':true,'jinky.drillN':2,'jinky.tip500':true,'jinky.tipLock':false} },
 
 { name:'🎁 Referral Bonuses v23.52 — Mea: hnxSensViewAllowed(hr_referrals) false, no 🎁 sub-tab in HR, switchView refused (🔒 toast, __lastNavDenied), the screen renders the lock with no "PHP 1,500", the 201 card of EDER shows 🔒 for the bonus / Bonuses earned and no "Manage all referrals" button, 💰 Pay Now refused (status stays qualified); Josh (💰, not on the pay list) the same lock; Jinky: tab listed, 1 row with PHP 1,500, 201 card PHP 1,500 + the button',
   seed:SEED,
