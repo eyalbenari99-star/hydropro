@@ -24233,7 +24233,7 @@ function onEmpLevelChange(){
     const lvlInfo=(typeof TRAINING_LEVELS!=='undefined')?TRAINING_LEVELS.find(l=>l.id===lvl):null;
     const hint=document.getElementById('empLevelHint');
     if(hint){
-      const _cvsL=(typeof canViewSalaries==='function')?canViewSalaries():false; /* v23.52: the level's daily rate never enters the card of a person without 💰 */
+      const _cvsL=(typeof hnxLabourPayOK==='function')?hnxLabourPayOK():((typeof canViewSalaries==='function')?canViewSalaries():false); /* v23.52: the level's daily rate never enters the card of a person without 💰 (or the pay name list) */
       if(!_cvsL){
         hint.textContent=lvlInfo?('🎓 '+lvlInfo.name+' — the level rate is set in 🌱 Production → 🎓 Training → 💰 Level Rates'):'';hint.style.display='none';
       } else if(lvlRate>0){
@@ -24294,7 +24294,7 @@ function onEmpDeptChange(){
     if(lvlField)lvlField.style.display=isLaborDept(dept)?'':'none';
     // Also hide the level rate hint
     const hint=document.getElementById('empLevelHint');
-    if(hint)hint.style.display=(isLaborDept(dept)&&(typeof canViewSalaries!=='function'||canViewSalaries()))?'':'none'; /* v23.52: never re-shown without 💰 */
+    if(hint)hint.style.display=(isLaborDept(dept)&&(typeof hnxLabourPayOK==='function'?hnxLabourPayOK():(typeof canViewSalaries!=='function'||canViewSalaries())))?'':'none'; /* v23.52: never re-shown without 💰 */
   }
   // GH/PRJ chips — only for Production departments
   const ghSec=document.getElementById('empGHSection');
@@ -25069,8 +25069,12 @@ function viewEmployee(id){
    The pay fields now leave only for whoever may see them: an office person's with 🏢 Office pay, a labourer's with the 💰 salary
    access, loyalty with 💎 Loyalty. The file says what was left out. */
 const HNX_PAY_FIELDS=['rate','rateOverride','dailyRate','monthlyBasic','monthlyRate','monthlySalary','basicSalary','salaryMonthly','salary','allowances','monthlyAllowance','allowanceTaxable','allowanceType','ewtFixed','payMethod'];
+/* v23.52: LABOUR pay is seen with the 💰 flag OR by the pay name list (Jinky, Dr Amy, Eyal, the System Admin login — hnxPaySensitiveAllowed), whatever
+   role name the login carries; OFFICE pay keeps following 🏢 Office pay (owner-granted, taken away from a pay-list person on purpose). */
+function hnxLabourPayOK(){try{if(typeof canViewSalaries==='function'&&canViewSalaries())return true;const u=(typeof getCurrentUser==='function')?getCurrentUser():null;return typeof hnxPaySensitiveAllowed==='function'&&!!hnxPaySensitiveAllowed(u);}catch(x){return false;}}
+window.hnxLabourPayOK=hnxLabourPayOK;
 function hnxPayVisibleFor(e){try{const off=typeof hnxIsOfficeEmployee==='function'&&!!hnxIsOfficeEmployee(e);
-  return off?(typeof window.hnxCanOfficePay==='function'&&!!window.hnxCanOfficePay()):(typeof canViewSalaries==='function'&&!!canViewSalaries());}catch(x){return false;}}
+  return off?(typeof window.hnxCanOfficePay==='function'&&!!window.hnxCanOfficePay()):hnxLabourPayOK();}catch(x){return false;}}
 function hnxLoyVisible(){try{return typeof window.hnxCanLoyalty==='function'&&!!window.hnxCanLoyalty();}catch(x){return false;}}
 /* v23.52 (Eyal, 18 Oct 2026: "Only Jinky, me and Dr Amy can see salary-related numbers … check and double check NO ONE else"): may this
    viewer see the pesos of THIS memo? An HR memo follows its employee (office → 🏢 Office pay, labour → 💰 salary access, as
@@ -25078,13 +25082,13 @@ function hnxLoyVisible(){try{return typeof window.hnxCanLoyalty==='function'&&!!
    A person the roster does not know needs both gates. Counts and signs without pesos are never gated. */
 function hnxMemoEmpsFor(ctx){try{if(ctx&&Array.isArray(ctx.emps)&&ctx.emps.length)return ctx.emps;if(typeof employees!=='undefined'&&Array.isArray(employees)&&employees.length)return employees;return JSON.parse(localStorage.getItem('hydroPro_employees')||'[]')||[];}catch(e){return [];}}
 function hnxMemoPersonPayVisible(empId,ctx){try{const emps=hnxMemoEmpsFor(ctx);for(let i=0;i<emps.length;i++){if(emps[i]&&String(emps[i].id)===String(empId))return !!hnxPayVisibleFor(emps[i]);}
-  return !!canViewSalaries()&&(typeof window.hnxCanOfficePay==='function'&&!!window.hnxCanOfficePay());}catch(x){return false;}}
+  return hnxLabourPayOK()&&(typeof window.hnxCanOfficePay==='function'&&!!window.hnxCanOfficePay());}catch(x){return false;}}
 function hnxMemoPayVisible(m,ctx){try{if(!m)return false;
   const cat=(typeof window.hnxMemoCat==='function')?hnxMemoCat(m):((m.category==='hr'||m.type==='hr')?'hr':'production');
-  if(cat==='hr'){const id=m.empId||((m.impact&&m.impact[0])||{}).empId||'';return id?hnxMemoPersonPayVisible(id,ctx):(!!canViewSalaries()&&!!window.hnxCanOfficePay());}
+  if(cat==='hr'){const id=m.empId||((m.impact&&m.impact[0])||{}).empId||'';return id?hnxMemoPersonPayVisible(id,ctx):(hnxLabourPayOK()&&!!window.hnxCanOfficePay());}
   let ids=(m.impact||[]).map(i=>i&&i.empId).filter(Boolean);
   if(!ids.length&&typeof window.hnxMemoEffect==='function'){try{ids=(hnxMemoEffect(m,ctx)||[]).map(x=>x&&x.empId).filter(Boolean);}catch(e){ids=[];}}
-  if(!ids.length)return !!canViewSalaries();
+  if(!ids.length)return hnxLabourPayOK();
   for(let i=0;i<ids.length;i++){if(!hnxMemoPersonPayVisible(ids[i],ctx))return false;}return true;}catch(x){return false;}}
 window.hnxMemoPayVisible=hnxMemoPayVisible;window.hnxMemoPersonPayVisible=hnxMemoPersonPayVisible;
 function exportHR(){
@@ -63053,7 +63057,7 @@ function canManageTrainingRates(){
   const u=getCurrentUser();
   if(!u||!u.active)return false;
   if(u.role==='admin'||u.role==='admin_secondary')return true;
-  if(u.role==='accounting')return canViewSalaries(); /* v23.52: the 💰 flag, not the role name — an accounting login without 💰 sees no rate table */
+  if(u.role==='accounting')return canViewSalaries()||hnxPaySensitiveAllowed(u); /* v23.52: the 💰 flag or the pay name list, not the role name — an accounting login without either sees no rate table */
   return false;
 }
 
@@ -246561,7 +246565,7 @@ function build(){
   });
   var emps={},empsFull={};(J('hydroPro_employees',[])||[]).forEach(function(e){if(e&&e.id){emps[e.id]={name:e.name,dept:e.dept||''};empsFull[e.id]=e;}});
   /* v23.52: a chip carries a person's pesos only for who may see that person's pay (office → 🏢 Office pay, labour → 💰) */
-  var payOK=function(id){try{var e=empsFull[id];return e?!!window.hnxPayVisibleFor(e):(typeof canViewSalaries==='function'&&!!canViewSalaries()&&!!window.hnxCanOfficePay());}catch(x){return false;}};
+  var payOK=function(id){try{var e=empsFull[id];return e?!!window.hnxPayVisibleFor(e):(!!window.hnxLabourPayOK()&&!!window.hnxCanOfficePay());}catch(x){return false;}};
   var rows={},ghTot={},ghSet={};
   ms.forEach(function(m){
     var k=kindOf(m),gh=String(m.gh||m.ghAffected||'')||'—',_s=stgOf(m),wait=(_s==='acct'||_s==='final');
@@ -246719,7 +246723,7 @@ var LOCK='🔒 Memos of the day is for HR, payroll and the greenhouse supervisor
 /* ---------- who sees what ---------- */
 function scope(){ var u=me(); if(!u)return {denied:true};
   var hr=false,pay=false;try{hr=!!can('manageHR');}catch(e){}try{pay=typeof hnxPaySensitiveAllowed==='function'&&!!hnxPaySensitiveAllowed(u);}catch(e){}
-  var sal=false;try{sal=typeof canViewSalaries==='function'&&!!canViewSalaries();}catch(e){}
+  var sal=false;try{sal=typeof window.hnxLabourPayOK==='function'?!!window.hnxLabourPayOK():(typeof canViewSalaries==='function'&&!!canViewSalaries());}catch(e){}
   if(hr||pay)return {full:true,money:pay||sal,ghs:null,denied:false,hr:hr,who:u.username}; /* v23.52 (Eyal, 18 Oct 2026): the pesos follow the pay gates (💰 / the pay list), not HR — an HR editor without them gets the full list without amounts */
   var em=J('hydroPro_employees',[]);if(!Array.isArray(em))em=[];
   em=em.filter(function(e){if(!e)return false;var un=String(u.username||'').toLowerCase(),ue=String(u.email||'').toLowerCase();
@@ -253496,7 +253500,7 @@ function inFleet(){var f=document.getElementById('view-fleet_trips'),l=document.
 /* v23.52 (Eyal, 18 Oct 2026: "NO ONE else can see salaries related numbers"): the driver / helper pesos — per day, per leg, the "· ₱rate" in the
    area pick lists, the 'table now' notes — need 💰 salary access (drivers and helpers are labour). A logistics or fleet viewer still logs
    and checks the day; the amount columns read 🔒 for him. The Payroll copy is a payroll screen already (pay list only). */
-function salOK(){try{return typeof canViewSalaries==='function'&&!!canViewSalaries();}catch(e){return false;}}
+function salOK(){try{if(typeof window.hnxLabourPayOK==='function')return !!window.hnxLabourPayOK();return typeof canViewSalaries==='function'&&!!canViewSalaries();}catch(e){return false;}}
 function render(){
   var v=tv();
   if(!v||!v.classList.contains('active'))return;
@@ -266981,7 +266985,7 @@ function reportTimeline(){
 var _mctx={t:0,v:null};
 function memoCtx(){var n=Date.now();if(_mctx.v&&n-_mctx.t<2000)return _mctx.v;_mctx={t:n,v:{att:J('hydroPro_attendance',{})||{},emps:J('hydroPro_employees',[])||[]}};return _mctx.v;}
 /* v23.52 (Eyal, 18 Oct 2026): a person's memo pesos only for who may see that person's pay — office → 🏢 Office pay, labour → 💰 (hnxPayVisibleFor); the ✅ / ❌ counts stay for every Production viewer */
-function payOK(id){try{var E=(memoCtx()||{}).emps||[];for(var i=0;i<E.length;i++){if(E[i]&&String(E[i].id)===String(id))return !!window.hnxPayVisibleFor(E[i]);}return typeof canViewSalaries==='function'&&!!canViewSalaries()&&!!window.hnxCanOfficePay();}catch(e){return false;}}
+function payOK(id){try{var E=(memoCtx()||{}).emps||[];for(var i=0;i<E.length;i++){if(E[i]&&String(E[i].id)===String(id))return !!window.hnxPayVisibleFor(E[i]);}return !!window.hnxLabourPayOK()&&!!window.hnxCanOfficePay();}catch(e){return false;}}
 function mStage(m){return window.hnxMemoStage?hnxMemoStage(m):((m.status==='signed'||m.status==='applied')?'approved':(m.status==='pending'?'acct':'draft'));}
 function mPaid(m){var s=mStage(m);return s==='approved'||s==='applied';}
 function mDir(m){return window.hnxMemoDir?hnxMemoDir(m):(m.type==='bad'?-1:1);}
@@ -281544,7 +281548,7 @@ function esc(x){return String(x==null?'':x).replace(/[&<>"]/g,function(c){return
 function num(x){var n=parseFloat(x);return isFinite(n)?n:0;}
 function me(){try{return getCurrentUser()||{};}catch(e){return {};}}
 function moneyAccess(){ /* v23.52 (Eyal, 18 Oct 2026): contractor pay follows the 💰 labour-rate flag (admin, admin-secondary, 💰 holders) — the 'accounting' role name alone no longer opens it */
-  try{return typeof canViewSalaries==='function'&&!!canViewSalaries();}catch(e){return false;}
+  try{if(typeof window.hnxLabourPayOK==='function')return !!window.hnxLabourPayOK();return typeof canViewSalaries==='function'&&!!canViewSalaries();}catch(e){return false;}
 }
 function isAdm(){var u=me();return u.role==='admin'||u.role==='admin_secondary';}
 function projList(){
@@ -284674,7 +284678,7 @@ console.log('[v18.65] no-cash fuel & RFID policy screen ready');
 if(window._hnxTripDoctor)return;window._hnxTripDoctor=true;
 /* v23.52 (Eyal, 18 Oct 2026): the doctor prints the approved rate table and every driver's pesos — it opens (and its button appears) only
    with 💰 salary access; and whatever it prints, copies or downloads carries no peso figure for anyone else */
-function salOK(){try{return typeof canViewSalaries==='function'&&!!canViewSalaries();}catch(e){return false;}}
+function salOK(){try{if(typeof window.hnxLabourPayOK==='function')return !!window.hnxLabourPayOK();return typeof canViewSalaries==='function'&&!!canViewSalaries();}catch(e){return false;}}
 function lockTxt(s){return salOK()?s:String(s==null?'':s).replace(/₱\s?-?[\d,]+(\.\d+)?/g,'🔒');}
 
 var LKEY='hydroPro_trip_log_v1',RKEY='hydroPro_trip_rates_v1',DKEY='hydroPro_log_deliveries',
