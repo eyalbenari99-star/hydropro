@@ -55,7 +55,7 @@ const H=`
     const l=calcEmployeePayroll(e,p.start,p.end,'semi_monthly');return Math.round(((+l.sundayPremium||0)+(+l.holidayPay||0))*100)/100;};
 `;
 module.exports=[
-{ name:'✅ Weekend v23.34 — Jinky (admin_secondary "Jinky Pagtama", accounting, managePayroll) ticks ① on ANN / BEA / CEL Sunday (₱945.45 each = 16,000 ÷ 22 × 1.30) and saves → 3 rows WAITING FINAL (Dr Amy / Eyal), 0 final, ANN paid ₱0.00 Sun OT; her ② tick is refused (nothing stored); her own Sunday (PAGTAMA, JINKY ₱1,772.73 = 30,000 ÷ 22 × 1.30) is refused in ① for her (nothing stored, no clickable box); header "my sign: ① (before Dr Amy / Eyal) · office pay yes"; she sees ₱945.45 and ₱1,772.73. Joshane (admin_secondary, no 🏢 Office pay — was a FINAL signer by role) signs nothing and sees 🔒 Office pay',
+{ name:'✅ Weekend v23.34 — Jinky (admin_secondary "Jinky Pagtama", accounting, managePayroll) ticks ① on ANN / BEA / CEL Sunday (₱945.45 each = 16,000 ÷ 22 × 1.30) and saves → 3 rows WAITING FINAL (Dr Amy / Eyal), 0 final, ANN paid ₱0.00 Sun OT; her ② tick is refused (nothing stored); her own Sunday (PAGTAMA, JINKY ₱1,772.73 = 30,000 ÷ 22 × 1.30) is refused in ① for her (nothing stored, no clickable box); header "my sign: ① (before Dr Amy / Eyal) · office pay yes"; she sees ₱945.45 and ₱1,772.73. Joshane (admin_secondary, no 🏢 Office pay — was a FINAL signer by role) signs nothing and sees the 🔒 Office pay lock (v23.50: no rows at all)',
   seed:SEED,
   run:new Function(`return (async()=>{${H}await sleep(3000);
     as('jinky');
@@ -73,13 +73,13 @@ module.exports=[
     as('josh');toasts.length=0;
     hnxWkSet(K('O2'),'final','ok');hnxWkSet(K('O3'),'acct','no');hnxWkSave();
     const sj=screen();const st2=ST();
-    const josh={who:sj.who,pays:Object.values(sj.rows).map(r=>r.pay),boxes:Object.values(sj.rows).reduce((a,r)=>a+r.c1+r.c2,0),
+    const josh={lock:/data-wk-lock/.test(sj.html),who:sj.who,pays:Object.values(sj.rows).map(r=>r.pay),boxes:Object.values(sj.rows).reduce((a,r)=>a+r.c1+r.c2,0),
       no945:sj.html.indexOf('945')<0&&sj.html.indexOf('1,772')<0&&sj.html.indexOf('727.27')<0,o2final:(st2[K('O2')]||{}).final||null,o3acct:(st2[K('O3')]||{}).acct||null};
     return {jin,josh};})();`),
   expect:{'jin.acct':['ok','ok','ok'],'jin.by':'Jinky Pagtama','jin.byU':'jinky','jin.final':null,'jin.own':null,
     'jin.who':'① (before Dr Amy / Eyal)','jin.annPay':'₱945.45','jin.jinPay':'₱1,772.73','jin.annBoxes':[2,0],'jin.ownBoxes':[0,0],
     'jin.waitFinal':3,'jin.finals':0,'jin.annPaid':0,'jin.refusedOwn':true,'jin.refusedFinal':true,
-    'josh.who':'NOTHING','josh.pays':['🔒 Office pay','🔒 Office pay','🔒 Office pay','🔒 Office pay','🔒 Office pay','🔒 Office pay'],'josh.boxes':0,'josh.no945':true,
+    'josh.lock':true,'josh.who':'','josh.pays':[],'josh.boxes':0,'josh.no945':true,
     'josh.o2final':null,'josh.o3acct':'ok'} },
 
 { name:'✅ Weekend v23.34 — Dr Amy overrides: her ② ✓ on ANN before Jinky has checked stores (final ✓ by Dr Amy Patdu) and ① shows "covered by Dr Amy’s final" (acctCovered final) → ANN paid ₱945.45 Sun OT (16,000 ÷ 22 × 1.30); her ① tick is refused; on BEA after Jinky’s ① her ② keeps Jinky’s check (no cover) → ₱945.45; she signs Jinky’s own Sunday → ₱1,772.73 (30,000 ÷ 22 × 1.30); her own Sunday (LABIOS, MARGARITA AMYTHYST P.) is refused to her and Eyal signs it; header "② Final — may override ①"; un-ticking ② on CEL also clears the ① it covered; acctCovered and the signer usernames survive __hnxMergeWeekend against an older remote copy, both ways',
