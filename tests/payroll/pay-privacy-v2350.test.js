@@ -54,5 +54,14 @@ module.exports=[
     return {before:{tab:before.weekendTab,lock:before.lock,rows:before.rows,clean:before.clean},forged:{tab:forged.weekendTab,lock:forged.lock,clean:forged.clean},
       granted:{tab:granted.weekendTab,lock:granted.lock,rows:granted.rows,ann:granted.ann},taken:{tab:taken.weekendTab,lock:taken.lock,rows:taken.rows,clean:taken.clean}};})();`),
   expect:{'before.tab':false,'before.lock':true,'before.rows':0,'before.clean':true,'forged.tab':false,'forged.lock':true,'forged.clean':true,
-    'granted.tab':true,'granted.lock':false,'granted.rows':3,'granted.ann':'₱945.45','taken.tab':false,'taken.lock':true,'taken.rows':0,'taken.clean':true} }
+    'granted.tab':true,'granted.lock':false,'granted.rows':3,'granted.ann':'₱945.45','taken.tab':false,'taken.lock':true,'taken.rows':0,'taken.clean':true} },
+{ name:'📅 Attendance matrix v23.50 — the office-weekend badge carries the 130% rate only for 🏢 Office pay holders: Mea sees "✓ signed" / "⏳ unsigned" with no "130%" in badge or tip (and "✗ refused", "fixed pay" unchanged); Jinky and Eyal see "✓ signed 130%" and "paid at 130%"',
+  seed:SEED,
+  run:new Function(`return (async()=>{${H}await sleep(3500);
+    const pick=u=>{as(u);const f=window._hnxWkdecFor;if(typeof f!=='function')return {err:'no _hnxWkdecFor'};
+      const ok=f('ok'),wait=f('wait'),no=f('no'),cons=f('consult');
+      return {ok:ok.badge,okTip130:/130%/.test(ok.tip),wait:wait.badge,waitTip130:/130%/.test(wait.tip),no:no.badge,cons:cons.badge};};
+    return {mea:pick('meajean'),jinky:pick('jinky'),eyal:pick('eyal')};})();`),
+  expect:{'mea.ok':'✓ signed','mea.okTip130':false,'mea.wait':'⏳ unsigned','mea.waitTip130':false,'mea.no':'✗ refused','mea.cons':'fixed pay',
+    'jinky.ok':'✓ signed 130%','jinky.okTip130':true,'jinky.waitTip130':true,'eyal.ok':'✓ signed 130%','eyal.okTip130':true} }
 ];

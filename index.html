@@ -232389,7 +232389,7 @@ function build(){
         else if(_wa.final==='ok'&&!(d.dw===6&&/^auto/i.test(String(_wa.finalBy||''))))_c.wk='ok';
         else if(_wa.acct==='no'||_wa.final==='no')_c.wk='no';
         else _c.wk='wait';
-        _c.tip=_c.tip+' · '+WKDEC[_c.wk].tip;
+        _c.tip=_c.tip+' · '+wkdecFor(_c.wk).tip;
       }
       if(_part&&_c.miss==='out'){_c.pending=true;_c.miss='';_c.tip=_c.tip.replace(/ · ⚠ NO TIME-OUT[^·]*/,'')+' · ⏳ the clock report for this day was produced before closing time — the OUT scans are not in it yet';}
       return _c;
@@ -232436,6 +232436,11 @@ var WKDEC={
   'no':      {badge:'✗ refused',     fg:'#ef9a9a', frame:'border:1px solid #ef5350;',             tip:'✗ REFUSED in HR ▸ Weekend Approvals — the day is not paid (and it is not an absence)'},
   'consult': {badge:'fixed pay',     fg:'#9fa8da', frame:'border:1px solid rgba(159,168,218,.6);', tip:'FIXED ENGAGEMENT — management, or a consultant / contractor / advisor on a fixed fee. The weekend scan is recorded here but is never paid (v17.30 / v17.27)'}
 };
+/* v23.50 (Eyal, 18 Oct 2026: "Mea see the sunday/Saturday over time rate"): the 130% rest-day rate is office pay — a person without 🏢 Office pay
+   sees the same badge without the rate ("✓ signed", "it is paid only after…"). */
+function _wkPct(){try{return typeof window.hnxCanOfficePay==='function'&&!!window.hnxCanOfficePay();}catch(e){return false;}}
+function wkdecFor(k){var d=WKDEC[k];if(!d||_wkPct())return d;return {badge:String(d.badge).replace(/\s*130%/,''),fg:d.fg,frame:d.frame,tip:String(d.tip).replace('the 130% is paid','it is paid').replace(', paid at 130%','')};}
+window._hnxWkdecFor=wkdecFor; /* for the rulebook tests */
 var COLORS={ok:'#1f9d55',late:'#e0a400',abs:'#e53935',leave:'#1e88e5',none:'#8a8a8a',part:'#8e24aa',future:'transparent',wait:'#5c6bc0'}; /* v15.93: 'wait' = today, clock report not in yet */
 /* v15.95: the cell now says TWO things at once —
    BACKGROUND = was the person here?  green = present (even if late), red = absent.
@@ -232505,7 +232510,7 @@ function render(){
         }
         /* v20.65: an office weekend says what it is worth in payroll - same shape as the late badge */
         if(c.wk&&WKDEC[c.wk]){
-          var _wd=WKDEC[c.wk];
+          var _wd=wkdecFor(c.wk);
           _frame=_wd.frame;
           body=body+'<span style="display:block;font-size:7px;font-weight:800;line-height:1.1;margin-top:1px;color:'+_wd.fg+';white-space:nowrap;">'+_wd.badge+'</span>';
         }
@@ -232818,7 +232823,7 @@ window.hnxAttMatrixView=function(){
     +'<tr><td style="padding:2px 12px 2px 0;"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#6e1b18;vertical-align:middle;"></span></td><td>RED \u2717 \u2014 NO attendance record for that day. Weekly labour: counted absent. Hover it: the tooltip says whether the record is missing or somebody marked the day absent by hand.</td></tr>'
     +'<tr><td style="padding:2px 12px 2px 0;"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#0d3d47;vertical-align:middle;"></span></td><td>TURQUOISE \u2014 Saturday rest day with no real scan. Not absent, not paid. A Saturday that was really worked needs clock hours or a hand mark with a name on it.</td></tr>'
     /* v20.65: the office-weekend badge */
-    +'<tr><td style="padding:2px 12px 2px 0;"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#14502a;border:1px dashed #ffca28;vertical-align:middle;"></span></td><td>⏳ <b>unsigned</b> — an OFFICE Saturday / Sunday that was scanned. It stays green (the person was here) but the 130% is paid only once signed in HR ▸ Weekend Approvals: ✓ signed 130%, ✗ refused. Management and a fixed-fee consultant / contractor / advisor show <b>fixed pay</b>: recorded, never paid.</td></tr>'
+    +'<tr><td style="padding:2px 12px 2px 0;"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#14502a;border:1px dashed #ffca28;vertical-align:middle;"></span></td><td>⏳ <b>unsigned</b> — an OFFICE Saturday / Sunday that was scanned. It stays green (the person was here) but '+(_wkPct()?'the 130% is paid only once signed in HR ▸ Weekend Approvals: ✓ signed 130%, ✗ refused.':'it is paid only once signed in HR ▸ Weekend Approvals: ✓ signed, ✗ refused.')+' Management and a fixed-fee consultant / contractor / advisor show <b>fixed pay</b>: recorded, never paid.</td></tr>'
     +'</table></div>';
   /* open the grid itself on arrival - that is what the person came for */
   try{ if(!document.getElementById('hnxAttMx')) window.hnxAttMatrix(); }catch(e){}
@@ -303270,7 +303275,7 @@ window.HNX_HELP_TASKS = [
    ['The pull is behind','Tap Sync on the SOS screen']]}},
   {h:'Issued stock is subtracted at once', p:['An issue that has left the store but is not yet acknowledged by SOS is already subtracted on screen, so the shelf and the screen agree while SOS catches up. It cannot be counted twice.']}]},
 
-{id:'attendance', icon:'🖐', title:'Attendance and the biometric', who:'HR · Payroll · supervisors', added:{date:'2026-09-13',version:'19.91'}, updated:{date:'2026-10-14',version:'23.34'},
+{id:'attendance', icon:'🖐', title:'Attendance and the biometric', who:'HR · Payroll · supervisors', added:{date:'2026-09-13',version:'19.91'}, updated:{date:'2026-10-18',version:'23.50'},
  cat:'task',
  summary:'How a scan becomes a day’s attendance, and what happens when there is no scan.',
  sections:[
@@ -303300,7 +303305,7 @@ window.HNX_HELP_TASKS = [
   {h:'Where the Attendance Matrix is', p:[
    'HR & People \u25b8 \ud83d\udcc5 Attendance Matrix in the sidebar, or type \u201cmatrix\u201d into Search anything (Cmd/Ctrl+K). The same grid is also behind the \ud83d\udcc5 button on \u23f0 Attendance and on the IT attendance-store panel \u2014 one grid, three doors.',
    'It shows every employee against every day of the range: the real clock hours, L and the late minutes, and on a late day a badge saying whether it is \u23f3 waiting for Eyal or Dr Amy, \u2713 excused, or \u2796 deducted.',
-   /* v20.65, v20.99 */ 'An office Saturday or Sunday that was scanned stays green and carries its own badge. ⏳ unsigned means it waits for its signatures in HR ▸ Weekend Approvals — ① Jinky’s check, then ② the FINAL of Dr Amy or Eyal (either may give ② first); ✓ signed 130% means they have; ✗ refused means they said no. Management and a fixed-fee Consultant, Contractor or Advisor show \'fixed pay\': the scan is recorded but never paid. \'Contractual\' is not a fixed fee, so those staff get the badge like everybody else. A labour Saturday with a clock scan (fingerprint or timecard) shows as a worked day, exactly as payroll pays it, never as \'Sat rest\'. The ✓ totals count attendance, not paid days.'],
+   /* v20.65, v20.99 */ 'An office Saturday or Sunday that was scanned stays green and carries its own badge. ⏳ unsigned means it waits for its signatures in HR ▸ Weekend Approvals — ① Jinky’s check, then ② the FINAL of Dr Amy or Eyal (either may give ② first); since v23.50 the badge shows the 130% rate (“✓ signed 130%”) only to 🏢 Office pay holders — everyone else reads “✓ signed” / “⏳ unsigned”, and the Weekend Approvals screen itself opens only for those holders; ✓ signed 130% means they have; ✗ refused means they said no. Management and a fixed-fee Consultant, Contractor or Advisor show \'fixed pay\': the scan is recorded but never paid. \'Contractual\' is not a fixed fee, so those staff get the badge like everybody else. A labour Saturday with a clock scan (fingerprint or timecard) shows as a worked day, exactly as payroll pays it, never as \'Sat rest\'. The ✓ totals count attendance, not paid days.'],
    note:{k:'GREEN IS NEVER AN ABSENCE',t:'A late day keeps its green background. Red \u2717 means there is no record for that day at all \u2014 hover it to see whether the scan is missing or somebody marked the day absent by hand.'}}]},
 
 {id:'fixed_assets', icon:'\ud83c\udfd7', title:'Fixed Assets \u2014 QB Reconciliation', who:'Jinky \u00b7 Eyal \u00b7 accounting', added:{date:'2026-09-17',version:'20.81'}, updated:{date:'2026-10-12',version:'22.62'},
