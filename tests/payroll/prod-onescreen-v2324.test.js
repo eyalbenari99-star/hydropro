@@ -8,6 +8,9 @@
    planting log, seedling plan, GH8 fan belt) WITHOUT ▦ Classic, plus a GH5 big-fan issue (row C #4, danger), the location B12–B16 on GH3's
    root rot, and forced WebGL (SwiftShader counts as software otherwise). Expected numbers were derived by hand from the attention rules. */
 const PV=require('./prod-visual-v2272.test.js');
+/* CI fix, Oct 2026: same font pin as the prod-visual "One screen" case (see there): the sticky header's height — the input that decides compact vs micro at 1366×768 —
+   must not depend on which fonts the runner has (GitHub ubuntu: DejaVu Sans, no Inter → one more top-bar row on next.html → "micro" instead of "compact"). */
+const PIN_FONT='html *, body *{font-family:"Liberation Sans",Arial,Helvetica,sans-serif !important}';
 const PVSEED=PV[0].seed.toString();
 const ADD=`localStorage.removeItem('hnxlocal_twin_classic_v1');
   const d=new Date(),T=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -36,6 +39,7 @@ module.exports=[
 { name:'🗺 One screen at 1366×768, 1440×900, 1870×1040, 1920×1080 (Dashboard) and 1366×768 / 1870×1040 (🧠 overlay): bar + 14 tiles inside, 5 × 3 with "Needs attention now"; header forced to 300 px → still 14/14 inside (micro tiles); 400 px → 2 per row, attention list first, scrollWidth 400',
   requires:NEW, seed:SEED,
   drive:async pg=>{const out={};const fit=new Function('return '+FIT)();
+    await pg.addStyleTag({content:PIN_FONT});
     await pg.evaluate(async()=>{window.__hnxPulledOk=true;try{switchModule('production');}catch(e){}await new Promise(r=>setTimeout(r,1500));switchView('dashboard',true);await new Promise(r=>setTimeout(r,2500));});
     const dash=()=>pg.evaluate(async(FIT)=>{const sleep=ms=>new Promise(r=>setTimeout(r,ms)),TW=window.hnxTwin;TW.show('dash');await sleep(800);const f=document.getElementById('hnxTwinDash');
       f.scrollIntoView({block:'start'});await sleep(900);f.scrollIntoView({block:'start'});await sleep(500);return (new Function('TW','return '+FIT))(TW)('hnxTwinDash');},FIT);

@@ -7,6 +7,12 @@
    full screen?"): the farm — all 14 houses, each with its own small moving picture — sits first on the Dashboard and fits one screen
    at 1366×768 and 1440×900 (7 × 2), ⛶ fills the monitor (Esc returns), two per row at 400 px. */
 const NEW="window.hnxProdVisual&&window.hnxProdVisual.__v==='22.72'";
+/* CI fix, Oct 2026 (red on next.html only, "One screen" minPic false at 1366×768): the farm must fit the window BELOW the sticky header, and the header's height
+   follows the host's fonts — the app's body stack is "-apple-system, … Inter, system-ui, sans-serif", so a runner without Inter (GitHub ubuntu: DejaVu Sans, wide)
+   wraps the top bar into one more row than a PC does (next.html carries the extra "⚠ Alerts" button: 205 → 249 px, pictures 81 px high < 90). The two "One screen"
+   cases therefore pin the page to Liberation Sans (Arial metrics, close to the Windows PCs the 14-in-one-screen rule is for; Playwright installs it on every
+   runner) before they measure, so the number they check no longer depends on which fonts the machine happens to have. Expectations are unchanged. */
+const PIN_FONT='html *, body *{font-family:"Liberation Sans",Arial,Helvetica,sans-serif !important}';
 /* a production day: today's checklist per GH (GH3: 1 critical + 3 warnings, GH7: 2 critical, GH9: 1 critical + 2 warnings), 7 Production calls,
    08:00 pool readings (GH3 = the owner's example 26 cm · EC 1.62 · pH 6.6, GH9 unread), a plant census, a planting log, this week's seedling plan,
    a flagged fan belt on GH8 */
@@ -81,6 +87,7 @@ module.exports=[
 { name:'🗺 One screen (Eyal 13 + 14 Oct): Production → Dashboard at 1366×768 and 1440×900 — the cockpit bar and all 14 houses (GH1–GH10, PRJ11, PRJ12, GH15, GH16) as live 3-D tiles sit inside the window below the sticky header with no scrolling (5 × 3, the 15th slot "Needs attention now"), each picture ≥ 180 × 90 px; at 400 px two per row and no sideways page scroll',
   requires:NEW+"&&!!window.hnxTwin", seed:SEED,
   drive:async pg=>{const out={};
+    await pg.addStyleTag({content:PIN_FONT}); /* header height must not depend on the host's fonts */
     /* v23.44: this case measures the 🏭 Farm Twin (block hnx-twin-ui-v2324), so it leaves ▦ Classic first */
     await pg.evaluate(async()=>{localStorage.removeItem('hnxlocal_twin_classic_v1');try{hnxTwin.classic(false);}catch(e){}try{switchModule('production');}catch(e){}await new Promise(r=>setTimeout(r,1500));switchView('dashboard',true);await new Promise(r=>setTimeout(r,2500));hnxTwin.show('dash');await new Promise(r=>setTimeout(r,1500));});
     const fit=()=>pg.evaluate(async()=>{const sleep=ms=>new Promise(r=>setTimeout(r,ms));hnxTwin.show('dash');await sleep(700);const f=document.getElementById('hnxTwinDash');
