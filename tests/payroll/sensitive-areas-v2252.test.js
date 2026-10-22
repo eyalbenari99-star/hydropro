@@ -238,6 +238,12 @@ module.exports=[
 { name:'🏢 Taking office pay away from Jinky closes every payroll screen that lists office people: she keeps Labor / Trips / Rates / History, loses Office, All, QB Recon, Pay Basis, BIR, OT & Premiums, Final Pay, payroll brain; History lists the weekly ₱120000 run only (owner: both, ₱50000 office); the payroll cockpit counts 1 run (owner 2); Dr Amy keeps Pay Basis; a 🏢 grant to Joshane opens the office line ₱50,000.00 of her Accounting Payroll Report but not the Payroll module (v22.52 review)',
   requires:REQ,
   seed:function(){(USERS)();var Y=new Date().getFullYear();
+    /* date bomb (CI red since 15 Oct 2026): the app's once-a-day autoDraft writes a DRAFT labour run for the last closed Thu-Wed week
+       (and an office draft for the last closed cut-off) when no run covers it. The two fixed-date runs below overlapped that week only
+       until 14 Oct, so from 15 Oct the cockpit counted a third run. This case is about WHO sees the two seeded runs, not about drafting:
+       stamp today's autodraft marker (the same local date the app reads) so no draft is written, whatever the calendar says. */
+    var _n=new Date(),_p=function(x){return String(x).padStart(2,'0');};
+    localStorage.setItem('hydroPro_pay_autodraft_v1',_n.getFullYear()+'-'+_p(_n.getMonth()+1)+'-'+_p(_n.getDate()));
     localStorage.setItem('hydroPro_payroll_runs',JSON.stringify([
       {id:'office_'+Y+'-09-26_'+Y+'-10-10',type:'semi_monthly',periodStart:Y+'-09-26',periodEnd:Y+'-10-10',status:'approved',approvedAt:1,createdAt:2,totals:{netPay:50000},lines:[{empId:'E1',name:'DELACRUZ, MARIBEL',grossPay:55000,grossEarnings:55000,totalGovDed:2000,withholdingTax:3000,netPay:50000,taxBase:53000}]},
       {id:'ops_'+Y+'-09-27_'+Y+'-10-03',type:'weekly',periodStart:Y+'-09-27',periodEnd:Y+'-10-03',status:'approved',approvedAt:1,createdAt:1,totals:{netPay:120000},lines:[{empId:'L1',name:'ARABIS, ANGELYN',grossPay:125000,grossEarnings:125000,totalGovDed:5000,withholdingTax:0,netPay:120000,taxBase:120000}]}]));}.toString().replace('(USERS)()','('+USERS.toString()+')()'),
@@ -251,8 +257,8 @@ module.exports=[
     as('tester');const g=HNXSENS.grant('joshanee','office');
     as('joshanee');const jo=hnxSensViewAllowed('payroll_office');window.__hnxACC.open();await sleep(500);window.__hnxACC.navLeaf('reports','rep','pay');await sleep(800);const jp=(document.getElementById('hnxaccOverlay')||{}).innerText||'';window.__hnxACC.close();
     return {rv,jinkyViews:jv,jinkyHist:/Weekly Ops/.test(jh)&&!/Bi-monthly Office/.test(jh)&&!/50000/.test(jh)&&/120000/.test(jh),ownerHist:/Bi-monthly Office/.test(th)&&/50000/.test(th)&&/120000/.test(th),
-      jinkyCockpit:jc,ownerCockpit:tc,amy,grant:g,joshPayrollOffice:jo,joshReport:/50,000\\.00/.test(jp)&&!/Office lines hidden/.test(jp)};})();`),
-  expect:{rv:true,jinkyViews:'payroll_ops,pay_trips,payroll_rates,payroll_history',jinkyHist:true,ownerHist:true,jinkyCockpit:1,ownerCockpit:2,amy:true,grant:true,joshPayrollOffice:false,joshReport:true} },
+      storedRuns:JSON.parse(localStorage.getItem('hydroPro_payroll_runs')||'[]').length,jinkyCockpit:jc,ownerCockpit:tc,amy,grant:g,joshPayrollOffice:jo,joshReport:/50,000\\.00/.test(jp)&&!/Office lines hidden/.test(jp)};})();`),
+  expect:{rv:true,jinkyViews:'payroll_ops,pay_trips,payroll_rates,payroll_history',jinkyHist:true,ownerHist:true,storedRuns:2,jinkyCockpit:1,ownerCockpit:2,amy:true,grant:true,joshPayrollOffice:false,joshReport:true} },
 
 { name:'💉 A username carrying script (q\');window.__pw1=1;//) never runs: the 🔎 Access card\'s 🔐 Access matrix, View and Lift-Strict buttons and the Permissions tab\'s 🔐 Open in Access matrix pass it as data — __pw1 stays unset, the matrix opens on that user and the View override is written for him (v22.52 review)',
   requires:REQ,

@@ -134,7 +134,12 @@ module.exports=[
     /* the lead detail in CRM ▸ Leads */
     switchView('crm_leads',true);await sleep(1500);_crmSelLead='LEAD_PD_002';renderCRM();await sleep(300);hnxPodiumPaint();await sleep(300);
     const strip=document.querySelector('#crmLeadsBody .hnx-podium-playbook');
-    _crmSelLead=null;renderCRM();await sleep(5000); /* both enhancers (Newport every 3 s, Podium every 1.5 s) re-draw their buttons after the list re-renders */
+    _crmSelLead=null;renderCRM();
+    /* both enhancers re-draw their buttons after the list re-renders: Podium every 1.5 s, but Newport's 3 s poller is stretched to 7 s by the
+       HNX TIMER OPTIMIZER (3-15 s band) and the job governor can start it a few ticks late, so it comes back 0-7+ s after the render depending on where
+       its clock happens to be. A fixed sleep(5000) passed on a fast machine and failed on the CI runner (Newport not yet drawn -> nextToNewport false).
+       Wait until BOTH buttons are drawn (max 25 s); the order check below is unchanged: Podium must sit right after Newport. */
+    for(let w=0;w<250&&!(document.getElementById('hnxNewportBtn')&&document.getElementById('hnxPodiumBtn'));w++)await sleep(100);
     const btn=document.getElementById('hnxPodiumBtn');const nb=document.getElementById('hnxNewportBtn');
     /* the task drawer of a first-contact task */
     HNXTASKS.drawer('TSK_PD1310_003');await sleep(300);const ds=document.querySelector('#hnxTaskF .hnx-podium-playbook');const f=document.getElementById('hnxTaskF');if(f)f.remove();
