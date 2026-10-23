@@ -17,6 +17,12 @@ const PIN_FONT='html *, body *{font-family:"Liberation Sans",Arial,Helvetica,san
    08:00 pool readings (GH3 = the owner's example 26 cm · EC 1.62 · pH 6.6, GH9 unread), a plant census, a planting log, this week's seedling plan,
    a flagged fan belt on GH8 */
 const SEED=function(){
+  /* CI fix, Oct 2026 (time-of-day bomb; also pinned in prod-onescreen-v2324): this seed raises its warnings at 08:15 "today" and the app escalates a warning left unanswered for ~8 hours to critical, so the cases
+     below were only right between ~09:00 and ~16:15 local time. GitHub's runner is UTC: a run later than that (the "One screen" case on next.html, suite 9/12 at 19:38 UTC) counts more criticals and the pictures shrink.
+     From 15:00 local on, the browser clock is moved back to 10:30 of the same local day (real time keeps running); the seed itself is read with that clock. No expectation changes. */
+  (function(){var R=Date,n0=R.now(),t=new R(n0);if(t.getHours()<15)return;var sh=new R(t.getFullYear(),t.getMonth(),t.getDate(),10,30,0,0).getTime()-n0;
+    var D=class extends R{constructor(...a){if(a.length)super(...a);else super(R.now()+sh);}static now(){return R.now()+sh;}};window.Date=D;
+    try{var ss=JSON.parse(sessionStorage.getItem('hydroPro_session')||'null');if(ss&&ss.loginAt){ss.loginAt=D.now();sessionStorage.setItem('hydroPro_session',JSON.stringify(ss));}}catch(e){}})();
   localStorage.setItem('hydroPro_ui_theme','dark');
   const d=new Date(),ymd=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'),T=ymd(d);
   const ago=n=>{const x=new Date();x.setDate(x.getDate()-n);return x;};

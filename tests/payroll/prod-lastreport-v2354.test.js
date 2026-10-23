@@ -25,7 +25,8 @@ const agoN=n=>{const x=new Date();x.setDate(x.getDate()-n);return ymdN(x);};
 const labN=iso=>(+iso.slice(8))+' '+eval(MON)[+iso.slice(5,7)-1];
 const D1N=agoN(1),D3N=agoN(3),LR1='Last report '+labN(D1N)+' · carried',LR3='Last report '+labN(D3N)+' · carried';
 const DAYS=`const MON=${MON};const Y=daysEnding(today,2)[0],T=today,lab=iso=>(+iso.slice(8))+' '+MON[+iso.slice(5,7)-1],LR='Last report '+lab(Y)+' · carried';`;
-const SEED=function(){
+const {pinned}=require('./pin-clock-v2354.js');
+const SEED=pinned(function(){
   const ymd=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
   const ago=n=>{const x=new Date();x.setDate(x.getDate()-n);return ymd(x);};
   const T=ago(0),Y=ago(1);
@@ -42,10 +43,10 @@ const SEED=function(){
   localStorage.removeItem('hnxlocal_twin_classic_v1');
   localStorage.setItem('hnx_twin_gl','force');
   localStorage.setItem('hnx_irrviz_motion_v2226','always');
-};
+});
 /* the same seed, but the previous days are in the shape the app wrote BEFORE this fix: the problem and its "carried from" mark are in
    today's record (and in the day before it) with NO location, the place lives only on the day it was first reported (3 days ago) */
-const SEED_LEGACY=function(){
+const SEED_LEGACY=pinned(function(){
   const ymd=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
   const ago=n=>{const x=new Date();x.setDate(x.getDate()-n);return ymd(x);};
   const T=ago(0),D1=ago(1),D3=ago(3);
@@ -61,7 +62,7 @@ const SEED_LEGACY=function(){
   localStorage.setItem('hydroPro_prod_carry_v1',JSON.stringify({[T]:{from:D1,n:2,at:new Date().toISOString()}}));
   localStorage.removeItem('hnxlocal_twin_classic_v1');
   localStorage.setItem('hnx_twin_gl','force');
-};
+});
 const H=`window.__hnxPulledOk=true;window.showToast=()=>{};window.confirm=()=>true;const TW=window.hnxTwin;
   const tx=e=>(e?e.textContent:'').replace(/\\s+/g,' ').trim();
   const until=async(f,ms)=>{const t0=Date.now();let v=f();while(!v&&Date.now()-t0<(ms||8000)){await sleep(150);v=f();}return v;};
