@@ -12,14 +12,21 @@ const PV=require('./prod-visual-v2272.test.js');
    must not depend on which fonts the runner has (GitHub ubuntu: DejaVu Sans, no Inter → one more top-bar row on next.html → "micro" instead of "compact"). */
 const PIN_FONT='html *, body *{font-family:"Liberation Sans",Arial,Helvetica,sans-serif !important}';
 const PVSEED=PV[0].seed.toString();
+/* CI fix, Oct 2026 (time-of-day bomb): the seed raises its warnings at 08:15 today and the Farm Twin / production rules escalate one that has stood
+   unanswered for ~8 hours to critical, so every expected number below was only right between 09:00 and ~16:15 local. A run later than that (GitHub's
+   runner is UTC: any CI started after 16:15 UTC) counted 8 more criticals (GH3 "n expected 10 got 16", header variant, Lite/software tile counts).
+   From 15:00 local on, the browser clock is moved back to 10:30 of the same local day; real time keeps running from there. No expectation changes. */
+const PIN_CLOCK=`(function(){var R=Date,n0=R.now(),t=new R(n0);if(t.getHours()<15)return;var sh=new R(t.getFullYear(),t.getMonth(),t.getDate(),10,30,0,0).getTime()-n0;
+  var D=class extends R{constructor(...a){if(a.length)super(...a);else super(R.now()+sh);}static now(){return R.now()+sh;}};window.Date=D;
+  try{var s=JSON.parse(sessionStorage.getItem('hydroPro_session')||'null');if(s&&s.loginAt){s.loginAt=D.now();sessionStorage.setItem('hydroPro_session',JSON.stringify(s));}}catch(e){}})();`;
 const ADD=`localStorage.removeItem('hnxlocal_twin_classic_v1');
   const d=new Date(),T=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   const st=JSON.parse(localStorage.getItem('hydroPro_'+T)||'{}');st.GH3.locations=Object.assign(st.GH3.locations||{},{rootzone_3:[{type:'range',table:'B',from:12,to:16}]});
   localStorage.setItem('hydroPro_'+T,JSON.stringify(st));
   localStorage.setItem('hydroPro_fan_issues_v1',JSON.stringify({GH5:{big:[{id:'f1',row:'C',num:4,severity:'danger',note:'motor'}],roof:[]}}));`;
-const SEED=new Function('('+PVSEED+')();'+ADD+"localStorage.setItem('hnx_twin_gl','force');");
-const SEED_LITE=new Function('('+PVSEED+')();'+ADD+"localStorage.setItem('hnx_twin_gl','force');localStorage.setItem('hydroPro_lite_v1','1');");
-const SEED_SW=new Function('('+PVSEED+')();'+ADD+"localStorage.removeItem('hnx_twin_gl');localStorage.setItem('hydroPro_lite_v1','1');");
+const SEED=new Function(PIN_CLOCK+'('+PVSEED+')();'+ADD+"localStorage.setItem('hnx_twin_gl','force');");
+const SEED_LITE=new Function(PIN_CLOCK+'('+PVSEED+')();'+ADD+"localStorage.setItem('hnx_twin_gl','force');localStorage.setItem('hydroPro_lite_v1','1');");
+const SEED_SW=new Function(PIN_CLOCK+'('+PVSEED+')();'+ADD+"localStorage.removeItem('hnx_twin_gl');localStorage.setItem('hydroPro_lite_v1','1');");
 const NEW="window.hnxTwin&&/^23\\.2[45]$/.test(window.hnxTwin.__v)";
 const H=`window.__hnxPulledOk=true;window.showToast=()=>{};window.confirm=()=>true;const TW=window.hnxTwin;
   const go=async(v,ms)=>{switchView(v,true);await sleep(ms||2200);};
@@ -123,14 +130,22 @@ module.exports=[
     return {gl:s.gl,reason:s.reason,mode:s.mode,once:Object.keys(tf).length===14&&Object.values(tf).every(n=>n>=1&&n<=2),rings:rings.length,tiles:[...new Set(rings)].length};`),
   expect:{gl:'sw',reason:'software',mode:'still',once:true,rings:9,tiles:9} },
 
-{ name:'👀 Only what is visible moves: switchView(hr) → the loop stops within 500 ms (running false); the dashboard twin scrolled out of view → 0 tile repaints in 1.5 s; scrolled back → repaints resume',
+{ name:'👀 Only what is visible moves: switchView(hr) → the loop stops within 500 ms (running false); the dashboard twin scrolled out of view → once the browser has reported every picture hidden, a forced full redraw (visibilitychange) paints 0 of the 14 tiles; scrolled back → repaints resume',
   requires:NEW, seed:SEED, viewport:{width:1366,height:900},
+  /* CI fix, Oct 2026: the old case allowed the IntersectionObserver 1.2 s to report the scroll and then demanded 0 repaints in the NEXT 1.5 s, and checked "back" with ONE scrollIntoView. On a loaded machine (CI runner, or a box with other jobs)
+     the report came later or a data refresh re-created the tiles inside that window (new pictures count as visible until the observer's first report): the tiles drew once more (hidden 10-14), or the single scroll's report never reached the page
+     within 40 s (back false). The rule under test is unchanged and now deterministic: WAIT until the observer has reported every picture hidden (up to 15 s), THEN force a full redraw (the page's own visibilitychange handler marks every tile dirty) and
+     demand 0 repaints — a page that paints hidden tiles shows +14 here every time (checked on a copy of the page that skips the hidden test, on plain Chromium as CI runs it: 14 repaints in all 4 trials; the software-GL wrapper some local runs use does not repaint on that probe, so there the check is weaker); an unlucky data refresh in the window gets 3 more trials, because a healthy page is silent in at least one.
+     "back" is a user who keeps scrolling: a nudge + scroll to the twin every 2 s, 40 s in all. */
   run:fn(`await dash();await until(()=>TW.stats().running,5000);await go('hr',500);const a={running:TW.stats().running,host:TW.stats().host};
-    await dash();await until(()=>TW.stats().running,8000);window.scrollTo(0,document.documentElement.scrollHeight);await sleep(1200);const f0=Object.values(TW.stats().tileFrames).reduce((x,y)=>x+y,0);
-    await sleep(1500);const f1=Object.values(TW.stats().tileFrames).reduce((x,y)=>x+y,0);
-    document.getElementById('hnxTwinDash').scrollIntoView({block:'start'});const back=await until(()=>Object.values(TW.stats().tileFrames).reduce((x,y)=>x+y,0)>f1,40000);
-    return {a,hidden:f1-f0,back:!!back};`),
-  expect:{a:{running:false,host:''},hidden:0,back:true} },
+    const sum=()=>Object.values(TW.stats().tileFrames).reduce((x,y)=>x+y,0),pics=()=>[...document.querySelectorAll('#hnxTwinDash .hnx-tw-pic')];
+    await dash();await until(()=>TW.stats().running,8000);window.scrollTo(0,document.documentElement.scrollHeight);
+    const reported=!!(await until(()=>{const p=pics();return p.length>=14&&p.every(e=>e.__twVis===false);},15000));
+    let hidden=null;for(let k=0;k<4;k++){const b=sum();document.dispatchEvent(new Event('visibilitychange'));await sleep(1500);const d=sum()-b;if(hidden===null||d<hidden)hidden=d;if(d===0)break;}
+    const f1=sum(),tw=document.getElementById('hnxTwinDash');let back=false;const t0=Date.now();
+    while(!back&&Date.now()-t0<40000){window.scrollBy(0,-40);await sleep(100);tw.scrollIntoView({block:'start'});back=!!(await until(()=>sum()>f1,2000));}
+    return {a,reported,hidden,back};`),
+  expect:{a:{running:false,host:''},reported:true,hidden:0,back:true} },
 
 { name:'⏱ Frame cost at 1366×900, all 14 tiles visible, forced GL, scheduled loop: the loop\'s work around the draws averages ≤ 4 ms and peaks ≤ 16 ms over 60 ticks (best of 3; the GL submit time, which a software GPU can block, is reported apart); worst tick (every picture due) ≤ 20 draws per tile view and ≤ 24 per loupe; ≤ 8 shader programs (2); scene build ≤ 120 ms; ≤ 900 DOM nodes added; the four new blocks ≤ 216,000 chars (spec target 200,000 not met — recorded in the release report)',
   requires:NEW, seed:SEED, viewport:{width:1366,height:900},
