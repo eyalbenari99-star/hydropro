@@ -92,3 +92,6 @@
 - Every fix to a pay rule MUST add or extend a case there, with the expected numbers
   in the test name. A fix with no test is an incomplete fix. The suite must be green
   before a push to `main`.
+- Tests must not depend on the wall-clock hour or the runner's time zone: CI runs at every hour of the day and the Production
+  and Farm Twin screens change with the hour (after ~16:15 UTC the local-day logic shifted and whole shards went red). Pin the clock
+  with `tests/payroll/pin-clock-v2354.js` (`pinned(fn)` / `PIN_CLOCK`) and set `TZ` explicitly when a case measures a day.
