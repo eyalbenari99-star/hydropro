@@ -6,7 +6,7 @@
    stamps and Checked By). The cloud merge carries them; two computers editing one round keep both computers' boxes. The 📒 Readings Report (and its
    CSV) and the Pool Monitor 📊 Export get five columns APPENDED at the end; a record without the new fields shows and exports as before. The blocks
    use only free space in the card (Eyal's v22.46 limits, tested in irr-v2246, are unchanged). Dose rules never change.
-   Page clock: pinned (default Sat 10 Oct 2026 10:00 Manila, see PIN below). Pools (default setup): Pool 1 = 238 x 85 cm = 20 230 cm2 = 20.23 L per cm;
+   Page clock: pinned (Sat 10 Oct 2026 10:00 wall time in the browser zone, see PIN below). Pools (default setup): Pool 1 = 238 x 85 cm = 20 230 cm2 = 20.23 L per cm;
    Pool 7 = 150 x 143 cm = 21 450 cm2 = 21.45 L per cm; daily target 60 cm (Pool 7: 100 cm).
    Seed (written once per browser, so a reload keeps what the test typed):
      Pool 1 08:00 = level 32 cm, EC 1.7 -> Nexi: 28 cm to add = 566 L water, A 2.8 L, B 2.8 L, C 0.14 L (the same numbers as before this change)
@@ -14,11 +14,20 @@
    The "renders as before" hashes were taken from the page BEFORE this change (the boxes' HTML without the new block; " iv-off" - the motion-off
    class the app sets by itself on a slow computer - is left out of the hash). */
 const T='2026-10-10';
-/* NO WALL-CLOCK DEPENDENCE (the 23 Oct CI bomb): the page clock is pinned (Sat 10 Oct 2026 10:00 Manila, ticking on from there) and the browser
-   time zone is Manila, whatever hour / zone the runner has. IRR_ACT_PIN / IRR_ACT_TZ exist only to PROVE that the cases do not care about the hour
-   (e.g. IRR_ACT_PIN=2026-10-10T12:30:00Z = 20:30 Manila, IRR_ACT_PIN=2026-10-09T19:00:00Z = 03:00 Manila, IRR_ACT_TZ=UTC): the report rows are
-   picked by their date + round, never "the first row", and nothing counts the rounds that happen to be due. */
-const PIN=process.env.IRR_ACT_PIN||'2026-10-10T02:00:00Z', TZ=process.env.IRR_ACT_TZ||'Asia/Manila';
+/* NO WALL-CLOCK DEPENDENCE (the 23 Oct CI bomb): the page clock is pinned to the wall time 10:00 of the seed day in the browser time zone (ticking on
+   from there), whatever hour / zone the runner has. The browser zone is the TZ environment variable of the run (TZ=UTC, TZ=America/Los_Angeles,
+   TZ=Asia/Manila ...; default Manila, the farm's own zone) - IRR_ACT_TZ overrides it and IRR_ACT_AT (e.g. 20:30 or 03:00, wall time in that zone) moves
+   the pinned hour, to PROVE that the cases do not care about zone or hour: the report rows are picked by their date + round, never "the first
+   row", the rounds that happen to be due are never counted, and every date is built from the pinned clock. IRR_ACT_PIN (an ISO instant) still wins. */
+const tzOk=z=>{try{new Intl.DateTimeFormat('en-US',{timeZone:z});return true;}catch(e){return false;}};
+const TZ=[process.env.IRR_ACT_TZ,process.env.TZ].find(z=>z&&tzOk(z))||'Asia/Manila';
+/* the instant at which the wall clock of zone tz reads <date> <hhmm> */
+function wallInstant(tz,date,hhmm){
+  const [Y,M,D]=date.split('-').map(Number),[h,m]=hhmm.split(':').map(Number),want=Date.UTC(Y,M-1,D,h,m,0);let t=want;
+  const f=new Intl.DateTimeFormat('en-US',{timeZone:tz,hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  for(let i=0;i<4;i++){const q={};f.formatToParts(new Date(t)).forEach(x=>{q[x.type]=x.value;});t+=want-Date.UTC(+q.year,+q.month-1,+q.day,+q.hour,+q.minute,+q.second);}
+  return new Date(t).toISOString();}
+const PIN=process.env.IRR_ACT_PIN||wallInstant(TZ,T,process.env.IRR_ACT_AT||'10:00');
 const STORE_JS=`{'${T}':{
   P01:{'08:00':{water:'32',EC:'1.7',manualEC:'1.7',pH:'6.2',manualPH:'6.2',waterTemp:'24.5',airPump:'working',ozoneSec:'55',source:'pure',checkedBy:'Reven',finishTime:'08:20',_fieldTimes:{water:'08:05',EC:'08:06'},updatedAt:1000,updatedBy:'reven'}},
   P02:{'08:00':{waterAdded:'6',A:'3',B:'3',C:'0.2',_autoFilled:{waterAdded:false,A:false,B:false,C:false},updatedAt:1000}},
@@ -197,14 +206,24 @@ module.exports=[
         inputs:[...c.querySelectorAll('.irr-act input')].filter(i=>i.offsetParent!==null&&i.getBoundingClientRect().width>=24).length,chips:[...c.querySelectorAll('.irr-act-chip')].filter(x=>x.offsetParent!==null).length,
         cells:[...c.children].map((td,i)=>td.querySelector('.irr-act')?i+1:0).filter(Boolean),extra:Math.max(0,w.scrollWidth-w.clientWidth),page:Math.max(0,document.documentElement.scrollWidth-innerWidth)<=1};};
     const sizes=()=>['P01','P02'].map(id=>{const c=row(id);return [c.getBoundingClientRect().height].concat([...c.children].map(td=>td.getBoundingClientRect().height));});
-    const cards=geo(),withBox=sizes();
+    /* the card is measured once the page has stopped changing. The pool-care enhancer (v23.48) adds its line "💧 water changed N days ago · next 🧽 cleaning ..."
+       under the pool name about 35 s after the page opened, which makes the first row of EVERY card 37.5 px taller - unrelated to the new blocks, but on a
+       slow computer it can land between the "with" and the "off" measurement. So the comparison with the blocks switched off is repeated up to 3 times from
+       a fresh redraw: only a DIFFERENCE THAT STAYS counts (a real height difference is the same on every attempt, a one-time late enhancer is not) */
+    const dif=(a,b)=>Math.max.apply(null,[].concat.apply([],a.map((r,i)=>r.map((h,j)=>Math.abs(h-b[i][j])))));
+    const settled=async()=>{let a=JSON.stringify(sizes());for(let i=0;i<8;i++){await sleep(350);const b=JSON.stringify(sizes());if(b===a)break;a=b;}return sizes();};
+    let withBox=await settled();const cards=geo();
     const c4=row('P02').querySelector('.irr-act[data-act="C"]'),chip=c4.querySelector('.irr-act-chip'),inp=c4.querySelector('input');
     const idle=getComputedStyle(chip).opacity;inp.focus();await sleep(100);const focused=getComputedStyle(chip).opacity;inp.blur();await sleep(100);const after=getComputedStyle(chip).opacity;
-    const keep=window.hnxIrrActBox;window.hnxIrrActBox=()=>'';await redraw();const off=sizes();const offActs=row('P01').querySelectorAll('.irr-act').length;window.hnxIrrActBox=keep;await redraw();
+    const keep=window.hnxIrrActBox;let off,offActs,diff=0,attempts=0;
+    for(let k=0;k<3;k++){attempts=k+1;
+      if(k>0){window.hnxIrrActBox=keep;await redraw();withBox=await settled();}
+      window.hnxIrrActBox=()=>'';await redraw();off=await settled();offActs=row('P01').querySelectorAll('.irr-act').length;
+      diff=dif(withBox,off);if(diff<=1)break;}
+    window.hnxIrrActBox=keep;await redraw();
     hnxIrrLayout('table');await sleep(700);const table=geo();hnxIrrLayout('cards');await sleep(700);const back=geo();
-    const diff=Math.max.apply(null,[].concat.apply([],withBox.map((r,i)=>r.map((h,j)=>Math.abs(h-off[i][j])))));
     return {cards:{cards:cards.cards,n:cards.n,visible:cards.visible,inTile:cards.inTile,tilesIn:cards.tilesIn,inputs:cards.inputs,chips:cards.chips,cells:cards.cells,extra:cards.extra,page:cards.page},
-      table:{cards:table.cards,n:table.n,cells:table.cells},back:{cards:back.cards,n:back.n},tiles:[withBox[0].length,withBox[1].length],sameSize:diff<=1,offActs,chipOpacity:[idle,focused,after]};`),
+      table:{cards:table.cards,n:table.n,cells:table.cells},back:{cards:back.cards,n:back.n},tiles:[withBox[0].length,withBox[1].length],sameSize:diff<=1,offActs,chipOpacity:[idle,focused,after],attempts};`),
   expect:{cards:{cards:true,n:4,visible:true,inTile:true,tilesIn:true,inputs:5,chips:4,cells:[12,13,14,15],extra:0,page:true},table:{cards:false,n:4,cells:[12,13,14,15]},back:{cards:true,n:4},tiles:[18,18],sameSize:true,offActs:0,chipOpacity:['1','0','1']} },
 
 { name:'📱 The boxes fit a 390 px phone: 0 px sideways scroll (frame and page), Pool 1 with actuals — every tile inside its card, every block inside its tile, the 5 inputs wide enough to type in (≥ 24 px)',
