@@ -71,7 +71,7 @@ module.exports=[
       missing:rows.filter(r=>r.Status==='not entered').length,
       p1:{status:p1.Status,ec:p1['EC meter'],lvl:p1['Level cm'],a:p1['A L'],out:p1['Out of range'],nexiA:/(^|, )A(,|$)/.test(p1['Worked out by Nexi']||'')},
       def:def.length,defPools:[...new Set(def.slice(1).map(l=>parse(l)[0]))].length};`),
-  expect:{head:'Pool,Room,GH,Date,Round,Status,Finish time,EC meter,EC manual,pH meter,pH manual,Level cm,Temp °C,Air pump,Ozone s,Source,Water added L,A L,B L,C L,Checked by,Saved at,Saved by,Out of range,Worked out by Nexi',
+  expect:{head:'Pool,Room,GH,Date,Round,Status,Finish time,EC meter,EC manual,pH meter,pH manual,Level cm,Temp °C,Air pump,Ozone s,Source,Water added L,A L,B L,C L,Checked by,Saved at,Saved by,Out of range,Worked out by Nexi,Actually added water cm,Actually added water L,Actually added A L,Actually added B L,Actually added C L', /* irrigation P1: five columns appended at the very end */
     n:11,p1n:5,p3n:5,missing:7,p1:{status:'entered',ec:'1.62',lvl:'40',a:'3.6',out:'EC meter warning',nexiA:true},def:13,defPools:12} },
 
 { name:'📒 Readings report is read-only: opening it, switching Today / Yesterday / Last 7 days / This month / Custom (1 Sep – 10 Oct, 40 days) and building the CSV makes 0 writes to hydroPro_irr_pool (byte-identical before and after); the only key it writes is the per-computer period hnxlocal_irr_readings_period_v1',
